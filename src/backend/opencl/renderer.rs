@@ -38,7 +38,7 @@ impl OpenCLRenderer {
     /// カーネル関数群をOpenCLコードとして出力します。
     /// カーネルの実行順序はホスト側（CompiledProgram）で管理されます。
     pub fn render_program(&mut self, program: &AstNode) -> OpenCLCode {
-        if let AstNode::Program { functions } = program {
+        if let AstNode::Program { functions, .. } = program {
             let mut code = String::new();
 
             // 1. ヘッダー

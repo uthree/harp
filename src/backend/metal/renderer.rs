@@ -126,7 +126,7 @@ impl MetalRenderer {
         program: &AstNode,
         _signature: crate::backend::KernelSignature,
     ) -> MetalCode {
-        if let AstNode::Program { functions } = program {
+        if let AstNode::Program { functions, .. } = program {
             let mut code = String::new();
 
             // 1. ヘッダー
@@ -671,6 +671,7 @@ mod tests {
 
         let program = AstNode::Program {
             functions: vec![kernel_func],
+            execution_order: None,
         };
 
         let mut renderer = MetalRenderer::new();

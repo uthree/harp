@@ -6,18 +6,26 @@
 
 計算グラフはテンソル演算をDAG（有向非巡回グラフ）として表現します。各ノードは演算または入力データを表し、エッジはデータの流れを表します。
 
-## ProgramRootノードアーキテクチャ
+## Programへの収束
 
-### 役割
-- **グラフのルート**: ProgramRootノードがグラフ全体のルートとなり、すべての出力を管理
-- **Programの保持**: `AstNode::Program`を保持し、最適化で生成されたカーネル群をまとめる
-- **参照カウント問題の解決**: 参照カウントを計算することで、複数出力間の依存関係を正しく扱う
+### 概要
+Graph最適化フェーズでは、全てのGraphOpノードが最終的に1つの`AstNode::Program`に収束します。
 
 ### 最適化フロー
-1. `Graph::output()`呼び出し時にProgramRootノードを作成/更新
-2. `LoweringSuggester`がGraphOpをKernel(Function)に変換
-3. `ProgramRootAbsorptionSuggester`がKernel(Function)をProgramRootのProgramに吸収
-4. Lowerer がProgramRootのProgramを直接返す
+1. `LoweringSuggester`がGraphOpを`Kernel(Function/Kernel)`に変換
+2. `KernelMergeSuggester`が複数の`Kernel`ノードを1つの`Kernel(Program)`にマージ
+3. Lowererが`collect_kernels_as_program()`でProgramを抽出
+
+### AstNode::Programの構造
+```rust
+Program {
+    functions: Vec<AstNode>,  // Kernel/Functionのリスト
+    execution_order: Option<Vec<KernelExecutionInfo>>,  // 実行順序（オプション）
+}
+```
+
+`execution_order`が設定されている場合、カーネルの実行順序と依存関係を明示的に指定します。
+設定されていない場合（None）、Backend側で実行順序が推測されます。
 
 ## 設計方針
 
@@ -72,8 +80,8 @@ Viewは各軸の添え字からメモリオフセットへの線形変換を表�
 Graph最適化フェーズでは、以下のSuggesterにより段階的に演算が融合されます：
 
 1. **FusionSuggester**: 連続するElementwise演算を`Kernel(Function)`に融合
-2. **LoweringSuggester**: 残りのGraphOpを`Kernel(Function)`に変換
-3. **ProgramRootAbsorptionSuggester**: `Kernel(Function)`をProgramRootの`Program`に吸収
+2. **LoweringSuggester**: 残りのGraphOpを`Kernel(Function/Kernel)`に変換
+3. **KernelMergeSuggester**: 複数の`Kernel`ノードを1つの`Kernel(Program)`にマージ
 
 ## モジュール構成
 

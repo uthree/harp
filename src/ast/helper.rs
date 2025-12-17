@@ -244,7 +244,25 @@ pub fn call_kernel_1d(
 /// # Arguments
 /// * `functions` - List of AstNode::Function or AstNode::Kernel
 pub fn program(functions: Vec<AstNode>) -> AstNode {
-    AstNode::Program { functions }
+    AstNode::Program {
+        functions,
+        execution_order: None,
+    }
+}
+
+/// Create a program node with execution order
+///
+/// # Arguments
+/// * `functions` - List of AstNode::Function or AstNode::Kernel
+/// * `execution_order` - Kernel execution order information
+pub fn program_with_execution_order(
+    functions: Vec<AstNode>,
+    execution_order: Vec<crate::ast::KernelExecutionInfo>,
+) -> AstNode {
+    AstNode::Program {
+        functions,
+        execution_order: Some(execution_order),
+    }
 }
 
 /// Create a range (for loop) node
@@ -796,7 +814,7 @@ mod tests {
         let prog = program(vec![main_func]);
 
         match prog {
-            AstNode::Program { functions } => {
+            AstNode::Program { functions, .. } => {
                 assert_eq!(functions.len(), 1);
             }
             _ => panic!("Expected Program node"),

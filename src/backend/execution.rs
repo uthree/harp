@@ -211,7 +211,7 @@ where
         let kernel_source = self.renderer.render_kernel_source(&optimized_program);
 
         // Extract program structure
-        let AstNode::Program { functions } = &optimized_program else {
+        let AstNode::Program { functions, .. } = &optimized_program else {
             // Fallback for non-Program nodes: use compile_graph
             let compiled =
                 self.compile_graph_internal(optimized_program, signature.clone(), kernel_source)?;
@@ -224,6 +224,17 @@ where
                 signature.inputs.iter().map(|i| i.name.clone()).collect(),
                 signature.outputs.iter().map(|o| o.name.clone()).collect(),
             ));
+        };
+
+        // Extract execution_order if available
+        let execution_order = if let AstNode::Program {
+            execution_order: Some(order),
+            ..
+        } = &optimized_program
+        {
+            Some(order.clone())
+        } else {
+            None
         };
 
         // Collect all kernel names from the program
@@ -296,10 +307,34 @@ where
             ));
         }
 
-        // Convert to execution_waves: each kernel in its own wave (sequential execution)
-        // TODO: In the future, analyze dependencies to parallelize independent kernels
-        let execution_waves: Vec<Vec<KernelCallInfo>> =
-            kernel_call_infos.into_iter().map(|k| vec![k]).collect();
+        // Convert to execution_waves based on execution_order
+        let execution_waves: Vec<Vec<KernelCallInfo>> = if let Some(order) = &execution_order {
+            // Group kernel calls by wave_id from execution_order
+            let mut waves: HashMap<usize, Vec<KernelCallInfo>> = HashMap::new();
+
+            for call_info in kernel_call_infos {
+                // Find the wave_id for this kernel from execution_order
+                let wave_id = order
+                    .iter()
+                    .find(|info| info.kernel_name == call_info.kernel_name)
+                    .map(|info| info.wave_id)
+                    .unwrap_or(0); // Default to wave 0 if not found
+
+                waves.entry(wave_id).or_default().push(call_info);
+            }
+
+            // Convert to sorted Vec<Vec<KernelCallInfo>>
+            let mut wave_ids: Vec<usize> = waves.keys().copied().collect();
+            wave_ids.sort();
+
+            wave_ids
+                .into_iter()
+                .map(|id| waves.remove(&id).unwrap_or_default())
+                .collect()
+        } else {
+            // Fallback: each kernel in its own wave (sequential execution)
+            kernel_call_infos.into_iter().map(|k| vec![k]).collect()
+        };
 
         // Analyze intermediate buffers (flatten waves for analysis)
         let flat_call_infos: Vec<KernelCallInfo> =
@@ -457,7 +492,7 @@ where
         signature: &KernelSignature,
     ) -> KernelConfig {
         // Find the first kernel function in the program
-        let first_kernel = if let AstNode::Program { functions } = program {
+        let first_kernel = if let AstNode::Program { functions, .. } = program {
             functions.iter().find_map(|f| {
                 if let AstNode::Kernel { name: Some(n), .. } = f {
                     Some((n.clone(), f))

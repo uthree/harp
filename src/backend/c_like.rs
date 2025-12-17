@@ -458,7 +458,7 @@ pub trait CLikeRenderer: Renderer {
     /// カーネル関数群のみを出力します。
     /// カーネルの実行順序はホスト側（CompiledProgram）で管理されます。
     fn render_program_clike(&mut self, program: &AstNode) -> String {
-        let AstNode::Program { functions } = program else {
+        let AstNode::Program { functions, .. } = program else {
             panic!("Expected AstNode::Program");
         };
 

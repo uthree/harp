@@ -493,8 +493,11 @@ impl FunctionInliningSuggester {
             },
 
             // Program
-            AstNode::Program { .. } => AstNode::Program {
+            AstNode::Program {
+                execution_order, ..
+            } => AstNode::Program {
                 functions: children.to_vec(),
+                execution_order: execution_order.clone(),
             },
         }
     }
@@ -503,7 +506,7 @@ impl FunctionInliningSuggester {
     fn collect_inlining_candidates(&self, ast: &AstNode) -> Vec<AstNode> {
         let mut candidates = Vec::new();
 
-        if let AstNode::Program { functions } = ast {
+        if let AstNode::Program { functions, .. } = ast {
             // 関数名→関数定義のマップを作成
             let func_map: HashMap<String, &AstNode> = functions
                 .iter()
@@ -570,6 +573,7 @@ impl FunctionInliningSuggester {
 
                     candidates.push(AstNode::Program {
                         functions: new_functions,
+                        execution_order: None,
                     });
                 }
             }
@@ -590,7 +594,7 @@ impl FunctionInliningSuggester {
     /// Kernelノードは全て保持される（それぞれがエントリポイント）
     /// 他から呼ばれていないFunctionもエントリポイントとして保持
     fn remove_dead_functions(&self, ast: &AstNode) -> Option<AstNode> {
-        if let AstNode::Program { functions } = ast {
+        if let AstNode::Program { functions, .. } = ast {
             // 使われている関数名を収集
             let mut used_functions: HashSet<String> = HashSet::new();
             let mut called_functions: HashSet<String> = HashSet::new();
@@ -640,6 +644,7 @@ impl FunctionInliningSuggester {
                 );
                 Some(AstNode::Program {
                     functions: new_functions,
+                    execution_order: None,
                 })
             } else {
                 None
@@ -734,6 +739,7 @@ mod tests {
 
         let program = AstNode::Program {
             functions: vec![add_one_func, main_func],
+            execution_order: None,
         };
 
         let suggestions = suggester.suggest(&program);
@@ -806,6 +812,7 @@ mod tests {
 
         let program = AstNode::Program {
             functions: vec![identity_func, main_func],
+            execution_order: None,
         };
 
         let suggestions = suggester.suggest(&program);
@@ -916,6 +923,7 @@ mod tests {
 
         let program = AstNode::Program {
             functions: vec![kernel_func, main_func],
+            execution_order: None,
         };
 
         let suggester = FunctionInliningSuggester::with_default_limit();
@@ -1021,6 +1029,7 @@ mod tests {
 
         let program = AstNode::Program {
             functions: vec![write_value_func, main_func],
+            execution_order: None,
         };
 
         let suggestions = suggester.suggest(&program);

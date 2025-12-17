@@ -255,7 +255,7 @@ impl RuleBaseSuggester {
                     });
                 }
             }
-            AstNode::Program { functions } => {
+            AstNode::Program { functions, .. } => {
                 // 各関数に対してルールを適用
                 for (i, func) in functions.iter().enumerate() {
                     for new_func in self.apply_rule_at_all_positions(func, rule) {
@@ -263,6 +263,7 @@ impl RuleBaseSuggester {
                         new_functions[i] = new_func;
                         results.push(AstNode::Program {
                             functions: new_functions,
+                            execution_order: None,
                         });
                     }
                 }

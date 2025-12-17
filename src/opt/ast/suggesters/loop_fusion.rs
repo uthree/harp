@@ -410,7 +410,10 @@ impl LoopFusionSuggester {
                 default_thread_group_size: default_thread_group_size.clone(),
             }),
 
-            AstNode::Program { functions } => {
+            AstNode::Program {
+                functions,
+                execution_order,
+            } => {
                 let mut new_functions = Vec::new();
                 let mut changed = false;
 
@@ -426,6 +429,7 @@ impl LoopFusionSuggester {
                 if changed {
                     Some(AstNode::Program {
                         functions: new_functions,
+                        execution_order: execution_order.clone(),
                     })
                 } else {
                     None

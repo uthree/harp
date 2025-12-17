@@ -13,6 +13,39 @@ pub use program::{Function, Program};
 pub use scope::{Mutability, Scope, VarDecl, VarKind};
 pub use types::{DType, Literal};
 
+/// カーネル実行情報
+///
+/// AstNode::Program内でカーネルの実行順序を管理するための構造体。
+/// Backend側のCompiledProgram.execution_wavesと対応します。
+#[derive(Clone, Debug, PartialEq)]
+pub struct KernelExecutionInfo {
+    /// カーネル名（AstNode::Kernel.nameに対応）
+    pub kernel_name: String,
+    /// 入力バッファ名のリスト
+    pub inputs: Vec<String>,
+    /// 出力バッファ名のリスト
+    pub outputs: Vec<String>,
+    /// 実行波ID（同じwave_idのカーネルは並列実行可能）
+    pub wave_id: usize,
+}
+
+impl KernelExecutionInfo {
+    /// 新しいKernelExecutionInfoを作成
+    pub fn new(
+        kernel_name: String,
+        inputs: Vec<String>,
+        outputs: Vec<String>,
+        wave_id: usize,
+    ) -> Self {
+        Self {
+            kernel_name,
+            inputs,
+            outputs,
+            wave_id,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum AstNode {
     // Pattern matching wildcard - パターンマッチング用ワイルドカード
@@ -150,9 +183,16 @@ pub enum AstNode {
     /// カーネル関数群を保持するプログラムノード
     ///
     /// Graphの最適化・Lowering後、複数のKernelノードが1つのProgramにまとめられます。
-    /// カーネルの実行順序はホスト側（CompiledProgram.execution_waves）で管理されます。
+    /// `execution_order`が設定されている場合、カーネルの実行順序と依存関係を明示的に指定します。
+    /// 設定されていない場合（None）、Backend側で実行順序が推測されます。
     Program {
-        functions: Vec<AstNode>, // AstNode::Function または AstNode::Kernel のリスト
+        /// AstNode::Function または AstNode::Kernel のリスト
+        functions: Vec<AstNode>,
+        /// カーネル実行順序（オプション、後方互換性のためNone許可）
+        ///
+        /// 同じwave_idを持つカーネルは並列実行可能です。
+        /// wave_idが小さい順に実行され、各波の完了後に暗黙のバリアが挿入されます。
+        execution_order: Option<Vec<KernelExecutionInfo>>,
     },
 }
 
@@ -246,7 +286,7 @@ impl AstNode {
                 }
                 children
             }
-            AstNode::Program { functions } => {
+            AstNode::Program { functions, .. } => {
                 functions.iter().map(|node| node as &AstNode).collect()
             }
         }
@@ -409,8 +449,12 @@ impl AstNode {
                     Box::new(f(&thread_group_size[2])),
                 ],
             },
-            AstNode::Program { functions } => AstNode::Program {
+            AstNode::Program {
+                functions,
+                execution_order,
+            } => AstNode::Program {
                 functions: functions.iter().map(f).collect(),
+                execution_order: execution_order.clone(),
             },
         }
     }

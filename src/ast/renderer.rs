@@ -17,6 +17,7 @@ use crate::backend::opencl::OpenCLRenderer;
 /// let renderer = OpenCLRenderer::new();
 /// let ast = AstNode::Program {
 ///     functions: vec![],
+///     execution_order: None,
 /// };
 /// let code = render_ast_with(&ast, &renderer);
 /// ```
@@ -136,6 +137,7 @@ mod tests {
 
         let program = AstNode::Program {
             functions: vec![func],
+            execution_order: None,
         };
 
         let rendered = render_ast(&program);

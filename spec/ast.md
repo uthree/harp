@@ -158,17 +158,38 @@ call_kernel_1d(name, args, grid_size, thread_group_size)
 ### Program
 `AstNode`の一つのバリアントとして実装されています。
 
-プログラム全体を表現し、複数のカーネル関数（`AstNode::Kernel`のリスト）を管理します。
-カーネルの実行順序はホスト側（`CompiledProgram.execution_waves`）で管理されます。
+プログラム全体を表現し、複数のカーネル関数（`AstNode::Kernel`のリスト）と実行順序情報を管理します。
 
 ```rust
 AstNode::Program {
     functions: Vec<AstNode>,  // AstNode::Kernel のリスト
+    execution_order: Option<Vec<KernelExecutionInfo>>,  // 実行順序情報（オプション）
 }
 ```
 
-**注意**: `Program`には`entry_point`フィールドはありません。複数カーネルの実行順序は
-`CompiledProgram`構造体が`execution_waves`フィールドで管理し、各カーネルを直接ディスパッチします。
+#### KernelExecutionInfo
+
+カーネルの実行順序を管理するための構造体です。
+
+```rust
+pub struct KernelExecutionInfo {
+    pub kernel_name: String,    // カーネル名
+    pub inputs: Vec<String>,    // 入力バッファ名
+    pub outputs: Vec<String>,   // 出力バッファ名
+    pub wave_id: usize,         // 実行波ID（同じwave_idは並列実行可能）
+}
+```
+
+- **wave_id**: 同じ`wave_id`を持つカーネルは依存関係がなく、並列実行可能です
+- **依存関係**: `wave_id = 0`のカーネルが先に実行され、その後`wave_id = 1`、`wave_id = 2`...と順に実行されます
+
+#### 実行順序の生成と利用
+
+1. **生成**: `KernelMergeSuggester`がカーネルをマージする際に、Producer/Consumer関係から`execution_order`を生成
+2. **収集**: `Lowerer`が複数のKernelノードを収集する際に、`execution_order`をマージ
+3. **変換**: `Backend`の`compile_program()`が`execution_order`を`execution_waves`に変換
+
+**注意**: `execution_order`は後方互換性のため`Option`型です。`None`の場合は、各カーネルを順次実行（sequential）として扱います。
 
 ### Barrier
 並列実行における同期点。GPU等で全スレッドがこの地点に到達するまで待機し、共有メモリアクセスのデータ競合を防ぎます。

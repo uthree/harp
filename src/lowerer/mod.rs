@@ -116,16 +116,19 @@ use std::collections::HashSet;
 ///
 /// グラフ全体を走査し、全てのKernel(Function)またはKernel(Kernel)ノードを
 /// 収集してProgramとして返します。
+/// execution_order情報も収集・マージします。
 pub fn collect_kernels_as_program(graph: &Graph) -> Option<crate::ast::AstNode> {
-    use crate::ast::AstNode;
+    use crate::ast::{AstNode, KernelExecutionInfo};
     use crate::graph::GraphNode;
 
     let mut kernels: Vec<AstNode> = Vec::new();
+    let mut execution_infos: Vec<KernelExecutionInfo> = Vec::new();
     let mut visited: HashSet<*const crate::graph::GraphNodeData> = HashSet::new();
 
     fn collect_kernels(
         node: &GraphNode,
         kernels: &mut Vec<AstNode>,
+        execution_infos: &mut Vec<KernelExecutionInfo>,
         visited: &mut HashSet<*const crate::graph::GraphNodeData>,
     ) {
         let ptr = node.as_ptr();
@@ -154,12 +157,68 @@ pub fn collect_kernels_as_program(graph: &Graph) -> Option<crate::ast::AstNode> 
                     });
                     if !already_exists {
                         kernels.push(ast.clone());
+                        // 単一カーネルの場合、execution_infoを生成
+                        if let Some(kernel_name) = name {
+                            let current_wave =
+                                execution_infos.iter().map(|i| i.wave_id).max().unwrap_or(0);
+                            let new_wave = if execution_infos.is_empty() {
+                                0
+                            } else {
+                                current_wave + 1
+                            };
+                            execution_infos.push(KernelExecutionInfo::new(
+                                kernel_name,
+                                vec![], // 入出力情報は後で埋める
+                                vec![],
+                                new_wave,
+                            ));
+                        }
                     }
                 }
-                AstNode::Program { functions } => {
+                AstNode::Program {
+                    functions,
+                    execution_order,
+                } => {
                     // Kernel(Program)の場合は中の関数を展開
+                    // execution_orderがあれば、wave_idをオフセットしてマージ
+                    let base_wave = execution_infos
+                        .iter()
+                        .map(|i| i.wave_id)
+                        .max()
+                        .map_or(0, |m| m + 1);
+
                     for func in functions {
                         kernels.push(func.clone());
+                    }
+
+                    if let Some(order) = execution_order {
+                        for info in order {
+                            execution_infos.push(KernelExecutionInfo::new(
+                                info.kernel_name.clone(),
+                                info.inputs.clone(),
+                                info.outputs.clone(),
+                                info.wave_id + base_wave,
+                            ));
+                        }
+                    } else {
+                        // execution_orderがない場合、各カーネルに連番のwave_idを割り当て
+                        for (i, func) in functions.iter().enumerate() {
+                            let kernel_name = match func {
+                                AstNode::Kernel { name, .. } => {
+                                    name.clone().unwrap_or_else(|| format!("kernel_{}", i))
+                                }
+                                AstNode::Function { name, .. } => {
+                                    name.clone().unwrap_or_else(|| format!("func_{}", i))
+                                }
+                                _ => format!("unknown_{}", i),
+                            };
+                            execution_infos.push(KernelExecutionInfo::new(
+                                kernel_name,
+                                vec![],
+                                vec![],
+                                base_wave + i,
+                            ));
+                        }
                     }
                 }
                 _ => {}
@@ -168,19 +227,28 @@ pub fn collect_kernels_as_program(graph: &Graph) -> Option<crate::ast::AstNode> 
 
         // 子ノードも走査
         for src in &node.src {
-            collect_kernels(src, kernels, visited);
+            collect_kernels(src, kernels, execution_infos, visited);
         }
     }
 
     // 全出力からKernelを収集
     for output in graph.outputs().values() {
-        collect_kernels(output, &mut kernels, &mut visited);
+        collect_kernels(output, &mut kernels, &mut execution_infos, &mut visited);
     }
 
     if kernels.is_empty() {
         None
     } else {
-        Some(AstNode::Program { functions: kernels })
+        // execution_infosが空でなければSomeとして設定
+        let execution_order = if execution_infos.is_empty() {
+            None
+        } else {
+            Some(execution_infos)
+        };
+        Some(AstNode::Program {
+            functions: kernels,
+            execution_order,
+        })
     }
 }
 

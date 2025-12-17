@@ -665,6 +665,7 @@ mod tests {
         // Program内にKernelを配置
         let program = AstNode::Program {
             functions: vec![kernel],
+            execution_order: None,
         };
 
         let estimator = SimpleCostEstimator::new();

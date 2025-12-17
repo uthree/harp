@@ -108,7 +108,7 @@ impl SubgraphLoweringOptimizer {
         let lowered = super::lower(subgraph.clone());
 
         // Programから関数を抽出
-        if let AstNode::Program { functions } = lowered {
+        if let AstNode::Program { functions, .. } = lowered {
             // カーネル名をサブグラフ名でプレフィックス
             let prefixed_kernels: Vec<AstNode> = functions
                 .into_iter()
