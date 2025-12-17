@@ -484,6 +484,19 @@ fn compile_method_call(
             let shape = get_shape_arg(args, env, graph)?;
             Ok(receiver.reshape(shape))
         }
+        "view_expr" => {
+            // view_expr([shape], index_expr)
+            // index_expr can contain idx0, idx1, etc. which are converted to Expr::Idx
+            if args.len() != 2 {
+                return Err(DslError::InvalidArgument(
+                    "view_expr requires 2 arguments: shape array and index expression".to_string(),
+                ));
+            }
+            let shape = get_shape_arg(args, env, graph)?;
+            let index_expr = get_index_expr_arg(&args[1])?;
+            let new_view = View::from_index_expr(shape, index_expr);
+            Ok(receiver.view(new_view))
+        }
 
         // Reduce operations
         "sum" => {
@@ -918,6 +931,64 @@ fn get_shape_arg(
     }
 }
 
+/// Get an index expression argument for view_expr
+/// Converts idx0, idx1, etc. to Expr::Idx(i)
+fn get_index_expr_arg(arg: &DslArg) -> Result<harp::graph::shape::Expr, DslError> {
+    match arg {
+        DslArg::Positional(expr) => dsl_expr_to_index_expr(expr),
+        _ => Err(DslError::InvalidArgument(
+            "Expected positional expression for index_expr".to_string(),
+        )),
+    }
+}
+
+/// Convert DSL expression to Harp shape Expr, converting idx0, idx1, etc. to Expr::Idx
+fn dsl_expr_to_index_expr(expr: &DslExpr) -> Result<harp::graph::shape::Expr, DslError> {
+    use harp::graph::shape::Expr;
+
+    match expr {
+        DslExpr::IntLit(v) => Ok(Expr::Const(*v as isize)),
+        DslExpr::Var(name) => {
+            // Check if the name matches idx0, idx1, idx2, etc.
+            if name.starts_with("idx") {
+                if let Ok(i) = name[3..].parse::<usize>() {
+                    return Ok(Expr::Idx(i));
+                }
+            }
+            // Otherwise treat as a shape variable
+            Ok(Expr::Var(name.clone()))
+        }
+        DslExpr::BinOp { op, lhs, rhs } => {
+            let l = dsl_expr_to_index_expr(lhs)?;
+            let r = dsl_expr_to_index_expr(rhs)?;
+            match op {
+                DslBinOp::Add => Ok(l + r),
+                DslBinOp::Sub => Ok(l - r),
+                DslBinOp::Mul => Ok(l * r),
+                DslBinOp::Div => Ok(l / r),
+                DslBinOp::Rem => Ok(l % r),
+                _ => Err(DslError::UnsupportedOperation(format!(
+                    "Binary op {:?} not supported in index expression",
+                    op
+                ))),
+            }
+        }
+        DslExpr::UnaryOp { op, operand } => {
+            let o = dsl_expr_to_index_expr(operand)?;
+            match op {
+                DslUnaryOp::Neg => Ok(Expr::Const(0) - o),
+                DslUnaryOp::Not => Err(DslError::UnsupportedOperation(
+                    "Not not supported in index expression".to_string(),
+                )),
+            }
+        }
+        _ => Err(DslError::UnsupportedOperation(format!(
+            "Expression type not supported in index expression: {:?}",
+            expr
+        ))),
+    }
+}
+
 fn get_positional_expr_arg_with_context(
     arg: &DslArg,
     env: &mut HashMap<String, GraphNode>,
@@ -1222,5 +1293,45 @@ mod tests {
 
         assert_eq!(graph.shape_var_defaults().get("N"), Some(&32));
         assert_eq!(graph.shape_var_defaults().get("M"), Some(&64));
+    }
+
+    #[test]
+    fn test_compile_view_expr() {
+        // Test view_expr method for IndexExpr views
+        let source = r#"
+            graph main(x: f32[12]) -> (y: f32[4, 3]) {
+                result = x.view_expr([4, 3], idx0 * 3 + idx1)
+                return result
+            }
+        "#;
+
+        let module = parse(source).expect("Failed to parse");
+        let graph = compile(&module).expect("Failed to compile");
+
+        assert_eq!(graph.input_metas().len(), 1);
+        assert_eq!(graph.outputs().len(), 1);
+
+        // Verify the output node has an IndexExpr view
+        let output = graph.outputs().get("y").expect("output not found");
+        assert!(!output.view.is_linear());
+        assert!(!output.view.is_contiguous());
+    }
+
+    #[test]
+    fn test_compile_view_expr_with_modulo() {
+        // Test view_expr with modulo operation (circular buffer)
+        let source = r#"
+            graph main(x: f32[10]) -> (y: f32[10]) {
+                result = x.view_expr([10], (idx0 + 5) % 10)
+                return result
+            }
+        "#;
+
+        let module = parse(source).expect("Failed to parse");
+        let graph = compile(&module).expect("Failed to compile");
+
+        assert_eq!(graph.outputs().len(), 1);
+        let output = graph.outputs().get("y").expect("output not found");
+        assert!(!output.view.is_linear());
     }
 }

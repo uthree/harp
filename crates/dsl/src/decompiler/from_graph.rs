@@ -153,7 +153,7 @@ impl<'a> Decompiler<'a> {
                 self.collect_expr_vars(a, vars);
                 self.collect_expr_vars(b, vars);
             }
-            Expr::Const(_) => {}
+            Expr::Const(_) | Expr::Idx(_) => {}
         }
     }
 
@@ -469,10 +469,20 @@ impl<'a> Decompiler<'a> {
         use harp::graph::shape::View;
         let new_shape = view.shape();
 
-        let (new_strides, new_offset) = match view {
-            View::Linear {
-                strides, offset, ..
-            } => (strides.as_slice(), offset),
+        // Handle IndexExpr view
+        if let View::IndexExpr { index_expr, .. } = view {
+            let shape_str = shape_to_dsl(new_shape);
+            let expr_str = expr_to_dsl(index_expr);
+            return format!("{}.view_expr([{}], {})", src_name, shape_str, expr_str);
+        }
+
+        let View::Linear {
+            strides: new_strides,
+            offset: new_offset,
+            ..
+        } = view
+        else {
+            unreachable!()
         };
 
         // Check for unsqueeze: new dimension added with stride 0
@@ -556,11 +566,12 @@ fn expr_to_dsl(expr: &Expr) -> String {
     match expr {
         Expr::Const(v) => v.to_string(),
         Expr::Var(name) => name.clone(),
-        Expr::Add(a, b) => format!("{} + {}", expr_to_dsl(a), expr_to_dsl(b)),
-        Expr::Sub(a, b) => format!("{} - {}", expr_to_dsl(a), expr_to_dsl(b)),
-        Expr::Mul(a, b) => format!("{} * {}", expr_to_dsl(a), expr_to_dsl(b)),
-        Expr::Div(a, b) => format!("{} / {}", expr_to_dsl(a), expr_to_dsl(b)),
-        Expr::Rem(a, b) => format!("{} % {}", expr_to_dsl(a), expr_to_dsl(b)),
+        Expr::Idx(i) => format!("idx{}", i),
+        Expr::Add(a, b) => format!("({} + {})", expr_to_dsl(a), expr_to_dsl(b)),
+        Expr::Sub(a, b) => format!("({} - {})", expr_to_dsl(a), expr_to_dsl(b)),
+        Expr::Mul(a, b) => format!("({} * {})", expr_to_dsl(a), expr_to_dsl(b)),
+        Expr::Div(a, b) => format!("({} / {})", expr_to_dsl(a), expr_to_dsl(b)),
+        Expr::Rem(a, b) => format!("({} % {})", expr_to_dsl(a), expr_to_dsl(b)),
     }
 }
 
