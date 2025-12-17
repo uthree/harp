@@ -20,8 +20,6 @@ pub struct CodeViewerApp {
     ast_history: Option<AstOptimizationHistory>,
     /// AST最適化の現在のステップ
     ast_current_step: usize,
-    /// AST最適化ビューモード（trueの場合はAST履歴を表示）
-    show_ast_history: bool,
     /// 現在のレンダラータイプ
     renderer_type: RendererType,
     /// キャッシュされた最終コード
@@ -56,7 +54,6 @@ impl CodeViewerApp {
             optimization_history: None,
             ast_history: None,
             ast_current_step: 0,
-            show_ast_history: false,
             renderer_type,
             cached_code: None,
             cached_ast: None,
@@ -141,18 +138,12 @@ impl CodeViewerApp {
 
         self.ast_history = Some(history);
         self.ast_current_step = 0;
-        self.show_ast_history = true;
         self.viewed_candidate_index = 0;
 
         // 最初のステップのコードを生成
         self.update_ast_step_code();
 
         log::info!("AST optimization history loaded for code viewer");
-    }
-
-    /// AST最適化履歴の表示モードを切り替え
-    pub fn toggle_ast_history_view(&mut self) {
-        self.show_ast_history = !self.show_ast_history;
     }
 
     /// AST最適化の次のステップに進む
@@ -312,8 +303,8 @@ impl CodeViewerApp {
         // AST最適化履歴があるか確認
         let has_ast_history = self.ast_history.is_some();
 
-        // キーボード入力処理（左右=ステップ、上下=候補）- AST履歴表示中のみ
-        if has_ast_history && self.show_ast_history {
+        // キーボード入力処理（左右=ステップ、上下=候補）- AST履歴がある場合のみ
+        if has_ast_history {
             ui.input(|i| {
                 if i.key_pressed(egui::Key::ArrowLeft) {
                     self.prev_ast_step();
@@ -331,8 +322,8 @@ impl CodeViewerApp {
         ui.horizontal(|ui| {
             ui.heading("Code Viewer");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                // AST履歴表示中のみサイドパネルトグルを表示
-                if has_ast_history && self.show_ast_history {
+                // AST履歴がある場合のみサイドパネルトグルを表示
+                if has_ast_history {
                     let toggle_text = if self.show_side_panel {
                         "Hide Details ▶"
                     } else {
@@ -358,21 +349,6 @@ impl CodeViewerApp {
                 self.update_ast_step_code();
             }
 
-            ui.separator();
-
-            // AST最適化履歴がある場合はビュー切り替えボタンを表示
-            if has_ast_history {
-                let toggle_text = if self.show_ast_history {
-                    "Show Final Code"
-                } else {
-                    "Show AST History"
-                };
-                if ui.button(toggle_text).clicked() {
-                    self.toggle_ast_history_view();
-                }
-                ui.separator();
-            }
-
             if let Some(ref history) = self.optimization_history {
                 ui.label("Graph Steps:");
                 ui.label(format!("{}", history.len()));
@@ -389,7 +365,7 @@ impl CodeViewerApp {
         ui.separator();
 
         // AST最適化履歴表示モード
-        if has_ast_history && self.show_ast_history {
+        if has_ast_history {
             // サイドパネルを先に表示（右側）
             if self.show_side_panel {
                 egui::SidePanel::right("ast_details_panel")
@@ -403,8 +379,8 @@ impl CodeViewerApp {
             }
             self.ui_ast_history(ui);
         } else {
-            // 通常モード（最終コード表示）
-            self.ui_final_code(ui);
+            // AST履歴がない場合のフォールバック
+            ui.label("No AST optimization history available.");
         }
     }
 
@@ -628,6 +604,27 @@ impl CodeViewerApp {
         }
     }
 
+    /// 最終コード表示タブ（外部からアクセス可能）
+    ///
+    /// Final Codeタブとして使用される独立したUI
+    pub fn ui_final_code_tab(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Final Code");
+        ui.separator();
+
+        // レンダラー選択
+        ui.horizontal(|ui| {
+            if renderer_selector_ui(ui, &mut self.renderer_type) {
+                // レンダラーが変更されたら再レンダリング
+                if let Some(ref ast) = self.cached_ast {
+                    self.cached_code = Some(render_with_type(ast, self.renderer_type));
+                }
+            }
+        });
+        ui.separator();
+
+        self.ui_final_code(ui);
+    }
+
     /// 最終コード表示UI
     fn ui_final_code(&mut self, ui: &mut egui::Ui) {
         // コード表示
@@ -824,28 +821,7 @@ impl CodeViewerApp {
                             .map(|(step, count)| [*step as f64, *count as f64])
                             .collect();
 
-                        // 候補数の最大値を取得してスケーリング係数を計算
-                        let max_candidates = candidate_points
-                            .iter()
-                            .map(|p| p[1])
-                            .fold(0.0_f64, |a, b| a.max(b));
-                        let max_cost = cost_points
-                            .iter()
-                            .map(|p| p[1])
-                            .fold(0.0_f64, |a, b| a.max(b));
-
-                        // 候補数をコストスケールに正規化
-                        let scale = if max_candidates > 0.0 && max_cost > 0.0 {
-                            max_cost / max_candidates
-                        } else {
-                            1.0
-                        };
-                        let scaled_candidate_points: Vec<[f64; 2]> = candidate_points
-                            .iter()
-                            .map(|p| [p[0], p[1] * scale])
-                            .collect();
-
-                        // プロットを表示
+                        // プロットを表示（2軸は使わず、両方の値をそのまま表示）
                         egui_plot::Plot::new("ast_cost_plot")
                             .view_aspect(2.5)
                             .height(ui.available_height())
@@ -858,12 +834,12 @@ impl CodeViewerApp {
                                         .name("Cost"),
                                 );
 
-                                // 候補数ライン（緑、スケール済み）
-                                if !scaled_candidate_points.is_empty() {
+                                // 候補数ライン（緑、スケールなし）
+                                if !candidate_points.is_empty() {
                                     plot_ui.line(
-                                        egui_plot::Line::new(scaled_candidate_points)
+                                        egui_plot::Line::new(candidate_points)
                                             .color(egui::Color32::from_rgb(100, 200, 150))
-                                            .name(format!("Candidates (×{:.1})", scale)),
+                                            .name("Candidates"),
                                     );
                                 }
 

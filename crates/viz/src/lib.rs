@@ -1,11 +1,10 @@
 //! Harp Visualization Library
 //!
-//! グラフ構造とパフォーマンス統計を可視化するためのライブラリ
+//! グラフ構造とコード生成を可視化するためのライブラリ
 
 pub mod code_viewer;
 pub mod diff_viewer;
 pub mod graph_viewer;
-pub mod perf_viewer;
 pub mod renderer_selector;
 
 pub use code_viewer::CodeViewerApp;
@@ -13,7 +12,6 @@ pub use diff_viewer::{
     show_collapsible_diff, show_resizable_diff, show_text_diff, DiffViewerConfig,
 };
 pub use graph_viewer::GraphViewerApp;
-pub use perf_viewer::PerfViewerApp;
 pub use renderer_selector::RendererType;
 
 /// 可視化アプリケーション全体を統合するメインアプリ
@@ -24,10 +22,8 @@ pub struct HarpVizApp {
     current_tab: VizTab,
     /// グラフビューア
     graph_viewer: GraphViewerApp,
-    /// コードビューア（最終的な生成コードを表示）
+    /// コードビューア（AST最適化履歴を表示）
     code_viewer: CodeViewerApp,
-    /// パフォーマンスビューア
-    perf_viewer: PerfViewerApp,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,7 +31,7 @@ pub struct HarpVizApp {
 enum VizTab {
     GraphViewer,
     CodeViewer,
-    PerfViewer,
+    FinalCode,
 }
 
 impl Default for HarpVizApp {
@@ -59,7 +55,6 @@ impl HarpVizApp {
             current_tab: VizTab::GraphViewer,
             graph_viewer,
             code_viewer: CodeViewerApp::with_renderer_type(renderer_type),
-            perf_viewer: PerfViewerApp::new(),
         }
     }
 
@@ -212,10 +207,10 @@ impl eframe::App for HarpVizApp {
                 }
 
                 if ui
-                    .selectable_label(self.current_tab == VizTab::PerfViewer, "Performance")
+                    .selectable_label(self.current_tab == VizTab::FinalCode, "Final Code")
                     .clicked()
                 {
-                    self.current_tab = VizTab::PerfViewer;
+                    self.current_tab = VizTab::FinalCode;
                 }
             });
         });
@@ -227,8 +222,8 @@ impl eframe::App for HarpVizApp {
             VizTab::CodeViewer => {
                 self.code_viewer.ui(ui);
             }
-            VizTab::PerfViewer => {
-                self.perf_viewer.ui(ui);
+            VizTab::FinalCode => {
+                self.code_viewer.ui_final_code_tab(ui);
             }
         });
     }
