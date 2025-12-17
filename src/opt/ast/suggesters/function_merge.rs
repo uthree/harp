@@ -406,10 +406,11 @@ mod tests {
         assert_eq!(suggestions.len(), 1);
 
         if let AstNode::Program { functions, .. } = &suggestions[0].ast
-            && let AstNode::Function { params, .. } = &functions[0] {
-                // 重複が除去され、1つのパラメータのみ
-                assert_eq!(params.len(), 1);
-                assert_eq!(params[0].name, "shared");
-            }
+            && let AstNode::Function { params, .. } = &functions[0]
+        {
+            // 重複が除去され、1つのパラメータのみ
+            assert_eq!(params.len(), 1);
+            assert_eq!(params[0].name, "shared");
+        }
     }
 }

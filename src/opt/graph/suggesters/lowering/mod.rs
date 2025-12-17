@@ -27,7 +27,15 @@ pub use elementwise::is_pure_const_node;
 ///
 /// このSuggesterは逐次実行（Sequential）のみで候補を生成します。
 /// 並列化はASTレベルの最適化（Global/LocalParallelizationSuggester）で行います。
-pub struct LoweringSuggester;
+///
+/// # SIMD化について
+///
+/// `simd_widths`が設定されている場合、Elementwise演算に対して
+/// スカラー版に加えてSIMD版のSuggestionも生成します。
+pub struct LoweringSuggester {
+    /// SIMD幅の候補リスト（空ならスカラーのみ）
+    simd_widths: Vec<usize>,
+}
 
 /// カーネル/関数の種類を表すプレフィックス
 #[derive(Debug, Clone, Copy)]
@@ -58,9 +66,21 @@ impl KernelKind {
 }
 
 impl LoweringSuggester {
-    /// 新しいLoweringSuggesterを作成
+    /// 新しいLoweringSuggesterを作成（スカラー版のみ）
     pub fn new() -> Self {
-        LoweringSuggester
+        LoweringSuggester {
+            simd_widths: vec![],
+        }
+    }
+
+    /// SIMD幅候補を指定してLoweringSuggesterを作成
+    ///
+    /// # Arguments
+    /// * `simd_widths` - SIMD幅の候補リスト（例: `vec![4, 8]`）
+    ///
+    /// 指定されたSIMD幅に対して、Elementwise演算のSIMD版Suggestionを生成します。
+    pub fn with_simd_widths(simd_widths: Vec<usize>) -> Self {
+        LoweringSuggester { simd_widths }
     }
 
     /// ノードの種類とshapeからカーネル/関数名を生成
@@ -315,6 +335,59 @@ impl LoweringSuggester {
         ))
     }
 
+    /// Elementwise演算をSIMD化されたKernelノードに変換
+    ///
+    /// 対応するGraphOp:
+    /// - Elementwise
+    /// - FusedElementwise
+    fn lower_to_custom_simd(&self, node: &GraphNode, simd_width: usize) -> Option<GraphNode> {
+        let kind = self.get_kernel_kind(&node.op);
+        let base_name = self.generate_kernel_name(kind, node.view.shape());
+        let name = format!("{}_simd{}", base_name, simd_width);
+
+        let ast = match &node.op {
+            GraphOp::Elementwise { op, .. } => {
+                elementwise::build_elementwise_function_simd(node, op, &name, simd_width)
+            }
+            GraphOp::FusedElementwise { expr, .. } => {
+                elementwise::build_fused_elementwise_function_simd(node, expr, &name, simd_width)
+            }
+            // 他のOpはSIMD化しない
+            _ => return None,
+        }?;
+
+        // Kernelノードを作成
+        let non_const_src: Vec<_> = node
+            .src
+            .iter()
+            .filter(|s| !matches!(s.op, GraphOp::Const(_)) && !is_pure_const_node(s))
+            .cloned()
+            .collect();
+        let mut new_src = helpers::collect_input_buffers(&non_const_src);
+
+        // 出力バッファーを作成
+        let output_buffer_name = format!("output_{}", name);
+        let output_buffer = GraphNode::new(
+            node.dtype.clone(),
+            GraphOp::Buffer {
+                name: output_buffer_name,
+            },
+            vec![],
+            node.view.clone(),
+        );
+        new_src.push(output_buffer);
+
+        Some(GraphNode::new(
+            node.dtype.clone(),
+            GraphOp::Kernel {
+                ast,
+                input_buffers: None,
+            },
+            new_src,
+            node.view.clone(),
+        ))
+    }
+
     /// グラフ内の特定ノードを置き換えた新しいグラフを作成
     fn replace_node_in_graph(
         &self,
@@ -415,6 +488,7 @@ impl GraphSuggester for LoweringSuggester {
         let mut lowerable_count = 0;
         let mut already_custom = 0;
         let mut lowered_count = 0;
+        let mut simd_count = 0;
 
         for node in &nodes {
             if matches!(node.op, GraphOp::Kernel { .. }) {
@@ -428,6 +502,7 @@ impl GraphSuggester for LoweringSuggester {
 
             lowerable_count += 1;
 
+            // スカラー版のSuggestionを生成
             if let Some(custom_node) = self.lower_to_custom(node) {
                 let new_graph = self.replace_node_in_graph(graph, node, custom_node);
                 suggestions.push(SuggestResult::new(new_graph, self.name()));
@@ -438,14 +513,32 @@ impl GraphSuggester for LoweringSuggester {
                     std::mem::discriminant(&node.op)
                 );
             }
+
+            // SIMD版のSuggestionを生成（Elementwise系のみ）
+            if matches!(
+                node.op,
+                GraphOp::Elementwise { .. } | GraphOp::FusedElementwise { .. }
+            ) {
+                for &simd_width in &self.simd_widths {
+                    if let Some(simd_node) = self.lower_to_custom_simd(node, simd_width) {
+                        let new_graph = self.replace_node_in_graph(graph, node, simd_node);
+                        suggestions.push(SuggestResult::new(
+                            new_graph,
+                            format!("{}_simd{}", self.name(), simd_width),
+                        ));
+                        simd_count += 1;
+                    }
+                }
+            }
         }
 
         log::debug!(
-            "LoweringSuggester: {} nodes total, {} already custom, {} lowerable, {} lowered candidates",
+            "LoweringSuggester: {} nodes total, {} already custom, {} lowerable, {} lowered, {} simd candidates",
             nodes.len(),
             already_custom,
             lowerable_count,
-            lowered_count
+            lowered_count,
+            simd_count
         );
 
         suggestions

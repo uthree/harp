@@ -178,36 +178,26 @@ impl Expr {
     pub fn substitute_idx(self, idx: usize, replacement: Expr) -> Self {
         match self {
             Expr::Idx(i) if i == idx => replacement,
-            Expr::Add(l, r) => {
-                Expr::Add(
-                    Box::new(l.substitute_idx(idx, replacement.clone())),
-                    Box::new(r.substitute_idx(idx, replacement)),
-                )
-            }
-            Expr::Sub(l, r) => {
-                Expr::Sub(
-                    Box::new(l.substitute_idx(idx, replacement.clone())),
-                    Box::new(r.substitute_idx(idx, replacement)),
-                )
-            }
-            Expr::Mul(l, r) => {
-                Expr::Mul(
-                    Box::new(l.substitute_idx(idx, replacement.clone())),
-                    Box::new(r.substitute_idx(idx, replacement)),
-                )
-            }
-            Expr::Div(l, r) => {
-                Expr::Div(
-                    Box::new(l.substitute_idx(idx, replacement.clone())),
-                    Box::new(r.substitute_idx(idx, replacement)),
-                )
-            }
-            Expr::Rem(l, r) => {
-                Expr::Rem(
-                    Box::new(l.substitute_idx(idx, replacement.clone())),
-                    Box::new(r.substitute_idx(idx, replacement)),
-                )
-            }
+            Expr::Add(l, r) => Expr::Add(
+                Box::new(l.substitute_idx(idx, replacement.clone())),
+                Box::new(r.substitute_idx(idx, replacement)),
+            ),
+            Expr::Sub(l, r) => Expr::Sub(
+                Box::new(l.substitute_idx(idx, replacement.clone())),
+                Box::new(r.substitute_idx(idx, replacement)),
+            ),
+            Expr::Mul(l, r) => Expr::Mul(
+                Box::new(l.substitute_idx(idx, replacement.clone())),
+                Box::new(r.substitute_idx(idx, replacement)),
+            ),
+            Expr::Div(l, r) => Expr::Div(
+                Box::new(l.substitute_idx(idx, replacement.clone())),
+                Box::new(r.substitute_idx(idx, replacement)),
+            ),
+            Expr::Rem(l, r) => Expr::Rem(
+                Box::new(l.substitute_idx(idx, replacement.clone())),
+                Box::new(r.substitute_idx(idx, replacement)),
+            ),
             other => other,
         }
     }
@@ -242,36 +232,26 @@ impl Expr {
     fn permute_idx_with_inverse(self, inverse_axes: &[usize]) -> Self {
         match self {
             Expr::Idx(i) if i < inverse_axes.len() => Expr::Idx(inverse_axes[i]),
-            Expr::Add(l, r) => {
-                Expr::Add(
-                    Box::new(l.permute_idx_with_inverse(inverse_axes)),
-                    Box::new(r.permute_idx_with_inverse(inverse_axes)),
-                )
-            }
-            Expr::Sub(l, r) => {
-                Expr::Sub(
-                    Box::new(l.permute_idx_with_inverse(inverse_axes)),
-                    Box::new(r.permute_idx_with_inverse(inverse_axes)),
-                )
-            }
-            Expr::Mul(l, r) => {
-                Expr::Mul(
-                    Box::new(l.permute_idx_with_inverse(inverse_axes)),
-                    Box::new(r.permute_idx_with_inverse(inverse_axes)),
-                )
-            }
-            Expr::Div(l, r) => {
-                Expr::Div(
-                    Box::new(l.permute_idx_with_inverse(inverse_axes)),
-                    Box::new(r.permute_idx_with_inverse(inverse_axes)),
-                )
-            }
-            Expr::Rem(l, r) => {
-                Expr::Rem(
-                    Box::new(l.permute_idx_with_inverse(inverse_axes)),
-                    Box::new(r.permute_idx_with_inverse(inverse_axes)),
-                )
-            }
+            Expr::Add(l, r) => Expr::Add(
+                Box::new(l.permute_idx_with_inverse(inverse_axes)),
+                Box::new(r.permute_idx_with_inverse(inverse_axes)),
+            ),
+            Expr::Sub(l, r) => Expr::Sub(
+                Box::new(l.permute_idx_with_inverse(inverse_axes)),
+                Box::new(r.permute_idx_with_inverse(inverse_axes)),
+            ),
+            Expr::Mul(l, r) => Expr::Mul(
+                Box::new(l.permute_idx_with_inverse(inverse_axes)),
+                Box::new(r.permute_idx_with_inverse(inverse_axes)),
+            ),
+            Expr::Div(l, r) => Expr::Div(
+                Box::new(l.permute_idx_with_inverse(inverse_axes)),
+                Box::new(r.permute_idx_with_inverse(inverse_axes)),
+            ),
+            Expr::Rem(l, r) => Expr::Rem(
+                Box::new(l.permute_idx_with_inverse(inverse_axes)),
+                Box::new(r.permute_idx_with_inverse(inverse_axes)),
+            ),
             other => other,
         }
     }
@@ -290,36 +270,26 @@ impl Expr {
                 let new_i = (i as isize + delta) as usize;
                 Expr::Idx(new_i)
             }
-            Expr::Add(l, r) => {
-                Expr::Add(
-                    Box::new(l.shift_idx(threshold, delta)),
-                    Box::new(r.shift_idx(threshold, delta)),
-                )
-            }
-            Expr::Sub(l, r) => {
-                Expr::Sub(
-                    Box::new(l.shift_idx(threshold, delta)),
-                    Box::new(r.shift_idx(threshold, delta)),
-                )
-            }
-            Expr::Mul(l, r) => {
-                Expr::Mul(
-                    Box::new(l.shift_idx(threshold, delta)),
-                    Box::new(r.shift_idx(threshold, delta)),
-                )
-            }
-            Expr::Div(l, r) => {
-                Expr::Div(
-                    Box::new(l.shift_idx(threshold, delta)),
-                    Box::new(r.shift_idx(threshold, delta)),
-                )
-            }
-            Expr::Rem(l, r) => {
-                Expr::Rem(
-                    Box::new(l.shift_idx(threshold, delta)),
-                    Box::new(r.shift_idx(threshold, delta)),
-                )
-            }
+            Expr::Add(l, r) => Expr::Add(
+                Box::new(l.shift_idx(threshold, delta)),
+                Box::new(r.shift_idx(threshold, delta)),
+            ),
+            Expr::Sub(l, r) => Expr::Sub(
+                Box::new(l.shift_idx(threshold, delta)),
+                Box::new(r.shift_idx(threshold, delta)),
+            ),
+            Expr::Mul(l, r) => Expr::Mul(
+                Box::new(l.shift_idx(threshold, delta)),
+                Box::new(r.shift_idx(threshold, delta)),
+            ),
+            Expr::Div(l, r) => Expr::Div(
+                Box::new(l.shift_idx(threshold, delta)),
+                Box::new(r.shift_idx(threshold, delta)),
+            ),
+            Expr::Rem(l, r) => Expr::Rem(
+                Box::new(l.shift_idx(threshold, delta)),
+                Box::new(r.shift_idx(threshold, delta)),
+            ),
             other => other,
         }
     }
@@ -533,7 +503,8 @@ impl fmt::Display for Expr {
                 }
             }
             Expr::Sub(lhs, rhs) => {
-                let needs_parens_rhs = !matches!(**rhs, Expr::Const(_) | Expr::Var(_) | Expr::Idx(_));
+                let needs_parens_rhs =
+                    !matches!(**rhs, Expr::Const(_) | Expr::Var(_) | Expr::Idx(_));
 
                 write!(f, "{}", lhs)?;
                 write!(f, " - ")?;
@@ -561,7 +532,8 @@ impl fmt::Display for Expr {
             }
             Expr::Div(lhs, rhs) => {
                 let needs_parens_lhs = matches!(**lhs, Expr::Add(_, _) | Expr::Sub(_, _));
-                let needs_parens_rhs = !matches!(**rhs, Expr::Const(_) | Expr::Var(_) | Expr::Idx(_));
+                let needs_parens_rhs =
+                    !matches!(**rhs, Expr::Const(_) | Expr::Var(_) | Expr::Idx(_));
 
                 if needs_parens_lhs {
                     write!(f, "({})", lhs)?;
@@ -577,7 +549,8 @@ impl fmt::Display for Expr {
             }
             Expr::Rem(lhs, rhs) => {
                 let needs_parens_lhs = matches!(**lhs, Expr::Add(_, _) | Expr::Sub(_, _));
-                let needs_parens_rhs = !matches!(**rhs, Expr::Const(_) | Expr::Var(_) | Expr::Idx(_));
+                let needs_parens_rhs =
+                    !matches!(**rhs, Expr::Const(_) | Expr::Var(_) | Expr::Idx(_));
 
                 if needs_parens_lhs {
                     write!(f, "({})", lhs)?;

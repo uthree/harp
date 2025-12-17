@@ -253,3 +253,118 @@ fn test_lower_fused_elementwise_reduce_multiple_axes() {
     assert_eq!(output_shape[0], 3.into(), "Output dim 0 should be 3");
     assert_eq!(output_shape[1], 4.into(), "Output dim 1 should be 4");
 }
+
+// ============================================================
+// SIMD版テスト
+// ============================================================
+
+#[test]
+fn test_simd_elementwise_add_4() {
+    // SIMD幅4でのElementwise演算
+    let suggester = LoweringSuggester::with_simd_widths(vec![4]);
+
+    let mut graph = Graph::new();
+    let a = graph.input("a", DType::F32, vec![10, 128]); // 128は4で割り切れる
+    let b = graph.input("b", DType::F32, vec![10, 128]);
+    let c = a + b;
+    graph.output("c", c);
+
+    let suggestions = suggester.suggest(&graph);
+
+    // スカラー版1つ + SIMD版1つ = 2つ
+    assert_eq!(
+        suggestions.len(),
+        2,
+        "Should generate scalar + SIMD candidates, got {}",
+        suggestions.len()
+    );
+
+    // SIMD版の候補を確認
+    let simd_suggestion = suggestions
+        .iter()
+        .find(|s| s.suggester_name.contains("simd"));
+    assert!(simd_suggestion.is_some(), "Should have SIMD candidate");
+
+    let simd_graph = &simd_suggestion.unwrap().graph;
+    let outputs = simd_graph.outputs();
+    let output = outputs.get("c").unwrap();
+    assert!(
+        matches!(output.op, GraphOp::Kernel { .. }),
+        "SIMD candidate should use Kernel node"
+    );
+}
+
+#[test]
+fn test_simd_elementwise_multiple_widths() {
+    // 複数のSIMD幅候補
+    let suggester = LoweringSuggester::with_simd_widths(vec![4, 8]);
+
+    let mut graph = Graph::new();
+    let a = graph.input("a", DType::F32, vec![10, 128]);
+    let b = graph.input("b", DType::F32, vec![10, 128]);
+    let c = a + b;
+    graph.output("c", c);
+
+    let suggestions = suggester.suggest(&graph);
+
+    // スカラー版1つ + SIMD版2つ = 3つ
+    assert_eq!(
+        suggestions.len(),
+        3,
+        "Should generate scalar + 2 SIMD candidates, got {}",
+        suggestions.len()
+    );
+
+    // SIMD4とSIMD8の両方があることを確認
+    let simd4 = suggestions
+        .iter()
+        .find(|s| s.suggester_name.contains("simd4"));
+    let simd8 = suggestions
+        .iter()
+        .find(|s| s.suggester_name.contains("simd8"));
+    assert!(simd4.is_some(), "Should have SIMD4 candidate");
+    assert!(simd8.is_some(), "Should have SIMD8 candidate");
+}
+
+#[test]
+fn test_simd_skip_small_tensor() {
+    // SIMD幅より小さいテンソルはSIMD化しない
+    let suggester = LoweringSuggester::with_simd_widths(vec![8]);
+
+    let mut graph = Graph::new();
+    let a = graph.input("a", DType::F32, vec![10, 4]); // 最内軸が4 < SIMD幅8
+    let b = graph.input("b", DType::F32, vec![10, 4]);
+    let c = a + b;
+    graph.output("c", c);
+
+    let suggestions = suggester.suggest(&graph);
+
+    // スカラー版のみ（SIMD版は最内軸が小さいのでスキップ）
+    assert_eq!(
+        suggestions.len(),
+        1,
+        "Should only generate scalar candidate for small tensor, got {}",
+        suggestions.len()
+    );
+}
+
+#[test]
+fn test_simd_reduce_not_applied() {
+    // Reduce演算にはSIMDが適用されない
+    let suggester = LoweringSuggester::with_simd_widths(vec![4]);
+
+    let mut graph = Graph::new();
+    let a = graph.input("a", DType::F32, vec![10, 128]);
+    let b = a.reduce_sum(1);
+    graph.output("b", b);
+
+    let suggestions = suggester.suggest(&graph);
+
+    // Reduce演算にはSIMDが適用されないので、スカラー版のみ
+    assert_eq!(
+        suggestions.len(),
+        1,
+        "Reduce should not have SIMD variant, got {}",
+        suggestions.len()
+    );
+}

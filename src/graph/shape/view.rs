@@ -14,8 +14,8 @@ pub enum View {
     /// 任意の式でインデックスを計算する場合
     /// offsetはExprで直接計算される（Idx(0), Idx(1), ... を含む）
     IndexExpr {
-        shape: Vec<Expr>,   // 論理的なテンソルのサイズ
-        index_expr: Expr,   // インデックス計算式
+        shape: Vec<Expr>, // 論理的なテンソルのサイズ
+        index_expr: Expr, // インデックス計算式
     },
 }
 
@@ -108,7 +108,10 @@ impl View {
                     offset,
                 }
             }
-            View::IndexExpr { mut shape, index_expr } => {
+            View::IndexExpr {
+                mut shape,
+                index_expr,
+            } => {
                 // shapeに1を挿入
                 shape.insert(axis, 1.into());
                 // Idx(i) for i >= axis を Idx(i+1) にシフト
@@ -140,7 +143,10 @@ impl View {
                     offset,
                 }
             }
-            View::IndexExpr { mut shape, index_expr } => {
+            View::IndexExpr {
+                mut shape,
+                index_expr,
+            } => {
                 assert_eq!(shape[axis], 1.into(), "can only squeeze an axis of size 1");
                 // shapeから削除
                 shape.remove(axis);
@@ -356,8 +362,7 @@ impl View {
                 // 新しいshapeで連続したViewを作成（offsetは保持）
                 let mut reshaped = View::contiguous(new_shape);
                 if let View::Linear {
-                    offset: new_offset,
-                    ..
+                    offset: new_offset, ..
                 } = &mut reshaped
                 {
                     *new_offset = offset;

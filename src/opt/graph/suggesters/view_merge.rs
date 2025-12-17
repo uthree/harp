@@ -99,10 +99,7 @@ impl ViewMergeSuggester {
     fn allows_ndim_change(op: &GraphOp) -> bool {
         matches!(
             op,
-            GraphOp::Buffer { .. }
-                | GraphOp::Const(_)
-                | GraphOp::Kernel { .. }
-                | GraphOp::View(_)
+            GraphOp::Buffer { .. } | GraphOp::Const(_) | GraphOp::Kernel { .. } | GraphOp::View(_)
         )
     }
 
@@ -622,7 +619,8 @@ mod tests {
         let a = graph.input("a", DType::F32, vec![6]);
 
         // まずIndexExpr viewを適用
-        let index_expr_view = View::from_index_expr(vec![Expr::from(6)], Expr::Idx(0) % Expr::from(3));
+        let index_expr_view =
+            View::from_index_expr(vec![Expr::from(6)], Expr::Idx(0) % Expr::from(3));
         let a_with_index_expr = a.view(index_expr_view);
 
         // 次にLinear viewを適用
@@ -669,6 +667,9 @@ mod tests {
         // Viewノードが1つ削除されている
         // 元: Buffer -> View(tile) -> View(unsqueeze)
         // マージ後のいずれか: Buffer -> View(unsqueeze適用済み) or Buffer[tile適用済み] -> View(unsqueeze)
-        assert_eq!(result.view.shape(), &[Expr::from(1), Expr::from(6), Expr::from(4)]);
+        assert_eq!(
+            result.view.shape(),
+            &[Expr::from(1), Expr::from(6), Expr::from(4)]
+        );
     }
 }
