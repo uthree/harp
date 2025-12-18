@@ -72,11 +72,6 @@ fn main() -> eframe::Result {
 fn optimize_ast_with_history(
     program: harp::ast::AstNode,
 ) -> (harp::ast::AstNode, harp::opt::ast::OptimizationHistory) {
-    // Phase 1: Rule-based optimization
-    let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules());
-    let program = rule_optimizer.optimize(program);
-
-    // Phase 2: Loop optimization with beam search
     let loop_suggester = AstCompositeSuggester::new(vec![
         Box::new(LoopTilingSuggester::new()),
         Box::new(LoopInliningSuggester::new()),
