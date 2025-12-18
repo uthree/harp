@@ -32,8 +32,8 @@ objc = { version = "0.2", optional = true }  # Objective-C runtime for Metal
 
 [features]
 default = []
-native-opencl = ["ocl"]
-native-metal = ["metal", "objc"]
+opencl = ["ocl"]
+metal = ["dep:metal", "objc"]
 
 [dev-dependencies]
 env_logger = "0.11"

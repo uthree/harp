@@ -1,28 +1,28 @@
 //! Metal native context
 
-use crate::backend::traits::NativeContext;
+use crate::backend::traits::Context;
 use metal::{CommandQueue, Device};
 use std::sync::Arc;
 
 /// Error type for Metal native operations
 #[derive(Debug, Clone)]
-pub struct MetalNativeError(String);
+pub struct MetalError(String);
 
-impl std::fmt::Display for MetalNativeError {
+impl std::fmt::Display for MetalError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Metal error: {}", self.0)
     }
 }
 
-impl std::error::Error for MetalNativeError {}
+impl std::error::Error for MetalError {}
 
-impl From<String> for MetalNativeError {
+impl From<String> for MetalError {
     fn from(s: String) -> Self {
         Self(s)
     }
 }
 
-impl From<&str> for MetalNativeError {
+impl From<&str> for MetalError {
     fn from(s: &str) -> Self {
         Self(s.to_string())
     }
@@ -32,13 +32,13 @@ impl From<&str> for MetalNativeError {
 ///
 /// Holds the Metal device and command queue.
 #[derive(Clone)]
-pub struct MetalNativeContext {
+pub struct MetalContext {
     pub(crate) device: Device,
     pub(crate) command_queue: Arc<CommandQueue>,
 }
 
-impl NativeContext for MetalNativeContext {
-    type Error = MetalNativeError;
+impl Context for MetalContext {
+    type Error = MetalError;
 
     fn new() -> Result<Self, Self::Error> {
         Self::with_device(0)
@@ -53,7 +53,7 @@ impl NativeContext for MetalNativeContext {
 
         // Select the requested device
         let device = devices.get(device_index).cloned().ok_or_else(|| {
-            MetalNativeError::from(format!(
+            MetalError::from(format!(
                 "Device index {} out of range (available: {})",
                 device_index,
                 devices.len()
@@ -78,7 +78,7 @@ impl NativeContext for MetalNativeContext {
     }
 }
 
-impl MetalNativeContext {
+impl MetalContext {
     /// Get the Metal device
     pub fn device(&self) -> &Device {
         &self.device
@@ -95,9 +95,9 @@ impl MetalNativeContext {
     }
 
     /// Create a context using the system default device
-    pub fn system_default() -> Result<Self, MetalNativeError> {
+    pub fn system_default() -> Result<Self, MetalError> {
         let device = Device::system_default()
-            .ok_or_else(|| MetalNativeError::from("No default Metal device found"))?;
+            .ok_or_else(|| MetalError::from("No default Metal device found"))?;
 
         let command_queue = device.new_command_queue();
 
@@ -109,8 +109,8 @@ impl MetalNativeContext {
 }
 
 // Safety: Metal device and command queue are thread-safe
-unsafe impl Send for MetalNativeContext {}
-unsafe impl Sync for MetalNativeContext {}
+unsafe impl Send for MetalContext {}
+unsafe impl Sync for MetalContext {}
 
 #[cfg(test)]
 mod tests {
@@ -118,18 +118,18 @@ mod tests {
 
     #[test]
     fn test_metal_is_available() {
-        let available = MetalNativeContext::is_available();
+        let available = MetalContext::is_available();
         println!("Metal available: {}", available);
     }
 
     #[test]
     fn test_metal_context_creation() {
-        if !MetalNativeContext::is_available() {
+        if !MetalContext::is_available() {
             println!("Metal not available, skipping test");
             return;
         }
 
-        let context = MetalNativeContext::new();
+        let context = MetalContext::new();
         assert!(
             context.is_ok(),
             "Failed to create context: {:?}",
@@ -142,12 +142,12 @@ mod tests {
 
     #[test]
     fn test_metal_list_devices() {
-        if !MetalNativeContext::is_available() {
+        if !MetalContext::is_available() {
             println!("Metal not available, skipping test");
             return;
         }
 
-        let devices = MetalNativeContext::list_devices();
+        let devices = MetalContext::list_devices();
         println!("Available Metal devices: {:?}", devices);
         assert!(!devices.is_empty());
     }

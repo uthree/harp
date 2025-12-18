@@ -1,20 +1,20 @@
 //! Metal native compiler
 
-use super::context::{MetalNativeContext, MetalNativeError};
-use super::kernel::MetalNativeKernel;
-use crate::backend::traits::{KernelConfig, NativeCompiler};
+use super::context::{MetalContext, MetalError};
+use super::kernel::MetalKernel;
+use crate::backend::traits::{Compiler, KernelConfig};
 use metal::CompileOptions;
 use std::sync::Arc;
 
 /// Metal native compiler
 ///
 /// Compiles Metal Shading Language source code into executable compute pipelines.
-pub struct MetalNativeCompiler;
+pub struct MetalCompiler;
 
-impl NativeCompiler for MetalNativeCompiler {
-    type Context = MetalNativeContext;
-    type Kernel = MetalNativeKernel;
-    type Error = MetalNativeError;
+impl Compiler for MetalCompiler {
+    type Context = MetalContext;
+    type Kernel = MetalKernel;
+    type Error = MetalError;
 
     fn new() -> Self {
         Self
@@ -31,15 +31,13 @@ impl NativeCompiler for MetalNativeCompiler {
         let library = context
             .device()
             .new_library_with_source(source, &options)
-            .map_err(|e| {
-                MetalNativeError::from(format!("Failed to compile Metal shader: {}", e))
-            })?;
+            .map_err(|e| MetalError::from(format!("Failed to compile Metal shader: {}", e)))?;
 
         // Get the kernel function
         let function = library
             .get_function(&config.entry_point, None)
             .map_err(|e| {
-                MetalNativeError::from(format!(
+                MetalError::from(format!(
                     "Failed to get function '{}': {}",
                     config.entry_point, e
                 ))
@@ -49,11 +47,9 @@ impl NativeCompiler for MetalNativeCompiler {
         let pipeline = context
             .device()
             .new_compute_pipeline_state_with_function(&function)
-            .map_err(|e| {
-                MetalNativeError::from(format!("Failed to create compute pipeline: {}", e))
-            })?;
+            .map_err(|e| MetalError::from(format!("Failed to create compute pipeline: {}", e)))?;
 
-        Ok(MetalNativeKernel::new(
+        Ok(MetalKernel::new(
             pipeline,
             Arc::clone(&context.command_queue),
             config,
@@ -61,28 +57,26 @@ impl NativeCompiler for MetalNativeCompiler {
     }
 }
 
-impl MetalNativeCompiler {
+impl MetalCompiler {
     /// Compile with custom compile options
     pub fn compile_with_options(
         &self,
-        context: &MetalNativeContext,
+        context: &MetalContext,
         source: &str,
         config: KernelConfig,
         options: &CompileOptions,
-    ) -> Result<MetalNativeKernel, MetalNativeError> {
+    ) -> Result<MetalKernel, MetalError> {
         // Compile the shader source with custom options
         let library = context
             .device()
             .new_library_with_source(source, options)
-            .map_err(|e| {
-                MetalNativeError::from(format!("Failed to compile Metal shader: {}", e))
-            })?;
+            .map_err(|e| MetalError::from(format!("Failed to compile Metal shader: {}", e)))?;
 
         // Get the kernel function
         let function = library
             .get_function(&config.entry_point, None)
             .map_err(|e| {
-                MetalNativeError::from(format!(
+                MetalError::from(format!(
                     "Failed to get function '{}': {}",
                     config.entry_point, e
                 ))
@@ -92,11 +86,9 @@ impl MetalNativeCompiler {
         let pipeline = context
             .device()
             .new_compute_pipeline_state_with_function(&function)
-            .map_err(|e| {
-                MetalNativeError::from(format!("Failed to create compute pipeline: {}", e))
-            })?;
+            .map_err(|e| MetalError::from(format!("Failed to create compute pipeline: {}", e)))?;
 
-        Ok(MetalNativeKernel::new(
+        Ok(MetalKernel::new(
             pipeline,
             Arc::clone(&context.command_queue),
             config,
@@ -108,18 +100,18 @@ impl MetalNativeCompiler {
 mod tests {
     use super::*;
     use crate::ast::DType;
-    use crate::backend::metal::MetalNativeBuffer;
-    use crate::backend::traits::{NativeBuffer, NativeContext};
+    use crate::backend::metal::MetalBuffer;
+    use crate::backend::traits::{Buffer, Context};
 
     #[test]
     fn test_metal_simple_kernel() {
-        if !MetalNativeContext::is_available() {
+        if !MetalContext::is_available() {
             println!("Metal not available, skipping test");
             return;
         }
 
-        let context = MetalNativeContext::new().unwrap();
-        let compiler = MetalNativeCompiler::new();
+        let context = MetalContext::new().unwrap();
+        let compiler = MetalCompiler::new();
 
         // Simple kernel that adds two arrays
         let source = r#"
@@ -149,9 +141,9 @@ mod tests {
         let a_data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
         let b_data: Vec<f32> = vec![5.0, 6.0, 7.0, 8.0];
 
-        let a_buffer = MetalNativeBuffer::from_vec(&context, vec![4], DType::F32, &a_data).unwrap();
-        let b_buffer = MetalNativeBuffer::from_vec(&context, vec![4], DType::F32, &b_data).unwrap();
-        let c_buffer = MetalNativeBuffer::allocate(&context, vec![4], DType::F32).unwrap();
+        let a_buffer = MetalBuffer::from_vec(&context, vec![4], DType::F32, &a_data).unwrap();
+        let b_buffer = MetalBuffer::from_vec(&context, vec![4], DType::F32, &b_data).unwrap();
+        let c_buffer = MetalBuffer::allocate(&context, vec![4], DType::F32).unwrap();
 
         // Execute kernel
         let kernel = kernel.unwrap();
@@ -169,13 +161,13 @@ mod tests {
 
     #[test]
     fn test_metal_matrix_multiply() {
-        if !MetalNativeContext::is_available() {
+        if !MetalContext::is_available() {
             println!("Metal not available, skipping test");
             return;
         }
 
-        let context = MetalNativeContext::new().unwrap();
-        let compiler = MetalNativeCompiler::new();
+        let context = MetalContext::new().unwrap();
+        let compiler = MetalCompiler::new();
 
         // Simple 2x2 matrix multiply kernel
         let source = r#"
@@ -217,11 +209,9 @@ mod tests {
         let a_data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
         let b_data: Vec<f32> = vec![5.0, 6.0, 7.0, 8.0];
 
-        let a_buffer =
-            MetalNativeBuffer::from_vec(&context, vec![2, 2], DType::F32, &a_data).unwrap();
-        let b_buffer =
-            MetalNativeBuffer::from_vec(&context, vec![2, 2], DType::F32, &b_data).unwrap();
-        let c_buffer = MetalNativeBuffer::allocate(&context, vec![2, 2], DType::F32).unwrap();
+        let a_buffer = MetalBuffer::from_vec(&context, vec![2, 2], DType::F32, &a_data).unwrap();
+        let b_buffer = MetalBuffer::from_vec(&context, vec![2, 2], DType::F32, &b_data).unwrap();
+        let c_buffer = MetalBuffer::allocate(&context, vec![2, 2], DType::F32).unwrap();
 
         // Execute kernel
         let kernel = kernel.unwrap();

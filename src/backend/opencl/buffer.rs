@@ -1,8 +1,8 @@
 //! OpenCL native buffer
 
-use super::context::{OpenCLNativeContext, OpenCLNativeError};
+use super::context::{OpenCLContext, OpenCLError};
 use crate::ast::DType;
-use crate::backend::traits::NativeBuffer;
+use crate::backend::traits::Buffer;
 use ocl::{Buffer as OclBuffer, Queue, flags};
 use std::sync::Arc;
 
@@ -10,7 +10,7 @@ use std::sync::Arc;
 ///
 /// Wraps an OpenCL buffer with shape and type information.
 #[derive(Clone)]
-pub struct OpenCLNativeBuffer {
+pub struct OpenCLBuffer {
     buffer: Arc<OclBuffer<u8>>,
     queue: Arc<Queue>,
     shape: Vec<usize>,
@@ -18,9 +18,9 @@ pub struct OpenCLNativeBuffer {
     byte_len: usize,
 }
 
-impl NativeBuffer for OpenCLNativeBuffer {
-    type Context = OpenCLNativeContext;
-    type Error = OpenCLNativeError;
+impl Buffer for OpenCLBuffer {
+    type Context = OpenCLContext;
+    type Error = OpenCLError;
 
     fn allocate(
         context: &Self::Context,
@@ -78,21 +78,21 @@ impl NativeBuffer for OpenCLNativeBuffer {
     }
 
     fn buffer_size_mismatch_error(expected: usize, actual: usize) -> Self::Error {
-        OpenCLNativeError::from(format!(
+        OpenCLError::from(format!(
             "Buffer size mismatch: expected {} bytes, got {} bytes",
             expected, actual
         ))
     }
 
     fn buffer_alignment_error(buffer_size: usize, type_size: usize) -> Self::Error {
-        OpenCLNativeError::from(format!(
+        OpenCLError::from(format!(
             "Buffer size {} is not aligned to type size {}",
             buffer_size, type_size
         ))
     }
 }
 
-impl OpenCLNativeBuffer {
+impl OpenCLBuffer {
     /// Get the underlying OpenCL buffer
     pub fn ocl_buffer(&self) -> &OclBuffer<u8> {
         &self.buffer
@@ -100,11 +100,11 @@ impl OpenCLNativeBuffer {
 
     /// Create a buffer initialized with data from host
     pub fn from_host(
-        context: &OpenCLNativeContext,
+        context: &OpenCLContext,
         shape: Vec<usize>,
         dtype: DType,
         data: &[u8],
-    ) -> Result<Self, OpenCLNativeError> {
+    ) -> Result<Self, OpenCLError> {
         let mut buffer = Self::allocate(context, shape, dtype)?;
         buffer.write_from_host(data)?;
         Ok(buffer)
@@ -112,11 +112,11 @@ impl OpenCLNativeBuffer {
 
     /// Create a buffer initialized with typed data from host
     pub fn from_vec<T>(
-        context: &OpenCLNativeContext,
+        context: &OpenCLContext,
         shape: Vec<usize>,
         dtype: DType,
         data: &[T],
-    ) -> Result<Self, OpenCLNativeError> {
+    ) -> Result<Self, OpenCLError> {
         let byte_len = std::mem::size_of_val(data);
         let bytes = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, byte_len) };
         Self::from_host(context, shape, dtype, bytes)
@@ -124,5 +124,5 @@ impl OpenCLNativeBuffer {
 }
 
 // OpenCL buffers are safe to send between threads
-unsafe impl Send for OpenCLNativeBuffer {}
-unsafe impl Sync for OpenCLNativeBuffer {}
+unsafe impl Send for OpenCLBuffer {}
+unsafe impl Sync for OpenCLBuffer {}

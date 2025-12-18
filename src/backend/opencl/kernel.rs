@@ -1,8 +1,8 @@
 //! OpenCL native kernel
 
-use super::buffer::OpenCLNativeBuffer;
-use super::context::OpenCLNativeError;
-use crate::backend::traits::{KernelConfig, NativeKernel};
+use super::buffer::OpenCLBuffer;
+use super::context::OpenCLError;
+use crate::backend::traits::{Kernel, KernelConfig};
 use ocl::{Kernel as OclKernel, Program, Queue};
 use std::sync::Arc;
 
@@ -10,15 +10,15 @@ use std::sync::Arc;
 ///
 /// Wraps a compiled OpenCL kernel that can be executed on the GPU.
 #[derive(Clone)]
-pub struct OpenCLNativeKernel {
+pub struct OpenCLKernel {
     program: Arc<Program>,
     queue: Arc<Queue>,
     config: KernelConfig,
 }
 
-impl NativeKernel for OpenCLNativeKernel {
-    type Buffer = OpenCLNativeBuffer;
-    type Error = OpenCLNativeError;
+impl Kernel for OpenCLKernel {
+    type Buffer = OpenCLBuffer;
+    type Error = OpenCLError;
 
     fn config(&self) -> &KernelConfig {
         &self.config
@@ -48,7 +48,7 @@ impl NativeKernel for OpenCLNativeKernel {
     }
 }
 
-impl OpenCLNativeKernel {
+impl OpenCLKernel {
     /// Create a new OpenCL native kernel
     pub(crate) fn new(program: Program, queue: Arc<Queue>, config: KernelConfig) -> Self {
         Self {
@@ -61,11 +61,11 @@ impl OpenCLNativeKernel {
     /// Internal kernel execution with explicit sizes
     fn execute_kernel_internal(
         &self,
-        inputs: &[&OpenCLNativeBuffer],
-        outputs: &mut [&mut OpenCLNativeBuffer],
+        inputs: &[&OpenCLBuffer],
+        outputs: &mut [&mut OpenCLBuffer],
         grid_size: [usize; 3],
         local_size: Option<[usize; 3]>,
-    ) -> Result<(), OpenCLNativeError> {
+    ) -> Result<(), OpenCLError> {
         // Build kernel with arguments
         let mut kernel_builder = OclKernel::builder();
         kernel_builder
@@ -102,10 +102,7 @@ impl OpenCLNativeKernel {
     }
 
     /// Execute with explicit buffer references (alternative API)
-    pub fn execute_with_buffers(
-        &self,
-        buffers: &[&OpenCLNativeBuffer],
-    ) -> Result<(), OpenCLNativeError> {
+    pub fn execute_with_buffers(&self, buffers: &[&OpenCLBuffer]) -> Result<(), OpenCLError> {
         // Build kernel with arguments
         let mut kernel_builder = OclKernel::builder();
         kernel_builder
@@ -139,5 +136,5 @@ impl OpenCLNativeKernel {
 }
 
 // Safety: OpenCL kernel is thread-safe
-unsafe impl Send for OpenCLNativeKernel {}
-unsafe impl Sync for OpenCLNativeKernel {}
+unsafe impl Send for OpenCLKernel {}
+unsafe impl Sync for OpenCLKernel {}

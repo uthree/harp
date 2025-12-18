@@ -477,7 +477,7 @@ impl Renderer for MetalRenderer {
 }
 
 /// Implementation of KernelSourceRenderer for native Metal backend
-#[cfg(all(feature = "native-metal", target_os = "macos"))]
+#[cfg(all(feature = "metal", target_os = "macos"))]
 impl crate::backend::execution::KernelSourceRenderer for MetalRenderer {
     fn render_kernel_source(&mut self, program: &AstNode) -> String {
         if let AstNode::Program { functions, .. } = program {

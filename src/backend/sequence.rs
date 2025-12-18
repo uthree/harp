@@ -5,7 +5,7 @@
 //! may be split into multiple kernels.
 
 use crate::ast::DType;
-use crate::backend::traits::{NativeBuffer, NativeKernel};
+use crate::backend::traits::{Buffer, Kernel};
 use std::collections::HashMap;
 use std::fmt;
 use std::marker::PhantomData;
@@ -145,8 +145,8 @@ impl IntermediateBufferSpec {
 /// ```
 pub struct CompiledProgram<K, B>
 where
-    K: NativeKernel<Buffer = B>,
-    B: NativeBuffer,
+    K: Kernel<Buffer = B>,
+    B: Buffer,
 {
     /// Compiled kernels indexed by name
     pub kernels: HashMap<String, K>,
@@ -165,8 +165,8 @@ where
 
 impl<K, B> CompiledProgram<K, B>
 where
-    K: NativeKernel<Buffer = B>,
-    B: NativeBuffer,
+    K: Kernel<Buffer = B>,
+    B: Buffer,
 {
     /// Create a new compiled program
     pub fn new(

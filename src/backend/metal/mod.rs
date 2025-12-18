@@ -5,27 +5,27 @@
 
 pub mod renderer;
 
-// Native execution components (requires native-metal feature and macOS)
-#[cfg(all(feature = "native-metal", target_os = "macos"))]
+// Native execution components (requires metal feature and macOS)
+#[cfg(all(feature = "metal", target_os = "macos"))]
 mod buffer;
-#[cfg(all(feature = "native-metal", target_os = "macos"))]
+#[cfg(all(feature = "metal", target_os = "macos"))]
 mod compiler;
-#[cfg(all(feature = "native-metal", target_os = "macos"))]
+#[cfg(all(feature = "metal", target_os = "macos"))]
 mod context;
-#[cfg(all(feature = "native-metal", target_os = "macos"))]
+#[cfg(all(feature = "metal", target_os = "macos"))]
 mod kernel;
 
 pub use renderer::MetalRenderer;
 
 // Re-export native execution types when feature is enabled
-#[cfg(all(feature = "native-metal", target_os = "macos"))]
-pub use buffer::MetalNativeBuffer;
-#[cfg(all(feature = "native-metal", target_os = "macos"))]
-pub use compiler::MetalNativeCompiler;
-#[cfg(all(feature = "native-metal", target_os = "macos"))]
-pub use context::{MetalNativeContext, MetalNativeError};
-#[cfg(all(feature = "native-metal", target_os = "macos"))]
-pub use kernel::MetalNativeKernel;
+#[cfg(all(feature = "metal", target_os = "macos"))]
+pub use buffer::MetalBuffer;
+#[cfg(all(feature = "metal", target_os = "macos"))]
+pub use compiler::MetalCompiler;
+#[cfg(all(feature = "metal", target_os = "macos"))]
+pub use context::{MetalContext, MetalError};
+#[cfg(all(feature = "metal", target_os = "macos"))]
+pub use kernel::MetalKernel;
 
 // OptimizationLevelはc_likeモジュールからre-export
 pub use crate::backend::c_like::OptimizationLevel;

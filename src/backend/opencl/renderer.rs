@@ -680,7 +680,7 @@ impl CLikeRenderer for OpenCLRenderer {
 }
 
 /// Implementation of KernelSourceRenderer for native OpenCL backend
-#[cfg(feature = "native-opencl")]
+#[cfg(feature = "opencl")]
 impl crate::backend::execution::KernelSourceRenderer for OpenCLRenderer {
     fn render_kernel_source(&mut self, program: &AstNode) -> String {
         if let AstNode::Program { functions, .. } = program {

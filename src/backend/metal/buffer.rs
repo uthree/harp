@@ -1,8 +1,8 @@
 //! Metal native buffer
 
-use super::context::{MetalNativeContext, MetalNativeError};
+use super::context::{MetalContext, MetalError};
 use crate::ast::DType;
-use crate::backend::traits::NativeBuffer;
+use crate::backend::traits::Buffer;
 use metal::{Buffer as MtlBuffer, MTLResourceOptions};
 use std::sync::Arc;
 
@@ -10,16 +10,16 @@ use std::sync::Arc;
 ///
 /// Wraps a Metal buffer with shape and type information.
 #[derive(Clone)]
-pub struct MetalNativeBuffer {
+pub struct MetalBuffer {
     buffer: Arc<MtlBuffer>,
     shape: Vec<usize>,
     dtype: DType,
     byte_len: usize,
 }
 
-impl NativeBuffer for MetalNativeBuffer {
-    type Context = MetalNativeContext;
-    type Error = MetalNativeError;
+impl Buffer for MetalBuffer {
+    type Context = MetalContext;
+    type Error = MetalError;
 
     fn allocate(
         context: &Self::Context,
@@ -78,21 +78,21 @@ impl NativeBuffer for MetalNativeBuffer {
     }
 
     fn buffer_size_mismatch_error(expected: usize, actual: usize) -> Self::Error {
-        MetalNativeError::from(format!(
+        MetalError::from(format!(
             "Buffer size mismatch: expected {} bytes, got {} bytes",
             expected, actual
         ))
     }
 
     fn buffer_alignment_error(buffer_size: usize, type_size: usize) -> Self::Error {
-        MetalNativeError::from(format!(
+        MetalError::from(format!(
             "Buffer size {} is not aligned to type size {}",
             buffer_size, type_size
         ))
     }
 }
 
-impl MetalNativeBuffer {
+impl MetalBuffer {
     /// Get the underlying Metal buffer
     pub fn mtl_buffer(&self) -> &MtlBuffer {
         &self.buffer
@@ -100,11 +100,11 @@ impl MetalNativeBuffer {
 
     /// Create a buffer initialized with data from host
     pub fn from_host(
-        context: &MetalNativeContext,
+        context: &MetalContext,
         shape: Vec<usize>,
         dtype: DType,
         data: &[u8],
-    ) -> Result<Self, MetalNativeError> {
+    ) -> Result<Self, MetalError> {
         let mut buffer = Self::allocate(context, shape, dtype)?;
         buffer.write_from_host(data)?;
         Ok(buffer)
@@ -112,11 +112,11 @@ impl MetalNativeBuffer {
 
     /// Create a buffer initialized with typed data from host
     pub fn from_vec<T>(
-        context: &MetalNativeContext,
+        context: &MetalContext,
         shape: Vec<usize>,
         dtype: DType,
         data: &[T],
-    ) -> Result<Self, MetalNativeError> {
+    ) -> Result<Self, MetalError> {
         let byte_len = std::mem::size_of_val(data);
         let bytes = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, byte_len) };
         Self::from_host(context, shape, dtype, bytes)
@@ -124,26 +124,26 @@ impl MetalNativeBuffer {
 }
 
 // Metal buffers are safe to send between threads
-unsafe impl Send for MetalNativeBuffer {}
-unsafe impl Sync for MetalNativeBuffer {}
+unsafe impl Send for MetalBuffer {}
+unsafe impl Sync for MetalBuffer {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::traits::NativeContext;
+    use crate::backend::traits::Context;
 
     #[test]
     fn test_metal_buffer_allocation() {
-        if !MetalNativeContext::is_available() {
+        if !MetalContext::is_available() {
             println!("Metal not available, skipping test");
             return;
         }
 
-        let context = MetalNativeContext::new().unwrap();
+        let context = MetalContext::new().unwrap();
 
         // Allocate a buffer
         let shape = vec![4, 4];
-        let buffer = MetalNativeBuffer::allocate(&context, shape.clone(), DType::F32);
+        let buffer = MetalBuffer::allocate(&context, shape.clone(), DType::F32);
         assert!(
             buffer.is_ok(),
             "Failed to allocate buffer: {:?}",
@@ -158,16 +158,16 @@ mod tests {
 
     #[test]
     fn test_metal_buffer_data_transfer() {
-        if !MetalNativeContext::is_available() {
+        if !MetalContext::is_available() {
             println!("Metal not available, skipping test");
             return;
         }
 
-        let context = MetalNativeContext::new().unwrap();
+        let context = MetalContext::new().unwrap();
 
         // Create a buffer and write data
         let data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
-        let buffer = MetalNativeBuffer::from_vec(&context, vec![4], DType::F32, &data).unwrap();
+        let buffer = MetalBuffer::from_vec(&context, vec![4], DType::F32, &data).unwrap();
 
         // Read data back
         let result: Vec<f32> = buffer.read_vec().unwrap();

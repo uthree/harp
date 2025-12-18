@@ -11,7 +11,7 @@ use std::collections::HashMap;
 /// Represents an initialized GPU device and its associated resources.
 /// This includes platform/device selection, command queues, and other
 /// backend-specific state.
-pub trait NativeContext: Sized + Send + Sync {
+pub trait Context: Sized + Send + Sync {
     type Error: std::error::Error + Send + Sync + 'static;
 
     /// Create a new context using the default device
@@ -30,8 +30,8 @@ pub trait NativeContext: Sized + Send + Sync {
 /// GPU buffer
 ///
 /// Represents a memory buffer on the GPU device.
-pub trait NativeBuffer: Sized + Clone + Send + Sync {
-    type Context: NativeContext;
+pub trait Buffer: Sized + Clone + Send + Sync {
+    type Context: Context;
     type Error: std::error::Error + Send + Sync + 'static;
 
     /// Allocate a new buffer on the device
@@ -141,8 +141,8 @@ impl KernelConfig {
 /// GPU kernel
 ///
 /// Represents a compiled compute kernel that can be executed on the GPU.
-pub trait NativeKernel: Sized + Clone + Send + Sync {
-    type Buffer: NativeBuffer;
+pub trait Kernel: Sized + Clone + Send + Sync {
+    type Buffer: Buffer;
     type Error: std::error::Error + Send + Sync + 'static;
 
     /// Get the kernel configuration
@@ -186,9 +186,9 @@ pub trait NativeKernel: Sized + Clone + Send + Sync {
 /// GPU kernel compiler
 ///
 /// Compiles kernel source code into executable kernels.
-pub trait NativeCompiler: Sized {
-    type Context: NativeContext;
-    type Kernel: NativeKernel;
+pub trait Compiler: Sized {
+    type Context: Context;
+    type Kernel: Kernel;
     type Error: std::error::Error + Send + Sync + 'static;
 
     /// Create a new compiler

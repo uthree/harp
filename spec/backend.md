@@ -8,7 +8,7 @@
 
 ### コアモジュール
 - `mod.rs`: Renderer trait、KernelSignature、BufferSignatureの定義
-- `traits.rs`: GPU実行用の共通trait定義（NativeContext, NativeBuffer, NativeKernel, NativeCompiler, KernelConfig）
+- `traits.rs`: GPU実行用の共通trait定義（Context, Buffer, Kernel, Compiler, KernelConfig）
 - `sequence.rs`: 複数カーネル順次実行（CompiledProgram, KernelCallInfo, IntermediateBufferSpec）
 - `execution.rs`: Pipeline、CompiledKernel、AST式評価関数
 - `pipeline.rs`: 多フェーズ最適化パイプライン（`create_multi_phase_optimizer`, `MultiPhaseConfig`）
@@ -19,12 +19,12 @@
   - `mod.rs`: モジュール定義とre-export
   - `renderer.rs`: Metal Shading Languageレンダラー
   - `MetalCode`: Metal Shading Languageソースコードを表す型
-  - `buffer.rs`, `context.rs`, `kernel.rs`, `compiler.rs`: GPU実行用の実装（native-metal feature）
+  - `buffer.rs`, `context.rs`, `kernel.rs`, `compiler.rs`: GPU実行用の実装（metal feature）
 - `opencl/`: OpenCLバックエンド（クロスプラットフォームGPU）
   - `mod.rs`: モジュール定義とre-export
   - `renderer.rs`: OpenCL Cレンダラー
   - `OpenCLCode`: OpenCL Cコードを表す型
-  - `buffer.rs`, `context.rs`, `kernel.rs`, `compiler.rs`: GPU実行用の実装（native-opencl feature）
+  - `buffer.rs`, `context.rs`, `kernel.rs`, `compiler.rs`: GPU実行用の実装（opencl feature）
 
 ## 主要コンポーネント
 
@@ -102,13 +102,13 @@ let (optimized_graph, history) = optimizer.optimize_with_history(graph);
 
 ### 主要trait
 
-#### NativeContext
+#### Context
 GPU実行コンテキスト。デバイスの初期化とリソース管理を担当。
 
-#### NativeBuffer
+#### Buffer
 GPUメモリバッファ。ホスト⇔デバイス間のデータ転送を提供。
 
-#### NativeKernel
+#### Kernel
 コンパイル済みカーネル。バッファを受け取って実行。
 
 主要メソッド：
@@ -116,17 +116,17 @@ GPUメモリバッファ。ホスト⇔デバイス間のデータ転送を提�
 - `execute_with_sizes()`: 動的なグリッド/ローカルサイズで実行
 - `config()`: カーネル設定を取得
 
-#### NativeCompiler
-カーネルソースをコンパイルしてNativeKernelを生成。
+#### Compiler
+カーネルソースをコンパイルしてKernelを生成。
 
 ### 使用例（OpenCL）
 
 ```rust
-use harp::backend::traits::{KernelConfig, NativeBuffer, NativeCompiler, NativeContext};
-use harp::backend::opencl::{OpenCLNativeBuffer, OpenCLNativeCompiler, OpenCLNativeContext};
+use harp::backend::traits::{Buffer, Compiler, Context, KernelConfig};
+use harp::backend::opencl::{OpenCLBuffer, OpenCLCompiler, OpenCLContext};
 
 // コンテキスト作成
-let context = OpenCLNativeContext::new()?;
+let context = OpenCLContext::new()?;
 
 // カーネルソース
 let source = r#"
@@ -137,14 +137,14 @@ let source = r#"
 "#;
 
 // コンパイル
-let compiler = OpenCLNativeCompiler::new();
+let compiler = OpenCLCompiler::new();
 let config = KernelConfig::new("add").with_global_work_size([4, 1, 1]);
 let kernel = compiler.compile(&context, source, config)?;
 
 // バッファ作成
-let a = OpenCLNativeBuffer::from_vec(&context, vec![4], DType::F32, &[1.0, 2.0, 3.0, 4.0])?;
-let b = OpenCLNativeBuffer::from_vec(&context, vec![4], DType::F32, &[5.0, 6.0, 7.0, 8.0])?;
-let c = OpenCLNativeBuffer::allocate(&context, vec![4], DType::F32)?;
+let a = OpenCLBuffer::from_vec(&context, vec![4], DType::F32, &[1.0, 2.0, 3.0, 4.0])?;
+let b = OpenCLBuffer::from_vec(&context, vec![4], DType::F32, &[5.0, 6.0, 7.0, 8.0])?;
+let c = OpenCLBuffer::allocate(&context, vec![4], DType::F32)?;
 
 // 実行
 kernel.execute_with_buffers(&[&a, &b, &c])?;
@@ -162,19 +162,19 @@ let result: Vec<f32> = c.read_vec()?;  // [6.0, 8.0, 10.0, 12.0]
 2. AST抽出（lowerer）
 3. ASTの最適化（ルールベース＋ビームサーチ）
 4. カーネルソースのみをレンダリング（`KernelSourceRenderer` trait）
-5. ネイティブコンパイル（`NativeCompiler`）
-6. GPUカーネル実行（`NativeKernel`）
+5. ネイティブコンパイル（`Compiler`）
+6. GPUカーネル実行（`Kernel`）
 
 **使用例:**
 ```rust
-use harp::backend::{Pipeline, NativeBuffer, NativeCompiler, NativeContext};
-use harp::backend::opencl::{OpenCLNativeBuffer, OpenCLNativeCompiler, OpenCLNativeContext, OpenCLRenderer};
+use harp::backend::{Buffer, Compiler, Context, Pipeline};
+use harp::backend::opencl::{OpenCLBuffer, OpenCLCompiler, OpenCLContext, OpenCLRenderer};
 use harp::graph::{Graph, DType};
 
 // パイプライン作成
-let context = OpenCLNativeContext::new()?;
+let context = OpenCLContext::new()?;
 let renderer = OpenCLRenderer::new();
-let compiler = OpenCLNativeCompiler::new();
+let compiler = OpenCLCompiler::new();
 let mut pipeline = Pipeline::new(renderer, compiler, context);
 
 // グラフ作成
@@ -188,9 +188,9 @@ graph.output("out", c);
 let compiled = pipeline.compile_graph(graph)?;
 
 // バッファ作成・実行
-let mut input_a = OpenCLNativeBuffer::allocate(&pipeline.context(), vec![1024], AstDType::F32)?;
-let mut input_b = OpenCLNativeBuffer::allocate(&pipeline.context(), vec![1024], AstDType::F32)?;
-let mut output = OpenCLNativeBuffer::allocate(&pipeline.context(), vec![1024], AstDType::F32)?;
+let mut input_a = OpenCLBuffer::allocate(&pipeline.context(), vec![1024], AstDType::F32)?;
+let mut input_b = OpenCLBuffer::allocate(&pipeline.context(), vec![1024], AstDType::F32)?;
+let mut output = OpenCLBuffer::allocate(&pipeline.context(), vec![1024], AstDType::F32)?;
 
 // データ書き込み・カーネル実行・結果読み出し
 input_a.write_vec(&vec![1.0f32; 1024])?;
@@ -259,7 +259,7 @@ program.execute_positional(&context, &[&input_a], &mut [&mut output])?;
 
 **動的サイズでの実行:**
 
-`NativeKernel`トレイトの`execute_with_sizes`メソッドを使用して、実行時にグリッドサイズとローカルサイズを指定できます：
+`Kernel`トレイトの`execute_with_sizes`メソッドを使用して、実行時にグリッドサイズとローカルサイズを指定できます：
 
 ```rust
 kernel.execute_with_sizes(
@@ -272,8 +272,8 @@ kernel.execute_with_sizes(
 
 ### Feature flags
 
-- `native-opencl`: OpenCL GPU実行機能を有効化
-- `native-metal`: Metal GPU実行機能を有効化（macOSのみ）
+- `opencl`: OpenCL GPU実行機能を有効化
+- `metal`: Metal GPU実行機能を有効化（macOSのみ）
 
 ## CLI (harpc)
 

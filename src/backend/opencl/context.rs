@@ -1,34 +1,34 @@
 //! OpenCL native context
 
-use crate::backend::traits::NativeContext;
-use ocl::{Context, Device, Platform, Queue};
+use crate::backend::traits::Context;
+use ocl::{Context as OclContext, Device, Platform, Queue};
 use std::sync::Arc;
 
 /// Error type for OpenCL native operations
 #[derive(Debug, Clone)]
-pub struct OpenCLNativeError(String);
+pub struct OpenCLError(String);
 
-impl std::fmt::Display for OpenCLNativeError {
+impl std::fmt::Display for OpenCLError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "OpenCL error: {}", self.0)
     }
 }
 
-impl std::error::Error for OpenCLNativeError {}
+impl std::error::Error for OpenCLError {}
 
-impl From<ocl::Error> for OpenCLNativeError {
+impl From<ocl::Error> for OpenCLError {
     fn from(e: ocl::Error) -> Self {
         Self(e.to_string())
     }
 }
 
-impl From<String> for OpenCLNativeError {
+impl From<String> for OpenCLError {
     fn from(s: String) -> Self {
         Self(s)
     }
 }
 
-impl From<&str> for OpenCLNativeError {
+impl From<&str> for OpenCLError {
     fn from(s: &str) -> Self {
         Self(s.to_string())
     }
@@ -38,15 +38,15 @@ impl From<&str> for OpenCLNativeError {
 ///
 /// Holds the OpenCL platform, device, context, and command queue.
 #[derive(Clone)]
-pub struct OpenCLNativeContext {
+pub struct OpenCLContext {
     pub(crate) platform: Platform,
     pub(crate) device: Device,
-    pub(crate) context: Arc<Context>,
+    pub(crate) context: Arc<OclContext>,
     pub(crate) queue: Arc<Queue>,
 }
 
-impl NativeContext for OpenCLNativeContext {
-    type Error = OpenCLNativeError;
+impl Context for OpenCLContext {
+    type Error = OpenCLError;
 
     fn new() -> Result<Self, Self::Error> {
         Self::with_device(0)
@@ -72,7 +72,7 @@ impl NativeContext for OpenCLNativeContext {
         })?;
 
         // Create context
-        let context = Context::builder()
+        let context = OclContext::builder()
             .platform(platform)
             .devices(device)
             .build()?;
@@ -97,14 +97,14 @@ impl NativeContext for OpenCLNativeContext {
     }
 }
 
-impl OpenCLNativeContext {
+impl OpenCLContext {
     /// Get the OpenCL platform
     pub fn platform(&self) -> Platform {
         self.platform
     }
 
     /// Get the OpenCL context
-    pub fn ocl_context(&self) -> &Context {
+    pub fn ocl_context(&self) -> &OclContext {
         &self.context
     }
 
@@ -119,43 +119,43 @@ impl OpenCLNativeContext {
     }
 
     /// List all available devices
-    pub fn list_devices() -> Result<Vec<String>, OpenCLNativeError> {
+    pub fn list_devices() -> Result<Vec<String>, OpenCLError> {
         let platform = Platform::default();
         let devices = Device::list_all(platform)?;
 
         devices
             .iter()
-            .map(|d| d.name().map_err(OpenCLNativeError::from))
+            .map(|d| d.name().map_err(OpenCLError::from))
             .collect()
     }
 }
 
 // Safety: OpenCL context and queue are thread-safe
-unsafe impl Send for OpenCLNativeContext {}
-unsafe impl Sync for OpenCLNativeContext {}
+unsafe impl Send for OpenCLContext {}
+unsafe impl Sync for OpenCLContext {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ast::DType;
-    use crate::backend::opencl::{OpenCLNativeBuffer, OpenCLNativeCompiler};
-    use crate::backend::traits::{KernelConfig, NativeBuffer, NativeCompiler, NativeContext};
+    use crate::backend::opencl::{OpenCLBuffer, OpenCLCompiler};
+    use crate::backend::traits::{Buffer, Compiler, Context, KernelConfig};
 
     #[test]
     fn test_opencl_is_available() {
         // This test just checks if OpenCL is available
-        let available = OpenCLNativeContext::is_available();
+        let available = OpenCLContext::is_available();
         println!("OpenCL available: {}", available);
     }
 
     #[test]
     fn test_opencl_context_creation() {
-        if !OpenCLNativeContext::is_available() {
+        if !OpenCLContext::is_available() {
             println!("OpenCL not available, skipping test");
             return;
         }
 
-        let context = OpenCLNativeContext::new();
+        let context = OpenCLContext::new();
         assert!(
             context.is_ok(),
             "Failed to create context: {:?}",
@@ -168,16 +168,16 @@ mod tests {
 
     #[test]
     fn test_opencl_buffer_allocation() {
-        if !OpenCLNativeContext::is_available() {
+        if !OpenCLContext::is_available() {
             println!("OpenCL not available, skipping test");
             return;
         }
 
-        let context = OpenCLNativeContext::new().unwrap();
+        let context = OpenCLContext::new().unwrap();
 
         // Allocate a buffer
         let shape = vec![4, 4];
-        let buffer = OpenCLNativeBuffer::allocate(&context, shape.clone(), DType::F32);
+        let buffer = OpenCLBuffer::allocate(&context, shape.clone(), DType::F32);
         assert!(
             buffer.is_ok(),
             "Failed to allocate buffer: {:?}",
@@ -192,16 +192,16 @@ mod tests {
 
     #[test]
     fn test_opencl_buffer_data_transfer() {
-        if !OpenCLNativeContext::is_available() {
+        if !OpenCLContext::is_available() {
             println!("OpenCL not available, skipping test");
             return;
         }
 
-        let context = OpenCLNativeContext::new().unwrap();
+        let context = OpenCLContext::new().unwrap();
 
         // Create a buffer and write data
         let data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
-        let buffer = OpenCLNativeBuffer::from_vec(&context, vec![4], DType::F32, &data).unwrap();
+        let buffer = OpenCLBuffer::from_vec(&context, vec![4], DType::F32, &data).unwrap();
 
         // Read data back
         let result: Vec<f32> = buffer.read_vec().unwrap();
@@ -210,13 +210,13 @@ mod tests {
 
     #[test]
     fn test_opencl_simple_kernel() {
-        if !OpenCLNativeContext::is_available() {
+        if !OpenCLContext::is_available() {
             println!("OpenCL not available, skipping test");
             return;
         }
 
-        let context = OpenCLNativeContext::new().unwrap();
-        let compiler = OpenCLNativeCompiler::new();
+        let context = OpenCLContext::new().unwrap();
+        let compiler = OpenCLCompiler::new();
 
         // Simple kernel that adds two arrays
         let source = r#"
@@ -239,11 +239,9 @@ mod tests {
         let a_data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
         let b_data: Vec<f32> = vec![5.0, 6.0, 7.0, 8.0];
 
-        let a_buffer =
-            OpenCLNativeBuffer::from_vec(&context, vec![4], DType::F32, &a_data).unwrap();
-        let b_buffer =
-            OpenCLNativeBuffer::from_vec(&context, vec![4], DType::F32, &b_data).unwrap();
-        let c_buffer = OpenCLNativeBuffer::allocate(&context, vec![4], DType::F32).unwrap();
+        let a_buffer = OpenCLBuffer::from_vec(&context, vec![4], DType::F32, &a_data).unwrap();
+        let b_buffer = OpenCLBuffer::from_vec(&context, vec![4], DType::F32, &b_data).unwrap();
+        let c_buffer = OpenCLBuffer::allocate(&context, vec![4], DType::F32).unwrap();
 
         // Execute kernel
         let kernel = kernel.unwrap();

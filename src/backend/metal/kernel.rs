@@ -1,8 +1,8 @@
 //! Metal native kernel
 
-use super::buffer::MetalNativeBuffer;
-use super::context::MetalNativeError;
-use crate::backend::traits::{KernelConfig, NativeKernel};
+use super::buffer::MetalBuffer;
+use super::context::MetalError;
+use crate::backend::traits::{Kernel, KernelConfig};
 use metal::{CommandQueue, ComputePipelineState, MTLSize};
 use std::sync::Arc;
 
@@ -10,15 +10,15 @@ use std::sync::Arc;
 ///
 /// Wraps a compiled Metal compute pipeline that can be executed on the GPU.
 #[derive(Clone)]
-pub struct MetalNativeKernel {
+pub struct MetalKernel {
     pipeline: Arc<ComputePipelineState>,
     command_queue: Arc<CommandQueue>,
     config: KernelConfig,
 }
 
-impl NativeKernel for MetalNativeKernel {
-    type Buffer = MetalNativeBuffer;
-    type Error = MetalNativeError;
+impl Kernel for MetalKernel {
+    type Buffer = MetalBuffer;
+    type Error = MetalError;
 
     fn config(&self) -> &KernelConfig {
         &self.config
@@ -30,7 +30,7 @@ impl NativeKernel for MetalNativeKernel {
         outputs: &mut [&mut Self::Buffer],
     ) -> Result<(), Self::Error> {
         // Combine all buffers for execution
-        let all_buffers: Vec<&MetalNativeBuffer> = inputs
+        let all_buffers: Vec<&MetalBuffer> = inputs
             .iter()
             .copied()
             .chain(outputs.iter().map(|b| &**b))
@@ -47,7 +47,7 @@ impl NativeKernel for MetalNativeKernel {
         local_size: [usize; 3],
     ) -> Result<(), Self::Error> {
         // Combine all buffers for execution
-        let all_buffers: Vec<&MetalNativeBuffer> = inputs
+        let all_buffers: Vec<&MetalBuffer> = inputs
             .iter()
             .copied()
             .chain(outputs.iter().map(|b| &**b))
@@ -57,7 +57,7 @@ impl NativeKernel for MetalNativeKernel {
     }
 }
 
-impl MetalNativeKernel {
+impl MetalKernel {
     /// Create a new Metal native kernel
     pub(crate) fn new(
         pipeline: ComputePipelineState,
@@ -72,10 +72,7 @@ impl MetalNativeKernel {
     }
 
     /// Execute with explicit buffer references
-    pub fn execute_with_buffers(
-        &self,
-        buffers: &[&MetalNativeBuffer],
-    ) -> Result<(), MetalNativeError> {
+    pub fn execute_with_buffers(&self, buffers: &[&MetalBuffer]) -> Result<(), MetalError> {
         let gws = self.config.global_work_size;
         let lws = self.config.local_work_size;
         self.execute_with_buffers_internal(buffers, gws, lws)
@@ -84,20 +81,20 @@ impl MetalNativeKernel {
     /// Execute with explicit buffer references and dispatch sizes
     pub fn execute_with_buffers_and_sizes(
         &self,
-        buffers: &[&MetalNativeBuffer],
+        buffers: &[&MetalBuffer],
         grid_size: [usize; 3],
         local_size: [usize; 3],
-    ) -> Result<(), MetalNativeError> {
+    ) -> Result<(), MetalError> {
         self.execute_with_buffers_internal(buffers, grid_size, Some(local_size))
     }
 
     /// Internal execution implementation
     fn execute_with_buffers_internal(
         &self,
-        buffers: &[&MetalNativeBuffer],
+        buffers: &[&MetalBuffer],
         grid_size: [usize; 3],
         local_size: Option<[usize; 3]>,
-    ) -> Result<(), MetalNativeError> {
+    ) -> Result<(), MetalError> {
         // Create command buffer
         let command_buffer = self.command_queue.new_command_buffer();
 
@@ -141,9 +138,7 @@ impl MetalNativeKernel {
 
         // Check for errors
         if command_buffer.status() == metal::MTLCommandBufferStatus::Error {
-            return Err(MetalNativeError::from(
-                "Metal command buffer execution failed",
-            ));
+            return Err(MetalError::from("Metal command buffer execution failed"));
         }
 
         Ok(())
@@ -151,5 +146,5 @@ impl MetalNativeKernel {
 }
 
 // Safety: Metal kernel is thread-safe
-unsafe impl Send for MetalNativeKernel {}
-unsafe impl Sync for MetalNativeKernel {}
+unsafe impl Send for MetalKernel {}
+unsafe impl Sync for MetalKernel {}

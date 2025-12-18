@@ -1,20 +1,20 @@
 //! OpenCL native compiler
 
-use super::context::{OpenCLNativeContext, OpenCLNativeError};
-use super::kernel::OpenCLNativeKernel;
-use crate::backend::traits::{KernelConfig, NativeCompiler};
+use super::context::{OpenCLContext, OpenCLError};
+use super::kernel::OpenCLKernel;
+use crate::backend::traits::{Compiler, KernelConfig};
 use ocl::Program;
 use std::sync::Arc;
 
 /// OpenCL native compiler
 ///
 /// Compiles OpenCL C source code into executable kernels.
-pub struct OpenCLNativeCompiler;
+pub struct OpenCLCompiler;
 
-impl NativeCompiler for OpenCLNativeCompiler {
-    type Context = OpenCLNativeContext;
-    type Kernel = OpenCLNativeKernel;
-    type Error = OpenCLNativeError;
+impl Compiler for OpenCLCompiler {
+    type Context = OpenCLContext;
+    type Kernel = OpenCLKernel;
+    type Error = OpenCLError;
 
     fn new() -> Self {
         Self
@@ -32,7 +32,7 @@ impl NativeCompiler for OpenCLNativeCompiler {
             .devices(context.ocl_device())
             .build(context.ocl_context())?;
 
-        Ok(OpenCLNativeKernel::new(
+        Ok(OpenCLKernel::new(
             program,
             Arc::clone(&context.queue),
             config,
@@ -40,15 +40,15 @@ impl NativeCompiler for OpenCLNativeCompiler {
     }
 }
 
-impl OpenCLNativeCompiler {
+impl OpenCLCompiler {
     /// Compile with build options
     pub fn compile_with_options(
         &self,
-        context: &OpenCLNativeContext,
+        context: &OpenCLContext,
         source: &str,
         config: KernelConfig,
         build_options: &str,
-    ) -> Result<OpenCLNativeKernel, OpenCLNativeError> {
+    ) -> Result<OpenCLKernel, OpenCLError> {
         // Build program from source with options
         let program = Program::builder()
             .src(source)
@@ -56,7 +56,7 @@ impl OpenCLNativeCompiler {
             .cmplr_opt(build_options)
             .build(context.ocl_context())?;
 
-        Ok(OpenCLNativeKernel::new(
+        Ok(OpenCLKernel::new(
             program,
             Arc::clone(&context.queue),
             config,

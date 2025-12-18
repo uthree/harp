@@ -7,9 +7,7 @@ use crate::ast::{AstKernelCallInfo, AstNode, DType, Literal};
 use crate::backend::KernelSignature;
 use crate::backend::c_like::CLikeRenderer;
 use crate::backend::sequence::{CompiledProgram, IntermediateBufferSpec, KernelCallInfo};
-use crate::backend::traits::{
-    KernelConfig, NativeBuffer, NativeCompiler, NativeContext, NativeKernel,
-};
+use crate::backend::traits::{Buffer, Compiler, Context, Kernel, KernelConfig};
 use crate::graph::Graph;
 use crate::graph::shape::Expr;
 use crate::opt::ast::rules::all_algebraic_rules;
@@ -83,8 +81,8 @@ pub struct OptimizationHistories {
 pub struct Pipeline<R, Ctx, Comp>
 where
     R: KernelSourceRenderer + Clone,
-    Ctx: NativeContext,
-    Comp: NativeCompiler<Context = Ctx>,
+    Ctx: Context,
+    Comp: Compiler<Context = Ctx>,
 {
     renderer: R,
     compiler: Comp,
@@ -99,10 +97,10 @@ where
 impl<R, Ctx, Comp, Buf> Pipeline<R, Ctx, Comp>
 where
     R: KernelSourceRenderer + Clone,
-    Ctx: NativeContext,
-    Buf: NativeBuffer<Context = Ctx>,
-    Comp: NativeCompiler<Context = Ctx>,
-    Comp::Kernel: NativeKernel<Buffer = Buf> + Clone,
+    Ctx: Context,
+    Buf: Buffer<Context = Ctx>,
+    Comp: Compiler<Context = Ctx>,
+    Comp::Kernel: Kernel<Buffer = Buf> + Clone,
 {
     /// Create a new pipeline
     pub fn new(renderer: R, compiler: Comp, context: Ctx) -> Self {
@@ -649,8 +647,8 @@ fn evaluate_expr(expr: &Expr, shape_vars: &HashMap<String, isize>) -> isize {
 /// A compiled kernel with its signature
 pub struct CompiledKernel<K, B>
 where
-    K: NativeKernel<Buffer = B>,
-    B: NativeBuffer,
+    K: Kernel<Buffer = B>,
+    B: Buffer,
 {
     /// The compiled kernel
     pub kernel: K,
@@ -661,8 +659,8 @@ where
 
 impl<K, B> CompiledKernel<K, B>
 where
-    K: NativeKernel<Buffer = B>,
-    B: NativeBuffer,
+    K: Kernel<Buffer = B>,
+    B: Buffer,
 {
     /// Execute the kernel with the given buffers
     pub fn execute(&self, inputs: &[&B], outputs: &mut [&mut B]) -> Result<(), K::Error> {

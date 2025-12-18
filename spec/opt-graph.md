@@ -300,28 +300,29 @@ let optimizer = BeamSearchGraphOptimizer::new(suggester)
 
 詳細は`src/opt/selector.rs`を参照。設計は[dagopt](https://github.com/uthree/dagopt)を参考にしている。
 
-## GenericPipelineでの統合
+## Pipelineでの統合
 
-GenericPipelineは`set_runtime_buffer_factory()`を呼び出すことで、
+Pipelineは`set_runtime_buffer_factory()`を呼び出すことで、
 グラフ最適化とAST最適化の両方で自動的にRuntimeSelectorを使用する。
 
 ### 型制約
 
 ```rust
-pub struct GenericPipeline<R, C>
+pub struct Pipeline<R, Ctx, Comp>
 where
-    R: Renderer + Clone + 'static,
-    C: Compiler<CodeRepr = R::CodeRepr> + Clone + 'static,
-    C::Buffer: 'static,
+    R: KernelSourceRenderer + Clone,
+    Ctx: Context,
+    Comp: Compiler<Context = Ctx>,
 ```
 
 RuntimeSelector使用時にRendererとCompilerのクローンが必要なため、`Clone + 'static`制約が必要。
 
 ```rust
-use harp::backend::{GenericPipeline, OptimizationConfig};
-use harp::backend::opencl::{OpenCLRenderer, OpenCLCompiler, OpenCLBuffer};
+use harp::backend::{Pipeline, Context, Compiler};
+use harp::backend::opencl::{OpenCLRenderer, OpenCLCompiler, OpenCLContext, OpenCLBuffer};
 
-let mut pipeline = GenericPipeline::new(OpenCLRenderer::new(), OpenCLCompiler::new());
+let context = OpenCLContext::new()?;
+let mut pipeline = Pipeline::new(OpenCLRenderer::new(), OpenCLCompiler::new(), context);
 
 // RuntimeSelectorを有効化（グラフとAST両方に適用）
 pipeline.set_runtime_buffer_factory(|sig| {

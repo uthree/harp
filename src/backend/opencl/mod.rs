@@ -5,27 +5,27 @@
 
 pub mod renderer;
 
-// Native execution components (requires native-opencl feature)
-#[cfg(feature = "native-opencl")]
+// Native execution components (requires opencl feature)
+#[cfg(feature = "opencl")]
 mod buffer;
-#[cfg(feature = "native-opencl")]
+#[cfg(feature = "opencl")]
 mod compiler;
-#[cfg(feature = "native-opencl")]
+#[cfg(feature = "opencl")]
 mod context;
-#[cfg(feature = "native-opencl")]
+#[cfg(feature = "opencl")]
 mod kernel;
 
 pub use renderer::OpenCLRenderer;
 
 // Re-export native execution types when feature is enabled
-#[cfg(feature = "native-opencl")]
-pub use buffer::OpenCLNativeBuffer;
-#[cfg(feature = "native-opencl")]
-pub use compiler::OpenCLNativeCompiler;
-#[cfg(feature = "native-opencl")]
-pub use context::{OpenCLNativeContext, OpenCLNativeError};
-#[cfg(feature = "native-opencl")]
-pub use kernel::OpenCLNativeKernel;
+#[cfg(feature = "opencl")]
+pub use buffer::OpenCLBuffer;
+#[cfg(feature = "opencl")]
+pub use compiler::OpenCLCompiler;
+#[cfg(feature = "opencl")]
+pub use context::{OpenCLContext, OpenCLError};
+#[cfg(feature = "opencl")]
+pub use kernel::OpenCLKernel;
 
 // OptimizationLevelはc_likeモジュールからre-export
 pub use crate::backend::c_like::OptimizationLevel;

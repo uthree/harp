@@ -1,12 +1,9 @@
-//! Integration tests for NativePipeline
+//! Integration tests for Pipeline
 //!
 //! These tests verify the end-to-end compilation and execution of graphs
 //! using the native GPU backends (OpenCL and Metal).
 
-#![cfg(any(
-    feature = "native-opencl",
-    all(feature = "native-metal", target_os = "macos")
-))]
+#![cfg(any(feature = "opencl", all(feature = "metal", target_os = "macos")))]
 
 use harp::graph::{DType, Graph};
 
@@ -44,51 +41,43 @@ fn create_complex_graph() -> Graph {
     graph
 }
 
-#[cfg(feature = "native-opencl")]
+#[cfg(feature = "opencl")]
 mod opencl_tests {
     use super::*;
     use harp::ast::DType as AstDType;
-    use harp::backend::native::opencl::{
-        OpenCLNativeBuffer, OpenCLNativeCompiler, OpenCLNativeContext,
-    };
-    use harp::backend::native::{
-        CompiledNativeKernel, NativeBuffer, NativeCompiler, NativeContext, NativePipeline,
-    };
-    use harp::backend::opencl::OpenCLRenderer;
+    use harp::backend::opencl::{OpenCLBuffer, OpenCLCompiler, OpenCLContext, OpenCLRenderer};
+    use harp::backend::{Buffer, Compiler, Context, Pipeline};
 
-    fn skip_if_unavailable() -> Option<OpenCLNativeContext> {
-        if !OpenCLNativeContext::is_available() {
+    fn skip_if_unavailable() -> Option<OpenCLContext> {
+        if !OpenCLContext::is_available() {
             eprintln!("OpenCL not available, skipping test");
             return None;
         }
-        OpenCLNativeContext::new().ok()
+        OpenCLContext::new().ok()
     }
 
     #[test]
-    fn test_native_pipeline_creation() {
+    fn test_pipeline_creation() {
         let Some(context) = skip_if_unavailable() else {
             return;
         };
 
         let renderer = OpenCLRenderer::new();
-        let compiler = OpenCLNativeCompiler::new();
-        let _pipeline: NativePipeline<OpenCLRenderer, OpenCLNativeContext, OpenCLNativeCompiler> =
-            NativePipeline::new(renderer, compiler, context);
+        let compiler = OpenCLCompiler::new();
+        let _pipeline: Pipeline<OpenCLRenderer, OpenCLContext, OpenCLCompiler> =
+            Pipeline::new(renderer, compiler, context);
     }
 
     #[test]
-    fn test_native_pipeline_compile_simple_graph() {
+    fn test_pipeline_compile_simple_graph() {
         let Some(context) = skip_if_unavailable() else {
             return;
         };
 
         let renderer = OpenCLRenderer::new();
-        let compiler = OpenCLNativeCompiler::new();
-        let mut pipeline: NativePipeline<
-            OpenCLRenderer,
-            OpenCLNativeContext,
-            OpenCLNativeCompiler,
-        > = NativePipeline::new(renderer, compiler, context);
+        let compiler = OpenCLCompiler::new();
+        let mut pipeline: Pipeline<OpenCLRenderer, OpenCLContext, OpenCLCompiler> =
+            Pipeline::new(renderer, compiler, context);
 
         // Compile a simple graph
         let graph = create_simple_add_graph();
@@ -108,13 +97,13 @@ mod opencl_tests {
     }
 
     #[test]
-    fn test_native_pipeline_buffer_allocation() {
+    fn test_pipeline_buffer_allocation() {
         let Some(context) = skip_if_unavailable() else {
             return;
         };
 
         // Allocate a buffer
-        let buffer_result = OpenCLNativeBuffer::allocate(&context, vec![1024], AstDType::F32);
+        let buffer_result = OpenCLBuffer::allocate(&context, vec![1024], AstDType::F32);
 
         match buffer_result {
             Ok(buffer) => {
@@ -129,13 +118,13 @@ mod opencl_tests {
     }
 
     #[test]
-    fn test_native_pipeline_buffer_data_transfer() {
+    fn test_pipeline_buffer_data_transfer() {
         let Some(context) = skip_if_unavailable() else {
             return;
         };
 
         // Allocate a buffer
-        let mut buffer = OpenCLNativeBuffer::allocate(&context, vec![16], AstDType::F32)
+        let mut buffer = OpenCLBuffer::allocate(&context, vec![16], AstDType::F32)
             .expect("Failed to allocate buffer");
 
         // Write data to buffer
@@ -150,38 +139,32 @@ mod opencl_tests {
     }
 
     #[test]
-    fn test_native_pipeline_kernel_execution() {
+    fn test_pipeline_kernel_execution() {
         let Some(context) = skip_if_unavailable() else {
             return;
         };
 
         let renderer = OpenCLRenderer::new();
-        let compiler = OpenCLNativeCompiler::new();
+        let compiler = OpenCLCompiler::new();
         let context_clone = context.clone();
-        let mut pipeline: NativePipeline<
-            OpenCLRenderer,
-            OpenCLNativeContext,
-            OpenCLNativeCompiler,
-        > = NativePipeline::new(renderer, compiler, context);
+        let mut pipeline: Pipeline<OpenCLRenderer, OpenCLContext, OpenCLCompiler> =
+            Pipeline::new(renderer, compiler, context);
 
         // Compile graph
         let graph = create_scale_graph();
-        let compiled: CompiledNativeKernel<_, OpenCLNativeBuffer> =
-            match pipeline.compile_graph(graph) {
-                Ok(k) => k,
-                Err(e) => {
-                    eprintln!("Compilation error: {:?}", e);
-                    return;
-                }
-            };
+        let compiled = match pipeline.compile_graph(graph) {
+            Ok(k) => k,
+            Err(e) => {
+                eprintln!("Compilation error: {:?}", e);
+                return;
+            }
+        };
 
         // Allocate buffers
-        let mut input_buffer =
-            OpenCLNativeBuffer::allocate(&context_clone, vec![1024], AstDType::F32)
-                .expect("Failed to allocate input buffer");
-        let mut output_buffer =
-            OpenCLNativeBuffer::allocate(&context_clone, vec![1024], AstDType::F32)
-                .expect("Failed to allocate output buffer");
+        let mut input_buffer = OpenCLBuffer::allocate(&context_clone, vec![1024], AstDType::F32)
+            .expect("Failed to allocate input buffer");
+        let mut output_buffer = OpenCLBuffer::allocate(&context_clone, vec![1024], AstDType::F32)
+            .expect("Failed to allocate output buffer");
 
         // Initialize input data
         let input_data: Vec<f32> = (0..1024).map(|i| i as f32).collect();
@@ -218,18 +201,15 @@ mod opencl_tests {
     }
 
     #[test]
-    fn test_native_pipeline_complex_graph() {
+    fn test_pipeline_complex_graph() {
         let Some(context) = skip_if_unavailable() else {
             return;
         };
 
         let renderer = OpenCLRenderer::new();
-        let compiler = OpenCLNativeCompiler::new();
-        let mut pipeline: NativePipeline<
-            OpenCLRenderer,
-            OpenCLNativeContext,
-            OpenCLNativeCompiler,
-        > = NativePipeline::new(renderer, compiler, context);
+        let compiler = OpenCLCompiler::new();
+        let mut pipeline: Pipeline<OpenCLRenderer, OpenCLContext, OpenCLCompiler> =
+            Pipeline::new(renderer, compiler, context);
 
         // Compile complex graph
         let graph = create_complex_graph();
@@ -248,18 +228,15 @@ mod opencl_tests {
     }
 
     #[test]
-    fn test_native_pipeline_config() {
+    fn test_pipeline_config() {
         let Some(context) = skip_if_unavailable() else {
             return;
         };
 
         let renderer = OpenCLRenderer::new();
-        let compiler = OpenCLNativeCompiler::new();
-        let mut pipeline: NativePipeline<
-            OpenCLRenderer,
-            OpenCLNativeContext,
-            OpenCLNativeCompiler,
-        > = NativePipeline::new(renderer, compiler, context);
+        let compiler = OpenCLCompiler::new();
+        let mut pipeline: Pipeline<OpenCLRenderer, OpenCLContext, OpenCLCompiler> =
+            Pipeline::new(renderer, compiler, context);
 
         // Modify config
         {
@@ -278,46 +255,43 @@ mod opencl_tests {
     }
 }
 
-#[cfg(all(feature = "native-metal", target_os = "macos"))]
+#[cfg(all(feature = "metal", target_os = "macos"))]
 mod metal_tests {
     use super::*;
     use harp::ast::DType as AstDType;
-    use harp::backend::metal::MetalRenderer;
-    use harp::backend::native::metal::{
-        MetalNativeBuffer, MetalNativeCompiler, MetalNativeContext,
-    };
-    use harp::backend::native::{NativeBuffer, NativeCompiler, NativeContext, NativePipeline};
+    use harp::backend::metal::{MetalBuffer, MetalCompiler, MetalContext, MetalRenderer};
+    use harp::backend::{Buffer, Compiler, Context, Pipeline};
 
-    fn skip_if_unavailable() -> Option<MetalNativeContext> {
-        if !MetalNativeContext::is_available() {
+    fn skip_if_unavailable() -> Option<MetalContext> {
+        if !MetalContext::is_available() {
             eprintln!("Metal not available, skipping test");
             return None;
         }
-        MetalNativeContext::new().ok()
+        MetalContext::new().ok()
     }
 
     #[test]
-    fn test_metal_native_pipeline_creation() {
+    fn test_metal_pipeline_creation() {
         let Some(context) = skip_if_unavailable() else {
             return;
         };
 
         let renderer = MetalRenderer::new();
-        let compiler = MetalNativeCompiler::new();
-        let _pipeline: NativePipeline<MetalRenderer, MetalNativeContext, MetalNativeCompiler> =
-            NativePipeline::new(renderer, compiler, context);
+        let compiler = MetalCompiler::new();
+        let _pipeline: Pipeline<MetalRenderer, MetalContext, MetalCompiler> =
+            Pipeline::new(renderer, compiler, context);
     }
 
     #[test]
-    fn test_metal_native_pipeline_compile() {
+    fn test_metal_pipeline_compile() {
         let Some(context) = skip_if_unavailable() else {
             return;
         };
 
         let renderer = MetalRenderer::new();
-        let compiler = MetalNativeCompiler::new();
-        let mut pipeline: NativePipeline<MetalRenderer, MetalNativeContext, MetalNativeCompiler> =
-            NativePipeline::new(renderer, compiler, context);
+        let compiler = MetalCompiler::new();
+        let mut pipeline: Pipeline<MetalRenderer, MetalContext, MetalCompiler> =
+            Pipeline::new(renderer, compiler, context);
 
         let graph = create_simple_add_graph();
         let result = pipeline.compile_graph(graph);
@@ -340,7 +314,7 @@ mod metal_tests {
         };
 
         // Allocate buffer
-        let mut buffer = MetalNativeBuffer::allocate(&context, vec![256], AstDType::F32)
+        let mut buffer = MetalBuffer::allocate(&context, vec![256], AstDType::F32)
             .expect("Failed to allocate Metal buffer");
 
         assert_eq!(buffer.shape(), &[256]);

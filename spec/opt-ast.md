@@ -196,7 +196,7 @@ Code ViewerはAST最適化の各ステップを可視化する機能を提供す
 ```rust
 use harp_viz::HarpVizApp;
 
-// 方法1: GenericPipelineから読み込む
+// 方法1: Pipelineから読み込む
 let mut app = HarpVizApp::new();
 app.load_from_pipeline(&pipeline);  // AST履歴も自動で読み込まれる
 
