@@ -508,6 +508,76 @@ mod tests {
         assert_eq!(suggestions.len(), 1);
         assert!(matches!(suggestions[0].ast, AstNode::Block { .. }));
     }
+
+    /// タイル化 + 内側ループ展開でアンロールと同等の効果が得られるかテスト
+    #[test]
+    fn test_tiling_then_inlining_for_unroll_effect() {
+        use crate::ast::helper::assign;
+        use crate::opt::ast::AstSuggester;
+
+        // Reduceライクなループを作成
+        // for ridx in 0..16: acc = acc + x[ridx]
+        let body = assign("acc", var("acc") + var("ridx"));
+        let reduce_loop = range("ridx", const_int(0), const_int(1), const_int(16), body);
+
+        // Step 1: タイル化 (tile_size=4)
+        let tiling_suggester = LoopTilingSuggester::with_sizes(vec![4]);
+        let tiling_suggestions = tiling_suggester.suggest(&reduce_loop);
+
+        // タイル化候補が生成されることを確認
+        assert!(
+            !tiling_suggestions.is_empty(),
+            "Tiling should generate at least one candidate"
+        );
+
+        // タイル化後のASTを取得
+        let tiled = &tiling_suggestions[0].ast;
+        println!("Tiled AST: {:#?}", tiled);
+
+        // Step 2: 内側ループを展開
+        let inlining_suggester = LoopInliningSuggester::new();
+        let inlining_suggestions = inlining_suggester.suggest(tiled);
+
+        // 内側ループ展開候補が生成されることを確認
+        assert!(
+            !inlining_suggestions.is_empty(),
+            "Inlining should generate at least one candidate after tiling"
+        );
+
+        // 展開後のASTを取得
+        let inlined = &inlining_suggestions[0].ast;
+        println!("Inlined AST: {:#?}", inlined);
+
+        // 展開後の構造を確認
+        // 外側ループ (step=4) の中に、展開された4つの文があるはず
+        if let AstNode::Range {
+            step,
+            body: outer_body,
+            ..
+        } = inlined
+        {
+            // ステップが4であることを確認（タイル化の結果）
+            assert!(
+                matches!(step.as_ref(), AstNode::Const(crate::ast::Literal::Int(4))),
+                "Outer loop step should be 4"
+            );
+
+            // 本体がBlockで、複数の文を含むことを確認（展開の結果）
+            if let AstNode::Block { statements, .. } = outer_body.as_ref() {
+                // 内側ループが展開されて、代入文 + 4つの展開文が含まれるはず
+                println!("Statements count: {}", statements.len());
+                assert!(
+                    statements.len() >= 4,
+                    "Should have at least 4 statements after inlining, got {}",
+                    statements.len()
+                );
+            } else {
+                panic!("Expected Block body after inlining");
+            }
+        } else {
+            panic!("Expected Range node as outer structure");
+        }
+    }
 }
 
 /// ループ交換（Loop Interchange）を提案するSuggester

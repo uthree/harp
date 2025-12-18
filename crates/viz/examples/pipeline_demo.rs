@@ -23,6 +23,8 @@ fn main() -> eframe::Result {
     let graph = create_matmul_graph(1024);
 
     // Phase 1: Graph optimization
+    // Note: unroll_factorsを使わず、AST最適化のタイル化+ループ展開で
+    // アンロールと同等の効果を得る
     let config = MultiPhaseConfig::new()
         .with_beam_width(4)
         .with_max_steps(5000)

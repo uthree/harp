@@ -179,14 +179,8 @@ pub fn inline_small_loop(loop_node: &AstNode, max_iterations: usize) -> Option<A
             stop,
             body,
         } => {
-            // タイル化されたループの内側・外側ループは展開しない
-            // タイル化後のループは本体の最初の文が代入文になっている
-            // 端数処理ループも代入文を含むが、端数は小さいので展開を許可する判断は
-            // 反復回数チェックで行う
-            if is_tiled_loop_body(body) {
-                log::trace!("Skipping inlining for tiled loop component: {}", var);
-                return None;
-            }
+            // Note: タイル化されたループの内側ループも展開対象にする
+            // これにより、タイル化 + 内側ループ展開でアンロールと同等の効果が得られる
 
             // start, step, stopが全て定数の場合のみ展開可能
             let start_val = match start.as_ref() {

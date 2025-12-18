@@ -32,16 +32,9 @@ pub use elementwise::is_pure_const_node;
 ///
 /// `simd_widths`が設定されている場合、Elementwise演算に対して
 /// スカラー版に加えてSIMD版のSuggestionも生成します。
-///
-/// # ループアンローリングについて
-///
-/// `unroll_factors`が設定されている場合、Reduce演算に対して
-/// 縮約軸のループをアンロールしたSuggestionも生成します。
 pub struct LoweringSuggester {
     /// SIMD幅の候補リスト（空ならスカラーのみ）
     simd_widths: Vec<usize>,
-    /// アンロールファクターの候補リスト（空ならアンロールなし）
-    unroll_factors: Vec<usize>,
 }
 
 /// カーネル/関数の種類を表すプレフィックス
@@ -77,7 +70,6 @@ impl LoweringSuggester {
     pub fn new() -> Self {
         LoweringSuggester {
             simd_widths: vec![],
-            unroll_factors: vec![],
         }
     }
 
@@ -88,21 +80,7 @@ impl LoweringSuggester {
     ///
     /// 指定されたSIMD幅に対して、Elementwise演算のSIMD版Suggestionを生成します。
     pub fn with_simd_widths(simd_widths: Vec<usize>) -> Self {
-        LoweringSuggester {
-            simd_widths,
-            unroll_factors: vec![],
-        }
-    }
-
-    /// アンロールファクター候補を設定
-    ///
-    /// # Arguments
-    /// * `factors` - アンロールファクターの候補リスト（例: `vec![4, 8]`）
-    ///
-    /// 指定されたファクターに対して、Reduce演算のアンロール版Suggestionを生成します。
-    pub fn with_unroll_factors(mut self, factors: Vec<usize>) -> Self {
-        self.unroll_factors = factors;
-        self
+        LoweringSuggester { simd_widths }
     }
 
     /// ノードの種類とshapeからカーネル/関数名を生成
@@ -419,73 +397,6 @@ impl LoweringSuggester {
         ))
     }
 
-    /// Reduce系演算をアンロールされたKernelノードに変換
-    ///
-    /// 対応するGraphOp:
-    /// - Reduce
-    /// - FusedElementwiseReduce
-    fn lower_to_custom_unrolled(
-        &self,
-        node: &GraphNode,
-        unroll_factor: usize,
-    ) -> Option<GraphNode> {
-        let kind = self.get_kernel_kind(&node.op);
-        let base_name = self.generate_kernel_name(kind, node.view.shape());
-        let name = format!("{}_unroll{}", base_name, unroll_factor);
-
-        let ast = match &node.op {
-            GraphOp::Reduce { op, axis, .. } => {
-                reduce::build_reduce_function_unrolled(node, op, *axis, &name, unroll_factor)
-            }
-            GraphOp::FusedElementwiseReduce {
-                expr,
-                reduce_op,
-                axes,
-                ..
-            } => reduce::build_fused_elementwise_reduce_function_unrolled(
-                node,
-                expr,
-                reduce_op,
-                axes,
-                &name,
-                unroll_factor,
-            ),
-            // 他のOpはアンロールしない
-            _ => return None,
-        }?;
-
-        // Kernelノードを作成
-        let non_const_src: Vec<_> = node
-            .src
-            .iter()
-            .filter(|s| !matches!(s.op, GraphOp::Const(_)) && !is_pure_const_node(s))
-            .cloned()
-            .collect();
-        let mut new_src = helpers::collect_input_buffers(&non_const_src);
-
-        // 出力バッファーを作成
-        let output_buffer_name = format!("output_{}", name);
-        let output_buffer = GraphNode::new(
-            node.dtype.clone(),
-            GraphOp::Buffer {
-                name: output_buffer_name,
-            },
-            vec![],
-            node.view.clone(),
-        );
-        new_src.push(output_buffer);
-
-        Some(GraphNode::new(
-            node.dtype.clone(),
-            GraphOp::Kernel {
-                ast,
-                input_buffers: None,
-            },
-            new_src,
-            node.view.clone(),
-        ))
-    }
-
     /// グラフ内の特定ノードを置き換えた新しいグラフを作成
     fn replace_node_in_graph(
         &self,
@@ -587,7 +498,6 @@ impl GraphSuggester for LoweringSuggester {
         let mut already_custom = 0;
         let mut lowered_count = 0;
         let mut simd_count = 0;
-        let mut unroll_count = 0;
 
         for node in &nodes {
             if matches!(node.op, GraphOp::Kernel { .. }) {
@@ -631,34 +541,15 @@ impl GraphSuggester for LoweringSuggester {
                     }
                 }
             }
-
-            // アンロール版のSuggestionを生成（Reduce系のみ）
-            if matches!(
-                node.op,
-                GraphOp::Reduce { .. } | GraphOp::FusedElementwiseReduce { .. }
-            ) {
-                for &unroll_factor in &self.unroll_factors {
-                    if let Some(unrolled_node) = self.lower_to_custom_unrolled(node, unroll_factor)
-                    {
-                        let new_graph = self.replace_node_in_graph(graph, node, unrolled_node);
-                        suggestions.push(SuggestResult::new(
-                            new_graph,
-                            format!("{}_unroll{}", self.name(), unroll_factor),
-                        ));
-                        unroll_count += 1;
-                    }
-                }
-            }
         }
 
         log::debug!(
-            "LoweringSuggester: {} nodes total, {} already custom, {} lowerable, {} lowered, {} simd, {} unroll candidates",
+            "LoweringSuggester: {} nodes total, {} already custom, {} lowerable, {} lowered, {} simd candidates",
             nodes.len(),
             already_custom,
             lowerable_count,
             lowered_count,
-            simd_count,
-            unroll_count
+            simd_count
         );
 
         suggestions
