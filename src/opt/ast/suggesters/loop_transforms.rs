@@ -144,7 +144,7 @@ impl LoopTilingSuggester {
                         new_functions[i] = tiled_func;
                         candidates.push(AstNode::Program {
                             functions: new_functions,
-                            execution_order: None,
+                            execution_waves: vec![],
                         });
                     }
                 }
@@ -340,7 +340,7 @@ impl LoopInliningSuggester {
                         new_functions[i] = inlined_func;
                         candidates.push(AstNode::Program {
                             functions: new_functions,
-                            execution_order: None,
+                            execution_waves: vec![],
                         });
                     }
                 }
@@ -759,7 +759,7 @@ impl LoopInterchangeSuggester {
                         new_functions[i] = interchanged_func;
                         candidates.push(AstNode::Program {
                             functions: new_functions,
-                            execution_order: None,
+                            execution_waves: vec![],
                         });
                     }
                 }

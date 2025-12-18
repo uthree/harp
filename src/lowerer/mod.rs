@@ -116,19 +116,22 @@ use std::collections::HashSet;
 ///
 /// グラフ全体を走査し、全てのKernel(Function)またはKernel(Kernel)ノードを
 /// 収集してProgramとして返します。
-/// execution_order情報も収集・マージします。
+/// execution_waves情報も収集・マージします。
+///
+/// 現在の実装では各カーネルを順次実行（各waveに1つのカーネル）しますが、
+/// 将来的にはデータフロー解析により並列実行可能なカーネルを同じwaveにグループ化します。
 pub fn collect_kernels_as_program(graph: &Graph) -> Option<crate::ast::AstNode> {
-    use crate::ast::{AstNode, KernelExecutionInfo};
+    use crate::ast::{AstKernelCallInfo, AstNode};
     use crate::graph::GraphNode;
 
     let mut kernels: Vec<AstNode> = Vec::new();
-    let mut execution_infos: Vec<KernelExecutionInfo> = Vec::new();
+    let mut execution_waves: Vec<Vec<AstKernelCallInfo>> = Vec::new();
     let mut visited: HashSet<*const crate::graph::GraphNodeData> = HashSet::new();
 
     fn collect_kernels(
         node: &GraphNode,
         kernels: &mut Vec<AstNode>,
-        execution_infos: &mut Vec<KernelExecutionInfo>,
+        execution_waves: &mut Vec<Vec<AstKernelCallInfo>>,
         visited: &mut HashSet<*const crate::graph::GraphNodeData>,
     ) {
         let ptr = node.as_ptr();
@@ -157,68 +160,62 @@ pub fn collect_kernels_as_program(graph: &Graph) -> Option<crate::ast::AstNode> 
                     });
                     if !already_exists {
                         kernels.push(ast.clone());
-                        // 単一カーネルの場合、execution_infoを生成
+                        // カーネル呼び出し情報を生成（各カーネルを別のwaveに配置）
                         if let Some(kernel_name) = name {
-                            let current_wave =
-                                execution_infos.iter().map(|i| i.wave_id).max().unwrap_or(0);
-                            let new_wave = if execution_infos.is_empty() {
-                                0
-                            } else {
-                                current_wave + 1
+                            // Kernelノードからdispatchサイズを取得（AstNodeからExprに変換）
+                            use crate::graph::shape::Expr;
+                            let (grid_size, local_size) = match ast {
+                                AstNode::Kernel {
+                                    default_grid_size,
+                                    default_thread_group_size,
+                                    ..
+                                } => {
+                                    let gs: [Expr; 3] = [
+                                        Expr::try_from(default_grid_size[0].as_ref())
+                                            .unwrap_or(Expr::Const(1)),
+                                        Expr::try_from(default_grid_size[1].as_ref())
+                                            .unwrap_or(Expr::Const(1)),
+                                        Expr::try_from(default_grid_size[2].as_ref())
+                                            .unwrap_or(Expr::Const(1)),
+                                    ];
+                                    let ls: [Expr; 3] = [
+                                        Expr::try_from(default_thread_group_size[0].as_ref())
+                                            .unwrap_or(Expr::Const(1)),
+                                        Expr::try_from(default_thread_group_size[1].as_ref())
+                                            .unwrap_or(Expr::Const(1)),
+                                        Expr::try_from(default_thread_group_size[2].as_ref())
+                                            .unwrap_or(Expr::Const(1)),
+                                    ];
+                                    (gs, ls)
+                                }
+                                _ => (
+                                    [Expr::Const(1), Expr::Const(1), Expr::Const(1)],
+                                    [Expr::Const(1), Expr::Const(1), Expr::Const(1)],
+                                ),
                             };
-                            execution_infos.push(KernelExecutionInfo::new(
+                            let call_info = AstKernelCallInfo::new(
                                 kernel_name,
-                                vec![], // 入出力情報は後で埋める
+                                vec![], // TODO: 入出力情報を解析
                                 vec![],
-                                new_wave,
-                            ));
+                                grid_size,
+                                local_size,
+                            );
+                            // 各カーネルを別のwaveに配置（順次実行）
+                            execution_waves.push(vec![call_info]);
                         }
                     }
                 }
                 AstNode::Program {
                     functions,
-                    execution_order,
+                    execution_waves: inner_waves,
                 } => {
                     // Kernel(Program)の場合は中の関数を展開
-                    // execution_orderがあれば、wave_idをオフセットしてマージ
-                    let base_wave = execution_infos
-                        .iter()
-                        .map(|i| i.wave_id)
-                        .max()
-                        .map_or(0, |m| m + 1);
-
                     for func in functions {
                         kernels.push(func.clone());
                     }
-
-                    if let Some(order) = execution_order {
-                        for info in order {
-                            execution_infos.push(KernelExecutionInfo::new(
-                                info.kernel_name.clone(),
-                                info.inputs.clone(),
-                                info.outputs.clone(),
-                                info.wave_id + base_wave,
-                            ));
-                        }
-                    } else {
-                        // execution_orderがない場合、各カーネルに連番のwave_idを割り当て
-                        for (i, func) in functions.iter().enumerate() {
-                            let kernel_name = match func {
-                                AstNode::Kernel { name, .. } => {
-                                    name.clone().unwrap_or_else(|| format!("kernel_{}", i))
-                                }
-                                AstNode::Function { name, .. } => {
-                                    name.clone().unwrap_or_else(|| format!("func_{}", i))
-                                }
-                                _ => format!("unknown_{}", i),
-                            };
-                            execution_infos.push(KernelExecutionInfo::new(
-                                kernel_name,
-                                vec![],
-                                vec![],
-                                base_wave + i,
-                            ));
-                        }
+                    // 内側のexecution_wavesを追加
+                    for wave in inner_waves {
+                        execution_waves.push(wave.clone());
                     }
                 }
                 _ => {}
@@ -227,27 +224,21 @@ pub fn collect_kernels_as_program(graph: &Graph) -> Option<crate::ast::AstNode> 
 
         // 子ノードも走査
         for src in &node.src {
-            collect_kernels(src, kernels, execution_infos, visited);
+            collect_kernels(src, kernels, execution_waves, visited);
         }
     }
 
     // 全出力からKernelを収集
     for output in graph.outputs().values() {
-        collect_kernels(output, &mut kernels, &mut execution_infos, &mut visited);
+        collect_kernels(output, &mut kernels, &mut execution_waves, &mut visited);
     }
 
     if kernels.is_empty() {
         None
     } else {
-        // execution_infosが空でなければSomeとして設定
-        let execution_order = if execution_infos.is_empty() {
-            None
-        } else {
-            Some(execution_infos)
-        };
         Some(AstNode::Program {
             functions: kernels,
-            execution_order,
+            execution_waves,
         })
     }
 }

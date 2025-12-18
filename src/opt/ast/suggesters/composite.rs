@@ -194,7 +194,7 @@ mod tests {
 
         let program = AstNode::Program {
             functions: vec![add_one_func, main_func],
-            execution_order: None,
+            execution_waves: vec![],
         };
 
         let suggestions = suggester.suggest(&program);

@@ -321,13 +321,13 @@ impl CseSuggester {
             },
             AstNode::Program {
                 functions,
-                execution_order,
+                execution_waves,
             } => AstNode::Program {
                 functions: functions
                     .iter()
                     .map(|f| Self::substitute_expr(f, target, var_name))
                     .collect(),
-                execution_order: execution_order.clone(),
+                execution_waves: execution_waves.clone(),
             },
             // その他のノードはそのまま返す
             _ => expr.clone(),
@@ -491,7 +491,7 @@ impl CseSuggester {
 
             AstNode::Program {
                 functions,
-                execution_order,
+                execution_waves,
             } => {
                 let mut new_functions = Vec::new();
                 let mut changed = false;
@@ -508,7 +508,7 @@ impl CseSuggester {
                 if changed {
                     Some(AstNode::Program {
                         functions: new_functions,
-                        execution_order: execution_order.clone(),
+                        execution_waves: execution_waves.clone(),
                     })
                 } else {
                     None

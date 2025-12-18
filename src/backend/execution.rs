@@ -3,7 +3,7 @@
 //! This module provides a Pipeline implementation that uses the GPU backends
 //! (OpenCL via `ocl` crate, Metal via `metal` crate).
 
-use crate::ast::{AstNode, DType, Literal};
+use crate::ast::{AstKernelCallInfo, AstNode, DType, Literal};
 use crate::backend::KernelSignature;
 use crate::backend::c_like::CLikeRenderer;
 use crate::backend::sequence::{CompiledProgram, IntermediateBufferSpec, KernelCallInfo};
@@ -226,15 +226,15 @@ where
             ));
         };
 
-        // Extract execution_order if available
-        let execution_order = if let AstNode::Program {
-            execution_order: Some(order),
+        // Extract execution_waves if available
+        let ast_execution_waves: Vec<Vec<AstKernelCallInfo>> = if let AstNode::Program {
+            execution_waves,
             ..
         } = &optimized_program
         {
-            Some(order.clone())
+            execution_waves.clone()
         } else {
-            None
+            vec![]
         };
 
         // Collect all kernel names from the program
@@ -307,29 +307,23 @@ where
             ));
         }
 
-        // Convert to execution_waves based on execution_order
-        let execution_waves: Vec<Vec<KernelCallInfo>> = if let Some(order) = &execution_order {
-            // Group kernel calls by wave_id from execution_order
-            let mut waves: HashMap<usize, Vec<KernelCallInfo>> = HashMap::new();
-
-            for call_info in kernel_call_infos {
-                // Find the wave_id for this kernel from execution_order
-                let wave_id = order
-                    .iter()
-                    .find(|info| info.kernel_name == call_info.kernel_name)
-                    .map(|info| info.wave_id)
-                    .unwrap_or(0); // Default to wave 0 if not found
-
-                waves.entry(wave_id).or_default().push(call_info);
-            }
-
-            // Convert to sorted Vec<Vec<KernelCallInfo>>
-            let mut wave_ids: Vec<usize> = waves.keys().copied().collect();
-            wave_ids.sort();
-
-            wave_ids
-                .into_iter()
-                .map(|id| waves.remove(&id).unwrap_or_default())
+        // Convert to execution_waves based on ast_execution_waves
+        let execution_waves: Vec<Vec<KernelCallInfo>> = if !ast_execution_waves.is_empty() {
+            // Use the wave structure from AST directly
+            ast_execution_waves
+                .iter()
+                .map(|wave| {
+                    wave.iter()
+                        .filter_map(|ast_call| {
+                            // Find the compiled kernel info
+                            kernel_call_infos
+                                .iter()
+                                .find(|k| k.kernel_name == ast_call.kernel_name)
+                                .cloned()
+                        })
+                        .collect()
+                })
+                .filter(|wave: &Vec<KernelCallInfo>| !wave.is_empty())
                 .collect()
         } else {
             // Fallback: each kernel in its own wave (sequential execution)

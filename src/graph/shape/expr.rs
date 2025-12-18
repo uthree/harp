@@ -57,6 +57,42 @@ impl From<Expr> for crate::ast::AstNode {
     }
 }
 
+impl TryFrom<&crate::ast::AstNode> for Expr {
+    type Error = &'static str;
+
+    /// AstNodeからExprへの変換（シンプルな算術式のみ対応）
+    fn try_from(node: &crate::ast::AstNode) -> Result<Self, Self::Error> {
+        use crate::ast::{AstNode, Literal};
+
+        match node {
+            AstNode::Const(Literal::Int(v)) => Ok(Expr::Const(*v)),
+            AstNode::Const(Literal::F32(v)) => Ok(Expr::Const(*v as isize)),
+            AstNode::Var(name) => Ok(Expr::Var(name.clone())),
+            AstNode::Add(l, r) => {
+                let left = Expr::try_from(l.as_ref())?;
+                let right = Expr::try_from(r.as_ref())?;
+                Ok(left + right)
+            }
+            AstNode::Mul(l, r) => {
+                let left = Expr::try_from(l.as_ref())?;
+                let right = Expr::try_from(r.as_ref())?;
+                Ok(left * right)
+            }
+            AstNode::Rem(l, r) => {
+                let left = Expr::try_from(l.as_ref())?;
+                let right = Expr::try_from(r.as_ref())?;
+                Ok(left % right)
+            }
+            AstNode::Idiv(l, r) => {
+                let left = Expr::try_from(l.as_ref())?;
+                let right = Expr::try_from(r.as_ref())?;
+                Ok(left / right)
+            }
+            _ => Err("Unsupported AstNode for Expr conversion"),
+        }
+    }
+}
+
 impl Expr {
     pub fn is_zero(&self) -> bool {
         matches!(self, Expr::Const(0))

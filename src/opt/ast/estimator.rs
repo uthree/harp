@@ -729,7 +729,7 @@ mod tests {
 
         let program_before = AstNode::Program {
             functions: vec![add_one_func, main_with_call],
-            execution_order: None,
+            execution_waves: vec![],
         };
 
         // インライン展開後: 1つの関数（mainのみ）
@@ -748,7 +748,7 @@ mod tests {
 
         let program_after = AstNode::Program {
             functions: vec![main_inlined],
-            execution_order: None,
+            execution_waves: vec![],
         };
 
         let cost_before = estimator.estimate(&program_before);
@@ -778,7 +778,7 @@ mod tests {
                     value: Box::new(AstNode::Const(Literal::Int(1))),
                 }),
             }],
-            execution_order: None,
+            execution_waves: vec![],
         };
 
         // 2つの関数（同じ本体だが関数定義が多い）
@@ -801,7 +801,7 @@ mod tests {
                     }),
                 },
             ],
-            execution_order: None,
+            execution_waves: vec![],
         };
 
         let cost_single = estimator.estimate(&single_func);
@@ -894,7 +894,7 @@ mod tests {
 
         let program_before = AstNode::Program {
             functions: vec![write_value_func, main_with_call],
-            execution_order: None,
+            execution_waves: vec![],
         };
 
         // インライン展開後
@@ -914,7 +914,7 @@ mod tests {
 
         let program_after = AstNode::Program {
             functions: vec![main_inlined],
-            execution_order: None,
+            execution_waves: vec![],
         };
 
         let cost_before = estimator.estimate(&program_before);
@@ -967,7 +967,7 @@ mod tests {
                     value: Box::new(AstNode::Const(Literal::Int(1))),
                 }),
             }],
-            execution_order: None,
+            execution_waves: vec![],
         };
 
         let small_node_count = SimpleCostEstimator::get_node_count(&small_program);
@@ -995,7 +995,7 @@ mod tests {
                     scope: Box::new(Scope::new()),
                 }),
             }],
-            execution_order: None,
+            execution_waves: vec![],
         };
 
         let large_node_count = SimpleCostEstimator::get_node_count(&large_program);
@@ -1178,7 +1178,7 @@ mod tests {
                     )),
                 }),
             }],
-            execution_order: None,
+            execution_waves: vec![],
         };
 
         let cost_no_penalty = estimator_no_penalty.estimate(&program);

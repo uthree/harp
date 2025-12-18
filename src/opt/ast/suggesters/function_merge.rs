@@ -209,13 +209,13 @@ impl FunctionMergeSuggester {
 
         if let AstNode::Program {
             functions,
-            execution_order,
+            execution_waves,
         } = ast
             && let Some(merged_functions) = self.try_merge_in_program(functions)
         {
             candidates.push(AstNode::Program {
                 functions: merged_functions,
-                execution_order: execution_order.clone(),
+                execution_waves: execution_waves.clone(),
             });
         }
 
@@ -288,7 +288,7 @@ mod tests {
 
         let program = AstNode::Program {
             functions: vec![f1, f2],
-            execution_order: None,
+            execution_waves: vec![],
         };
 
         let suggestions = suggester.suggest(&program);
@@ -332,7 +332,7 @@ mod tests {
 
         let program = AstNode::Program {
             functions: vec![f1],
-            execution_order: None,
+            execution_waves: vec![],
         };
 
         let suggestions = suggester.suggest(&program);
@@ -351,7 +351,7 @@ mod tests {
 
         let program = AstNode::Program {
             functions: vec![f1, f2, f3],
-            execution_order: None,
+            execution_waves: vec![],
         };
 
         let suggestions = suggester.suggest(&program);
@@ -398,7 +398,7 @@ mod tests {
 
         let program = AstNode::Program {
             functions: vec![f1, f2],
-            execution_order: None,
+            execution_waves: vec![],
         };
 
         let suggestions = suggester.suggest(&program);

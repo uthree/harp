@@ -273,13 +273,13 @@ impl VariableExpansionSuggester {
             },
             AstNode::Program {
                 functions,
-                execution_order,
+                execution_waves,
             } => AstNode::Program {
                 functions: functions
                     .iter()
                     .map(|f| Self::substitute_var(f, var_name, replacement))
                     .collect(),
-                execution_order: execution_order.clone(),
+                execution_waves: execution_waves.clone(),
             },
             // その他のノードはそのまま返す
             _ => expr.clone(),
@@ -434,7 +434,7 @@ impl VariableExpansionSuggester {
                         new_functions[i] = child;
                         candidates.push(AstNode::Program {
                             functions: new_functions,
-                            execution_order: None,
+                            execution_waves: vec![],
                         });
                     }
                 }

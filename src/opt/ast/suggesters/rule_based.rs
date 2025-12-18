@@ -263,7 +263,7 @@ impl RuleBaseSuggester {
                         new_functions[i] = new_func;
                         results.push(AstNode::Program {
                             functions: new_functions,
-                            execution_order: None,
+                            execution_waves: vec![],
                         });
                     }
                 }

@@ -494,10 +494,10 @@ impl FunctionInliningSuggester {
 
             // Program
             AstNode::Program {
-                execution_order, ..
+                execution_waves, ..
             } => AstNode::Program {
                 functions: children.to_vec(),
-                execution_order: execution_order.clone(),
+                execution_waves: execution_waves.clone(),
             },
         }
     }
@@ -573,7 +573,7 @@ impl FunctionInliningSuggester {
 
                     candidates.push(AstNode::Program {
                         functions: new_functions,
-                        execution_order: None,
+                        execution_waves: vec![],
                     });
                 }
             }
@@ -644,7 +644,7 @@ impl FunctionInliningSuggester {
                 );
                 Some(AstNode::Program {
                     functions: new_functions,
-                    execution_order: None,
+                    execution_waves: vec![],
                 })
             } else {
                 None
@@ -739,7 +739,7 @@ mod tests {
 
         let program = AstNode::Program {
             functions: vec![add_one_func, main_func],
-            execution_order: None,
+            execution_waves: vec![],
         };
 
         let suggestions = suggester.suggest(&program);
@@ -812,7 +812,7 @@ mod tests {
 
         let program = AstNode::Program {
             functions: vec![identity_func, main_func],
-            execution_order: None,
+            execution_waves: vec![],
         };
 
         let suggestions = suggester.suggest(&program);
@@ -923,7 +923,7 @@ mod tests {
 
         let program = AstNode::Program {
             functions: vec![kernel_func, main_func],
-            execution_order: None,
+            execution_waves: vec![],
         };
 
         let suggester = FunctionInliningSuggester::with_default_limit();
@@ -1029,7 +1029,7 @@ mod tests {
 
         let program = AstNode::Program {
             functions: vec![write_value_func, main_func],
-            execution_order: None,
+            execution_waves: vec![],
         };
 
         let suggestions = suggester.suggest(&program);

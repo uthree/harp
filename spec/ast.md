@@ -158,38 +158,51 @@ call_kernel_1d(name, args, grid_size, thread_group_size)
 ### Program
 `AstNode`の一つのバリアントとして実装されています。
 
-プログラム全体を表現し、複数のカーネル関数（`AstNode::Kernel`のリスト）と実行順序情報を管理します。
+プログラム全体を表現し、複数のカーネル関数（`AstNode::Kernel`のリスト）と実行波情報を管理します。
 
 ```rust
 AstNode::Program {
-    functions: Vec<AstNode>,  // AstNode::Kernel のリスト
-    execution_order: Option<Vec<KernelExecutionInfo>>,  // 実行順序情報（オプション）
+    functions: Vec<AstNode>,                    // AstNode::Kernel のリスト
+    execution_waves: Vec<Vec<AstKernelCallInfo>>,  // 実行波（二重ネスト配列）
 }
 ```
 
-#### KernelExecutionInfo
+#### 実行モデル
 
-カーネルの実行順序を管理するための構造体です。
+```text
+execution_waves = [
+    // Wave 0: 並列実行可能なカーネル群
+    [KernelA(x1→y1), KernelA(x2→y2)],
+    // <implicit barrier>
+    // Wave 1: Wave 0の結果に依存
+    [KernelB(y1,y2→z)],
+]
+```
+
+- **内側のVec**: 並列実行可能なカーネル呼び出し群（同一wave内は依存関係なし）
+- **外側のVec**: 順次実行される波（各waveの間に暗黙のバリア）
+
+#### AstKernelCallInfo
+
+カーネル呼び出し情報を管理するための構造体です。
 
 ```rust
-pub struct KernelExecutionInfo {
-    pub kernel_name: String,    // カーネル名
-    pub inputs: Vec<String>,    // 入力バッファ名
-    pub outputs: Vec<String>,   // 出力バッファ名
-    pub wave_id: usize,         // 実行波ID（同じwave_idは並列実行可能）
+pub struct AstKernelCallInfo {
+    pub kernel_name: String,          // カーネル名
+    pub inputs: Vec<String>,          // 入力バッファ名
+    pub outputs: Vec<String>,         // 出力バッファ名
+    pub grid_size: [Box<AstNode>; 3], // グリッドサイズ（動的に計算可能）
+    pub local_size: [Box<AstNode>; 3], // ローカルサイズ（動的に計算可能）
 }
 ```
 
-- **wave_id**: 同じ`wave_id`を持つカーネルは依存関係がなく、並列実行可能です
-- **依存関係**: `wave_id = 0`のカーネルが先に実行され、その後`wave_id = 1`、`wave_id = 2`...と順に実行されます
+`grid_size`と`local_size`は`AstNode`で表現されるため、入力サイズに依存する動的なdispatchサイズを記述できます。
 
-#### 実行順序の生成と利用
+#### 実行波の生成と利用
 
-1. **生成**: `KernelMergeSuggester`がカーネルをマージする際に、Producer/Consumer関係から`execution_order`を生成
-2. **収集**: `Lowerer`が複数のKernelノードを収集する際に、`execution_order`をマージ
-3. **変換**: `Backend`の`compile_program()`が`execution_order`を`execution_waves`に変換
-
-**注意**: `execution_order`は後方互換性のため`Option`型です。`None`の場合は、各カーネルを順次実行（sequential）として扱います。
+1. **生成**: `KernelMergeSuggester`がカーネルをマージする際に、Producer/Consumer関係から`execution_waves`を生成
+2. **収集**: `Lowerer`が複数のKernelノードを収集する際に、`execution_waves`をマージ
+3. **利用**: `Backend`の`compile_program()`が`execution_waves`を直接使用して実行計画を構築
 
 ### Barrier
 並列実行における同期点。GPU等で全スレッドがこの地点に到達するまで待機し、共有メモリアクセスのデータ競合を防ぎます。

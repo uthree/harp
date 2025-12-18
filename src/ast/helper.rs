@@ -239,29 +239,29 @@ pub fn call_kernel_1d(
     )
 }
 
-/// Create a program node
+/// Create a program node with empty execution waves
 ///
 /// # Arguments
 /// * `functions` - List of AstNode::Function or AstNode::Kernel
 pub fn program(functions: Vec<AstNode>) -> AstNode {
     AstNode::Program {
         functions,
-        execution_order: None,
+        execution_waves: vec![],
     }
 }
 
-/// Create a program node with execution order
+/// Create a program node with execution waves
 ///
 /// # Arguments
 /// * `functions` - List of AstNode::Function or AstNode::Kernel
-/// * `execution_order` - Kernel execution order information
-pub fn program_with_execution_order(
+/// * `execution_waves` - Execution waves (groups of parallel-executable kernel calls)
+pub fn program_with_execution_waves(
     functions: Vec<AstNode>,
-    execution_order: Vec<crate::ast::KernelExecutionInfo>,
+    execution_waves: Vec<Vec<crate::ast::AstKernelCallInfo>>,
 ) -> AstNode {
     AstNode::Program {
         functions,
-        execution_order: Some(execution_order),
+        execution_waves,
     }
 }
 

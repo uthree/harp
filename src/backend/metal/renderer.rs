@@ -671,7 +671,7 @@ mod tests {
 
         let program = AstNode::Program {
             functions: vec![kernel_func],
-            execution_order: None,
+            execution_waves: vec![],
         };
 
         let mut renderer = MetalRenderer::new();

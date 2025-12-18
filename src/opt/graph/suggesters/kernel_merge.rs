@@ -14,12 +14,18 @@
 
 use crate::ast::helper::const_int;
 use crate::ast::{
-    AstNode, DType as AstDType, KernelExecutionInfo, Mutability, Scope, VarDecl, VarKind,
+    AstKernelCallInfo, AstNode, DType as AstDType, Mutability, Scope, VarDecl, VarKind,
 };
 use crate::graph::ops::custom_placeholders as ph;
+use crate::graph::shape::Expr;
 use crate::graph::{DType as GraphDType, Graph, GraphNode, GraphNodeData, GraphOp};
 use crate::opt::graph::{GraphSuggester, SuggestResult};
 use std::collections::{HashMap, HashSet};
+
+/// Box<AstNode>からExprへの変換（変換失敗時はConst(1)を返す）
+fn ast_to_expr(node: &AstNode) -> Expr {
+    Expr::try_from(node).unwrap_or(Expr::Const(1))
+}
 
 /// 複数のKernelノードをペアワイズでマージするSuggester
 pub struct KernelMergeSuggester;
@@ -199,25 +205,24 @@ impl KernelMergeSuggester {
             self.extract_or_create_kernels(consumer, consumer_ast, &mut used_names);
         kernels.extend(consumer_kernels);
 
-        // 実行順序情報を生成
-        // Producer側のカーネルはwave_id = 0から開始
-        let mut execution_order: Vec<KernelExecutionInfo> =
-            Self::extract_execution_infos(producer_ast, 0);
+        // 実行波情報を生成
+        // Producer側のカーネルをまず追加
+        let mut execution_waves: Vec<Vec<AstKernelCallInfo>> =
+            Self::extract_execution_waves(producer_ast);
 
-        // Consumer側のカーネルはProducerの最大wave_id + 1から開始
-        let consumer_base_wave = Self::max_wave_id(&execution_order) + 1;
-        let consumer_infos = Self::extract_execution_infos(consumer_ast, consumer_base_wave);
-        execution_order.extend(consumer_infos);
+        // Consumer側のカーネルを追加（新しいwaveとして）
+        let consumer_waves = Self::extract_execution_waves(consumer_ast);
+        execution_waves.extend(consumer_waves);
 
         // カーネル名の重複を修正（used_namesに基づいて更新）
         // 注意: extract_or_create_kernelsで名前が変更されている可能性があるため、
         // 実際のカーネル名と一致させる
-        Self::update_execution_order_names(&mut execution_order, &kernels);
+        Self::update_execution_waves_names(&mut execution_waves, &kernels);
 
         // Programを作成（harp_mainは生成しない - 実行順序はCompiledProgramで管理）
         let program = AstNode::Program {
             functions: kernels,
-            execution_order: Some(execution_order),
+            execution_waves,
         };
 
         // 新しいKernelノードの入力を構築
@@ -542,72 +547,104 @@ impl KernelMergeSuggester {
         AstDType::Ptr(Box::new(Self::graph_dtype_to_ast(dtype)))
     }
 
-    /// ASTからカーネルの実行情報を抽出
+    /// ASTから実行wave情報を抽出
     ///
     /// KernelノードまたはProgram内のKernelから、
-    /// 入出力バッファ情報とwave_idを持つKernelExecutionInfoを生成します。
-    fn extract_execution_infos(ast: &AstNode, base_wave_id: usize) -> Vec<KernelExecutionInfo> {
-        let mut infos = Vec::new();
-
+    /// 入出力バッファ情報を持つAstKernelCallInfoのwave構造を生成します。
+    fn extract_execution_waves(ast: &AstNode) -> Vec<Vec<AstKernelCallInfo>> {
         match ast {
-            AstNode::Kernel { name, params, .. } => {
+            AstNode::Kernel {
+                name,
+                params,
+                default_grid_size,
+                default_thread_group_size,
+                ..
+            } => {
                 let kernel_name = name.clone().unwrap_or_else(|| "unnamed_kernel".to_string());
                 let (inputs, outputs) = Self::extract_io_from_params(params);
-                infos.push(KernelExecutionInfo::new(
+                let call_info = AstKernelCallInfo::new(
                     kernel_name,
                     inputs,
                     outputs,
-                    base_wave_id,
-                ));
+                    [
+                        ast_to_expr(&default_grid_size[0]),
+                        ast_to_expr(&default_grid_size[1]),
+                        ast_to_expr(&default_grid_size[2]),
+                    ],
+                    [
+                        ast_to_expr(&default_thread_group_size[0]),
+                        ast_to_expr(&default_thread_group_size[1]),
+                        ast_to_expr(&default_thread_group_size[2]),
+                    ],
+                );
+                vec![vec![call_info]]
             }
             AstNode::Function { name, params, .. } => {
-                // FunctionはKernelに変換される前提
+                // FunctionはKernelに変換される前提（デフォルトdispatchサイズを使用）
                 let kernel_name = name.clone().unwrap_or_else(|| "unnamed_kernel".to_string());
                 let (inputs, outputs) = Self::extract_io_from_params(params);
-                infos.push(KernelExecutionInfo::new(
-                    kernel_name,
-                    inputs,
-                    outputs,
-                    base_wave_id,
-                ));
+                let call_info =
+                    AstKernelCallInfo::with_default_dispatch(kernel_name, inputs, outputs);
+                vec![vec![call_info]]
             }
             AstNode::Program {
                 functions,
-                execution_order,
+                execution_waves,
             } => {
-                // 既存のexecution_orderがあれば、wave_idをオフセットして再利用
-                if let Some(existing_order) = execution_order {
-                    for info in existing_order {
-                        infos.push(KernelExecutionInfo::new(
-                            info.kernel_name.clone(),
-                            info.inputs.clone(),
-                            info.outputs.clone(),
-                            info.wave_id + base_wave_id,
-                        ));
-                    }
+                // 既存のexecution_wavesがあればそのまま返す
+                if !execution_waves.is_empty() {
+                    execution_waves.clone()
                 } else {
-                    // execution_orderがない場合は、各Kernelを順番に処理
-                    let mut current_wave = base_wave_id;
+                    // execution_wavesがない場合は、各Kernelを順番に個別のwaveとして処理
+                    let mut waves = Vec::new();
                     for func in functions {
-                        if let AstNode::Kernel { name, params, .. } = func {
-                            let kernel_name =
-                                name.clone().unwrap_or_else(|| "unnamed_kernel".to_string());
-                            let (inputs, outputs) = Self::extract_io_from_params(params);
-                            infos.push(KernelExecutionInfo::new(
-                                kernel_name,
-                                inputs,
-                                outputs,
-                                current_wave,
-                            ));
-                            current_wave += 1;
+                        match func {
+                            AstNode::Kernel {
+                                name,
+                                params,
+                                default_grid_size,
+                                default_thread_group_size,
+                                ..
+                            } => {
+                                let kernel_name =
+                                    name.clone().unwrap_or_else(|| "unnamed_kernel".to_string());
+                                let (inputs, outputs) = Self::extract_io_from_params(params);
+                                let call_info = AstKernelCallInfo::new(
+                                    kernel_name,
+                                    inputs,
+                                    outputs,
+                                    [
+                                        ast_to_expr(&default_grid_size[0]),
+                                        ast_to_expr(&default_grid_size[1]),
+                                        ast_to_expr(&default_grid_size[2]),
+                                    ],
+                                    [
+                                        ast_to_expr(&default_thread_group_size[0]),
+                                        ast_to_expr(&default_thread_group_size[1]),
+                                        ast_to_expr(&default_thread_group_size[2]),
+                                    ],
+                                );
+                                waves.push(vec![call_info]);
+                            }
+                            AstNode::Function { name, params, .. } => {
+                                let kernel_name =
+                                    name.clone().unwrap_or_else(|| "unnamed_kernel".to_string());
+                                let (inputs, outputs) = Self::extract_io_from_params(params);
+                                let call_info = AstKernelCallInfo::with_default_dispatch(
+                                    kernel_name,
+                                    inputs,
+                                    outputs,
+                                );
+                                waves.push(vec![call_info]);
+                            }
+                            _ => {}
                         }
                     }
+                    waves
                 }
             }
-            _ => {}
+            _ => vec![],
         }
-
-        infos
     }
 
     /// パラメータリストから入力・出力バッファ名を抽出
@@ -629,17 +666,12 @@ impl KernelMergeSuggester {
         (inputs, outputs)
     }
 
-    /// execution_orderリストから最大wave_idを取得
-    fn max_wave_id(infos: &[KernelExecutionInfo]) -> usize {
-        infos.iter().map(|info| info.wave_id).max().unwrap_or(0)
-    }
-
-    /// execution_orderのカーネル名を実際のカーネル名と一致させる
+    /// execution_wavesのカーネル名を実際のカーネル名と一致させる
     ///
     /// extract_or_create_kernelsで重複を避けるために名前が変更されている可能性があるため、
     /// 実際のカーネル名と順番で対応付けて更新します。
-    fn update_execution_order_names(
-        execution_order: &mut [KernelExecutionInfo],
+    fn update_execution_waves_names(
+        execution_waves: &mut [Vec<AstKernelCallInfo>],
         kernels: &[AstNode],
     ) {
         // カーネルリストから名前を抽出
@@ -652,10 +684,14 @@ impl KernelMergeSuggester {
             })
             .collect();
 
-        // execution_orderの名前を更新（順番で対応付け）
-        for (i, info) in execution_order.iter_mut().enumerate() {
-            if i < kernel_names.len() {
-                info.kernel_name = kernel_names[i].clone();
+        // execution_waves内の名前を更新（フラット化して順番で対応付け）
+        let mut name_idx = 0;
+        for wave in execution_waves.iter_mut() {
+            for call in wave.iter_mut() {
+                if name_idx < kernel_names.len() {
+                    call.kernel_name = kernel_names[name_idx].clone();
+                    name_idx += 1;
+                }
             }
         }
     }
@@ -915,10 +951,10 @@ mod tests {
     }
 
     #[test]
-    fn test_kernel_merge_generates_execution_order() {
+    fn test_kernel_merge_generates_execution_waves() {
         use crate::ast::helper::wildcard;
 
-        // 2つのKernelをマージして、execution_orderが正しく生成されることを確認
+        // 2つのKernelをマージして、execution_wavesが正しく生成されることを確認
         let mut graph = Graph::new();
         let a = graph.input("a", DType::F32, vec![10]);
         let b = graph.input("b", DType::F32, vec![10]);
@@ -933,41 +969,38 @@ mod tests {
 
         assert!(!suggestions.is_empty());
 
-        // execution_orderが生成されていることを確認
+        // execution_wavesが生成されていることを確認
         let merged = &suggestions[0].graph;
         if let Some(output) = merged.outputs().values().next()
             && let GraphOp::Kernel {
                 ast:
                     AstNode::Program {
                         functions,
-                        execution_order,
+                        execution_waves,
                     },
                 ..
             } = &output.op
         {
-            // execution_orderが存在することを確認
+            // execution_wavesが生成されていることを確認
             assert!(
-                execution_order.is_some(),
-                "execution_order should be generated"
+                !execution_waves.is_empty(),
+                "execution_waves should be generated"
             );
 
-            let exec_order = execution_order.as_ref().unwrap();
-
-            // カーネルと同じ数のエントリが存在することを確認
+            // カーネルと同じ数のwave（各waveに1つのカーネル）が存在することを確認
+            let total_calls: usize = execution_waves.iter().map(|w| w.len()).sum();
             assert_eq!(
-                exec_order.len(),
+                total_calls,
                 functions.len(),
-                "execution_order should have same number of entries as kernels"
+                "execution_waves should have same number of entries as kernels"
             );
 
-            // Producer (wave_id=0) が Consumer (wave_id=1) より前にあることを確認
-            assert!(exec_order.len() >= 2);
-            assert_eq!(exec_order[0].wave_id, 0, "Producer should have wave_id=0");
-            assert_eq!(exec_order[1].wave_id, 1, "Consumer should have wave_id=1");
+            // Producer (wave 0) が Consumer (wave 1) より前にあることを確認
+            assert!(execution_waves.len() >= 2, "Should have at least 2 waves");
 
-            println!("execution_order: {:?}", exec_order);
+            println!("execution_waves: {:?}", execution_waves);
         } else {
-            panic!("Expected Kernel(Program) with execution_order");
+            panic!("Expected Kernel(Program) with execution_waves");
         }
     }
 }

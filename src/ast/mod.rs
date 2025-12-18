@@ -9,39 +9,60 @@ pub mod scope;
 pub mod types;
 
 // Re-export commonly used types
-pub use program::{Function, Program};
+pub use program::{Function, KernelCall, Program};
 pub use scope::{Mutability, Scope, VarDecl, VarKind};
 pub use types::{DType, Literal};
 
-/// カーネル実行情報
+use crate::graph::shape::Expr;
+
+/// カーネル呼び出し情報（AST層）
 ///
-/// AstNode::Program内でカーネルの実行順序を管理するための構造体。
-/// Backend側のCompiledProgram.execution_wavesと対応します。
+/// AstNode::Program内でカーネルの実行順序と呼び出し情報を管理します。
+/// grid_size/local_sizeはExprで表現され、simplify()で評価できます。
 #[derive(Clone, Debug, PartialEq)]
-pub struct KernelExecutionInfo {
+pub struct AstKernelCallInfo {
     /// カーネル名（AstNode::Kernel.nameに対応）
     pub kernel_name: String,
     /// 入力バッファ名のリスト
     pub inputs: Vec<String>,
     /// 出力バッファ名のリスト
     pub outputs: Vec<String>,
-    /// 実行波ID（同じwave_idのカーネルは並列実行可能）
-    pub wave_id: usize,
+    /// グリッドサイズ（ワークアイテム数）
+    pub grid_size: [Expr; 3],
+    /// ローカルサイズ（スレッドグループサイズ）
+    pub local_size: [Expr; 3],
 }
 
-impl KernelExecutionInfo {
-    /// 新しいKernelExecutionInfoを作成
+impl AstKernelCallInfo {
+    /// 新しいAstKernelCallInfoを作成
     pub fn new(
         kernel_name: String,
         inputs: Vec<String>,
         outputs: Vec<String>,
-        wave_id: usize,
+        grid_size: [Expr; 3],
+        local_size: [Expr; 3],
     ) -> Self {
         Self {
             kernel_name,
             inputs,
             outputs,
-            wave_id,
+            grid_size,
+            local_size,
+        }
+    }
+
+    /// デフォルトのdispatchサイズで作成
+    pub fn with_default_dispatch(
+        kernel_name: String,
+        inputs: Vec<String>,
+        outputs: Vec<String>,
+    ) -> Self {
+        Self {
+            kernel_name,
+            inputs,
+            outputs,
+            grid_size: [Expr::Const(1), Expr::Const(1), Expr::Const(1)],
+            local_size: [Expr::Const(1), Expr::Const(1), Expr::Const(1)],
         }
     }
 }
@@ -183,16 +204,27 @@ pub enum AstNode {
     /// カーネル関数群を保持するプログラムノード
     ///
     /// Graphの最適化・Lowering後、複数のKernelノードが1つのProgramにまとめられます。
-    /// `execution_order`が設定されている場合、カーネルの実行順序と依存関係を明示的に指定します。
-    /// 設定されていない場合（None）、Backend側で実行順序が推測されます。
+    /// `execution_waves`でカーネルの実行順序を管理します。
+    ///
+    /// ## 実行モデル
+    ///
+    /// ```text
+    /// execution_waves = [
+    ///     // Wave 0: 並列実行可能なカーネル群
+    ///     [KernelA(x1→y1), KernelA(x2→y2)],
+    ///     // <implicit barrier>
+    ///     // Wave 1: Wave 0の結果に依存
+    ///     [KernelB(y1,y2→z)],
+    /// ]
+    /// ```
     Program {
         /// AstNode::Function または AstNode::Kernel のリスト
         functions: Vec<AstNode>,
-        /// カーネル実行順序（オプション、後方互換性のためNone許可）
+        /// 実行波（二重ネスト配列）
         ///
-        /// 同じwave_idを持つカーネルは並列実行可能です。
-        /// wave_idが小さい順に実行され、各波の完了後に暗黙のバリアが挿入されます。
-        execution_order: Option<Vec<KernelExecutionInfo>>,
+        /// - 内側のVec: 並列実行可能なカーネル呼び出し群
+        /// - 外側のVec: 順次実行される波（間に暗黙のバリア）
+        execution_waves: Vec<Vec<AstKernelCallInfo>>,
     },
 }
 
@@ -286,7 +318,11 @@ impl AstNode {
                 }
                 children
             }
-            AstNode::Program { functions, .. } => {
+            AstNode::Program {
+                functions,
+                execution_waves: _,
+            } => {
+                // execution_waves内のgrid_size/local_sizeはExpr型なのでAstNode子ノードではない
                 functions.iter().map(|node| node as &AstNode).collect()
             }
         }
@@ -451,10 +487,11 @@ impl AstNode {
             },
             AstNode::Program {
                 functions,
-                execution_order,
+                execution_waves,
             } => AstNode::Program {
                 functions: functions.iter().map(f).collect(),
-                execution_order: execution_order.clone(),
+                // execution_wavesはExpr型なのでmap_childrenの対象外
+                execution_waves: execution_waves.clone(),
             },
         }
     }

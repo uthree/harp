@@ -412,7 +412,7 @@ impl LoopFusionSuggester {
 
             AstNode::Program {
                 functions,
-                execution_order,
+                execution_waves,
             } => {
                 let mut new_functions = Vec::new();
                 let mut changed = false;
@@ -429,7 +429,7 @@ impl LoopFusionSuggester {
                 if changed {
                     Some(AstNode::Program {
                         functions: new_functions,
-                        execution_order: execution_order.clone(),
+                        execution_waves: execution_waves.clone(),
                     })
                 } else {
                     None
