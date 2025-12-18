@@ -549,33 +549,48 @@ mod tests {
         println!("Inlined AST: {:#?}", inlined);
 
         // 展開後の構造を確認
-        // 外側ループ (step=4) の中に、展開された4つの文があるはず
-        if let AstNode::Range {
-            step,
-            body: outer_body,
-            ..
-        } = inlined
-        {
-            // ステップが4であることを確認（タイル化の結果）
-            assert!(
-                matches!(step.as_ref(), AstNode::Const(crate::ast::Literal::Int(4))),
-                "Outer loop step should be 4"
+        // tile_loopは常にBlock（メインループ + 端数ループ）を返すようになった
+        if let AstNode::Block { statements, .. } = inlined {
+            assert_eq!(
+                statements.len(),
+                2,
+                "Tiled result should have 2 statements (main loop + remainder loop)"
             );
 
-            // 本体がBlockで、複数の文を含むことを確認（展開の結果）
-            if let AstNode::Block { statements, .. } = outer_body.as_ref() {
-                // 内側ループが展開されて、代入文 + 4つの展開文が含まれるはず
-                println!("Statements count: {}", statements.len());
+            // メインループを確認
+            if let AstNode::Range {
+                step,
+                body: outer_body,
+                ..
+            } = &statements[0]
+            {
+                // ステップが4であることを確認（タイル化の結果）
                 assert!(
-                    statements.len() >= 4,
-                    "Should have at least 4 statements after inlining, got {}",
-                    statements.len()
+                    matches!(step.as_ref(), AstNode::Const(crate::ast::Literal::Int(4))),
+                    "Outer loop step should be 4"
                 );
+
+                // 本体がBlockで、複数の文を含むことを確認（展開の結果）
+                if let AstNode::Block {
+                    statements: body_stmts,
+                    ..
+                } = outer_body.as_ref()
+                {
+                    // 内側ループが展開されて、代入文 + 4つの展開文が含まれるはず
+                    println!("Statements count in main loop body: {}", body_stmts.len());
+                    assert!(
+                        body_stmts.len() >= 4,
+                        "Should have at least 4 statements after inlining, got {}",
+                        body_stmts.len()
+                    );
+                } else {
+                    panic!("Expected Block body after inlining");
+                }
             } else {
-                panic!("Expected Block body after inlining");
+                panic!("Expected Range node for main loop");
             }
         } else {
-            panic!("Expected Range node as outer structure");
+            panic!("Expected Block node (main loop + remainder loop)");
         }
     }
 }

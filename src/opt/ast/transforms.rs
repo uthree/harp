@@ -4,7 +4,7 @@
 
 use crate::ast::{
     AstNode, DType, Literal, Mutability, Scope,
-    helper::{assign, const_int, empty_block, range, var as helper_var},
+    helper::{assign, const_int, empty_block, idiv, range, var as helper_var},
 };
 use std::collections::HashSet;
 
@@ -272,6 +272,11 @@ pub fn inline_small_loop(loop_node: &AstNode, max_iterations: usize) -> Option<A
 ///   body(ridx0)
 /// }
 /// ```
+///
+/// # 備考
+/// - stopが変数の場合でもタイル化可能
+/// - aligned_stop = (stop / tile_size) * tile_size は計算式ノードとして生成される
+/// - 端数処理ループは常に生成される（定数畳み込み最適化で後から削除される可能性あり）
 pub fn tile_loop(loop_node: &AstNode, tile_size: usize) -> Option<AstNode> {
     if tile_size <= 1 {
         return None; // タイル化しない
@@ -299,22 +304,7 @@ pub fn tile_loop(loop_node: &AstNode, tile_size: usize) -> Option<AstNode> {
                 return None;
             }
 
-            // stopが定数の場合のみタイル化可能（簡易実装）
-            // これによりタイル化後のRangeノードのstopフィールドが必ず定数になる
-            let stop_val = match stop.as_ref() {
-                AstNode::Const(Literal::Int(v)) if *v >= 0 => *v as usize,
-                _ => {
-                    log::trace!("Skipping tiling for loop with non-constant stop: {}", var);
-                    return None;
-                }
-            };
-
-            log::debug!(
-                "Tiling loop: {} with tile_size: {}, stop_val: {}",
-                var,
-                tile_size,
-                stop_val
-            );
+            log::debug!("Tiling loop: {} with tile_size: {}", var, tile_size);
 
             // 既存変数名を収集し、衝突しない連番を取得
             let used_names = collect_var_names(loop_node);
@@ -348,60 +338,47 @@ pub fn tile_loop(loop_node: &AstNode, tile_size: usize) -> Option<AstNode> {
                 inner_body,
             );
 
-            // メインループの終了値: (stop_val / tile_size) * tile_size
-            // stopが定数であることが保証されているので、main_stopも常に定数
-            let aligned_stop = (stop_val / tile_size) * tile_size;
-            let main_stop = const_int(aligned_stop as isize);
+            // メインループの終了値: (stop / tile_size) * tile_size
+            // 計算式ノードとして生成（最適化で定数畳み込みされる可能性あり）
+            let tile_size_node = const_int(tile_size as isize);
+            let aligned_stop = idiv(stop.as_ref().clone(), tile_size_node.clone()) * tile_size_node;
 
-            // 外側ループ: for outer_var in start..main_stop step tile_size
+            // 外側ループ: for outer_var in start..aligned_stop step tile_size
             let outer_loop = range(
                 outer_var.clone(),
                 start.as_ref().clone(),
                 const_int(tile_size as isize),
-                main_stop.clone(),
+                aligned_stop.clone(),
                 inner_loop,
             );
 
-            // 端数が0の場合（割り切れる場合）は端数ループを生成しない
-            let remainder_count = stop_val - aligned_stop;
-            if remainder_count == 0 {
-                log::trace!(
-                    "No remainder loop needed for {} (stop_val {} is divisible by tile_size {})",
-                    var,
-                    stop_val,
-                    tile_size
-                );
-                // メインループのみを返す
-                Some(outer_loop)
-            } else {
-                // 端数処理ループ: for remainder_var in main_stop..stop step 1
-                // ループ本体の中で元の変数名を使うため、代入を追加
-                let remainder_assign = assign(var.clone(), helper_var(remainder_var.clone()));
+            // 端数処理ループ: for remainder_var in aligned_stop..stop step 1
+            // ループ本体の中で元の変数名を使うため、代入を追加
+            let remainder_assign = assign(var.clone(), helper_var(remainder_var.clone()));
 
-                // 端数ループでも元のループ変数をスコープに宣言
-                let mut remainder_scope = Scope::new();
-                remainder_scope
-                    .declare(var.clone(), DType::Int, Mutability::Mutable)
-                    .expect("Failed to declare loop variable in remainder scope");
+            // 端数ループでも元のループ変数をスコープに宣言
+            let mut remainder_scope = Scope::new();
+            remainder_scope
+                .declare(var.clone(), DType::Int, Mutability::Mutable)
+                .expect("Failed to declare loop variable in remainder scope");
 
-                let remainder_body = AstNode::Block {
-                    statements: vec![remainder_assign, body.as_ref().clone()],
-                    scope: Box::new(remainder_scope),
-                };
-                let remainder_loop = range(
-                    remainder_var,
-                    main_stop,
-                    step.as_ref().clone(),
-                    stop.as_ref().clone(),
-                    remainder_body,
-                );
+            let remainder_body = AstNode::Block {
+                statements: vec![remainder_assign, body.as_ref().clone()],
+                scope: Box::new(remainder_scope),
+            };
+            let remainder_loop = range(
+                remainder_var,
+                aligned_stop,
+                step.as_ref().clone(),
+                stop.as_ref().clone(),
+                remainder_body,
+            );
 
-                // メインループと端数処理ループを含むBlock
-                Some(AstNode::Block {
-                    statements: vec![outer_loop, remainder_loop],
-                    scope: Box::new(Scope::new()),
-                })
-            }
+            // メインループと端数処理ループを含むBlock
+            Some(AstNode::Block {
+                statements: vec![outer_loop, remainder_loop],
+                scope: Box::new(Scope::new()),
+            })
         }
         _ => None, // Rangeノードでない場合は変換不可
     }
@@ -780,7 +757,7 @@ mod tests {
     #[test]
     fn test_tile_loop_simple() {
         // for i in 0..16 step 1 { Store(ptr, i, i) }
-        // 16は4で割り切れるので、端数ループは生成されない
+        // 常にメインループ + 端数ループのBlockが返される
         let body = Box::new(AstNode::Store {
             ptr: Box::new(AstNode::Var("ptr".to_string())),
             offset: Box::new(AstNode::Var("i".to_string())),
@@ -798,22 +775,32 @@ mod tests {
         let tiled = tile_loop(&original_loop, 4);
         assert!(tiled.is_some());
 
-        // 16は4で割り切れるので、メインループ（外側ループ）のみが返される
-        if let Some(AstNode::Range {
-            var,
-            step,
-            body: outer_body,
-            ..
-        }) = tiled
-        {
-            // 変数名はridxN形式（既存変数と衝突しない連番）
-            assert!(var.starts_with("ridx"), "Expected ridxN, got {}", var);
-            assert_eq!(*step, AstNode::Const(Literal::Int(4))); // tile_size
+        // メインループ + 端数ループを含むBlockが返される
+        if let Some(AstNode::Block { statements, .. }) = tiled {
+            assert_eq!(statements.len(), 2);
 
-            // 内側ループが存在するか確認
-            assert!(matches!(outer_body.as_ref(), AstNode::Range { .. }));
+            // メインループ（外側ループ）を確認
+            if let AstNode::Range {
+                var,
+                step,
+                body: outer_body,
+                ..
+            } = &statements[0]
+            {
+                // 変数名はridxN形式（既存変数と衝突しない連番）
+                assert!(var.starts_with("ridx"), "Expected ridxN, got {}", var);
+                assert_eq!(**step, AstNode::Const(Literal::Int(4))); // tile_size
+
+                // 内側ループが存在するか確認
+                assert!(matches!(outer_body.as_ref(), AstNode::Range { .. }));
+            } else {
+                panic!("Expected Range node for main loop");
+            }
+
+            // 端数ループが存在することを確認
+            assert!(matches!(statements[1], AstNode::Range { .. }));
         } else {
-            panic!("Expected Range node (no remainder loop for divisible case)");
+            panic!("Expected Block node");
         }
     }
 
@@ -884,7 +871,6 @@ mod tests {
     fn test_tile_loop_declares_original_variable() {
         // 元のループ変数がタイル化後のスコープに宣言されていることを確認
         // for ridx2 in 0..1024 step 1 { body }
-        // 1024は128で割り切れるので端数ループは生成されない
         let body = Box::new(AstNode::Var("acc".to_string()));
 
         let original_loop = AstNode::Range {
@@ -898,33 +884,40 @@ mod tests {
         let tiled = tile_loop(&original_loop, 128);
         assert!(tiled.is_some());
 
-        // 1024は128で割り切れるので、メインループ（外側ループ）のみが返される
-        if let Some(AstNode::Range {
-            body: outer_body, ..
-        }) = tiled
-        {
-            // 内側ループを取得
+        // メインループ + 端数ループを含むBlockが返される
+        if let Some(AstNode::Block { statements, .. }) = tiled {
+            assert_eq!(statements.len(), 2);
+
+            // メインループ（外側ループ）を確認
             if let AstNode::Range {
-                body: inner_body, ..
-            } = outer_body.as_ref()
+                body: outer_body, ..
+            } = &statements[0]
             {
-                // 内側ループの本体（Block）を取得
-                if let AstNode::Block { scope, .. } = inner_body.as_ref() {
-                    // スコープに ridx2 が宣言されていることを確認
-                    let ridx2_decl = scope.get("ridx2");
-                    assert!(
-                        ridx2_decl.is_some(),
-                        "Original loop variable 'ridx2' should be declared in inner body scope"
-                    );
-                    assert_eq!(ridx2_decl.unwrap().dtype, DType::Int);
+                // 内側ループを取得
+                if let AstNode::Range {
+                    body: inner_body, ..
+                } = outer_body.as_ref()
+                {
+                    // 内側ループの本体（Block）を取得
+                    if let AstNode::Block { scope, .. } = inner_body.as_ref() {
+                        // スコープに ridx2 が宣言されていることを確認
+                        let ridx2_decl = scope.get("ridx2");
+                        assert!(
+                            ridx2_decl.is_some(),
+                            "Original loop variable 'ridx2' should be declared in inner body scope"
+                        );
+                        assert_eq!(ridx2_decl.unwrap().dtype, DType::Int);
+                    } else {
+                        panic!("Expected Block node for inner body");
+                    }
                 } else {
-                    panic!("Expected Block node for inner body");
+                    panic!("Expected Range node for inner loop");
                 }
             } else {
-                panic!("Expected Range node for inner loop");
+                panic!("Expected Range node for main loop");
             }
         } else {
-            panic!("Expected Range node (no remainder for divisible case)");
+            panic!("Expected Block node");
         }
     }
 
@@ -969,6 +962,72 @@ mod tests {
             }
         } else {
             panic!("Expected Block node for non-divisible case");
+        }
+    }
+
+    #[test]
+    fn test_tile_loop_variable_stop() {
+        // for i in 0..N step 1 { body } (Nは変数)
+        // stopが変数でもタイル化可能なことを確認
+        let body = Box::new(AstNode::Var("x".to_string()));
+
+        let original_loop = AstNode::Range {
+            var: "i".to_string(),
+            start: Box::new(AstNode::Const(Literal::Int(0))),
+            step: Box::new(AstNode::Const(Literal::Int(1))),
+            stop: Box::new(AstNode::Var("N".to_string())), // 変数
+            body,
+        };
+
+        let tiled = tile_loop(&original_loop, 4);
+        assert!(
+            tiled.is_some(),
+            "Should be able to tile loop with variable stop"
+        );
+
+        // メインループ + 端数ループを含むBlockが返される
+        if let Some(AstNode::Block { statements, .. }) = tiled {
+            assert_eq!(statements.len(), 2);
+
+            // メインループを確認
+            if let AstNode::Range { stop, step, .. } = &statements[0] {
+                // stepはタイルサイズ
+                assert_eq!(**step, AstNode::Const(Literal::Int(4)));
+
+                // stopは (N / 4) * 4 の計算式ノード
+                // Mul(Idiv(Var("N"), Const(4)), Const(4))
+                if let AstNode::Mul(lhs, rhs) = stop.as_ref() {
+                    assert!(
+                        matches!(lhs.as_ref(), AstNode::Idiv(_, _)),
+                        "Expected Idiv node in stop expression"
+                    );
+                    assert_eq!(**rhs, AstNode::Const(Literal::Int(4)));
+                } else {
+                    panic!("Expected Mul node for aligned_stop, got {:?}", stop);
+                }
+            } else {
+                panic!("Expected Range node for main loop");
+            }
+
+            // 端数ループを確認
+            if let AstNode::Range {
+                start: rem_start,
+                stop: rem_stop,
+                ..
+            } = &statements[1]
+            {
+                // startはaligned_stop (計算式ノード)
+                assert!(
+                    matches!(rem_start.as_ref(), AstNode::Mul(_, _)),
+                    "Expected Mul node for remainder start"
+                );
+                // stopは元のN
+                assert_eq!(**rem_stop, AstNode::Var("N".to_string()));
+            } else {
+                panic!("Expected Range node for remainder loop");
+            }
+        } else {
+            panic!("Expected Block node");
         }
     }
 
