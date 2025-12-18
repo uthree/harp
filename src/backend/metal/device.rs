@@ -38,13 +38,19 @@ pub struct MetalDevice {
 }
 
 impl Device for MetalDevice {
-    type Error = MetalError;
+    fn is_available() -> bool {
+        MtlDevice::system_default().is_some()
+    }
+}
 
-    fn new() -> Result<Self, Self::Error> {
+impl MetalDevice {
+    /// Create a new context using the default device
+    pub fn new() -> Result<Self, MetalError> {
         Self::with_device(0)
     }
 
-    fn with_device(device_index: usize) -> Result<Self, Self::Error> {
+    /// Create a new context for a specific device index
+    pub fn with_device(device_index: usize) -> Result<Self, MetalError> {
         // Get all devices
         let devices = MtlDevice::all();
         if devices.is_empty() {
@@ -69,16 +75,11 @@ impl Device for MetalDevice {
         })
     }
 
-    fn is_available() -> bool {
-        MtlDevice::system_default().is_some()
-    }
-
-    fn device_name(&self) -> String {
+    /// Get the device name
+    pub fn device_name(&self) -> String {
         self.device.name().to_string()
     }
-}
 
-impl MetalDevice {
     /// Get the Metal device
     pub fn device(&self) -> &MtlDevice {
         &self.device

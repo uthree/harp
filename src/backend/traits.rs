@@ -6,25 +6,14 @@
 use crate::ast::DType;
 use std::collections::HashMap;
 
-/// GPU execution context
+/// GPU device marker trait
 ///
-/// Represents an initialized GPU device and its associated resources.
-/// This includes platform/device selection, command queues, and other
-/// backend-specific state.
-pub trait Device: Sized + Send + Sync {
-    type Error: std::error::Error + Send + Sync + 'static;
-
-    /// Create a new context using the default device
-    fn new() -> Result<Self, Self::Error>;
-
-    /// Create a new context for a specific device index
-    fn with_device(device_index: usize) -> Result<Self, Self::Error>;
-
+/// Marks types that represent a GPU device context.
+/// Concrete implementations provide their own methods for device
+/// creation and management as inherent methods.
+pub trait Device {
     /// Check if this backend is available on the current system
     fn is_available() -> bool;
-
-    /// Get the device name
-    fn device_name(&self) -> String;
 }
 
 /// GPU buffer

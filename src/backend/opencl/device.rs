@@ -46,13 +46,19 @@ pub struct OpenCLDevice {
 }
 
 impl Device for OpenCLDevice {
-    type Error = OpenCLError;
+    fn is_available() -> bool {
+        !Platform::list().is_empty()
+    }
+}
 
-    fn new() -> Result<Self, Self::Error> {
+impl OpenCLDevice {
+    /// Create a new context using the default device
+    pub fn new() -> Result<Self, OpenCLError> {
         Self::with_device(0)
     }
 
-    fn with_device(device_index: usize) -> Result<Self, Self::Error> {
+    /// Create a new context for a specific device index
+    pub fn with_device(device_index: usize) -> Result<Self, OpenCLError> {
         // Get default platform
         let platform = Platform::default();
 
@@ -88,16 +94,11 @@ impl Device for OpenCLDevice {
         })
     }
 
-    fn is_available() -> bool {
-        !Platform::list().is_empty()
-    }
-
-    fn device_name(&self) -> String {
+    /// Get the device name
+    pub fn device_name(&self) -> String {
         self.device.name().unwrap_or_else(|_| "Unknown".to_string())
     }
-}
 
-impl OpenCLDevice {
     /// Get the OpenCL platform
     pub fn platform(&self) -> Platform {
         self.platform
