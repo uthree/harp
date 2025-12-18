@@ -1,7 +1,7 @@
-//! Metal native context
+//! Metal native device
 
-use crate::backend::traits::Context;
-use metal::{CommandQueue, Device};
+use crate::backend::traits::Device;
+use metal::{CommandQueue, Device as MtlDevice};
 use std::sync::Arc;
 
 /// Error type for Metal native operations
@@ -28,16 +28,16 @@ impl From<&str> for MetalError {
     }
 }
 
-/// Metal native context
+/// Metal native device
 ///
 /// Holds the Metal device and command queue.
 #[derive(Clone)]
-pub struct MetalContext {
-    pub(crate) device: Device,
+pub struct MetalDevice {
+    pub(crate) device: MtlDevice,
     pub(crate) command_queue: Arc<CommandQueue>,
 }
 
-impl Context for MetalContext {
+impl Device for MetalDevice {
     type Error = MetalError;
 
     fn new() -> Result<Self, Self::Error> {
@@ -46,7 +46,7 @@ impl Context for MetalContext {
 
     fn with_device(device_index: usize) -> Result<Self, Self::Error> {
         // Get all devices
-        let devices = Device::all();
+        let devices = MtlDevice::all();
         if devices.is_empty() {
             return Err("No Metal devices found".into());
         }
@@ -70,7 +70,7 @@ impl Context for MetalContext {
     }
 
     fn is_available() -> bool {
-        Device::system_default().is_some()
+        MtlDevice::system_default().is_some()
     }
 
     fn device_name(&self) -> String {
@@ -78,9 +78,9 @@ impl Context for MetalContext {
     }
 }
 
-impl MetalContext {
+impl MetalDevice {
     /// Get the Metal device
-    pub fn device(&self) -> &Device {
+    pub fn device(&self) -> &MtlDevice {
         &self.device
     }
 
@@ -91,12 +91,15 @@ impl MetalContext {
 
     /// List all available Metal devices
     pub fn list_devices() -> Vec<String> {
-        Device::all().iter().map(|d| d.name().to_string()).collect()
+        MtlDevice::all()
+            .iter()
+            .map(|d| d.name().to_string())
+            .collect()
     }
 
-    /// Create a context using the system default device
+    /// Create a device using the system default device
     pub fn system_default() -> Result<Self, MetalError> {
-        let device = Device::system_default()
+        let device = MtlDevice::system_default()
             .ok_or_else(|| MetalError::from("No default Metal device found"))?;
 
         let command_queue = device.new_command_queue();
@@ -109,8 +112,8 @@ impl MetalContext {
 }
 
 // Safety: Metal device and command queue are thread-safe
-unsafe impl Send for MetalContext {}
-unsafe impl Sync for MetalContext {}
+unsafe impl Send for MetalDevice {}
+unsafe impl Sync for MetalDevice {}
 
 #[cfg(test)]
 mod tests {
@@ -118,18 +121,18 @@ mod tests {
 
     #[test]
     fn test_metal_is_available() {
-        let available = MetalContext::is_available();
+        let available = MetalDevice::is_available();
         println!("Metal available: {}", available);
     }
 
     #[test]
     fn test_metal_context_creation() {
-        if !MetalContext::is_available() {
+        if !MetalDevice::is_available() {
             println!("Metal not available, skipping test");
             return;
         }
 
-        let context = MetalContext::new();
+        let context = MetalDevice::new();
         assert!(
             context.is_ok(),
             "Failed to create context: {:?}",
@@ -142,12 +145,12 @@ mod tests {
 
     #[test]
     fn test_metal_list_devices() {
-        if !MetalContext::is_available() {
+        if !MetalDevice::is_available() {
             println!("Metal not available, skipping test");
             return;
         }
 
-        let devices = MetalContext::list_devices();
+        let devices = MetalDevice::list_devices();
         println!("Available Metal devices: {:?}", devices);
         assert!(!devices.is_empty());
     }

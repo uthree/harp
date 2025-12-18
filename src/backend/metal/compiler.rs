@@ -1,6 +1,6 @@
 //! Metal native compiler
 
-use super::context::{MetalContext, MetalError};
+use super::device::{MetalDevice, MetalError};
 use super::kernel::MetalKernel;
 use crate::backend::traits::{Compiler, KernelConfig};
 use metal::CompileOptions;
@@ -12,7 +12,7 @@ use std::sync::Arc;
 pub struct MetalCompiler;
 
 impl Compiler for MetalCompiler {
-    type Context = MetalContext;
+    type Dev = MetalDevice;
     type Kernel = MetalKernel;
     type Error = MetalError;
 
@@ -22,13 +22,13 @@ impl Compiler for MetalCompiler {
 
     fn compile(
         &self,
-        context: &Self::Context,
+        device: &Self::Dev,
         source: &str,
         config: KernelConfig,
     ) -> Result<Self::Kernel, Self::Error> {
         // Compile the shader source
         let options = CompileOptions::new();
-        let library = context
+        let library = device
             .device()
             .new_library_with_source(source, &options)
             .map_err(|e| MetalError::from(format!("Failed to compile Metal shader: {}", e)))?;
@@ -44,14 +44,14 @@ impl Compiler for MetalCompiler {
             })?;
 
         // Create compute pipeline state
-        let pipeline = context
+        let pipeline = device
             .device()
             .new_compute_pipeline_state_with_function(&function)
             .map_err(|e| MetalError::from(format!("Failed to create compute pipeline: {}", e)))?;
 
         Ok(MetalKernel::new(
             pipeline,
-            Arc::clone(&context.command_queue),
+            Arc::clone(&device.command_queue),
             config,
         ))
     }
@@ -61,13 +61,13 @@ impl MetalCompiler {
     /// Compile with custom compile options
     pub fn compile_with_options(
         &self,
-        context: &MetalContext,
+        device: &MetalDevice,
         source: &str,
         config: KernelConfig,
         options: &CompileOptions,
     ) -> Result<MetalKernel, MetalError> {
         // Compile the shader source with custom options
-        let library = context
+        let library = device
             .device()
             .new_library_with_source(source, options)
             .map_err(|e| MetalError::from(format!("Failed to compile Metal shader: {}", e)))?;
@@ -83,14 +83,14 @@ impl MetalCompiler {
             })?;
 
         // Create compute pipeline state
-        let pipeline = context
+        let pipeline = device
             .device()
             .new_compute_pipeline_state_with_function(&function)
             .map_err(|e| MetalError::from(format!("Failed to create compute pipeline: {}", e)))?;
 
         Ok(MetalKernel::new(
             pipeline,
-            Arc::clone(&context.command_queue),
+            Arc::clone(&device.command_queue),
             config,
         ))
     }
@@ -101,16 +101,16 @@ mod tests {
     use super::*;
     use crate::ast::DType;
     use crate::backend::metal::MetalBuffer;
-    use crate::backend::traits::{Buffer, Context};
+    use crate::backend::traits::{Buffer, Device};
 
     #[test]
     fn test_metal_simple_kernel() {
-        if !MetalContext::is_available() {
+        if !MetalDevice::is_available() {
             println!("Metal not available, skipping test");
             return;
         }
 
-        let context = MetalContext::new().unwrap();
+        let context = MetalDevice::new().unwrap();
         let compiler = MetalCompiler::new();
 
         // Simple kernel that adds two arrays
@@ -161,12 +161,12 @@ mod tests {
 
     #[test]
     fn test_metal_matrix_multiply() {
-        if !MetalContext::is_available() {
+        if !MetalDevice::is_available() {
             println!("Metal not available, skipping test");
             return;
         }
 
-        let context = MetalContext::new().unwrap();
+        let context = MetalDevice::new().unwrap();
         let compiler = MetalCompiler::new();
 
         // Simple 2x2 matrix multiply kernel

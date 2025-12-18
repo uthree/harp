@@ -1,7 +1,7 @@
-//! OpenCL native context
+//! OpenCL native device
 
-use crate::backend::traits::Context;
-use ocl::{Context as OclContext, Device, Platform, Queue};
+use crate::backend::traits::Device;
+use ocl::{Context as OclContext, Device as OclDevice, Platform, Queue};
 use std::sync::Arc;
 
 /// Error type for OpenCL native operations
@@ -34,18 +34,18 @@ impl From<&str> for OpenCLError {
     }
 }
 
-/// OpenCL native context
+/// OpenCL native device
 ///
 /// Holds the OpenCL platform, device, context, and command queue.
 #[derive(Clone)]
-pub struct OpenCLContext {
+pub struct OpenCLDevice {
     pub(crate) platform: Platform,
-    pub(crate) device: Device,
+    pub(crate) device: OclDevice,
     pub(crate) context: Arc<OclContext>,
     pub(crate) queue: Arc<Queue>,
 }
 
-impl Context for OpenCLContext {
+impl Device for OpenCLDevice {
     type Error = OpenCLError;
 
     fn new() -> Result<Self, Self::Error> {
@@ -57,7 +57,7 @@ impl Context for OpenCLContext {
         let platform = Platform::default();
 
         // Get all devices
-        let devices = Device::list_all(platform)?;
+        let devices = OclDevice::list_all(platform)?;
         if devices.is_empty() {
             return Err("No OpenCL devices found".into());
         }
@@ -97,7 +97,7 @@ impl Context for OpenCLContext {
     }
 }
 
-impl OpenCLContext {
+impl OpenCLDevice {
     /// Get the OpenCL platform
     pub fn platform(&self) -> Platform {
         self.platform
@@ -114,14 +114,14 @@ impl OpenCLContext {
     }
 
     /// Get the OpenCL device
-    pub fn ocl_device(&self) -> Device {
+    pub fn ocl_device(&self) -> OclDevice {
         self.device
     }
 
     /// List all available devices
     pub fn list_devices() -> Result<Vec<String>, OpenCLError> {
         let platform = Platform::default();
-        let devices = Device::list_all(platform)?;
+        let devices = OclDevice::list_all(platform)?;
 
         devices
             .iter()
@@ -131,31 +131,31 @@ impl OpenCLContext {
 }
 
 // Safety: OpenCL context and queue are thread-safe
-unsafe impl Send for OpenCLContext {}
-unsafe impl Sync for OpenCLContext {}
+unsafe impl Send for OpenCLDevice {}
+unsafe impl Sync for OpenCLDevice {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ast::DType;
     use crate::backend::opencl::{OpenCLBuffer, OpenCLCompiler};
-    use crate::backend::traits::{Buffer, Compiler, Context, KernelConfig};
+    use crate::backend::traits::{Buffer, Compiler, Device, KernelConfig};
 
     #[test]
     fn test_opencl_is_available() {
         // This test just checks if OpenCL is available
-        let available = OpenCLContext::is_available();
+        let available = OpenCLDevice::is_available();
         println!("OpenCL available: {}", available);
     }
 
     #[test]
     fn test_opencl_context_creation() {
-        if !OpenCLContext::is_available() {
+        if !OpenCLDevice::is_available() {
             println!("OpenCL not available, skipping test");
             return;
         }
 
-        let context = OpenCLContext::new();
+        let context = OpenCLDevice::new();
         assert!(
             context.is_ok(),
             "Failed to create context: {:?}",
@@ -168,12 +168,12 @@ mod tests {
 
     #[test]
     fn test_opencl_buffer_allocation() {
-        if !OpenCLContext::is_available() {
+        if !OpenCLDevice::is_available() {
             println!("OpenCL not available, skipping test");
             return;
         }
 
-        let context = OpenCLContext::new().unwrap();
+        let context = OpenCLDevice::new().unwrap();
 
         // Allocate a buffer
         let shape = vec![4, 4];
@@ -192,12 +192,12 @@ mod tests {
 
     #[test]
     fn test_opencl_buffer_data_transfer() {
-        if !OpenCLContext::is_available() {
+        if !OpenCLDevice::is_available() {
             println!("OpenCL not available, skipping test");
             return;
         }
 
-        let context = OpenCLContext::new().unwrap();
+        let context = OpenCLDevice::new().unwrap();
 
         // Create a buffer and write data
         let data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
@@ -210,12 +210,12 @@ mod tests {
 
     #[test]
     fn test_opencl_simple_kernel() {
-        if !OpenCLContext::is_available() {
+        if !OpenCLDevice::is_available() {
             println!("OpenCL not available, skipping test");
             return;
         }
 
-        let context = OpenCLContext::new().unwrap();
+        let context = OpenCLDevice::new().unwrap();
         let compiler = OpenCLCompiler::new();
 
         // Simple kernel that adds two arrays

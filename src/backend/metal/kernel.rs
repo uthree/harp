@@ -1,7 +1,7 @@
 //! Metal native kernel
 
 use super::buffer::MetalBuffer;
-use super::context::MetalError;
+use super::device::MetalError;
 use crate::backend::traits::{Kernel, KernelConfig};
 use metal::{CommandQueue, ComputePipelineState, MTLSize};
 use std::sync::Arc;

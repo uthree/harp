@@ -1,6 +1,6 @@
 //! Metal native buffer
 
-use super::context::{MetalContext, MetalError};
+use super::device::{MetalDevice, MetalError};
 use crate::ast::DType;
 use crate::backend::traits::Buffer;
 use metal::{Buffer as MtlBuffer, MTLResourceOptions};
@@ -18,19 +18,15 @@ pub struct MetalBuffer {
 }
 
 impl Buffer for MetalBuffer {
-    type Context = MetalContext;
+    type Dev = MetalDevice;
     type Error = MetalError;
 
-    fn allocate(
-        context: &Self::Context,
-        shape: Vec<usize>,
-        dtype: DType,
-    ) -> Result<Self, Self::Error> {
+    fn allocate(device: &Self::Dev, shape: Vec<usize>, dtype: DType) -> Result<Self, Self::Error> {
         let element_count: usize = shape.iter().product();
         let byte_len = element_count * dtype.size_in_bytes();
 
         // Create Metal buffer with shared storage mode for CPU/GPU access
-        let buffer = context
+        let buffer = device
             .device()
             .new_buffer(byte_len as u64, MTLResourceOptions::StorageModeShared);
 
@@ -100,7 +96,7 @@ impl MetalBuffer {
 
     /// Create a buffer initialized with data from host
     pub fn from_host(
-        context: &MetalContext,
+        context: &MetalDevice,
         shape: Vec<usize>,
         dtype: DType,
         data: &[u8],
@@ -112,7 +108,7 @@ impl MetalBuffer {
 
     /// Create a buffer initialized with typed data from host
     pub fn from_vec<T>(
-        context: &MetalContext,
+        context: &MetalDevice,
         shape: Vec<usize>,
         dtype: DType,
         data: &[T],
@@ -130,16 +126,16 @@ unsafe impl Sync for MetalBuffer {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::traits::Context;
+    use crate::backend::traits::Device;
 
     #[test]
     fn test_metal_buffer_allocation() {
-        if !MetalContext::is_available() {
+        if !MetalDevice::is_available() {
             println!("Metal not available, skipping test");
             return;
         }
 
-        let context = MetalContext::new().unwrap();
+        let context = MetalDevice::new().unwrap();
 
         // Allocate a buffer
         let shape = vec![4, 4];
@@ -158,12 +154,12 @@ mod tests {
 
     #[test]
     fn test_metal_buffer_data_transfer() {
-        if !MetalContext::is_available() {
+        if !MetalDevice::is_available() {
             println!("Metal not available, skipping test");
             return;
         }
 
-        let context = MetalContext::new().unwrap();
+        let context = MetalDevice::new().unwrap();
 
         // Create a buffer and write data
         let data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];

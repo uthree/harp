@@ -222,7 +222,7 @@ where
     /// * `Err(error)` if any kernel execution fails
     pub fn execute(
         &self,
-        context: &B::Context,
+        context: &B::Dev,
         inputs: &HashMap<String, &B>,
         outputs: &mut HashMap<String, &mut B>,
     ) -> Result<(), ProgramExecutionError<K::Error, B::Error>> {
@@ -309,7 +309,7 @@ where
     /// with straightforward input/output ordering.
     pub fn execute_positional(
         &self,
-        context: &B::Context,
+        context: &B::Dev,
         inputs: &[&B],
         outputs: &mut [&mut B],
     ) -> Result<(), ProgramExecutionError<K::Error, B::Error>> {

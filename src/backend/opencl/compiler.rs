@@ -1,6 +1,6 @@
 //! OpenCL native compiler
 
-use super::context::{OpenCLContext, OpenCLError};
+use super::device::{OpenCLDevice, OpenCLError};
 use super::kernel::OpenCLKernel;
 use crate::backend::traits::{Compiler, KernelConfig};
 use ocl::Program;
@@ -12,7 +12,7 @@ use std::sync::Arc;
 pub struct OpenCLCompiler;
 
 impl Compiler for OpenCLCompiler {
-    type Context = OpenCLContext;
+    type Dev = OpenCLDevice;
     type Kernel = OpenCLKernel;
     type Error = OpenCLError;
 
@@ -22,19 +22,19 @@ impl Compiler for OpenCLCompiler {
 
     fn compile(
         &self,
-        context: &Self::Context,
+        device: &Self::Dev,
         source: &str,
         config: KernelConfig,
     ) -> Result<Self::Kernel, Self::Error> {
         // Build program from source
         let program = Program::builder()
             .src(source)
-            .devices(context.ocl_device())
-            .build(context.ocl_context())?;
+            .devices(device.ocl_device())
+            .build(device.ocl_context())?;
 
         Ok(OpenCLKernel::new(
             program,
-            Arc::clone(&context.queue),
+            Arc::clone(&device.queue),
             config,
         ))
     }
@@ -44,7 +44,7 @@ impl OpenCLCompiler {
     /// Compile with build options
     pub fn compile_with_options(
         &self,
-        context: &OpenCLContext,
+        context: &OpenCLDevice,
         source: &str,
         config: KernelConfig,
         build_options: &str,

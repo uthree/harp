@@ -1,7 +1,7 @@
 //! OpenCL native kernel
 
 use super::buffer::OpenCLBuffer;
-use super::context::OpenCLError;
+use super::device::OpenCLError;
 use crate::backend::traits::{Kernel, KernelConfig};
 use ocl::{Kernel as OclKernel, Program, Queue};
 use std::sync::Arc;

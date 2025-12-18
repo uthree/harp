@@ -3,6 +3,7 @@
 pub mod ast;
 
 use ast::*;
+use harp::graph::DType;
 use pest::Parser;
 use pest_derive::Parser;
 
@@ -187,13 +188,13 @@ fn parse_param(pair: pest::iterators::Pair<Rule>) -> Result<DslParam, DslError> 
 
 fn parse_tensor_type(
     pair: pest::iterators::Pair<Rule>,
-) -> Result<(DslDType, Vec<ShapeExpr>), DslError> {
+) -> Result<(DType, Vec<ShapeExpr>), DslError> {
     let mut inner = pair.into_inner();
     let dtype_pair = inner.next().unwrap();
     let dtype = match dtype_pair.as_str() {
-        "f32" => DslDType::F32,
-        "i32" => DslDType::I32,
-        "bool" => DslDType::Bool,
+        "f32" => DType::F32,
+        "i32" => DType::I32,
+        "bool" => DType::Bool,
         _ => {
             return Err(DslError::ParseError {
                 line: 0,
@@ -832,7 +833,7 @@ mod tests {
         assert_eq!(module.graphs.len(), 1);
         assert_eq!(module.graphs[0].outputs.len(), 1);
         assert_eq!(module.graphs[0].outputs[0].name, "output");
-        assert_eq!(module.graphs[0].outputs[0].dtype, DslDType::F32);
+        assert_eq!(module.graphs[0].outputs[0].dtype, DType::F32);
     }
 
     #[test]

@@ -45,15 +45,15 @@ fn create_complex_graph() -> Graph {
 mod opencl_tests {
     use super::*;
     use harp::ast::DType as AstDType;
-    use harp::backend::opencl::{OpenCLBuffer, OpenCLCompiler, OpenCLContext, OpenCLRenderer};
-    use harp::backend::{Buffer, Compiler, Context, Pipeline};
+    use harp::backend::opencl::{OpenCLBuffer, OpenCLCompiler, OpenCLDevice, OpenCLRenderer};
+    use harp::backend::{Buffer, Compiler, Device, Pipeline};
 
-    fn skip_if_unavailable() -> Option<OpenCLContext> {
-        if !OpenCLContext::is_available() {
+    fn skip_if_unavailable() -> Option<OpenCLDevice> {
+        if !OpenCLDevice::is_available() {
             eprintln!("OpenCL not available, skipping test");
             return None;
         }
-        OpenCLContext::new().ok()
+        OpenCLDevice::new().ok()
     }
 
     #[test]
@@ -64,7 +64,7 @@ mod opencl_tests {
 
         let renderer = OpenCLRenderer::new();
         let compiler = OpenCLCompiler::new();
-        let _pipeline: Pipeline<OpenCLRenderer, OpenCLContext, OpenCLCompiler> =
+        let _pipeline: Pipeline<OpenCLRenderer, OpenCLDevice, OpenCLCompiler> =
             Pipeline::new(renderer, compiler, context);
     }
 
@@ -76,7 +76,7 @@ mod opencl_tests {
 
         let renderer = OpenCLRenderer::new();
         let compiler = OpenCLCompiler::new();
-        let mut pipeline: Pipeline<OpenCLRenderer, OpenCLContext, OpenCLCompiler> =
+        let mut pipeline: Pipeline<OpenCLRenderer, OpenCLDevice, OpenCLCompiler> =
             Pipeline::new(renderer, compiler, context);
 
         // Compile a simple graph
@@ -147,7 +147,7 @@ mod opencl_tests {
         let renderer = OpenCLRenderer::new();
         let compiler = OpenCLCompiler::new();
         let context_clone = context.clone();
-        let mut pipeline: Pipeline<OpenCLRenderer, OpenCLContext, OpenCLCompiler> =
+        let mut pipeline: Pipeline<OpenCLRenderer, OpenCLDevice, OpenCLCompiler> =
             Pipeline::new(renderer, compiler, context);
 
         // Compile graph
@@ -208,7 +208,7 @@ mod opencl_tests {
 
         let renderer = OpenCLRenderer::new();
         let compiler = OpenCLCompiler::new();
-        let mut pipeline: Pipeline<OpenCLRenderer, OpenCLContext, OpenCLCompiler> =
+        let mut pipeline: Pipeline<OpenCLRenderer, OpenCLDevice, OpenCLCompiler> =
             Pipeline::new(renderer, compiler, context);
 
         // Compile complex graph
@@ -235,7 +235,7 @@ mod opencl_tests {
 
         let renderer = OpenCLRenderer::new();
         let compiler = OpenCLCompiler::new();
-        let mut pipeline: Pipeline<OpenCLRenderer, OpenCLContext, OpenCLCompiler> =
+        let mut pipeline: Pipeline<OpenCLRenderer, OpenCLDevice, OpenCLCompiler> =
             Pipeline::new(renderer, compiler, context);
 
         // Modify config
@@ -259,15 +259,15 @@ mod opencl_tests {
 mod metal_tests {
     use super::*;
     use harp::ast::DType as AstDType;
-    use harp::backend::metal::{MetalBuffer, MetalCompiler, MetalContext, MetalRenderer};
-    use harp::backend::{Buffer, Compiler, Context, Pipeline};
+    use harp::backend::metal::{MetalBuffer, MetalCompiler, MetalDevice, MetalRenderer};
+    use harp::backend::{Buffer, Compiler, Device, Pipeline};
 
-    fn skip_if_unavailable() -> Option<MetalContext> {
-        if !MetalContext::is_available() {
+    fn skip_if_unavailable() -> Option<MetalDevice> {
+        if !MetalDevice::is_available() {
             eprintln!("Metal not available, skipping test");
             return None;
         }
-        MetalContext::new().ok()
+        MetalDevice::new().ok()
     }
 
     #[test]
@@ -278,7 +278,7 @@ mod metal_tests {
 
         let renderer = MetalRenderer::new();
         let compiler = MetalCompiler::new();
-        let _pipeline: Pipeline<MetalRenderer, MetalContext, MetalCompiler> =
+        let _pipeline: Pipeline<MetalRenderer, MetalDevice, MetalCompiler> =
             Pipeline::new(renderer, compiler, context);
     }
 
@@ -290,7 +290,7 @@ mod metal_tests {
 
         let renderer = MetalRenderer::new();
         let compiler = MetalCompiler::new();
-        let mut pipeline: Pipeline<MetalRenderer, MetalContext, MetalCompiler> =
+        let mut pipeline: Pipeline<MetalRenderer, MetalDevice, MetalCompiler> =
             Pipeline::new(renderer, compiler, context);
 
         let graph = create_simple_add_graph();

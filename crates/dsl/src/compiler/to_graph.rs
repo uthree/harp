@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use harp::ast::AstNode;
 use harp::ast::helper::wildcard;
 use harp::graph::ops::{CumulativeOp, ReduceOp};
-use harp::graph::{DType, Graph, GraphNode, GraphOp, View};
+use harp::graph::{Graph, GraphNode, GraphOp, View};
 
 use crate::error::DslError;
 use crate::parser::ast::*;
@@ -120,7 +120,7 @@ fn compile_graph_with_context(
 
     // Register inputs
     for input in &dsl_graph.inputs {
-        let dtype: DType = input.dtype.into();
+        let dtype = input.dtype.clone();
         let shape: Vec<harp::graph::shape::Expr> =
             input.shape.iter().map(|s| s.to_harp_expr()).collect();
         let node = graph
@@ -197,7 +197,7 @@ fn compile_subgraph(dsl_graph: &DslGraph, ctx: &mut CompileContext) -> Result<Gr
 
     // Register inputs
     for input in &dsl_graph.inputs {
-        let dtype: DType = input.dtype.into();
+        let dtype = input.dtype.clone();
         let shape: Vec<harp::graph::shape::Expr> =
             input.shape.iter().map(|s| s.to_harp_expr()).collect();
         let node = graph
@@ -324,7 +324,7 @@ fn compile_tuple_assign(
 
             // Create the SubgraphCall node (using the first output's type for the call itself)
             let first_output = &subgraph_def.outputs[0];
-            let first_dtype: DType = first_output.dtype.into();
+            let first_dtype = first_output.dtype.clone();
             let first_shape: Vec<harp::graph::shape::Expr> = first_output
                 .shape
                 .iter()
@@ -337,7 +337,7 @@ fn compile_tuple_assign(
             // Create SubgraphOutput nodes for each output and bind them to names
             for (i, (var_name, output)) in names.iter().zip(subgraph_def.outputs.iter()).enumerate()
             {
-                let output_dtype: DType = output.dtype.into();
+                let output_dtype = output.dtype.clone();
                 let output_shape: Vec<harp::graph::shape::Expr> =
                     output.shape.iter().map(|s| s.to_harp_expr()).collect();
                 let output_view = View::contiguous(output_shape);
@@ -660,7 +660,7 @@ fn compile_subgraph_call(
     if output_count == 1 {
         // Single output: return SubgraphCall directly
         let output = &subgraph_def.outputs[0];
-        let output_dtype: DType = output.dtype.into();
+        let output_dtype = output.dtype.clone();
         let output_shape: Vec<harp::graph::shape::Expr> =
             output.shape.iter().map(|s| s.to_harp_expr()).collect();
         let output_view = View::contiguous(output_shape);
@@ -676,7 +676,7 @@ fn compile_subgraph_call(
         // For now, return the first output as the default
         // TODO: Implement proper tuple unpacking support
         let output = &subgraph_def.outputs[0];
-        let output_dtype: DType = output.dtype.into();
+        let output_dtype = output.dtype.clone();
         let output_shape: Vec<harp::graph::shape::Expr> =
             output.shape.iter().map(|s| s.to_harp_expr()).collect();
         let output_view = View::contiguous(output_shape);

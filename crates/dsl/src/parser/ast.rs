@@ -29,28 +29,10 @@ pub struct DslGraph {
 pub struct DslParam {
     /// Parameter name
     pub name: String,
-    /// Data type
-    pub dtype: DslDType,
+    /// Data type (uses harp::graph::DType directly)
+    pub dtype: DType,
     /// Shape as expressions
     pub shape: Vec<ShapeExpr>,
-}
-
-/// Data type in DSL
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DslDType {
-    F32,
-    I32,
-    Bool,
-}
-
-impl From<DslDType> for DType {
-    fn from(dtype: DslDType) -> Self {
-        match dtype {
-            DslDType::F32 => DType::F32,
-            DslDType::I32 => DType::I32,
-            DslDType::Bool => DType::Bool,
-        }
-    }
 }
 
 /// Shape expression (dimension size)

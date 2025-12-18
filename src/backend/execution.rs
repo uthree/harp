@@ -7,7 +7,7 @@ use crate::ast::{AstKernelCallInfo, AstNode, DType, Literal};
 use crate::backend::KernelSignature;
 use crate::backend::c_like::CLikeRenderer;
 use crate::backend::sequence::{CompiledProgram, IntermediateBufferSpec, KernelCallInfo};
-use crate::backend::traits::{Buffer, Compiler, Context, Kernel, KernelConfig};
+use crate::backend::traits::{Buffer, Compiler, Device, Kernel, KernelConfig};
 use crate::graph::Graph;
 use crate::graph::shape::Expr;
 use crate::opt::ast::rules::all_algebraic_rules;
@@ -81,8 +81,8 @@ pub struct OptimizationHistories {
 pub struct Pipeline<R, Ctx, Comp>
 where
     R: KernelSourceRenderer + Clone,
-    Ctx: Context,
-    Comp: Compiler<Context = Ctx>,
+    Ctx: Device,
+    Comp: Compiler<Dev = Ctx>,
 {
     renderer: R,
     compiler: Comp,
@@ -97,9 +97,9 @@ where
 impl<R, Ctx, Comp, Buf> Pipeline<R, Ctx, Comp>
 where
     R: KernelSourceRenderer + Clone,
-    Ctx: Context,
-    Buf: Buffer<Context = Ctx>,
-    Comp: Compiler<Context = Ctx>,
+    Ctx: Device,
+    Buf: Buffer<Dev = Ctx>,
+    Comp: Compiler<Dev = Ctx>,
     Comp::Kernel: Kernel<Buffer = Buf> + Clone,
 {
     /// Create a new pipeline

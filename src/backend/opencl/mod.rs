@@ -11,7 +11,7 @@ mod buffer;
 #[cfg(feature = "opencl")]
 mod compiler;
 #[cfg(feature = "opencl")]
-mod context;
+mod device;
 #[cfg(feature = "opencl")]
 mod kernel;
 
@@ -23,7 +23,7 @@ pub use buffer::OpenCLBuffer;
 #[cfg(feature = "opencl")]
 pub use compiler::OpenCLCompiler;
 #[cfg(feature = "opencl")]
-pub use context::{OpenCLContext, OpenCLError};
+pub use device::{OpenCLDevice, OpenCLError};
 #[cfg(feature = "opencl")]
 pub use kernel::OpenCLKernel;
 

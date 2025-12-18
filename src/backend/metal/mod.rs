@@ -11,7 +11,7 @@ mod buffer;
 #[cfg(all(feature = "metal", target_os = "macos"))]
 mod compiler;
 #[cfg(all(feature = "metal", target_os = "macos"))]
-mod context;
+mod device;
 #[cfg(all(feature = "metal", target_os = "macos"))]
 mod kernel;
 
@@ -23,7 +23,7 @@ pub use buffer::MetalBuffer;
 #[cfg(all(feature = "metal", target_os = "macos"))]
 pub use compiler::MetalCompiler;
 #[cfg(all(feature = "metal", target_os = "macos"))]
-pub use context::{MetalContext, MetalError};
+pub use device::{MetalDevice, MetalError};
 #[cfg(all(feature = "metal", target_os = "macos"))]
 pub use kernel::MetalKernel;
 

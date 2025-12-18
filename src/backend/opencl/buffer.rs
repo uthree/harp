@@ -1,6 +1,6 @@
 //! OpenCL native buffer
 
-use super::context::{OpenCLContext, OpenCLError};
+use super::device::{OpenCLDevice, OpenCLError};
 use crate::ast::DType;
 use crate::backend::traits::Buffer;
 use ocl::{Buffer as OclBuffer, Queue, flags};
@@ -19,27 +19,23 @@ pub struct OpenCLBuffer {
 }
 
 impl Buffer for OpenCLBuffer {
-    type Context = OpenCLContext;
+    type Dev = OpenCLDevice;
     type Error = OpenCLError;
 
-    fn allocate(
-        context: &Self::Context,
-        shape: Vec<usize>,
-        dtype: DType,
-    ) -> Result<Self, Self::Error> {
+    fn allocate(device: &Self::Dev, shape: Vec<usize>, dtype: DType) -> Result<Self, Self::Error> {
         let element_count: usize = shape.iter().product();
         let byte_len = element_count * dtype.size_in_bytes();
 
         // Create OpenCL buffer
         let buffer = OclBuffer::<u8>::builder()
-            .queue((*context.queue).clone())
+            .queue((*device.queue).clone())
             .flags(flags::MEM_READ_WRITE)
             .len(byte_len)
             .build()?;
 
         Ok(Self {
             buffer: Arc::new(buffer),
-            queue: Arc::clone(&context.queue),
+            queue: Arc::clone(&device.queue),
             shape,
             dtype,
             byte_len,
@@ -100,7 +96,7 @@ impl OpenCLBuffer {
 
     /// Create a buffer initialized with data from host
     pub fn from_host(
-        context: &OpenCLContext,
+        context: &OpenCLDevice,
         shape: Vec<usize>,
         dtype: DType,
         data: &[u8],
@@ -112,7 +108,7 @@ impl OpenCLBuffer {
 
     /// Create a buffer initialized with typed data from host
     pub fn from_vec<T>(
-        context: &OpenCLContext,
+        context: &OpenCLDevice,
         shape: Vec<usize>,
         dtype: DType,
         data: &[T],

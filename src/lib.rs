@@ -35,7 +35,7 @@ pub use graph::{CumulativeStrategy, DType, Graph, GraphNode, ReduceStrategy};
 pub use backend::Renderer;
 
 // Re-export backend traits
-pub use backend::{Buffer, Compiler, Context, Kernel, KernelConfig, Pipeline};
+pub use backend::{Buffer, Compiler, Device, Kernel, KernelConfig, Pipeline};
 
 // Re-export lowerer
 pub use lowerer::{create_lowering_optimizer, create_signature, create_simple_lowering_optimizer};
@@ -61,7 +61,7 @@ pub mod prelude {
 
     // Backend traits
     pub use crate::backend::{
-        Buffer, BufferSignature, Compiler, Context, Kernel, KernelSignature, Pipeline, Renderer,
+        Buffer, BufferSignature, Compiler, Device, Kernel, KernelSignature, Pipeline, Renderer,
     };
 
     // Lowerer

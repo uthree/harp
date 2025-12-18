@@ -11,7 +11,7 @@ use std::collections::HashMap;
 /// Represents an initialized GPU device and its associated resources.
 /// This includes platform/device selection, command queues, and other
 /// backend-specific state.
-pub trait Context: Sized + Send + Sync {
+pub trait Device: Sized + Send + Sync {
     type Error: std::error::Error + Send + Sync + 'static;
 
     /// Create a new context using the default device
@@ -31,15 +31,11 @@ pub trait Context: Sized + Send + Sync {
 ///
 /// Represents a memory buffer on the GPU device.
 pub trait Buffer: Sized + Clone + Send + Sync {
-    type Context: Context;
+    type Dev: Device;
     type Error: std::error::Error + Send + Sync + 'static;
 
     /// Allocate a new buffer on the device
-    fn allocate(
-        context: &Self::Context,
-        shape: Vec<usize>,
-        dtype: DType,
-    ) -> Result<Self, Self::Error>;
+    fn allocate(device: &Self::Dev, shape: Vec<usize>, dtype: DType) -> Result<Self, Self::Error>;
 
     /// Get the shape of the buffer
     fn shape(&self) -> &[usize];
@@ -187,7 +183,7 @@ pub trait Kernel: Sized + Clone + Send + Sync {
 ///
 /// Compiles kernel source code into executable kernels.
 pub trait Compiler: Sized {
-    type Context: Context;
+    type Dev: Device;
     type Kernel: Kernel;
     type Error: std::error::Error + Send + Sync + 'static;
 
@@ -197,7 +193,7 @@ pub trait Compiler: Sized {
     /// Compile kernel source code into an executable kernel
     fn compile(
         &self,
-        context: &Self::Context,
+        device: &Self::Dev,
         source: &str,
         config: KernelConfig,
     ) -> Result<Self::Kernel, Self::Error>;

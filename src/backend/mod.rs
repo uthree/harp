@@ -6,19 +6,19 @@
 //!
 //! The backend is organized into:
 //! - **Renderers**: Convert AST to kernel source code (OpenCL, Metal)
-//! - **Traits**: Common interfaces for GPU execution (Context, Buffer, etc.)
+//! - **Traits**: Common interfaces for GPU execution (Device, Buffer, etc.)
 //! - **Execution**: Pipeline for end-to-end compilation from Graph to executable kernel
 //!
 //! ## Usage
 //!
 //! ```ignore
-//! use harp::backend::{Pipeline, Context, Compiler};
-//! use harp::backend::opencl::{OpenCLContext, OpenCLCompiler, OpenCLRenderer};
+//! use harp::backend::{Pipeline, Device, Compiler};
+//! use harp::backend::opencl::{OpenCLDevice, OpenCLCompiler, OpenCLRenderer};
 //!
-//! let context = OpenCLContext::new()?;
+//! let device = OpenCLDevice::new()?;
 //! let renderer = OpenCLRenderer::new();
 //! let compiler = OpenCLCompiler::new();
-//! let mut pipeline = Pipeline::new(renderer, compiler, context);
+//! let mut pipeline = Pipeline::new(renderer, compiler, device);
 //!
 //! let kernel = pipeline.compile_graph(graph)?;
 //! ```
@@ -40,7 +40,7 @@ pub use metal::{MetalCode, MetalRenderer};
 pub use opencl::{OpenCLCode, OpenCLRenderer};
 
 // Re-export core traits
-pub use traits::{Buffer, Compiler, Context, Kernel, KernelConfig};
+pub use traits::{Buffer, Compiler, Device, Kernel, KernelConfig};
 
 // Re-export execution types
 pub use execution::{
