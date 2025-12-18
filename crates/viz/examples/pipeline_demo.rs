@@ -8,10 +8,9 @@ use harp::graph::{DType, Graph};
 use harp::lowerer::extract_program;
 use harp::opt::ast::rules::all_algebraic_rules;
 use harp::opt::ast::{
-    AstOptimizer, BeamSearchOptimizer as AstBeamSearchOptimizer,
-    CompositeSuggester as AstCompositeSuggester, FunctionInliningSuggester,
-    GroupParallelizationSuggester, LocalParallelizationSuggester, LoopFusionSuggester,
-    LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester, RuleBaseOptimizer,
+    BeamSearchOptimizer as AstBeamSearchOptimizer, CompositeSuggester as AstCompositeSuggester,
+    FunctionInliningSuggester, GroupParallelizationSuggester, LocalParallelizationSuggester,
+    LoopFusionSuggester, LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester,
     RuleBaseSuggester,
 };
 use harp::opt::graph::GraphOptimizer;

@@ -1251,7 +1251,7 @@ impl GraphViewerApp {
                     .show(ui, |ui| {
                         if let Some(ref graph) = self.harp_graph {
                             // グラフをDSLに変換
-                            let dsl_text = harp_dsl::decompiler::decompile(graph, "graph");
+                            let dsl_text = harp_dsl::decompiler::decompile(graph);
 
                             // クリップボードにコピーボタン
                             if ui.button("📋 Copy to Clipboard").clicked() {
@@ -1266,10 +1266,7 @@ impl GraphViewerApp {
                                 let prev_dsl =
                                     self.optimization_history.as_ref().and_then(|history| {
                                         history.get(self.current_step - 1).map(|prev_snapshot| {
-                                            harp_dsl::decompiler::decompile(
-                                                &prev_snapshot.graph,
-                                                "graph",
-                                            )
+                                            harp_dsl::decompiler::decompile(&prev_snapshot.graph)
                                         })
                                     });
 
