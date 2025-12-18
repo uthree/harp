@@ -72,7 +72,7 @@ pub struct OptimizationHistories {
 /// GPU Pipeline for kernel compilation and execution
 ///
 /// This pipeline uses GPU APIs (via `ocl` or `metal` crates) directly
-/// from Rust, eliminating the need for C host code generation and libloading.
+/// from Rust, eliminating the need for external C host code generation.
 ///
 /// # Type Parameters
 /// * `R` - Renderer type (must implement KernelSourceRenderer)

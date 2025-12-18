@@ -1746,7 +1746,6 @@ dependencies = [
  "env_logger",
  "indexmap",
  "indicatif",
- "libloading",
  "log",
  "metal",
  "ndarray",

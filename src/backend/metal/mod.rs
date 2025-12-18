@@ -30,9 +30,6 @@ pub use kernel::MetalKernel;
 // OptimizationLevelはc_likeモジュールからre-export
 pub use crate::backend::c_like::OptimizationLevel;
 
-/// libloading用のラッパー関数名（後方互換性のために残す）
-pub const LIBLOADING_WRAPPER_NAME: &str = "__harp_metal_entry";
-
 /// Metal Shading Language のソースコードを表す型
 ///
 /// newtype pattern を使用して、型システムで Metal 専用のコードとして扱う。

@@ -72,15 +72,6 @@ pub trait CLikeRenderer: Renderer {
         )
     }
 
-    /// libloading用のラッパー関数名を返す
-    fn libloading_wrapper_name(&self) -> &'static str;
-
-    /// libloading用のラッパー関数を生成
-    ///
-    /// libloadingは固定シグネチャ `void f(void** buffers)` を期待するため、
-    /// エントリーポイント関数をラップする関数を生成する。
-    fn render_libloading_wrapper(&self, entry_func: &AstNode, entry_point: &str) -> String;
-
     // ========== 共通実装（デフォルト実装） ==========
 
     /// インデント文字列を取得

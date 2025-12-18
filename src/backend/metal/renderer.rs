@@ -1,7 +1,7 @@
 use crate::ast::{AstNode, DType, Mutability, VarDecl, VarKind};
 use crate::backend::Renderer;
 use crate::backend::c_like::CLikeRenderer;
-use crate::backend::metal::{LIBLOADING_WRAPPER_NAME, MetalCode};
+use crate::backend::metal::MetalCode;
 
 // ============================================================
 // Metal共通のレンダリングヘルパー関数
@@ -98,7 +98,7 @@ fn render_math_func_metal(name: &str, args: &[String]) -> String {
 // MetalRenderer - Objective-C++ + Metal API ホストコード生成
 // ============================================================
 
-/// Metal Shading Language用のレンダラー（C++ラッパー方式）
+/// Metal Shading Language用のレンダラー
 #[derive(Clone)]
 pub struct MetalRenderer {
     indent_level: usize,
@@ -109,201 +109,16 @@ impl MetalRenderer {
         Self { indent_level: 0 }
     }
 
-    /// プログラム全体をObjective-C++ + Metal APIコードとして描画
+    /// プログラム全体をMetal Shading Languageコードとして描画
     pub fn render_program(&mut self, program: &AstNode) -> MetalCode {
-        self.render_program_with_signature(program, crate::backend::KernelSignature::empty())
-    }
-
-    /// シグネチャ付きでプログラムをレンダリング
-    ///
-    /// カーネル関数群をMetal Shading Language + ホストコードとして出力します。
-    /// カーネルの実行順序はホスト側（CompiledProgram）で管理されます。
-    ///
-    /// Note: signatureパラメータは互換性のために残されていますが、
-    /// Code型がsignatureを保持しなくなったため無視されます。
-    pub fn render_program_with_signature(
-        &mut self,
-        program: &AstNode,
-        _signature: crate::backend::KernelSignature,
-    ) -> MetalCode {
         if let AstNode::Program { functions, .. } = program {
-            let mut code = String::new();
-
-            // 1. ヘッダー
-            code.push_str(&self.render_objcpp_header());
-            code.push_str("\n\n");
-
-            // 2. Metal Shading Languageカーネルを文字列リテラルとして生成
+            // Metal Shading Languageカーネルソースを生成
             let mut kernel_renderer = MetalKernelRenderer::new();
             let kernel_source = kernel_renderer.render_kernel_source(functions);
-
-            code.push_str("// Metal Shading Language kernel source\n");
-            code.push_str("const char* METAL_KERNEL_SOURCE = R\"(\n");
-            code.push_str(&kernel_source);
-            code.push_str(")\";\n\n");
-
-            // 3. libloading用のホストコード生成（最初のカーネルをデフォルトとして使用）
-            let first_kernel_name = functions
-                .iter()
-                .find_map(|f| match f {
-                    AstNode::Kernel { name: Some(n), .. } => Some(n.clone()),
-                    _ => None,
-                })
-                .unwrap_or_else(|| "unknown_kernel".to_string());
-            code.push_str(&self.generate_host_code(&first_kernel_name, functions));
-
-            MetalCode::new(code)
+            MetalCode::new(kernel_source)
         } else {
             panic!("Expected AstNode::Program");
         }
-    }
-
-    /// Objective-C++ヘッダーを生成
-    fn render_objcpp_header(&self) -> String {
-        let mut header = String::new();
-        header.push_str("#include <Metal/Metal.h>\n");
-        header.push_str("#include <Foundation/Foundation.h>\n");
-        header.push_str("#include <stdio.h>\n");
-        header.push_str("#include <stdlib.h>\n");
-        header
-    }
-
-    /// Metal APIを使ったホストコードを生成
-    fn generate_host_code(&self, entry_point: &str, functions: &[AstNode]) -> String {
-        // エントリーポイント関数のパラメータを取得
-        let entry_func = functions.iter().find(
-            |f| matches!(f, AstNode::Function { name: Some(name), .. } if name == entry_point),
-        );
-
-        let buffer_count = if let Some(AstNode::Function { params, .. }) = entry_func {
-            params
-                .iter()
-                .filter(|p| matches!(p.kind, VarKind::Normal))
-                .count()
-        } else {
-            0
-        };
-
-        let mut code = String::new();
-
-        code.push_str("// === Metal API Host Code ===\n");
-        code.push_str("extern \"C\" {\n");
-        code.push_str(&format!(
-            "void {}(void** buffers) {{\n",
-            LIBLOADING_WRAPPER_NAME
-        ));
-        code.push_str("    @autoreleasepool {\n");
-        code.push_str("        // Initialize Metal device\n");
-        code.push_str("        id<MTLDevice> device = MTLCreateSystemDefaultDevice();\n");
-        code.push_str("        if (!device) {\n");
-        code.push_str("            fprintf(stderr, \"Failed to create Metal device\\n\");\n");
-        code.push_str("            return;\n");
-        code.push_str("        }\n\n");
-
-        code.push_str("        // Create command queue\n");
-        code.push_str("        id<MTLCommandQueue> commandQueue = [device newCommandQueue];\n\n");
-
-        code.push_str("        // Compile kernel source\n");
-        code.push_str("        NSError* error = nil;\n");
-        code.push_str("        MTLCompileOptions* options = [[MTLCompileOptions alloc] init];\n");
-        code.push_str("        id<MTLLibrary> library = [device newLibraryWithSource:@(METAL_KERNEL_SOURCE)\n");
-        code.push_str("                                                      options:options\n");
-        code.push_str("                                                        error:&error];\n");
-        code.push_str("        if (!library) {\n");
-        code.push_str("            NSLog(@\"Failed to compile Metal library: %@\", error);\n");
-        code.push_str("            return;\n");
-        code.push_str("        }\n\n");
-
-        code.push_str(&format!(
-            "        // Get kernel function: {}\n",
-            entry_point
-        ));
-        code.push_str(&format!(
-            "        id<MTLFunction> function = [library newFunctionWithName:@\"{}\"];\n",
-            entry_point
-        ));
-        code.push_str("        if (!function) {\n");
-        code.push_str(&format!(
-            "            fprintf(stderr, \"Failed to find kernel function '{}'\\n\");\n",
-            entry_point
-        ));
-        code.push_str("            return;\n");
-        code.push_str("        }\n\n");
-
-        code.push_str("        // Create pipeline state\n");
-        code.push_str("        id<MTLComputePipelineState> pipelineState =\n");
-        code.push_str(
-            "            [device newComputePipelineStateWithFunction:function error:&error];\n",
-        );
-        code.push_str("        if (!pipelineState) {\n");
-        code.push_str("            NSLog(@\"Failed to create pipeline state: %@\", error);\n");
-        code.push_str("            return;\n");
-        code.push_str("        }\n\n");
-
-        code.push_str("        // Create Metal buffers from host buffers\n");
-        code.push_str(&format!(
-            "        id<MTLBuffer> metalBuffers[{}];\n",
-            buffer_count
-        ));
-        code.push_str(&format!(
-            "        for (int i = 0; i < {}; i++) {{\n",
-            buffer_count
-        ));
-        code.push_str("            // TODO: Get actual buffer size\n");
-        code.push_str("            size_t bufferSize = 1024 * sizeof(float);\n");
-        code.push_str("            metalBuffers[i] = [device newBufferWithBytes:buffers[i]\n");
-        code.push_str("                                                  length:bufferSize\n");
-        code.push_str(
-            "                                                 options:MTLResourceStorageModeShared];\n",
-        );
-        code.push_str("        }\n\n");
-
-        code.push_str("        // Create command buffer and encoder\n");
-        code.push_str(
-            "        id<MTLCommandBuffer> commandBuffer = [commandQueue commandBuffer];\n",
-        );
-        code.push_str("        id<MTLComputeCommandEncoder> encoder = [commandBuffer computeCommandEncoder];\n");
-        code.push_str("        [encoder setComputePipelineState:pipelineState];\n\n");
-
-        code.push_str("        // Bind buffers\n");
-        code.push_str(&format!(
-            "        for (int i = 0; i < {}; i++) {{\n",
-            buffer_count
-        ));
-        code.push_str("            [encoder setBuffer:metalBuffers[i] offset:0 atIndex:i];\n");
-        code.push_str("        }\n\n");
-
-        code.push_str("        // Execute kernel\n");
-        code.push_str("        MTLSize gridSize = MTLSizeMake(1024, 1, 1);\n");
-        code.push_str(
-            "        NSUInteger threadGroupSize = pipelineState.maxTotalThreadsPerThreadgroup;\n",
-        );
-        code.push_str("        if (threadGroupSize > 256) threadGroupSize = 256;\n");
-        code.push_str("        MTLSize threadgroupSize = MTLSizeMake(threadGroupSize, 1, 1);\n");
-        code.push_str(
-            "        [encoder dispatchThreads:gridSize threadsPerThreadgroup:threadgroupSize];\n",
-        );
-        code.push_str("        [encoder endEncoding];\n\n");
-
-        code.push_str("        // Commit and wait\n");
-        code.push_str("        [commandBuffer commit];\n");
-        code.push_str("        [commandBuffer waitUntilCompleted];\n\n");
-
-        code.push_str("        // Copy results back to host buffers\n");
-        code.push_str(&format!(
-            "        for (int i = 0; i < {}; i++) {{\n",
-            buffer_count
-        ));
-        code.push_str("            void* contents = [metalBuffers[i] contents];\n");
-        code.push_str("            size_t bufferSize = [metalBuffers[i] length];\n");
-        code.push_str("            memcpy(buffers[i], contents, bufferSize);\n");
-        code.push_str("        }\n");
-
-        code.push_str("    }\n");
-        code.push_str("}\n");
-        code.push_str("}\n");
-
-        code
     }
 }
 
@@ -388,16 +203,6 @@ impl CLikeRenderer for MetalKernelRenderer {
     fn render_math_func(&self, name: &str, args: &[String]) -> String {
         render_math_func_metal(name, args)
     }
-
-    fn libloading_wrapper_name(&self) -> &'static str {
-        // MetalKernelRendererはカーネルソースのみ生成するため、libloadingラッパーは生成しない
-        ""
-    }
-
-    fn render_libloading_wrapper(&self, _entry_func: &AstNode, _entry_point: &str) -> String {
-        // MetalKernelRendererはカーネルソースのみ生成するため、libloadingラッパーは生成しない
-        String::new()
-    }
 }
 
 // CLikeRendererトレイトの実装（共通ヘルパー関数を使用）
@@ -437,21 +242,6 @@ impl CLikeRenderer for MetalRenderer {
 
     fn render_math_func(&self, name: &str, args: &[String]) -> String {
         render_math_func_metal(name, args)
-    }
-
-    fn libloading_wrapper_name(&self) -> &'static str {
-        LIBLOADING_WRAPPER_NAME
-    }
-
-    fn render_libloading_wrapper(&self, entry_func: &AstNode, entry_point: &str) -> String {
-        // MetalRendererは独自のrender_programを使用し、render_program_clikeを使用しないため、
-        // このメソッドは直接呼ばれない。generate_host_codeで同等の処理を行っている。
-        // トレイト要件を満たすためのスタブ実装。
-        if let AstNode::Function { .. } = entry_func {
-            self.generate_host_code(entry_point, std::slice::from_ref(entry_func))
-        } else {
-            String::new()
-        }
     }
 }
 
@@ -677,22 +467,13 @@ mod tests {
         let mut renderer = MetalRenderer::new();
         let code = renderer.render_program(&program);
 
-        // Objective-C++ヘッダーをチェック
-        assert!(code.contains("#include <Metal/Metal.h>"));
-        assert!(code.contains("#include <Foundation/Foundation.h>"));
-
-        // Metal Shading Languageカーネルソースがrawリテラルに埋め込まれているかチェック
-        assert!(code.contains("const char* METAL_KERNEL_SOURCE = R\"("));
+        // Metal Shading Languageヘッダーをチェック
         assert!(code.contains("#include <metal_stdlib>"));
         assert!(code.contains("using namespace metal;"));
 
-        // libloading用のエントリーポイントをチェック
-        assert!(code.contains("extern \"C\""));
-        assert!(code.contains("void __harp_metal_entry(void** buffers)"));
-
-        // Metal API呼び出しをチェック
-        assert!(code.contains("MTLCreateSystemDefaultDevice"));
-        assert!(code.contains("newLibraryWithSource"));
+        // カーネル関数が含まれていることをチェック
+        assert!(code.contains("kernel"));
+        assert!(code.contains("test_kernel"));
     }
 
     #[test]

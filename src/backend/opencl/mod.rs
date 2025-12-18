@@ -30,9 +30,6 @@ pub use kernel::OpenCLKernel;
 // OptimizationLevelはc_likeモジュールからre-export
 pub use crate::backend::c_like::OptimizationLevel;
 
-/// libloading用のラッパー関数名（後方互換性のために残す）
-pub const LIBLOADING_WRAPPER_NAME: &str = "__harp_entry";
-
 /// OpenCL Cコードを表す型
 ///
 /// newtype pattern を使用して、型システムで OpenCL 専用のコードとして扱う。

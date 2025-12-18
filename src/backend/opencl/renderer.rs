@@ -1,36 +1,19 @@
-use crate::ast::{AstNode, DType, Literal};
+use crate::ast::{AstNode, DType};
 use crate::backend::Renderer;
 use crate::backend::c_like::CLikeRenderer;
-use crate::backend::opencl::{LIBLOADING_WRAPPER_NAME, OpenCLCode};
-use std::collections::HashMap;
+use crate::backend::opencl::OpenCLCode;
 
 /// OpenCLレンダラー
 ///
-/// ASTをOpenCLカーネル + ホストコードに変換します
+/// ASTをOpenCLカーネルソースに変換します
 #[derive(Debug, Clone)]
 pub struct OpenCLRenderer {
     indent_level: usize,
-    /// シェイプ変数のデフォルト値
-    shape_var_defaults: HashMap<String, isize>,
 }
 
 impl OpenCLRenderer {
     pub fn new() -> Self {
-        Self {
-            indent_level: 0,
-            shape_var_defaults: HashMap::new(),
-        }
-    }
-
-    /// シェイプ変数のデフォルト値を設定
-    pub fn with_shape_var_defaults(mut self, defaults: HashMap<String, isize>) -> Self {
-        self.shape_var_defaults = defaults;
-        self
-    }
-
-    /// シェイプ変数のデフォルト値を追加
-    pub fn set_shape_var_default(&mut self, name: impl Into<String>, value: isize) {
-        self.shape_var_defaults.insert(name.into(), value);
+        Self { indent_level: 0 }
     }
 
     /// Programをレンダリング
@@ -41,35 +24,23 @@ impl OpenCLRenderer {
         if let AstNode::Program { functions, .. } = program {
             let mut code = String::new();
 
-            // 1. ヘッダー
-            code.push_str(&self.render_header());
-            code.push_str("\n\n");
+            // ヘッダー
+            code.push_str(&CLikeRenderer::render_header(self));
+            code.push('\n');
 
-            // 2. カーネル関数を文字列として生成
-            // AstNode::Kernel (並列) と AstNode::Function (逐次) の両方をサポート
-            let mut kernel_sources = Vec::new();
-
+            // カーネル関数をレンダリング
             for func in functions {
                 match func {
-                    AstNode::Kernel {
-                        name: Some(func_name),
-                        ..
-                    } => {
-                        // 並列カーネル関数をOpenCL形式で生成
-                        let kernel_source = self.render_kernel_function(func);
-                        kernel_sources.push((func_name.clone(), kernel_source, func));
+                    AstNode::Kernel { name: Some(_), .. } => {
+                        code.push_str(&self.render_kernel_function(func));
+                        code.push_str("\n\n");
                     }
                     AstNode::Kernel { name: None, .. } => {
                         log::warn!("OpenCLRenderer: Kernel with no name found");
                     }
-                    AstNode::Function {
-                        name: Some(func_name),
-                        ..
-                    } => {
-                        // 逐次関数をOpenCLカーネルとして生成
-                        // OpenCLでは逐次関数も__kernelとして実行される
-                        let kernel_source = self.render_sequential_function_as_kernel(func);
-                        kernel_sources.push((func_name.clone(), kernel_source, func));
+                    AstNode::Function { name: Some(_), .. } => {
+                        code.push_str(&self.render_sequential_function_as_kernel(func));
+                        code.push_str("\n\n");
                     }
                     AstNode::Function { name: None, .. } => {
                         log::warn!("OpenCLRenderer: Function with no name found");
@@ -78,53 +49,10 @@ impl OpenCLRenderer {
                 }
             }
 
-            // 3. カーネルソースを文字列リテラルとして埋め込み
-            for (i, (name, source, _)) in kernel_sources.iter().enumerate() {
-                code.push_str(&format!("// Kernel source for {}\n", name));
-                code.push_str(&format!("const char* kernel_source_{} = \n", i));
-
-                // OpenCLカーネルソースを文字列リテラルとして埋め込み
-                let escaped_source = source
-                    .replace('\\', "\\\\")
-                    .replace('"', "\\\"")
-                    .replace('\n', "\\n\"\n\"");
-                code.push_str(&format!("\"{}\";\n\n", escaped_source));
-            }
-
-            // 4. libloading用のホストコード生成（最初のカーネルをデフォルトとして使用）
-            let first_kernel = kernel_sources.first().map(|(_, _, func)| *func);
-            let kernel_name_sources: Vec<(String, String)> = kernel_sources
-                .iter()
-                .map(|(name, source, _)| (name.clone(), source.clone()))
-                .collect();
-            code.push_str(&self.generate_host_code(first_kernel, &kernel_name_sources));
-
             OpenCLCode::new(code)
         } else {
             OpenCLCode::new(String::new())
         }
-    }
-
-    /// ヘッダーを生成
-    fn render_header(&self) -> String {
-        let mut header = String::new();
-
-        // プラットフォーム依存のOpenCLヘッダー
-        #[cfg(target_os = "macos")]
-        {
-            header.push_str("#include <OpenCL/opencl.h>\n");
-        }
-
-        #[cfg(not(target_os = "macos"))]
-        {
-            header.push_str("#include <CL/cl.h>\n");
-        }
-
-        header.push_str("#include <stdio.h>\n");
-        header.push_str("#include <stdlib.h>\n");
-        header.push_str("#include <string.h>\n");
-
-        header
     }
 
     /// カーネル関数をOpenCL形式でレンダリング
@@ -181,298 +109,6 @@ impl OpenCLRenderer {
             code
         } else {
             String::new()
-        }
-    }
-
-    /// ホストコード（OpenCL初期化 + カーネル実行）を生成
-    ///
-    /// バッファ情報を元に完全なOpenCLホストコードを生成します。
-    /// シグネチャ: void __harp_entry(void** buffers, size_t* sizes, int* is_outputs, int num_buffers)
-    fn generate_host_code(
-        &self,
-        entry_func: Option<&AstNode>,
-        kernel_sources: &[(String, String)],
-    ) -> String {
-        let mut code = String::new();
-
-        // エントリー関数からパラメータ情報を取得
-        let (params, grid_size, thread_group_size) = if let Some(func) = entry_func {
-            match func {
-                AstNode::Kernel {
-                    params,
-                    default_grid_size,
-                    default_thread_group_size,
-                    ..
-                } => (
-                    params.clone(),
-                    default_grid_size.clone(),
-                    default_thread_group_size.clone(),
-                ),
-                AstNode::Function { params, .. } => {
-                    use crate::ast::helper::const_int;
-                    let one = const_int(1);
-                    (
-                        params.clone(),
-                        [Box::new(one.clone()), Box::new(one.clone()), Box::new(one)],
-                        [
-                            Box::new(const_int(1)),
-                            Box::new(const_int(1)),
-                            Box::new(const_int(1)),
-                        ],
-                    )
-                }
-                _ => return self.generate_fallback_host_code(kernel_sources),
-            }
-        } else {
-            return self.generate_fallback_host_code(kernel_sources);
-        };
-
-        // バッファパラメータのみをフィルタリング（Ptr型のパラメータ）
-        let buffer_params: Vec<_> = params
-            .iter()
-            .filter(|p| matches!(p.dtype, DType::Ptr(_)))
-            .collect();
-
-        code.push_str("// === OpenCL Host Code ===\n");
-        code.push_str(&format!(
-            "void {}(void** buffers, size_t* sizes, int* is_outputs, int num_buffers) {{\n",
-            LIBLOADING_WRAPPER_NAME
-        ));
-        code.push_str("    cl_int err;\n");
-        code.push_str("    \n");
-
-        // 1. プラットフォームとデバイスの取得
-        code.push_str("    // Get platform and device\n");
-        code.push_str("    cl_platform_id platform;\n");
-        code.push_str("    clGetPlatformIDs(1, &platform, NULL);\n");
-        code.push_str("    \n");
-        code.push_str("    cl_device_id device;\n");
-        code.push_str("    clGetDeviceIDs(platform, CL_DEVICE_TYPE_DEFAULT, 1, &device, NULL);\n");
-        code.push_str("    \n");
-
-        // 2. コンテキストとキューの作成
-        code.push_str("    // Create context and command queue\n");
-        code.push_str(
-            "    cl_context context = clCreateContext(NULL, 1, &device, NULL, NULL, &err);\n",
-        );
-        code.push_str(
-            "    cl_command_queue queue = clCreateCommandQueue(context, device, 0, &err);\n",
-        );
-        code.push_str("    \n");
-
-        // 3. カーネルのビルド
-        if !kernel_sources.is_empty() {
-            code.push_str("    // Build kernel\n");
-            code.push_str("    cl_program program = clCreateProgramWithSource(context, 1, &kernel_source_0, NULL, &err);\n");
-            code.push_str("    err = clBuildProgram(program, 1, &device, NULL, NULL, NULL);\n");
-            code.push_str("    \n");
-            code.push_str("    // Check for build errors\n");
-            code.push_str("    if (err != CL_SUCCESS) {\n");
-            code.push_str("        size_t log_size;\n");
-            code.push_str("        clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);\n");
-            code.push_str("        char* log = (char*)malloc(log_size);\n");
-            code.push_str("        clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, log_size, log, NULL);\n");
-            code.push_str("        fprintf(stderr, \"OpenCL build error:\\n%s\\n\", log);\n");
-            code.push_str("        free(log);\n");
-            code.push_str("        clReleaseCommandQueue(queue);\n");
-            code.push_str("        clReleaseContext(context);\n");
-            code.push_str("        return;\n");
-            code.push_str("    }\n");
-            code.push_str("    \n");
-
-            let kernel_name = &kernel_sources[0].0;
-            code.push_str(&format!(
-                "    cl_kernel kernel = clCreateKernel(program, \"{}\", &err);\n",
-                kernel_name
-            ));
-            code.push_str("    \n");
-
-            // 4. OpenCLバッファの作成
-            code.push_str("    // Create OpenCL buffers\n");
-            code.push_str(&format!(
-                "    cl_mem cl_buffers[{}];\n",
-                buffer_params.len().max(1)
-            ));
-            code.push_str("    for (int i = 0; i < num_buffers; i++) {\n");
-            code.push_str("        cl_mem_flags flags = is_outputs[i] ? CL_MEM_READ_WRITE : CL_MEM_READ_ONLY;\n");
-            code.push_str("        cl_buffers[i] = clCreateBuffer(context, flags | CL_MEM_COPY_HOST_PTR, sizes[i], buffers[i], &err);\n");
-            code.push_str("        if (err != CL_SUCCESS) {\n");
-            code.push_str(
-                "            fprintf(stderr, \"Failed to create buffer %d: %d\\n\", i, err);\n",
-            );
-            code.push_str("        }\n");
-            code.push_str("    }\n");
-            code.push_str("    \n");
-
-            // 5. カーネル引数の設定
-            code.push_str("    // Set kernel arguments\n");
-            code.push_str("    for (int i = 0; i < num_buffers; i++) {\n");
-            code.push_str(
-                "        err = clSetKernelArg(kernel, i, sizeof(cl_mem), &cl_buffers[i]);\n",
-            );
-            code.push_str("        if (err != CL_SUCCESS) {\n");
-            code.push_str(
-                "            fprintf(stderr, \"Failed to set kernel arg %d: %d\\n\", i, err);\n",
-            );
-            code.push_str("        }\n");
-            code.push_str("    }\n");
-            code.push_str("    \n");
-
-            // 6. カーネル実行（グリッドサイズ計算）
-            code.push_str("    // Execute kernel\n");
-
-            // グリッドサイズとスレッドグループサイズを評価
-            let grid_x = self.eval_const_expr(&grid_size[0]);
-            let grid_y = self.eval_const_expr(&grid_size[1]);
-            let grid_z = self.eval_const_expr(&grid_size[2]);
-            let group_x = self.eval_const_expr(&thread_group_size[0]);
-            let group_y = self.eval_const_expr(&thread_group_size[1]);
-            let group_z = self.eval_const_expr(&thread_group_size[2]);
-
-            // global_work_size = grid_size * thread_group_size
-            code.push_str(&format!(
-                "    size_t global_work_size[3] = {{{}, {}, {}}};\n",
-                grid_x * group_x,
-                grid_y * group_y,
-                grid_z * group_z
-            ));
-            code.push_str(&format!(
-                "    size_t local_work_size[3] = {{{}, {}, {}}};\n",
-                group_x, group_y, group_z
-            ));
-
-            // 次元数を計算（1以外の値がある次元のみ使用）
-            let work_dim = if grid_z * group_z > 1 {
-                3
-            } else if grid_y * group_y > 1 {
-                2
-            } else {
-                1
-            };
-
-            code.push_str(&format!(
-                "    err = clEnqueueNDRangeKernel(queue, kernel, {}, NULL, global_work_size, local_work_size, 0, NULL, NULL);\n",
-                work_dim
-            ));
-            code.push_str("    if (err != CL_SUCCESS) {\n");
-            code.push_str("        fprintf(stderr, \"Failed to execute kernel: %d\\n\", err);\n");
-            code.push_str("    }\n");
-            code.push_str("    \n");
-
-            // 7. 結果の読み出し（出力バッファのみ）
-            code.push_str("    // Read back output buffers\n");
-            code.push_str("    for (int i = 0; i < num_buffers; i++) {\n");
-            code.push_str("        if (is_outputs[i]) {\n");
-            code.push_str("            err = clEnqueueReadBuffer(queue, cl_buffers[i], CL_TRUE, 0, sizes[i], buffers[i], 0, NULL, NULL);\n");
-            code.push_str("            if (err != CL_SUCCESS) {\n");
-            code.push_str(
-                "                fprintf(stderr, \"Failed to read buffer %d: %d\\n\", i, err);\n",
-            );
-            code.push_str("            }\n");
-            code.push_str("        }\n");
-            code.push_str("    }\n");
-            code.push_str("    \n");
-
-            // 8. OpenCLバッファの解放
-            code.push_str("    // Release OpenCL buffers\n");
-            code.push_str("    for (int i = 0; i < num_buffers; i++) {\n");
-            code.push_str("        clReleaseMemObject(cl_buffers[i]);\n");
-            code.push_str("    }\n");
-            code.push_str("    \n");
-
-            // 9. クリーンアップ
-            code.push_str("    // Cleanup\n");
-            code.push_str("    clReleaseKernel(kernel);\n");
-            code.push_str("    clReleaseProgram(program);\n");
-        }
-
-        code.push_str("    clReleaseCommandQueue(queue);\n");
-        code.push_str("    clReleaseContext(context);\n");
-        code.push_str("}\n");
-
-        code
-    }
-
-    /// フォールバック用のホストコード生成（エントリー関数が見つからない場合）
-    fn generate_fallback_host_code(&self, kernel_sources: &[(String, String)]) -> String {
-        let mut code = String::new();
-
-        code.push_str("// === OpenCL Host Code (Fallback) ===\n");
-        code.push_str(&format!(
-            "void {}(void** buffers, size_t* sizes, int* is_outputs, int num_buffers) {{\n",
-            LIBLOADING_WRAPPER_NAME
-        ));
-        code.push_str("    (void)buffers; (void)sizes; (void)is_outputs; (void)num_buffers;\n");
-        code.push_str(
-            "    fprintf(stderr, \"Warning: Fallback host code - kernel execution not implemented\\n\");\n",
-        );
-
-        if !kernel_sources.is_empty() {
-            code.push_str(&format!(
-                "    // Kernel source available: {}\\n\",\n",
-                kernel_sources[0].0
-            ));
-        }
-
-        code.push_str("}\n");
-
-        code
-    }
-
-    /// 定数式を評価してusize値を取得
-    ///
-    /// 変数（Var）が含まれている場合は`shape_var_defaults`の値で置換してから評価します。
-    /// 評価できない場合は1を返します。
-    fn eval_const_expr(&self, expr: &AstNode) -> usize {
-        // まず変数を定数に置換
-        let substituted = if !self.shape_var_defaults.is_empty() {
-            let mappings: HashMap<String, AstNode> = self
-                .shape_var_defaults
-                .iter()
-                .map(|(name, value)| (name.clone(), AstNode::Const(Literal::Int(*value))))
-                .collect();
-            expr.substitute_vars(&mappings)
-        } else {
-            expr.clone()
-        };
-
-        // 簡略化された式を評価
-        self.eval_simplified_expr(&substituted).unwrap_or(1)
-    }
-
-    /// 簡略化された（変数のない）式を評価
-    fn eval_simplified_expr(&self, expr: &AstNode) -> Option<usize> {
-        match expr {
-            AstNode::Const(Literal::Int(n)) => {
-                if *n >= 0 {
-                    Some(*n as usize)
-                } else {
-                    None
-                }
-            }
-            AstNode::Add(left, right) => {
-                let l = self.eval_simplified_expr(left)?;
-                let r = self.eval_simplified_expr(right)?;
-                Some(l + r)
-            }
-            AstNode::Mul(left, right) => {
-                let l = self.eval_simplified_expr(left)?;
-                let r = self.eval_simplified_expr(right)?;
-                Some(l * r)
-            }
-            AstNode::Idiv(left, right) => {
-                let l = self.eval_simplified_expr(left)?;
-                let r = self.eval_simplified_expr(right)?;
-                if r == 0 { None } else { Some(l / r) }
-            }
-            AstNode::Rem(left, right) => {
-                let l = self.eval_simplified_expr(left)?;
-                let r = self.eval_simplified_expr(right)?;
-                if r == 0 { None } else { Some(l % r) }
-            }
-            // Varが残っている場合はshape_var_defaultsから直接取得を試みる
-            AstNode::Var(name) => self.shape_var_defaults.get(name).map(|v| *v as usize),
-            _ => None,
         }
     }
 }
@@ -666,17 +302,6 @@ impl CLikeRenderer for OpenCLRenderer {
             None => format!("{}[{}]", ptr_expr, offset_expr),
         }
     }
-
-    fn libloading_wrapper_name(&self) -> &'static str {
-        LIBLOADING_WRAPPER_NAME
-    }
-
-    fn render_libloading_wrapper(&self, _entry_func: &AstNode, _entry_point: &str) -> String {
-        // OpenCLRendererは独自のrender_programを使用し、render_program_clikeを使用しないため、
-        // このメソッドは直接呼ばれない。generate_host_codeで同等の処理を行っている。
-        // トレイト要件を満たすためのスタブ実装。
-        String::new()
-    }
 }
 
 /// Implementation of KernelSourceRenderer for native OpenCL backend
@@ -721,13 +346,11 @@ mod tests {
     #[test]
     fn test_render_header() {
         let renderer = OpenCLRenderer::new();
-        let header = renderer.render_header();
+        let header = CLikeRenderer::render_header(&renderer);
 
-        #[cfg(target_os = "macos")]
-        assert!(header.contains("#include <OpenCL/opencl.h>"));
-
-        #[cfg(not(target_os = "macos"))]
-        assert!(header.contains("#include <CL/cl.h>"));
+        // OpenCLカーネルヘッダーをチェック
+        assert!(header.contains("OpenCL Kernel Code"));
+        assert!(header.contains("Generated by Harp"));
     }
 
     #[test]
