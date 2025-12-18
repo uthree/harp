@@ -26,3 +26,8 @@ Kiriが利用可能出ない場合はユーザーにKiriの導入を提案して
 ## Context7
 [Context7](<https://github.com/upstash/context7>)は最新のドキュメントなどにアクセスするMCPツールです。
 必要に応じて適宜使用してください。
+
+
+## Serena
+[Serena](https://github.com/oraios/serena)はコーディングエージェントのための静的コード解析ツールです。
+プロジェクトの構造を効率的に把握することができます。
