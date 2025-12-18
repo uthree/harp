@@ -1,13 +1,11 @@
 //! サブグラフを個別カーネルに変換するモジュール
 //!
 //! SubgraphCallノードを検出し、各サブグラフを独立したカーネル関数として
-//! 低レベル化します。実行順序はKernelCallメタデータとして保持されます。
+//! 低レベル化します。
 
 use std::collections::HashSet;
 
 use crate::ast::AstNode;
-use crate::ast::program::KernelCall;
-use crate::graph::shape::Expr;
 use crate::graph::{Graph, GraphNode, ops::GraphOp};
 use crate::opt::graph::{GraphOptimizer, OptimizationHistory};
 
@@ -17,7 +15,6 @@ use crate::opt::graph::{GraphOptimizer, OptimizationHistory};
 /// 1. グラフ内のSubgraphCallノードを検出
 /// 2. 各サブグラフを独立してlower
 /// 3. カーネル関数としてProgramに追加
-/// 4. 実行順序をKernelCallとして記録
 #[derive(Debug, Clone, Default)]
 pub struct SubgraphLoweringOptimizer {
     /// 最大再帰深度（サブグラフがネストしている場合）
@@ -78,7 +75,7 @@ impl SubgraphLoweringOptimizer {
         name: &str,
         subgraph: &Graph,
         depth: usize,
-    ) -> Result<(Vec<AstNode>, Vec<KernelCall>), String> {
+    ) -> Result<Vec<AstNode>, String> {
         if depth > self.max_depth {
             return Err(format!(
                 "Subgraph nesting depth exceeded maximum ({}) for '{}'",
@@ -92,15 +89,12 @@ impl SubgraphLoweringOptimizer {
         let nested_calls = Self::collect_subgraph_calls(subgraph);
 
         let mut all_kernels = Vec::new();
-        let mut all_execution_order = Vec::new();
 
         // ネストしたサブグラフを先に処理
         for (nested_name, _) in &nested_calls {
             if let Some(nested_subgraph) = subgraph.subgraph(nested_name) {
-                let (kernels, exec_order) =
-                    self.lower_subgraph(nested_name, nested_subgraph, depth + 1)?;
+                let kernels = self.lower_subgraph(nested_name, nested_subgraph, depth + 1)?;
                 all_kernels.extend(kernels);
-                all_execution_order.extend(exec_order);
             }
         }
 
@@ -115,52 +109,10 @@ impl SubgraphLoweringOptimizer {
                 .map(|f| Self::prefix_kernel_name(f, name))
                 .collect();
 
-            all_kernels.extend(prefixed_kernels.clone());
-
-            // カーネル実行順序情報を生成（CompiledProgram.execution_wavesで使用）
-            // Note: 実行順序はCompiledProgramレベルで管理されるが、
-            //       ここでもKernelCallを生成しておく
-            if let Some(AstNode::Kernel {
-                name: Some(kernel_name),
-                params,
-                default_grid_size,
-                default_thread_group_size,
-                ..
-            }) = prefixed_kernels.first()
-            {
-                let inputs: Vec<String> = params
-                    .iter()
-                    .filter(|p| p.name.starts_with("input") || p.name.starts_with("param"))
-                    .map(|p| p.name.clone())
-                    .collect();
-
-                let outputs: Vec<String> = params
-                    .iter()
-                    .filter(|p| p.name.starts_with("output"))
-                    .map(|p| p.name.clone())
-                    .collect();
-
-                let grid_size: Vec<Expr> = default_grid_size
-                    .iter()
-                    .map(|g| Self::ast_to_expr(g))
-                    .collect();
-
-                let thread_group_size: Vec<Expr> = default_thread_group_size
-                    .iter()
-                    .map(|t| Self::ast_to_expr(t))
-                    .collect();
-
-                all_execution_order.push(KernelCall::new(
-                    kernel_name.clone(),
-                    inputs,
-                    outputs,
-                    grid_size,
-                    thread_group_size,
-                ));
-            }
+            all_kernels.extend(prefixed_kernels);
         }
 
-        Ok((all_kernels, all_execution_order))
+        Ok(all_kernels)
     }
 
     /// カーネル名にサブグラフ名をプレフィックスとして追加
@@ -202,27 +154,6 @@ impl SubgraphLoweringOptimizer {
         }
     }
 
-    /// AstNodeを式(Expr)に変換
-    fn ast_to_expr(ast: &AstNode) -> Expr {
-        match ast {
-            AstNode::Const(lit) => match lit {
-                crate::ast::Literal::Int(i) => Expr::Const(*i),
-                crate::ast::Literal::F32(f) => Expr::Const(*f as isize),
-                crate::ast::Literal::Bool(_) => Expr::Const(1),
-            },
-            AstNode::Var(name) => Expr::Var(name.clone()),
-            AstNode::Mul(a, b) => Expr::Mul(
-                Box::new(Self::ast_to_expr(a)),
-                Box::new(Self::ast_to_expr(b)),
-            ),
-            AstNode::Add(a, b) => Expr::Add(
-                Box::new(Self::ast_to_expr(a)),
-                Box::new(Self::ast_to_expr(b)),
-            ),
-            _ => Expr::Const(1),
-        }
-    }
-
     /// メイングラフとサブグラフのカーネルを統合したProgramを生成
     pub fn process_graph(&self, graph: &Graph) -> Result<Graph, String> {
         let subgraph_calls = Self::collect_subgraph_calls(graph);
@@ -239,14 +170,12 @@ impl SubgraphLoweringOptimizer {
         );
 
         let mut all_kernels = Vec::new();
-        let mut all_execution_order = Vec::new();
 
         // 各サブグラフを処理
         for (name, _call_node) in &subgraph_calls {
             if let Some(subgraph) = graph.subgraph(name) {
-                let (kernels, exec_order) = self.lower_subgraph(name, subgraph, 0)?;
+                let kernels = self.lower_subgraph(name, subgraph, 0)?;
                 all_kernels.extend(kernels);
-                all_execution_order.extend(exec_order);
             } else {
                 return Err(format!("Subgraph '{}' not found", name));
             }

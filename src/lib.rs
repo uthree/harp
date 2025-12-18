@@ -76,5 +76,5 @@ pub mod prelude {
     pub use crate::graph::shape::{Expr, View};
 
     // AST types (for advanced usage)
-    pub use crate::ast::{AstNode, DType as AstDType, Function, Literal};
+    pub use crate::ast::{AstNode, DType as AstDType, Literal};
 }

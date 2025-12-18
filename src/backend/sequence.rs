@@ -186,28 +186,6 @@ where
         }
     }
 
-    /// Create a new compiled program from a flat execution order
-    ///
-    /// Each kernel call becomes its own wave (sequential execution).
-    /// Use this for backwards compatibility or when all kernels must run sequentially.
-    pub fn from_sequential(
-        kernels: HashMap<String, K>,
-        execution_order: Vec<KernelCallInfo>,
-        intermediate_buffer_specs: Vec<IntermediateBufferSpec>,
-        input_names: Vec<String>,
-        output_names: Vec<String>,
-    ) -> Self {
-        // Convert flat list to single-kernel waves
-        let execution_waves = execution_order.into_iter().map(|k| vec![k]).collect();
-        Self::new(
-            kernels,
-            execution_waves,
-            intermediate_buffer_specs,
-            input_names,
-            output_names,
-        )
-    }
-
     /// Get the number of kernels in this program
     pub fn kernel_count(&self) -> usize {
         self.kernels.len()

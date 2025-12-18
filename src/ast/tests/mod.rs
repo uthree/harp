@@ -6,7 +6,6 @@ use crate::ast::helper::*;
 // Sub-modules
 mod call_return_tests;
 mod control_flow_tests;
-mod function_program_tests;
 
 #[test]
 fn test_literal_from_f32() {

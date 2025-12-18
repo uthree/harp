@@ -3,13 +3,11 @@ pub mod ops;
 // Helper functions for constructing AST nodes
 pub mod helper;
 pub mod pat;
-pub mod program;
 pub mod renderer;
 pub mod scope;
 pub mod types;
 
 // Re-export commonly used types
-pub use program::{Function, KernelCall, Program};
 pub use scope::{Mutability, Scope, VarDecl, VarKind};
 pub use types::{DType, Literal};
 
