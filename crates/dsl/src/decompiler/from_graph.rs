@@ -8,14 +8,14 @@ use harp::graph::shape::Expr;
 use harp::graph::{DType, Graph, GraphNode, GraphNodeData};
 
 /// Decompile a Harp Graph to DSL source code
-pub fn decompile(graph: &Graph, name: &str) -> String {
-    let mut decompiler = Decompiler::new(graph, name);
+/// エントリーポイントとなるグラフは常に"main"という名前で出力される
+pub fn decompile(graph: &Graph) -> String {
+    let mut decompiler = Decompiler::new(graph);
     decompiler.decompile()
 }
 
 struct Decompiler<'a> {
     graph: &'a Graph,
-    name: &'a str,
     var_counter: usize,
     node_names: HashMap<*const GraphNodeData, String>,
     used_names: HashSet<String>, // 使用済みの変数名を追跡
@@ -23,10 +23,9 @@ struct Decompiler<'a> {
 }
 
 impl<'a> Decompiler<'a> {
-    fn new(graph: &'a Graph, name: &'a str) -> Self {
+    fn new(graph: &'a Graph) -> Self {
         Self {
             graph,
-            name,
             var_counter: 0,
             node_names: HashMap::new(),
             used_names: HashSet::new(),
@@ -45,8 +44,7 @@ impl<'a> Decompiler<'a> {
             header.push_str(&shape_vars.join(", "));
             header.push('>');
         }
-        header.push(' ');
-        header.push_str(self.name);
+        header.push_str(" main");
 
         // Build input params
         let input_metas = self.graph.input_metas();
@@ -692,10 +690,11 @@ mod tests {
         let c = &a + &b;
         graph.output("c", c);
 
-        let dsl = decompile(&graph, "add");
+        let dsl = decompile(&graph);
         println!("{}", dsl);
 
-        assert!(dsl.contains("graph add"));
+        // エントリーポイントは常に"main"という名前
+        assert!(dsl.contains("graph main("));
         assert!(dsl.contains("a: f32[4, 8]"));
         assert!(dsl.contains("b: f32[4, 8]"));
         // Single output uses simplified syntax: -> f32[4, 8]
@@ -714,11 +713,12 @@ mod tests {
         let c = &a + &b;
         graph.output("c", c);
 
-        let dsl = decompile(&graph, "add");
+        let dsl = decompile(&graph);
         println!("{}", dsl);
 
         assert!(dsl.contains("graph<"));
         assert!(dsl.contains("M") && dsl.contains("N"));
+        assert!(dsl.contains(" main("));
     }
 
     #[test]
@@ -734,7 +734,7 @@ mod tests {
         let c = &a_transposed + &b;
         graph.output("c", c);
 
-        let dsl = decompile(&graph, "transpose_add");
+        let dsl = decompile(&graph);
         println!("=== test_decompile_input_with_view ===\n{}", dsl);
 
         // Should contain a view operation for the transposed input
@@ -754,10 +754,31 @@ mod tests {
         let c = &a_repeated + &b;
         graph.output("c", c);
 
-        let dsl = decompile(&graph, "repeat_add");
+        let dsl = decompile(&graph);
         println!("=== test_decompile_input_with_repeat ===\n{}", dsl);
 
         // Should contain a repeat operation for the broadcasted input
         assert!(dsl.contains(".repeat(0, 4)"));
+    }
+
+    #[test]
+    fn test_decompile_always_uses_main() {
+        // decompileは常に"main"という名前を使用する
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![4, 8]);
+        graph.output("output", a);
+
+        let dsl = decompile(&graph);
+        println!("=== test_decompile_always_uses_main ===\n{}", dsl);
+
+        assert!(dsl.contains("graph main("));
+
+        // decompileの結果がパース可能であること
+        let result = crate::parser::parse(&dsl);
+        assert!(
+            result.is_ok(),
+            "Decompiled DSL should be parseable: {:?}",
+            result
+        );
     }
 }

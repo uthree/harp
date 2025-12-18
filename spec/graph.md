@@ -223,6 +223,17 @@ graph main(input: f32[10]) -> (out1: f32[10], out2: f32[10]) {
 - mainグラフ以外はすべてサブグラフとして扱われる
 - 再帰呼び出しは許可（デフォルト最大深度: 10）
 
+### 予約語
+
+以下の識別子は変数名やグラフ名として使用できない：
+- `graph`, `return`: 構文キーワード
+- `fused`, `fused_reduce`, `fused_cumulative`: fused演算の専用構文
+- `true`, `false`: 真偽値リテラル（将来的な使用のため予約）
+
+### Decompile
+
+`decompile()`関数はGraphをDSLソースコードに変換する。出力されるグラフは常に`main`という名前になる（エントリーポイントとして扱われるため）。
+
 ### 最適化
 
 サブグラフは各グラフが独立して最適化されます。`SubgraphCall`と`SubgraphOutput`ノードはLoweringSuggesterではスキップされ、バックエンドで関数呼び出しとして処理されます。

@@ -36,6 +36,7 @@ pub fn compile(source: &str) -> Result<Graph, DslError> {
 }
 
 /// Decompile a Harp Graph to DSL source code
-pub fn decompile(graph: &Graph, name: &str) -> String {
-    decompiler::decompile(graph, name)
+/// エントリーポイントとなるグラフは常に"main"という名前で出力される
+pub fn decompile(graph: &Graph) -> String {
+    decompiler::decompile(graph)
 }
