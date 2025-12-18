@@ -414,6 +414,112 @@ pub fn wrap_with_simd_innermost_loop(
     block(vec![body], Scope::new())
 }
 
+/// 縮約軸のストライドを計算
+///
+/// 連続メモリレイアウトを前提として、指定軸のストライド（要素数）を計算します。
+/// stride = shape[axis+1] * shape[axis+2] * ... * shape[ndim-1]
+///
+/// # Arguments
+/// * `axis` - ストライドを計算する軸
+/// * `shape` - テンソルのshape配列
+///
+/// # Returns
+/// ストライドを表すASTノード
+pub fn build_reduce_axis_stride(axis: usize, shape: Option<&[Expr]>) -> AstNode {
+    let ndim = shape.map(|s| s.len()).unwrap_or(0);
+    if axis >= ndim.saturating_sub(1) {
+        // 最内軸またはそれより外側の場合、stride = 1
+        return const_int(1);
+    }
+
+    let mut stride = shape_dim_to_ast(shape, axis + 1);
+    for inner_axis in (axis + 2)..ndim {
+        stride = stride * shape_dim_to_ast(shape, inner_axis);
+    }
+    stride
+}
+
+/// アンロールされた縮約ループを生成
+///
+/// 指定されたアンロールファクターで縮約ループを展開し、
+/// 端数を処理するテールループも生成します。
+///
+/// # Arguments
+/// * `reduce_axis` - 縮約軸
+/// * `unroll_factor` - アンロールファクター（例: 4, 8）
+/// * `input_shape` - 入力テンソルのshape
+/// * `base_offset` - ベースオフセット計算式
+/// * `accumulate_fn` - アキュムレータ更新関数
+/// * `value_loader` - 値をロードする関数（offset差分を受け取る）
+///
+/// # Generated structure
+/// ```text
+/// // アンロールループ（0..unroll_limit, step=factor）
+/// for ridx_axis in 0..floor(size/factor)*factor step factor:
+///   acc = acc + load(base_offset)
+///   acc = acc + load(base_offset + stride)
+///   acc = acc + load(base_offset + 2*stride)
+///   acc = acc + load(base_offset + 3*stride)
+/// // テールループ（unroll_limit..size, step=1）
+/// for ridx_axis in floor(size/factor)*factor..size:
+///   acc = acc + load(offset)
+/// ```
+pub fn build_unrolled_reduce_loop<F>(
+    reduce_axis: usize,
+    unroll_factor: usize,
+    input_shape: &[Expr],
+    accumulate_fn: &AccumulateFn,
+    value_loader: F,
+) -> AstNode
+where
+    F: Fn(AstNode) -> AstNode,
+{
+    let acc_var = "acc";
+    let axis_size = shape_dim_to_ast(Some(input_shape), reduce_axis);
+    let factor_ast = const_int(unroll_factor as isize);
+    let stride = build_reduce_axis_stride(reduce_axis, Some(input_shape));
+
+    // アンロール境界: floor(size / factor) * factor
+    let unroll_limit = (axis_size.clone() / factor_ast.clone()) * factor_ast.clone();
+
+    // アンロールループ本体を構築
+    let mut unroll_body_stmts = Vec::new();
+    for k in 0..unroll_factor {
+        let offset_delta = if k == 0 {
+            const_int(0)
+        } else {
+            stride.clone() * const_int(k as isize)
+        };
+        let value = value_loader(offset_delta);
+        let acc_update = assign(acc_var, accumulate_fn(var(acc_var), value));
+        unroll_body_stmts.push(acc_update);
+    }
+
+    // アンロールループ
+    let unroll_loop = range(
+        ph::ridx(reduce_axis),
+        const_int(0),
+        factor_ast,
+        unroll_limit.clone(),
+        block(unroll_body_stmts, Scope::new()),
+    );
+
+    // テールループ本体
+    let tail_value = value_loader(const_int(0));
+    let tail_acc_update = assign(acc_var, accumulate_fn(var(acc_var), tail_value));
+
+    // テールループ
+    let tail_loop = range(
+        ph::ridx(reduce_axis),
+        unroll_limit,
+        const_int(1),
+        axis_size,
+        block(vec![tail_acc_update], Scope::new()),
+    );
+
+    block(vec![unroll_loop, tail_loop], Scope::new())
+}
+
 /// srcノードからView経由でInputまで辿り、対応するBufferノードとKernel依存を収集する
 ///
 /// View操作を経由してInputノードまで辿り、各Inputに対応するBufferノードを作成します。

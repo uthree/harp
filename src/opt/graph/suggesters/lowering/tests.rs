@@ -427,3 +427,194 @@ fn test_simd_fused_elementwise_reduce_innermost() {
         suggestions.len()
     );
 }
+
+// ============================================================
+// ループアンローリング版テスト
+// ============================================================
+
+#[test]
+fn test_reduce_unroll_4() {
+    // アンロールファクター4でのReduce演算
+    let suggester = LoweringSuggester::new().with_unroll_factors(vec![4]);
+
+    let mut graph = Graph::new();
+    let a = graph.input("a", DType::F32, vec![10, 100]); // 100 >= 4
+    let b = a.reduce_sum(1);
+    graph.output("b", b);
+
+    let suggestions = suggester.suggest(&graph);
+
+    // スカラー版1つ + アンロール版1つ = 2つ
+    assert_eq!(
+        suggestions.len(),
+        2,
+        "Should generate scalar + unrolled candidates, got {}",
+        suggestions.len()
+    );
+
+    // アンロール版の候補を確認
+    let unroll_suggestion = suggestions
+        .iter()
+        .find(|s| s.suggester_name.contains("unroll"));
+    assert!(
+        unroll_suggestion.is_some(),
+        "Should have unrolled candidate"
+    );
+
+    let unroll_graph = &unroll_suggestion.unwrap().graph;
+    let outputs = unroll_graph.outputs();
+    let output = outputs.get("b").unwrap();
+    assert!(
+        matches!(output.op, GraphOp::Kernel { .. }),
+        "Unrolled candidate should use Kernel node"
+    );
+}
+
+#[test]
+fn test_reduce_unroll_multiple_factors() {
+    // 複数のアンロールファクター候補
+    let suggester = LoweringSuggester::new().with_unroll_factors(vec![4, 8]);
+
+    let mut graph = Graph::new();
+    let a = graph.input("a", DType::F32, vec![10, 100]);
+    let b = a.reduce_sum(1);
+    graph.output("b", b);
+
+    let suggestions = suggester.suggest(&graph);
+
+    // スカラー版1つ + アンロール版2つ = 3つ
+    assert_eq!(
+        suggestions.len(),
+        3,
+        "Should generate scalar + 2 unrolled candidates, got {}",
+        suggestions.len()
+    );
+
+    // unroll4とunroll8の両方があることを確認
+    let unroll4 = suggestions
+        .iter()
+        .find(|s| s.suggester_name.contains("unroll4"));
+    let unroll8 = suggestions
+        .iter()
+        .find(|s| s.suggester_name.contains("unroll8"));
+    assert!(unroll4.is_some(), "Should have unroll4 candidate");
+    assert!(unroll8.is_some(), "Should have unroll8 candidate");
+}
+
+#[test]
+fn test_reduce_unroll_skip_small_axis() {
+    // アンロールファクターより小さい縮約軸はアンロールしない
+    let suggester = LoweringSuggester::new().with_unroll_factors(vec![8]);
+
+    let mut graph = Graph::new();
+    let a = graph.input("a", DType::F32, vec![10, 4]); // 縮約軸が4 < アンロールファクター8
+    let b = a.reduce_sum(1);
+    graph.output("b", b);
+
+    let suggestions = suggester.suggest(&graph);
+
+    // スカラー版のみ（アンロール版は縮約軸が小さいのでスキップ）
+    assert_eq!(
+        suggestions.len(),
+        1,
+        "Should only generate scalar candidate for small reduction axis, got {}",
+        suggestions.len()
+    );
+}
+
+#[test]
+fn test_fused_elementwise_reduce_unroll() {
+    // FusedElementwiseReduceのアンロール
+    let suggester = LoweringSuggester::new().with_unroll_factors(vec![4]);
+
+    let mut graph = Graph::new();
+    let a = graph.input("a", DType::F32, vec![10, 100]);
+    let b = graph.input("b", DType::F32, vec![10, 100]);
+
+    // FusedElementwiseReduce: multiply + sum over axis 1
+    let expr = wildcard("0") * wildcard("1");
+    let c = test_fused_elementwise_reduce(vec![a, b], expr, ReduceOp::Sum, vec![1]);
+    graph.output("c", c);
+
+    let suggestions = suggester.suggest(&graph);
+
+    // スカラー版1つ + アンロール版1つ = 2つ
+    assert_eq!(
+        suggestions.len(),
+        2,
+        "Should generate scalar + unrolled candidates for FusedElementwiseReduce, got {}",
+        suggestions.len()
+    );
+
+    // アンロール版の候補を確認
+    let unroll_suggestion = suggestions
+        .iter()
+        .find(|s| s.suggester_name.contains("unroll"));
+    assert!(
+        unroll_suggestion.is_some(),
+        "Should have unrolled candidate for FusedElementwiseReduce"
+    );
+}
+
+#[test]
+fn test_elementwise_no_unroll() {
+    // Elementwise演算にはアンロールが適用されない
+    let suggester = LoweringSuggester::new().with_unroll_factors(vec![4]);
+
+    let mut graph = Graph::new();
+    let a = graph.input("a", DType::F32, vec![10, 100]);
+    let b = graph.input("b", DType::F32, vec![10, 100]);
+    let c = a + b;
+    graph.output("c", c);
+
+    let suggestions = suggester.suggest(&graph);
+
+    // Elementwise演算にはアンロールが適用されないので、スカラー版のみ
+    assert_eq!(
+        suggestions.len(),
+        1,
+        "Elementwise should not have unroll variant, got {}",
+        suggestions.len()
+    );
+}
+
+#[test]
+fn test_simd_and_unroll_combined() {
+    // SIMDとアンロールの組み合わせ
+    // 注: suggest()は依存関係の順序でloweringを行うため、
+    // 1回の呼び出しでは最初のノードのみがlowerされる
+    let suggester = LoweringSuggester::with_simd_widths(vec![4]).with_unroll_factors(vec![4]);
+
+    let mut graph = Graph::new();
+    let a = graph.input("a", DType::F32, vec![10, 100]);
+    let b = graph.input("b", DType::F32, vec![10, 100]);
+
+    // Elementwiseの後にReduceを追加
+    let c = a + b;
+    graph.output("c", c.clone());
+
+    let d = c.reduce_sum(1);
+    graph.output("d", d);
+
+    let suggestions = suggester.suggest(&graph);
+
+    // 最初の呼び出しではElementwiseのみがlower可能
+    // （Reduceはその入力がまだloweredでないため）
+    // Elementwise: スカラー版1 + SIMD版1 = 2
+    assert_eq!(
+        suggestions.len(),
+        2,
+        "First pass should generate 2 candidates for elementwise (scalar + SIMD), got {}",
+        suggestions.len()
+    );
+
+    // SIMD版とスカラー版の両方があることを確認
+    let has_scalar = suggestions
+        .iter()
+        .any(|s| !s.suggester_name.contains("simd"));
+    let has_simd = suggestions
+        .iter()
+        .any(|s| s.suggester_name.contains("simd"));
+    assert!(has_scalar, "Should have scalar candidate");
+    assert!(has_simd, "Should have SIMD candidate");
+}
