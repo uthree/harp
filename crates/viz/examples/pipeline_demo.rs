@@ -12,6 +12,7 @@ use harp::opt::ast::{
     CompositeSuggester as AstCompositeSuggester, FunctionInliningSuggester,
     GroupParallelizationSuggester, LocalParallelizationSuggester, LoopFusionSuggester,
     LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester, RuleBaseOptimizer,
+    RuleBaseSuggester,
 };
 use harp::opt::graph::GraphOptimizer;
 use harp_viz::{HarpVizApp, RendererType};
@@ -73,7 +74,7 @@ fn optimize_ast_with_history(
 ) -> (harp::ast::AstNode, harp::opt::ast::OptimizationHistory) {
     // Phase 1: Rule-based optimization
     let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules());
-    let rule_optimized = rule_optimizer.optimize(program);
+    let program = rule_optimizer.optimize(program);
 
     // Phase 2: Loop optimization with beam search
     let loop_suggester = AstCompositeSuggester::new(vec![
@@ -82,17 +83,17 @@ fn optimize_ast_with_history(
         Box::new(LoopInterchangeSuggester::new()),
         Box::new(LoopFusionSuggester::new()),
         Box::new(FunctionInliningSuggester::with_default_limit()),
-        // 並列化Suggester（GroupIdはワークグループ間、LocalIdはワークグループ内並列化）
         Box::new(GroupParallelizationSuggester::new()),
         Box::new(LocalParallelizationSuggester::new()),
+        Box::new(RuleBaseSuggester::new(all_algebraic_rules())),
     ]);
 
-    let loop_optimizer = AstBeamSearchOptimizer::new(loop_suggester)
+    let heuristic_optimizer = AstBeamSearchOptimizer::new(loop_suggester)
         .with_beam_width(4)
         .with_max_steps(5000)
         .with_progress(true);
 
-    loop_optimizer.optimize_with_history(rule_optimized)
+    heuristic_optimizer.optimize_with_history(program)
 }
 
 /// NxN 行列積グラフを作成: C = A @ B

@@ -325,9 +325,9 @@ impl CodeViewerApp {
                 // AST履歴がある場合のみサイドパネルトグルを表示
                 if has_ast_history {
                     let toggle_text = if self.show_side_panel {
-                        "Hide Details ▶"
+                        "Hide Details >"
                     } else {
-                        "◀ Show Details"
+                        "< Show Details"
                     };
                     if ui.button(toggle_text).clicked() {
                         self.show_side_panel = !self.show_side_panel;
@@ -425,7 +425,7 @@ impl CodeViewerApp {
             ui.horizontal(|ui| {
                 // 前の候補
                 if ui
-                    .add_enabled(viewed_idx > 0, egui::Button::new("▲"))
+                    .add_enabled(viewed_idx > 0, egui::Button::new("^"))
                     .clicked()
                 {
                     new_candidate_index = Some(viewed_idx.saturating_sub(1));
@@ -435,7 +435,7 @@ impl CodeViewerApp {
 
                 // 次の候補
                 if ui
-                    .add_enabled(viewed_idx + 1 < candidate_count, egui::Button::new("▼"))
+                    .add_enabled(viewed_idx + 1 < candidate_count, egui::Button::new("v"))
                     .clicked()
                 {
                     new_candidate_index = Some(viewed_idx + 1);
@@ -709,7 +709,7 @@ impl CodeViewerApp {
         ui.horizontal(|ui| {
             // 前のステップボタン
             let prev_clicked = ui
-                .add_enabled(current_step > 0, egui::Button::new("◀ Prev"))
+                .add_enabled(current_step > 0, egui::Button::new("< Prev"))
                 .clicked();
 
             // ステップ情報表示
@@ -717,7 +717,7 @@ impl CodeViewerApp {
 
             // 次のステップボタン
             let next_clicked = ui
-                .add_enabled(current_step + 1 < history_len, egui::Button::new("Next ▶"))
+                .add_enabled(current_step + 1 < history_len, egui::Button::new("Next >"))
                 .clicked();
 
             if prev_clicked {
@@ -730,13 +730,13 @@ impl CodeViewerApp {
 
             // 最初と最後にジャンプ
             if ui
-                .add_enabled(current_step > 0, egui::Button::new("⏮ First"))
+                .add_enabled(current_step > 0, egui::Button::new("<< First"))
                 .clicked()
             {
                 self.goto_ast_step(0);
             }
             if ui
-                .add_enabled(current_step + 1 < history_len, egui::Button::new("Last ⏭"))
+                .add_enabled(current_step + 1 < history_len, egui::Button::new("Last >>"))
                 .clicked()
             {
                 self.goto_ast_step(history_len - 1);
@@ -769,6 +769,7 @@ impl CodeViewerApp {
                             .chain(
                                 snapshot.path[path_len - MAX_DISPLAY..]
                                     .iter()
+                                    .rev()
                                     .map(|(name, _)| name.as_str()),
                             )
                             .collect()
@@ -776,6 +777,7 @@ impl CodeViewerApp {
                         snapshot
                             .path
                             .iter()
+                            .rev()
                             .map(|(name, _)| name.as_str())
                             .collect()
                     };
@@ -823,7 +825,7 @@ impl CodeViewerApp {
                     if self.viewed_candidate_index == 0 {
                         ui.label(
                             egui::RichText::new(format!(
-                                "Viewing: ★ Selected (1/{})",
+                                "Viewing: * Selected (1/{})",
                                 candidate_count
                             ))
                             .color(egui::Color32::from_rgb(100, 200, 100)),

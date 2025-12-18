@@ -573,7 +573,7 @@ impl GraphViewerApp {
             ui.horizontal(|ui| {
                 // 前の候補
                 if ui
-                    .add_enabled(viewed_idx > 0, egui::Button::new("▲"))
+                    .add_enabled(viewed_idx > 0, egui::Button::new("^"))
                     .clicked()
                 {
                     new_candidate_index = Some(viewed_idx.saturating_sub(1));
@@ -583,7 +583,7 @@ impl GraphViewerApp {
 
                 // 次の候補
                 if ui
-                    .add_enabled(viewed_idx + 1 < candidate_count, egui::Button::new("▼"))
+                    .add_enabled(viewed_idx + 1 < candidate_count, egui::Button::new("v"))
                     .clicked()
                 {
                     new_candidate_index = Some(viewed_idx + 1);
@@ -595,7 +595,7 @@ impl GraphViewerApp {
                 // 選択された候補
                 ui.horizontal(|ui| {
                     ui.label(
-                        egui::RichText::new("★ Selected")
+                        egui::RichText::new("* Selected")
                             .color(egui::Color32::from_rgb(100, 200, 100))
                             .strong(),
                     );
@@ -637,7 +637,7 @@ impl GraphViewerApp {
                 .show(ui, |ui| {
                     // 選択された候補（rank 0）
                     let is_current = viewed_idx == 0;
-                    let text = format!("★ Selected: cost={:.2}", snapshot_cost);
+                    let text = format!("* Selected: cost={:.2}", snapshot_cost);
                     let btn = if is_current {
                         egui::Button::new(egui::RichText::new(&text).color(egui::Color32::YELLOW))
                     } else {
@@ -677,7 +677,7 @@ impl GraphViewerApp {
             self.update_graph_from_candidate();
         }
 
-        ui.heading("📝 Node Details");
+        ui.heading("Node Details");
         ui.separator();
 
         // ノード選択ドロップダウン
