@@ -26,7 +26,10 @@ pub mod sequence;
 pub mod traits;
 
 // Re-export core traits
-pub use traits::{Buffer, Compiler, Device, Kernel, KernelConfig};
+pub use traits::{
+    Buffer, Compiler, Device, DeviceFeature, DeviceInstruction, DeviceProfile, DeviceType, Kernel,
+    KernelConfig,
+};
 
 // Re-export pipeline types (Pipeline, CompiledKernel, etc.)
 pub use pipeline::{

@@ -1,6 +1,8 @@
 //! Metal native device
 
-use harp_core::backend::traits::Device;
+use harp_core::backend::traits::{
+    Device, DeviceFeature, DeviceInstruction, DeviceProfile, DeviceType,
+};
 use metal::{CommandQueue, Device as MtlDevice};
 use std::sync::Arc;
 
@@ -40,6 +42,59 @@ pub struct MetalDevice {
 impl Device for MetalDevice {
     fn is_available() -> bool {
         MtlDevice::system_default().is_some()
+    }
+
+    fn profile(&self) -> DeviceProfile {
+        // Query device capabilities from Metal
+        let max_threads = self.device.max_threads_per_threadgroup();
+        let max_work_group_size =
+            (max_threads.width * max_threads.height * max_threads.depth) as usize;
+
+        // Apple GPUs have 32-wide SIMD groups
+        let warp_size = 32;
+
+        // Apple Silicon typically has unified memory
+        let device_type = if self.device.is_low_power() {
+            DeviceType::IntegratedGpu
+        } else {
+            DeviceType::DiscreteGpu
+        };
+
+        DeviceProfile {
+            device_type,
+            compute_units: 8, // Metal API doesn't expose this directly
+            max_work_group_size,
+            preferred_work_group_size_range: (32, 256),
+            local_memory_size: 32768, // 32KB typical for Apple GPUs
+            warp_size,
+            preferred_tile_sizes: vec![16, 32, 64],
+            supported_vector_widths: vec![1, 2, 4], // Metal supports up to float4
+        }
+    }
+
+    fn supports_feature(&self, feature: DeviceFeature) -> bool {
+        match feature {
+            DeviceFeature::FastMath => true, // Metal supports fast math
+            DeviceFeature::HalfPrecision => true, // Metal always supports half
+            DeviceFeature::DoublePrecision => false, // Apple GPUs don't support double
+            DeviceFeature::LocalMemory => true, // Threadgroup memory is always available
+            DeviceFeature::AtomicOperations => true, // Basic atomics supported
+            DeviceFeature::SubgroupOperations => true, // SIMD-group functions available
+        }
+    }
+
+    fn supports_instruction(&self, instruction: DeviceInstruction) -> bool {
+        match instruction {
+            DeviceInstruction::Fma => true, // fma() is standard in Metal
+            DeviceInstruction::Rsqrt => true, // rsqrt() is available
+            DeviceInstruction::AtomicAddFloat => true, // Metal supports atomic float
+            DeviceInstruction::NativeDiv => true, // Native divide available
+            DeviceInstruction::NativeExpLog => true, // Native exp/log available
+        }
+    }
+
+    fn supported_vector_widths(&self) -> Vec<usize> {
+        vec![1, 2, 4] // Metal supports float, float2, float4
     }
 }
 

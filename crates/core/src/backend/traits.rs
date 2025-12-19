@@ -6,14 +6,122 @@
 use crate::ast::DType;
 use std::collections::HashMap;
 
-/// GPU device marker trait
+/// Device type classification
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum DeviceType {
+    Cpu,
+    IntegratedGpu,
+    #[default]
+    DiscreteGpu,
+    Accelerator,
+}
+
+/// High-level device feature categories
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DeviceFeature {
+    /// Fast math operations (may sacrifice precision)
+    FastMath,
+    /// Half-precision (FP16) support
+    HalfPrecision,
+    /// Double-precision (FP64) support
+    DoublePrecision,
+    /// Local/shared memory support
+    LocalMemory,
+    /// Atomic operations support
+    AtomicOperations,
+    /// Subgroup/warp operations support
+    SubgroupOperations,
+}
+
+/// Specific device instructions
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DeviceInstruction {
+    /// Fused multiply-add
+    Fma,
+    /// Fast reciprocal square root
+    Rsqrt,
+    /// Atomic float add
+    AtomicAddFloat,
+    /// Native divide
+    NativeDiv,
+    /// Native exp/log
+    NativeExpLog,
+}
+
+/// Device profile containing hardware characteristics
+#[derive(Debug, Clone)]
+pub struct DeviceProfile {
+    /// Device type classification
+    pub device_type: DeviceType,
+    /// Number of compute units (CUs/SMs)
+    pub compute_units: usize,
+    /// Maximum work group size
+    pub max_work_group_size: usize,
+    /// Preferred work group size range (min, max)
+    pub preferred_work_group_size_range: (usize, usize),
+    /// Local memory size in bytes
+    pub local_memory_size: usize,
+    /// Warp/wavefront size
+    pub warp_size: usize,
+    /// Preferred tile sizes for loop tiling
+    pub preferred_tile_sizes: Vec<usize>,
+    /// Supported vector widths (e.g., [1, 2, 4, 8])
+    pub supported_vector_widths: Vec<usize>,
+}
+
+impl Default for DeviceProfile {
+    fn default() -> Self {
+        Self {
+            device_type: DeviceType::DiscreteGpu,
+            compute_units: 16,
+            max_work_group_size: 1024,
+            preferred_work_group_size_range: (64, 256),
+            local_memory_size: 32768, // 32KB
+            warp_size: 32,
+            preferred_tile_sizes: vec![16, 32, 64, 128],
+            supported_vector_widths: vec![1, 2, 4],
+        }
+    }
+}
+
+/// GPU device trait
 ///
-/// Marks types that represent a GPU device context.
+/// Represents a GPU device context with hardware capability queries.
 /// Concrete implementations provide their own methods for device
 /// creation and management as inherent methods.
 pub trait Device {
     /// Check if this backend is available on the current system
     fn is_available() -> bool;
+
+    /// Get the device profile containing hardware characteristics
+    ///
+    /// Default implementation returns a generic GPU profile.
+    /// Backends should override this to query actual device capabilities.
+    fn profile(&self) -> DeviceProfile {
+        DeviceProfile::default()
+    }
+
+    /// Check if a high-level feature is supported
+    ///
+    /// Default implementation returns true (conservative assumption).
+    fn supports_feature(&self, _feature: DeviceFeature) -> bool {
+        true
+    }
+
+    /// Check if a specific instruction is supported
+    ///
+    /// Default implementation returns true (conservative assumption).
+    fn supports_instruction(&self, _instruction: DeviceInstruction) -> bool {
+        true
+    }
+
+    /// Get supported vector widths for SIMD operations
+    ///
+    /// Returns a list of supported vector widths (e.g., [1, 2, 4]).
+    /// Default implementation returns [1, 2, 4].
+    fn supported_vector_widths(&self) -> Vec<usize> {
+        vec![1, 2, 4]
+    }
 }
 
 /// GPU buffer

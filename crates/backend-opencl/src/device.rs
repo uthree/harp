@@ -1,6 +1,9 @@
 //! OpenCL native device
 
-use harp_core::backend::traits::Device;
+use harp_core::backend::traits::{
+    Device, DeviceFeature, DeviceInstruction, DeviceProfile, DeviceType,
+};
+use ocl::core::{DeviceInfo, DeviceInfoResult};
 use ocl::{Context as OclContext, Device as OclDevice, Platform, Queue};
 use std::sync::Arc;
 
@@ -49,12 +52,171 @@ impl Device for OpenCLDevice {
     fn is_available() -> bool {
         !Platform::list().is_empty()
     }
+
+    fn profile(&self) -> DeviceProfile {
+        // Query device capabilities from OpenCL
+        let max_work_group_size = self.device.max_wg_size().unwrap_or(1024);
+        let compute_units = self.query_compute_units();
+        let local_memory_size = self.query_local_mem_size();
+
+        // Detect warp size based on vendor
+        let warp_size = self.detect_warp_size();
+
+        // Compute preferred work group size range
+        let preferred_min = warp_size.max(64);
+        let preferred_max = max_work_group_size.min(256);
+
+        // Compute tile sizes based on local memory
+        let preferred_tile_sizes = self.compute_preferred_tile_sizes(local_memory_size);
+
+        // Get supported vector widths
+        let supported_vector_widths = self.detect_vector_widths();
+
+        DeviceProfile {
+            device_type: self.detect_device_type(),
+            compute_units,
+            max_work_group_size,
+            preferred_work_group_size_range: (preferred_min, preferred_max),
+            local_memory_size,
+            warp_size,
+            preferred_tile_sizes,
+            supported_vector_widths,
+        }
+    }
+
+    fn supports_feature(&self, feature: DeviceFeature) -> bool {
+        let extensions = self.query_extensions();
+        match feature {
+            DeviceFeature::FastMath => true, // Always supported in OpenCL
+            DeviceFeature::HalfPrecision => extensions.contains("cl_khr_fp16"),
+            DeviceFeature::DoublePrecision => extensions.contains("cl_khr_fp64"),
+            DeviceFeature::LocalMemory => self.query_local_mem_size() > 0,
+            DeviceFeature::AtomicOperations => true, // Basic atomics always supported
+            DeviceFeature::SubgroupOperations => {
+                extensions.contains("cl_khr_subgroups") || extensions.contains("cl_intel_subgroups")
+            }
+        }
+    }
+
+    fn supports_instruction(&self, instruction: DeviceInstruction) -> bool {
+        let extensions = self.query_extensions();
+        match instruction {
+            DeviceInstruction::Fma => true, // fma() is standard in OpenCL
+            DeviceInstruction::Rsqrt => true, // rsqrt() is standard in OpenCL
+            DeviceInstruction::AtomicAddFloat => {
+                extensions.contains("cl_ext_float_atomics")
+                    || extensions.contains("cl_nv_fp_atomics")
+            }
+            DeviceInstruction::NativeDiv => true, // native_divide() available
+            DeviceInstruction::NativeExpLog => true, // native_exp/log() available
+        }
+    }
+
+    fn supported_vector_widths(&self) -> Vec<usize> {
+        self.detect_vector_widths()
+    }
 }
 
 impl OpenCLDevice {
     /// Create a new context using the default device
     pub fn new() -> Result<Self, OpenCLError> {
         Self::with_device(0)
+    }
+
+    /// Query compute units from device
+    fn query_compute_units(&self) -> usize {
+        match self.device.info(DeviceInfo::MaxComputeUnits) {
+            Ok(DeviceInfoResult::MaxComputeUnits(n)) => n as usize,
+            _ => 16, // Default fallback
+        }
+    }
+
+    /// Query local memory size from device
+    fn query_local_mem_size(&self) -> usize {
+        match self.device.info(DeviceInfo::LocalMemSize) {
+            Ok(DeviceInfoResult::LocalMemSize(n)) => n as usize,
+            _ => 32768, // Default 32KB fallback
+        }
+    }
+
+    /// Query extensions from device
+    fn query_extensions(&self) -> String {
+        match self.device.info(DeviceInfo::Extensions) {
+            Ok(DeviceInfoResult::Extensions(s)) => s,
+            _ => String::new(),
+        }
+    }
+
+    /// Query preferred vector width for float
+    fn query_preferred_vector_width(&self) -> usize {
+        match self.device.info(DeviceInfo::PreferredVectorWidthFloat) {
+            Ok(DeviceInfoResult::PreferredVectorWidthFloat(n)) => n as usize,
+            _ => 4, // Default fallback
+        }
+    }
+
+    /// Query if host unified memory
+    fn query_host_unified_memory(&self) -> bool {
+        match self.device.info(DeviceInfo::HostUnifiedMemory) {
+            Ok(DeviceInfoResult::HostUnifiedMemory(b)) => b,
+            _ => false,
+        }
+    }
+
+    /// Detect warp/wavefront size based on vendor
+    fn detect_warp_size(&self) -> usize {
+        let vendor = self.device.vendor().unwrap_or_default();
+        if vendor.contains("AMD") || vendor.contains("Advanced Micro") {
+            64 // AMD wavefront size
+        } else {
+            32 // NVIDIA warp size (also default for others)
+        }
+    }
+
+    /// Compute preferred tile sizes based on local memory
+    fn compute_preferred_tile_sizes(&self, local_mem_size: usize) -> Vec<usize> {
+        // Calculate max tile size that fits in local memory
+        // Assuming float[tile][tile] for matrix operations
+        let max_tile = ((local_mem_size as f64 / 4.0).sqrt() as usize).min(128);
+
+        [8, 16, 32, 64, 128]
+            .into_iter()
+            .filter(|&s| s <= max_tile)
+            .collect()
+    }
+
+    /// Detect supported vector widths
+    fn detect_vector_widths(&self) -> Vec<usize> {
+        let preferred = self.query_preferred_vector_width();
+        match preferred {
+            1 => vec![1],
+            2 => vec![1, 2],
+            4 => vec![1, 2, 4],
+            8 => vec![1, 2, 4, 8],
+            16 => vec![1, 2, 4, 8, 16],
+            _ => vec![1, 2, 4],
+        }
+    }
+
+    /// Detect device type
+    fn detect_device_type(&self) -> DeviceType {
+        use ocl::DeviceType as OclDeviceType;
+        match self.device.info(DeviceInfo::Type) {
+            Ok(DeviceInfoResult::Type(dt)) if dt.contains(OclDeviceType::CPU) => DeviceType::Cpu,
+            Ok(DeviceInfoResult::Type(dt)) if dt.contains(OclDeviceType::ACCELERATOR) => {
+                DeviceType::Accelerator
+            }
+            Ok(DeviceInfoResult::Type(dt)) if dt.contains(OclDeviceType::GPU) => {
+                // Try to detect integrated vs discrete
+                // Integrated GPUs typically share memory with host
+                if self.query_host_unified_memory() {
+                    DeviceType::IntegratedGpu
+                } else {
+                    DeviceType::DiscreteGpu
+                }
+            }
+            _ => DeviceType::DiscreteGpu,
+        }
     }
 
     /// Create a new context for a specific device index
