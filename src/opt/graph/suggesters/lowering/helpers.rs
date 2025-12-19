@@ -19,6 +19,66 @@ pub fn shape_expr_to_ast(expr: &Expr) -> AstNode {
     expr.clone().into()
 }
 
+/// ExprをAstNodeに変換する（LoadIndex対応版）
+///
+/// LoadIndexを含むExprを変換できます。LoadIndexは指定されたバッファから
+/// 値を読み込むLoad ASTノードに変換されます。
+///
+/// # Arguments
+/// * `expr` - 変換するExpr
+/// * `src_vars` - ソースバッファの変数名リスト（例: ["input0", "input1", ...]）
+/// * `dtype` - Load時のデータ型
+///
+/// # Panics
+/// src_indexがsrc_varsの範囲外の場合にpanicします。
+pub fn expr_to_ast_with_sources(expr: &Expr, src_vars: &[String], dtype: AstDType) -> AstNode {
+    use crate::ast::Literal;
+
+    let expr = expr.clone().simplify();
+    match expr {
+        Expr::Const(c) => AstNode::Const(Literal::Int(c)),
+        Expr::Var(s) => AstNode::Var(s),
+        Expr::Idx(i) => AstNode::Var(ph::ridx(i)),
+        Expr::Add(l, r) => {
+            let left = expr_to_ast_with_sources(&l, src_vars, dtype.clone());
+            let right = expr_to_ast_with_sources(&r, src_vars, dtype.clone());
+            left + right
+        }
+        Expr::Sub(l, r) => {
+            let left = expr_to_ast_with_sources(&l, src_vars, dtype.clone());
+            let right = expr_to_ast_with_sources(&r, src_vars, dtype.clone());
+            left + (-right)
+        }
+        Expr::Mul(l, r) => {
+            let left = expr_to_ast_with_sources(&l, src_vars, dtype.clone());
+            let right = expr_to_ast_with_sources(&r, src_vars, dtype.clone());
+            AstNode::Mul(Box::new(left), Box::new(right))
+        }
+        Expr::Div(l, r) => {
+            let left = expr_to_ast_with_sources(&l, src_vars, dtype.clone());
+            let right = expr_to_ast_with_sources(&r, src_vars, dtype.clone());
+            left * recip(right)
+        }
+        Expr::Rem(l, r) => {
+            let left = expr_to_ast_with_sources(&l, src_vars, dtype.clone());
+            let right = expr_to_ast_with_sources(&r, src_vars, dtype.clone());
+            AstNode::Rem(Box::new(left), Box::new(right))
+        }
+        Expr::LoadIndex {
+            src_index,
+            offset_expr,
+        } => {
+            // offset_exprを再帰的に変換
+            // LoadIndexの読み込み型はI32（インデックス値）
+            let offset_ast = expr_to_ast_with_sources(&offset_expr, src_vars, AstDType::Int);
+            // src_varsからバッファ名を取得
+            let buffer_name = &src_vars[src_index];
+            // Load ASTノードを生成（インデックスはI32として読み込み）
+            load(var(buffer_name.clone()), offset_ast, AstDType::Int)
+        }
+    }
+}
+
 /// 指定軸のShape式をAstNodeに変換する
 ///
 /// shape配列が利用可能な場合は具体値を使用し、
@@ -209,6 +269,47 @@ pub fn build_strided_offset(view: &View, ndim: usize) -> AstNode {
             // IndexExprはExpr::Idxを含む式で、From<Expr> for AstNodeが
             // Idx(i)をridx(i)変数に変換する
             index_expr.clone().into()
+        }
+    }
+}
+
+/// Viewを考慮したストライドベースのオフセット計算式を構築（LoadIndex対応版）
+///
+/// LoadIndexを含むIndexExpr Viewに対応します。LoadIndexは指定されたバッファから
+/// インデックス値を読み込むLoad ASTノードに変換されます。
+///
+/// # Arguments
+/// * `view` - 対象のView
+/// * `ndim` - 次元数
+/// * `src_vars` - ソースバッファの変数名リスト
+/// * `dtype` - データ型（LoadIndex以外の値の型）
+pub fn build_strided_offset_with_sources(
+    view: &View,
+    ndim: usize,
+    src_vars: &[String],
+    dtype: AstDType,
+) -> AstNode {
+    if ndim == 0 {
+        return const_int(0);
+    }
+
+    match view {
+        View::Linear {
+            strides, offset, ..
+        } => {
+            // Linear Viewは既存の処理と同じ
+            let mut result: AstNode = offset.clone().into();
+
+            for (axis, stride_expr) in strides.iter().enumerate().take(ndim) {
+                let stride: AstNode = stride_expr.clone().into();
+                result = result + var(ph::ridx(axis)) * stride;
+            }
+
+            result
+        }
+        View::IndexExpr { index_expr, .. } => {
+            // IndexExprはLoadIndexを含む可能性があるので専用関数を使用
+            expr_to_ast_with_sources(index_expr, src_vars, dtype)
         }
     }
 }

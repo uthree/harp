@@ -8,20 +8,31 @@ use crate::graph::ops::custom_placeholders as ph;
 use crate::graph::{DType as GraphDType, GraphNode};
 
 use super::helpers::{
-    build_contiguous_offset, build_strided_offset, graph_dtype_to_ast, wrap_with_loops,
+    build_contiguous_offset, build_strided_offset, build_strided_offset_with_sources,
+    graph_dtype_to_ast, wrap_with_loops,
 };
 
 /// Contiguous演算の関数を生成
+///
+/// LoadIndexを含むView（Gather等）にも対応しています。
 pub fn build_contiguous_function(node: &GraphNode, name: &str) -> Option<AstNode> {
     let input = node.src.first()?;
     let shape = node.view.shape();
     let ndim = shape.len();
+    let load_dtype = graph_dtype_to_ast(&input.dtype);
 
     // 入力のオフセット計算（Viewを考慮）
-    let input_offset = build_strided_offset(&input.view, ndim);
+    // LoadIndexを含む場合は全srcのバッファ変数名を渡す
+    let input_offset = if input.view.contains_load_index() {
+        // srcの各バッファに対応する変数名を生成
+        let src_vars: Vec<String> = (0..node.src.len()).map(ph::input).collect();
+        build_strided_offset_with_sources(&input.view, ndim, &src_vars, load_dtype.clone())
+    } else {
+        build_strided_offset(&input.view, ndim)
+    };
+
     let output_offset = build_contiguous_offset(ndim);
 
-    let load_dtype = graph_dtype_to_ast(&input.dtype);
     let load_expr = load(var(ph::input(0)), input_offset, load_dtype);
     let store_stmt = store(var(ph::OUTPUT), output_offset, load_expr);
 

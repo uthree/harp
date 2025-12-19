@@ -105,33 +105,39 @@ impl ViewMergeSuggester {
 
     /// Viewノードを入力ノードにマージ
     ///
-    /// 入力ノードのviewをViewノードのviewで置き換えた新しいノードを返す
+    /// 入力ノードのviewをViewノードのviewで置き換えた新しいノードを返す。
+    /// LoadIndexを含むView（Gather等）にも対応しています。
     fn merge_view_node(&self, view_node: &GraphNode) -> Option<GraphNode> {
         // ViewノードのView値を取得
-        let target_view = match &view_node.op {
+        let _target_view = match &view_node.op {
             GraphOp::View(v) => v.clone(),
             _ => return None,
         };
 
-        // Viewノードは入力が1つのはず
-        if view_node.src.len() != 1 {
+        // View連鎖をフラット化（LoadIndex対応）
+        let (flattened_view, flattened_srcs) = view_node.flatten_view_chain();
+
+        // フラット化後のprimary src（最初の非Viewノード）を取得
+        if flattened_srcs.is_empty() {
             return None;
         }
 
-        let input_node = &view_node.src[0];
+        let input_node = &flattened_srcs[0];
 
         // ViewMergeは「合成」ではなく「置換」
-        // V2は既にV1から正しく導出されている（例: V1.permute(...)）ため、
-        // V2は完全な変換を含んでおり、入力のViewタイプに関係なくマージ可能
+        // フラット化されたViewは完全な変換を含んでおり、入力のViewタイプに関係なくマージ可能
         //
         // 例: Buffer(view=V1) -> View(view=V2) -> Consumer
         // マージ後: Buffer(view=V2) -> Consumer
         //
-        // V2がIndexExprでもLinearでも、V1からの操作で生成されているので安全
+        // LoadIndex含むケース:
+        // Buffer -> Gather(view=V1, src=[Buffer, Index]) -> View(view=V2)
+        // フラット化後: (composedView, [Buffer, Index])
+        // マージ後: Buffer(view=composedView, src依存はLowering時に処理)
 
         // 次元数変更のチェック
         if !Self::allows_ndim_change(&input_node.op) {
-            let new_ndim = target_view.ndim();
+            let new_ndim = flattened_view.ndim();
             let old_ndim = input_node.view.ndim();
 
             // 次元数が変わる場合はマージしない
@@ -145,13 +151,25 @@ impl ViewMergeSuggester {
             }
         }
 
-        // 入力ノードのviewを置き換えた新しいノードを作成
-        Some(GraphNode::new(
-            input_node.dtype.clone(),
-            input_node.op.clone(),
-            input_node.src.clone(),
-            target_view,
-        ))
+        // LoadIndexを含む場合はViewノードを保持（srcが複数必要なため）
+        if flattened_view.contains_load_index() {
+            // LoadIndex含むViewはViewノードとして保持
+            // srcをフラット化した新しいViewノードを返す
+            Some(GraphNode::new(
+                view_node.dtype.clone(),
+                GraphOp::View(flattened_view.clone()),
+                flattened_srcs,
+                flattened_view,
+            ))
+        } else {
+            // LoadIndexがない場合は従来通り入力ノードのviewを置き換え
+            Some(GraphNode::new(
+                input_node.dtype.clone(),
+                input_node.op.clone(),
+                input_node.src.clone(),
+                flattened_view,
+            ))
+        }
     }
 
     /// グラフ内のViewノードを新しいノードで置き換えた新しいグラフを作成

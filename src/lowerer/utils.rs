@@ -79,6 +79,9 @@ fn collect_shape_vars(expr: &crate::graph::shape::Expr, vars: &mut HashSet<Strin
             collect_shape_vars(a, vars);
             collect_shape_vars(b, vars);
         }
+        Expr::LoadIndex { offset_expr, .. } => {
+            collect_shape_vars(offset_expr, vars);
+        }
         Expr::Const(_) | Expr::Idx(_) => {}
     }
 }

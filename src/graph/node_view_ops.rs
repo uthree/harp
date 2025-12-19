@@ -413,6 +413,219 @@ impl GraphNode {
             new_view,
         )
     }
+
+    /// Gather操作（PyTorchのtorch.gatherに相当）
+    ///
+    /// 指定した軸に沿って、indexテンソルの値に従ってinputテンソルから要素を収集します。
+    ///
+    /// # 動作
+    /// ```text
+    /// output[i][j][k] = self[i][index[i][j][k]][k]  // dim=1の場合
+    /// ```
+    ///
+    /// # 引数
+    /// - `dim`: Gather軸（この軸のインデックスがindexテンソルの値で置き換わる）
+    /// - `index`: インデックステンソル（整数型、outputと同じ形状）
+    ///
+    /// # 制約
+    /// - indexテンソルの次元数はselfと同じである必要がある
+    /// - dim以外の軸では、indexのサイズがselfのサイズ以下である必要がある
+    /// - indexテンソルの値は[0, self.shape[dim])の範囲内である必要がある
+    ///
+    /// # 例
+    /// ```no_run
+    /// use harp::prelude::*;
+    ///
+    /// let mut graph = Graph::new();
+    /// let input = graph.input("input", DType::F32, vec![3, 4, 5]);
+    /// let index = graph.input("index", DType::I32, vec![3, 2, 5]);
+    ///
+    /// // dim=1: output[i][j][k] = input[i][index[i][j][k]][k]
+    /// let gathered = input.gather(1, &index);
+    /// // output shape: [3, 2, 5]
+    /// ```
+    pub fn gather(&self, dim: usize, index: &GraphNode) -> Self {
+        let input_shape = self.view.shape();
+        let index_shape = index.view.shape();
+        let ndim = input_shape.len();
+
+        assert_eq!(
+            ndim,
+            index_shape.len(),
+            "gather: input and index must have same number of dimensions"
+        );
+        assert!(
+            dim < ndim,
+            "gather: dim ({}) must be less than ndim ({})",
+            dim,
+            ndim
+        );
+
+        // 出力形状はindexと同じ
+        let output_shape = index_shape.to_vec();
+
+        // indexテンソルへのアクセスオフセットを構築（連続アクセス）
+        // offset = Idx(0) * stride0 + Idx(1) * stride1 + ...
+        let index_offset = build_contiguous_offset_with_shape(index_shape);
+
+        // inputテンソルへのアクセスオフセットを構築
+        // dim軸以外は通常のIdxを使用し、dim軸はLoadIndexでindexの値を使用
+        let input_offset = build_gather_offset(input_shape, dim, index_offset);
+
+        let new_view = View::IndexExpr {
+            shape: output_shape,
+            index_expr: input_offset.simplify(),
+        };
+
+        // srcに[input, index]を持たせる
+        Self::new(
+            self.dtype.clone(),
+            GraphOp::View(new_view.clone()),
+            vec![self.clone(), index.clone()],
+            new_view,
+        )
+    }
+
+    /// View連鎖をフラット化する
+    ///
+    /// View→View→...の連鎖を再帰的に辿り、最終的なViewと全てのsrcノードを
+    /// フラットな配列として返します。LoadIndexのsrc_indexは適切にシフトされます。
+    ///
+    /// # Returns
+    /// (flattened_view, flattened_src) のタプル
+    /// - flattened_view: 合成されたView
+    /// - flattened_src: マージされたsrc配列
+    ///
+    /// # Example
+    /// ```
+    /// use harp::prelude::*;
+    ///
+    /// let mut graph = Graph::new();
+    /// let input = graph.input("input", DType::F32, vec![3, 4, 5]);
+    /// let index = graph.input("index", DType::I32, vec![3, 2, 5]);
+    ///
+    /// // gather → permute の連鎖
+    /// let gathered = input.gather(1, &index);
+    /// let permuted = gathered.view(gathered.view.clone().permute(vec![1, 0, 2]));
+    ///
+    /// // フラット化
+    /// let (view, srcs) = permuted.flatten_view_chain();
+    /// // srcs = [input, index] (Viewノードを除いた元のソース)
+    /// ```
+    pub fn flatten_view_chain(&self) -> (View, Vec<GraphNode>) {
+        self.flatten_view_chain_internal(0)
+    }
+
+    /// View連鎖フラット化の内部実装
+    ///
+    /// # Arguments
+    /// * `src_index_offset` - LoadIndexのsrc_indexに加算するオフセット
+    fn flatten_view_chain_internal(&self, src_index_offset: isize) -> (View, Vec<GraphNode>) {
+        match &self.op {
+            GraphOp::View(_) => {
+                // Viewノードの場合、src[0]を再帰的に処理
+                if self.src.is_empty() {
+                    // srcがない場合（異常ケース）
+                    return (self.view.clone(), vec![]);
+                }
+
+                let primary_src = &self.src[0];
+
+                // src[0]がViewノードの場合は再帰
+                if matches!(primary_src.op, GraphOp::View(_)) {
+                    // 現在のノードの追加src（src[1..]）を収集
+                    let current_extra_srcs: Vec<GraphNode> = self.src[1..].to_vec();
+                    let extra_count = current_extra_srcs.len() as isize;
+
+                    // 再帰的にinner srcをフラット化
+                    // innerのLoadIndexはさらにextra_count分シフトが必要
+                    let (inner_view, inner_srcs) =
+                        primary_src.flatten_view_chain_internal(src_index_offset + extra_count);
+
+                    // Viewを合成
+                    let outer_view = self.view.shift_load_index(src_index_offset);
+                    let composed_view = View::compose(&outer_view, &inner_view);
+
+                    // srcをマージ: [inner_srcs[0], current_extra_srcs..., inner_srcs[1..]...]
+                    let mut merged_srcs = Vec::new();
+                    if !inner_srcs.is_empty() {
+                        merged_srcs.push(inner_srcs[0].clone());
+                    }
+                    merged_srcs.extend(current_extra_srcs);
+                    if inner_srcs.len() > 1 {
+                        merged_srcs.extend(inner_srcs[1..].iter().cloned());
+                    }
+
+                    (composed_view, merged_srcs)
+                } else {
+                    // src[0]がViewノードでない場合は終端
+                    let shifted_view = self.view.shift_load_index(src_index_offset);
+                    (shifted_view, self.src.clone())
+                }
+            }
+            _ => {
+                // Viewノードでない場合はそのまま返す
+                (self.view.clone(), vec![self.clone()])
+            }
+        }
+    }
+}
+
+/// 連続アクセス用のオフセット式を構築
+/// offset = Idx(0) * stride(0) + Idx(1) * stride(1) + ... + Idx(n-1)
+/// ここでstride(i) = shape[i+1] * shape[i+2] * ... * shape[n-1]
+fn build_contiguous_offset_with_shape(shape: &[Expr]) -> Expr {
+    let ndim = shape.len();
+    if ndim == 0 {
+        return Expr::Const(0);
+    }
+
+    // ストライドを計算
+    // stride[i] = shape[i+1] * ... * shape[n-1]
+    let mut strides = vec![Expr::Const(1); ndim];
+    for i in (0..ndim - 1).rev() {
+        strides[i] = (strides[i + 1].clone() * shape[i + 1].clone()).simplify();
+    }
+
+    // オフセット式を構築
+    let mut expr = Expr::Const(0);
+    for (i, stride) in strides.iter().enumerate() {
+        expr = (expr + Expr::Idx(i) * stride.clone()).simplify();
+    }
+    expr
+}
+
+/// Gather操作用のinputアクセスオフセットを構築
+fn build_gather_offset(input_shape: &[Expr], dim: usize, index_offset: Expr) -> Expr {
+    let ndim = input_shape.len();
+    if ndim == 0 {
+        return Expr::Const(0);
+    }
+
+    // input用のストライドを計算
+    // stride[i] = input_shape[i+1] * ... * input_shape[n-1]
+    let mut strides = vec![Expr::Const(1); ndim];
+    for i in (0..ndim - 1).rev() {
+        strides[i] = (strides[i + 1].clone() * input_shape[i + 1].clone()).simplify();
+    }
+
+    // オフセット式を構築
+    // dim軸以外: Idx(i) * stride[i]
+    // dim軸: LoadIndex(1, index_offset) * stride[dim]
+    let mut expr = Expr::Const(0);
+    for (i, stride) in strides.iter().enumerate() {
+        let term = if i == dim {
+            // インデックステンソル（src[1]）から値を読み込む
+            Expr::LoadIndex {
+                src_index: 1,
+                offset_expr: Box::new(index_offset.clone()),
+            } * stride.clone()
+        } else {
+            Expr::Idx(i) * stride.clone()
+        };
+        expr = (expr + term).simplify();
+    }
+    expr
 }
 
 #[cfg(test)]
@@ -486,5 +699,210 @@ mod tests {
         // 既にLinearなノードにensure_linearを適用しても変わらない
         let ensured = a.ensure_linear();
         assert_eq!(a.as_ptr(), ensured.as_ptr());
+    }
+
+    #[test]
+    fn test_gather_basic() {
+        let mut graph = Graph::new();
+        let input = graph.input("input", DType::F32, vec![3, 4, 5]);
+        let index = graph.input("index", DType::I32, vec![3, 2, 5]);
+
+        // dim=1でgather: output[i][j][k] = input[i][index[i][j][k]][k]
+        let gathered = input.gather(1, &index);
+
+        // 出力形状はindexと同じ
+        assert_eq!(
+            gathered.view.shape(),
+            &[Expr::from(3), Expr::from(2), Expr::from(5)]
+        );
+
+        // ViewはIndexExpr
+        assert!(!gathered.view.is_linear());
+
+        // srcは[input, index]
+        assert_eq!(gathered.src.len(), 2);
+    }
+
+    #[test]
+    fn test_gather_dim0() {
+        let mut graph = Graph::new();
+        let input = graph.input("input", DType::F32, vec![4, 3]);
+        let index = graph.input("index", DType::I32, vec![2, 3]);
+
+        // dim=0でgather: output[i][j] = input[index[i][j]][j]
+        let gathered = input.gather(0, &index);
+
+        assert_eq!(gathered.view.shape(), &[Expr::from(2), Expr::from(3)]);
+    }
+
+    #[test]
+    fn test_gather_1d() {
+        let mut graph = Graph::new();
+        let input = graph.input("input", DType::F32, vec![10]);
+        let index = graph.input("index", DType::I32, vec![5]);
+
+        // 1次元の場合: output[i] = input[index[i]]
+        let gathered = input.gather(0, &index);
+
+        assert_eq!(gathered.view.shape(), &[Expr::from(5)]);
+
+        // index_exprにLoadIndexが含まれているはず
+        if let View::IndexExpr { index_expr, .. } = &gathered.view {
+            assert!(index_expr.contains_load_index());
+        } else {
+            panic!("Expected IndexExpr view");
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "gather: input and index must have same number of dimensions")]
+    fn test_gather_dimension_mismatch() {
+        let mut graph = Graph::new();
+        let input = graph.input("input", DType::F32, vec![3, 4]);
+        let index = graph.input("index", DType::I32, vec![3, 4, 5]); // 次元数が異なる
+
+        let _ = input.gather(1, &index);
+    }
+
+    #[test]
+    #[should_panic(expected = "gather: dim (2) must be less than ndim (2)")]
+    fn test_gather_invalid_dim() {
+        let mut graph = Graph::new();
+        let input = graph.input("input", DType::F32, vec![3, 4]);
+        let index = graph.input("index", DType::I32, vec![3, 4]);
+
+        let _ = input.gather(2, &index); // dim=2は範囲外
+    }
+
+    #[test]
+    fn test_gather_consecutive() {
+        let mut graph = Graph::new();
+        // input: [2, 3, 4]
+        let input = graph.input("input", DType::F32, vec![2, 3, 4]);
+        // index1: [2, 2, 4] - dim=1でgather
+        let index1 = graph.input("index1", DType::I32, vec![2, 2, 4]);
+        // index2: [2, 2, 2] - dim=2でgather
+        let index2 = graph.input("index2", DType::I32, vec![2, 2, 2]);
+
+        // 1回目のgather: output1[i][j][k] = input[i][index1[i][j][k]][k]
+        let gather1 = input.gather(1, &index1);
+        assert_eq!(
+            gather1.view.shape(),
+            &[Expr::from(2), Expr::from(2), Expr::from(4)]
+        );
+
+        // 2回目のgather: output2[i][j][k] = gather1[i][j][index2[i][j][k]]
+        let gather2 = gather1.gather(2, &index2);
+        assert_eq!(
+            gather2.view.shape(),
+            &[Expr::from(2), Expr::from(2), Expr::from(2)]
+        );
+
+        // 構造確認
+        // gather2.src = [gather1, index2]
+        assert_eq!(gather2.src.len(), 2);
+        // gather2.src[0] (=gather1) は src = [input, index1]
+        assert_eq!(gather2.src[0].src.len(), 2);
+
+        // 両方ともIndexExpr
+        assert!(!gather1.view.is_linear());
+        assert!(!gather2.view.is_linear());
+
+        // ViewにLoadIndexが含まれている
+        if let View::IndexExpr { index_expr, .. } = &gather2.view {
+            assert!(index_expr.contains_load_index());
+        } else {
+            panic!("Expected IndexExpr view");
+        }
+    }
+
+    #[test]
+    fn test_flatten_view_chain_simple_view() {
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![3, 4]);
+
+        // 単純なpermute
+        let permuted = a.view(a.view.clone().permute(vec![1, 0]));
+
+        let (view, srcs) = permuted.flatten_view_chain();
+
+        // 形状は [4, 3]
+        assert_eq!(view.shape(), &[Expr::from(4), Expr::from(3)]);
+        // srcは元の入力
+        assert_eq!(srcs.len(), 1);
+    }
+
+    #[test]
+    fn test_flatten_view_chain_gather_then_permute() {
+        let mut graph = Graph::new();
+        let input = graph.input("input", DType::F32, vec![3, 4, 5]);
+        let index = graph.input("index", DType::I32, vec![3, 2, 5]);
+
+        // gather → permute
+        let gathered = input.gather(1, &index);
+        let permuted = gathered.view(gathered.view.clone().permute(vec![1, 0, 2]));
+
+        let (view, srcs) = permuted.flatten_view_chain();
+
+        // 形状は [2, 3, 5] (permuted)
+        assert_eq!(view.shape(), &[Expr::from(2), Expr::from(3), Expr::from(5)]);
+        // srcは [input, index]
+        assert_eq!(srcs.len(), 2);
+        // LoadIndexが含まれている
+        assert!(view.contains_load_index());
+    }
+
+    #[test]
+    fn test_shift_load_index() {
+        let expr = Expr::LoadIndex {
+            src_index: 1,
+            offset_expr: Box::new(Expr::Idx(0) + Expr::Idx(1)),
+        };
+
+        let shifted = expr.shift_load_index(2);
+
+        if let Expr::LoadIndex { src_index, .. } = shifted {
+            assert_eq!(src_index, 3);
+        } else {
+            panic!("Expected LoadIndex");
+        }
+    }
+
+    #[test]
+    fn test_view_compose_linear() {
+        // contiguous → permute のcompose
+        let inner = View::contiguous(vec![3, 4]);
+        let outer = inner.clone().permute(vec![1, 0]);
+
+        let composed = View::compose(&outer, &inner);
+
+        // 形状は outer の形状
+        assert_eq!(composed.shape(), &[Expr::from(4), Expr::from(3)]);
+    }
+
+    #[test]
+    fn test_view_shift_load_index() {
+        let mut graph = Graph::new();
+        let input = graph.input("input", DType::F32, vec![3, 4]);
+        let index = graph.input("index", DType::I32, vec![3, 2]);
+
+        let gathered = input.gather(1, &index);
+
+        // Viewをシフト
+        let shifted_view = gathered.view.shift_load_index(1);
+
+        if let View::IndexExpr { index_expr, .. } = shifted_view {
+            // LoadIndexのsrc_indexが1増えているはず
+            fn check_shifted(expr: &Expr) -> bool {
+                match expr {
+                    Expr::LoadIndex { src_index, .. } => *src_index == 2, // 1 + 1 = 2
+                    Expr::Add(l, r) | Expr::Mul(l, r) => check_shifted(l) || check_shifted(r),
+                    _ => false,
+                }
+            }
+            assert!(check_shifted(&index_expr));
+        } else {
+            panic!("Expected IndexExpr");
+        }
     }
 }

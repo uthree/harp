@@ -19,6 +19,26 @@ pub enum Expr {
     Mul(Box<Self>, Box<Self>),
     Div(Box<Self>, Box<Self>),
     Rem(Box<Self>, Box<Self>),
+
+    /// 別ソースバッファからインデックス値を読み込む（Gather操作用）
+    ///
+    /// GraphNode.srcの指定インデックスのバッファから値を読み込む。
+    /// - `src_index`: GraphNode.srcのインデックス（通常1以上、0はデータソース）
+    /// - `offset_expr`: 読み込み位置を計算する式（Idx変数を含む）
+    ///
+    /// # Example
+    /// ```text
+    /// // gather(input, dim=1, index) の表現:
+    /// // output[i][j][k] = input[i][index[i][j][k]][k]
+    /// LoadIndex {
+    ///     src_index: 1,  // index バッファ
+    ///     offset_expr: Idx(0) * J * K + Idx(1) * K + Idx(2),
+    /// }
+    /// ```
+    LoadIndex {
+        src_index: usize,
+        offset_expr: Box<Self>,
+    },
 }
 
 impl From<Expr> for crate::ast::AstNode {
@@ -53,6 +73,11 @@ impl From<Expr> for crate::ast::AstNode {
                 left * crate::ast::helper::recip(right)
             }
             Expr::Rem(l, r) => AstNode::Rem(Box::new((*l).into()), Box::new((*r).into())),
+            Expr::LoadIndex { .. } => {
+                // LoadIndexはLowering時に特別な処理が必要
+                // ここでは直接変換できないのでpanic
+                panic!("LoadIndex cannot be directly converted to AstNode; use Lowering instead")
+            }
         }
     }
 }
@@ -221,6 +246,10 @@ impl Expr {
                     Ok(l.evaluate(vars)? % rv)
                 }
             }
+            Expr::LoadIndex { src_index, .. } => Err(format!(
+                "Cannot evaluate LoadIndex(src_index={}): requires runtime buffer access",
+                src_index
+            )),
         }
     }
 
@@ -267,6 +296,9 @@ impl Expr {
                 l.collect_vars_recursive(vars);
                 r.collect_vars_recursive(vars);
             }
+            Expr::LoadIndex { offset_expr, .. } => {
+                offset_expr.collect_vars_recursive(vars);
+            }
         }
     }
 
@@ -307,6 +339,13 @@ impl Expr {
                 Box::new(l.substitute_idx(idx, replacement.clone())),
                 Box::new(r.substitute_idx(idx, replacement)),
             ),
+            Expr::LoadIndex {
+                src_index,
+                offset_expr,
+            } => Expr::LoadIndex {
+                src_index,
+                offset_expr: Box::new(offset_expr.substitute_idx(idx, replacement)),
+            },
             other => other,
         }
     }
@@ -361,6 +400,13 @@ impl Expr {
                 Box::new(l.permute_idx_with_inverse(inverse_axes)),
                 Box::new(r.permute_idx_with_inverse(inverse_axes)),
             ),
+            Expr::LoadIndex {
+                src_index,
+                offset_expr,
+            } => Expr::LoadIndex {
+                src_index,
+                offset_expr: Box::new(offset_expr.permute_idx_with_inverse(inverse_axes)),
+            },
             other => other,
         }
     }
@@ -399,6 +445,13 @@ impl Expr {
                 Box::new(l.shift_idx(threshold, delta)),
                 Box::new(r.shift_idx(threshold, delta)),
             ),
+            Expr::LoadIndex {
+                src_index,
+                offset_expr,
+            } => Expr::LoadIndex {
+                src_index,
+                offset_expr: Box::new(offset_expr.shift_idx(threshold, delta)),
+            },
             other => other,
         }
     }
@@ -464,6 +517,85 @@ impl Expr {
                     (l, r) => l % r,
                 }
             }
+            Expr::LoadIndex {
+                src_index,
+                offset_expr,
+            } => Expr::LoadIndex {
+                src_index,
+                offset_expr: Box::new(offset_expr.simplify()),
+            },
+            _ => self,
+        }
+    }
+
+    /// LoadIndexを含むかどうかを判定
+    pub fn contains_load_index(&self) -> bool {
+        match self {
+            Expr::LoadIndex { .. } => true,
+            Expr::Add(l, r)
+            | Expr::Sub(l, r)
+            | Expr::Mul(l, r)
+            | Expr::Div(l, r)
+            | Expr::Rem(l, r) => l.contains_load_index() || r.contains_load_index(),
+            _ => false,
+        }
+    }
+
+    /// LoadIndexのsrc_indexをシフトする
+    ///
+    /// View融合時にsrc配列がマージされる際、LoadIndexが参照するインデックスを
+    /// 調整するために使用します。
+    ///
+    /// # Arguments
+    /// * `delta` - シフト量（正の値で増加、負の値で減少）
+    ///
+    /// # Example
+    /// ```
+    /// use harp::graph::shape::Expr;
+    ///
+    /// // LoadIndex { src_index: 1, ... } -> LoadIndex { src_index: 2, ... }
+    /// let expr = Expr::LoadIndex {
+    ///     src_index: 1,
+    ///     offset_expr: Box::new(Expr::Idx(0)),
+    /// };
+    /// let shifted = expr.shift_load_index(1);
+    /// if let Expr::LoadIndex { src_index, .. } = shifted {
+    ///     assert_eq!(src_index, 2);
+    /// }
+    /// ```
+    pub fn shift_load_index(self, delta: isize) -> Self {
+        match self {
+            Expr::LoadIndex {
+                src_index,
+                offset_expr,
+            } => {
+                let new_index = (src_index as isize + delta) as usize;
+                Expr::LoadIndex {
+                    src_index: new_index,
+                    offset_expr: Box::new(offset_expr.shift_load_index(delta)),
+                }
+            }
+            Expr::Add(l, r) => Expr::Add(
+                Box::new(l.shift_load_index(delta)),
+                Box::new(r.shift_load_index(delta)),
+            ),
+            Expr::Sub(l, r) => Expr::Sub(
+                Box::new(l.shift_load_index(delta)),
+                Box::new(r.shift_load_index(delta)),
+            ),
+            Expr::Mul(l, r) => Expr::Mul(
+                Box::new(l.shift_load_index(delta)),
+                Box::new(r.shift_load_index(delta)),
+            ),
+            Expr::Div(l, r) => Expr::Div(
+                Box::new(l.shift_load_index(delta)),
+                Box::new(r.shift_load_index(delta)),
+            ),
+            Expr::Rem(l, r) => Expr::Rem(
+                Box::new(l.shift_load_index(delta)),
+                Box::new(r.shift_load_index(delta)),
+            ),
+            // Const, Var, Idxはそのまま
             _ => self,
         }
     }
@@ -672,6 +804,12 @@ impl fmt::Display for Expr {
                 } else {
                     write!(f, "{}", rhs)
                 }
+            }
+            Expr::LoadIndex {
+                src_index,
+                offset_expr,
+            } => {
+                write!(f, "load[{}]({})", src_index, offset_expr)
             }
         }
     }

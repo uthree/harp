@@ -59,6 +59,53 @@ Viewは各軸の添え字からメモリオフセットへの変換を表現し�
 | repeat | サイズ1の軸を拡張 | 入力と同じ |
 | reshape | 形状変更 | Linear（要連続性） |
 | unfold | スライディングウィンドウ | Linear（要連続性） |
+| gather | インデックステンソルによる要素収集 | IndexExpr（LoadIndex含む） |
+
+### Gather操作
+
+`GraphNode::gather(dim, index)`はPyTorchの`torch.gather`に相当する操作です。指定した軸に沿って、indexテンソルの値に従って入力テンソルから要素を収集します。
+
+```rust
+// output[i][j][k] = input[i][index[i][j][k]][k]  // dim=1の場合
+let gathered = input.gather(1, &index);
+```
+
+#### 実装詳細
+
+- **Expr::LoadIndex**: 別のソースバッファからインデックス値を読み込む式
+  - `src_index`: GraphNode.srcのインデックス（1以上）
+  - `offset_expr`: 読み込み位置を計算する式
+- **View::IndexExpr**: LoadIndexを含むindex_exprでGatherパターンを表現
+- **GraphNode.src**: `[input, index]`の2つのノードを保持
+
+#### 制約
+
+- indexテンソルの次元数はinputと同じである必要がある
+- 出力形状はindexと同じ
+
+#### Lowering
+
+LoadIndexを含むViewのLoweringには、バッファ変数のリストを渡すコンテキスト付き変換が必要です。
+
+- `expr_to_ast_with_sources(expr, src_vars, dtype)`: LoadIndexを`load()`に変換
+- `build_strided_offset_with_sources(view, ndim, src_vars, dtype)`: LoadIndex対応のオフセット計算
+
+Contiguous演算では、入力ViewにLoadIndexが含まれる場合、srcのすべてのバッファを変数として渡します。
+
+#### View融合（ViewMergeSuggester）
+
+View→View連鎖を効率的に融合するため、以下の機能が実装されています：
+
+- **`View::compose(outer, inner)`**: 2つのViewを合成。Linear×IndexExprやLoadIndex含む複合パターンに対応
+- **`GraphNode::flatten_view_chain()`**: View連鎖を再帰的に辿り、最終Viewとsrc配列をフラット化
+  - 連続Gatherでsrc配列をマージ: `[inner_srcs[0], extra_srcs..., inner_srcs[1..]...]`
+  - LoadIndex.src_indexを累積シフトして正しいバッファを参照
+
+ViewMergeSuggesterは、LoadIndexを含むViewの場合はViewノードを維持しつつsrc配列を融合します。
+
+#### 将来の拡張
+
+- Scatter操作（Viewの責務外、書き込み+競合解決が必要）は別のGraphOpとして実装予定
 
 ### 自動Contiguous化
 
