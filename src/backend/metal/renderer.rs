@@ -139,15 +139,98 @@ impl MetalKernelRenderer {
         code.push_str("#include <metal_stdlib>\n");
         code.push_str("using namespace metal;\n\n");
 
-        // カーネル関数のみをレンダリング
+        // カーネル関数とFunction関数をレンダリング
         for func in functions {
-            if matches!(func, AstNode::Kernel { .. }) {
-                code.push_str(&self.render_function_node(func));
-                code.push('\n');
+            match func {
+                AstNode::Kernel { name: Some(_), .. } => {
+                    code.push_str(&self.render_function_node(func));
+                    code.push('\n');
+                }
+                AstNode::Function { name: Some(_), .. } => {
+                    // FunctionノードをMetalカーネルとしてレンダリング
+                    code.push_str(&self.render_sequential_function_as_kernel(func));
+                    code.push('\n');
+                }
+                _ => {}
             }
         }
 
         code
+    }
+
+    /// 逐次関数をMetalカーネルとしてレンダリング
+    ///
+    /// AstNode::FunctionをMetal Shading Languageのkernel関数として変換します。
+    /// paramsが空の場合、関数本体からバッファプレースホルダーを抽出して
+    /// 自動的にバッファパラメータを生成します。
+    fn render_sequential_function_as_kernel(&mut self, func: &AstNode) -> String {
+        if let AstNode::Function {
+            name,
+            params,
+            return_type,
+            body,
+        } = func
+        {
+            let mut code = String::new();
+
+            // kernel修飾子を追加
+            code.push_str("kernel ");
+
+            // 戻り値型
+            code.push_str(&self.render_dtype_backend(return_type));
+            code.push(' ');
+
+            // 関数名
+            if let Some(n) = name {
+                code.push_str(n);
+            }
+
+            // パラメータ
+            code.push('(');
+
+            // paramsが空の場合、関数本体からバッファプレースホルダーを抽出
+            if params.is_empty() {
+                use crate::backend::c_like::extract_buffer_placeholders;
+                let (inputs, has_output) = extract_buffer_placeholders(body);
+                let mut buffer_params: Vec<String> = Vec::new();
+                let mut buffer_index = 0;
+
+                // 入力バッファパラメータを生成（device const float*）
+                for input_name in &inputs {
+                    buffer_params.push(format!(
+                        "device const float* {} [[buffer({})]]",
+                        input_name, buffer_index
+                    ));
+                    buffer_index += 1;
+                }
+
+                // 出力バッファパラメータを生成（device float*）
+                if has_output {
+                    buffer_params
+                        .push(format!("device float* output [[buffer({})]]", buffer_index));
+                }
+
+                code.push_str(&buffer_params.join(", "));
+            } else {
+                let rendered_params: Vec<String> = params
+                    .iter()
+                    .map(|p| self.render_param_attribute(p, true))
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                code.push_str(&rendered_params.join(", "));
+            }
+            code.push_str(") {\n");
+
+            // 関数本体
+            self.inc_indent();
+            code.push_str(&self.render_statement(body));
+            self.dec_indent();
+
+            code.push_str("}\n");
+            code
+        } else {
+            String::new()
+        }
     }
 }
 
@@ -268,7 +351,7 @@ impl Renderer for MetalRenderer {
 
 /// Implementation of KernelSourceRenderer for native Metal backend
 #[cfg(all(feature = "metal", target_os = "macos"))]
-impl crate::backend::execution::KernelSourceRenderer for MetalRenderer {
+impl crate::backend::pipeline::KernelSourceRenderer for MetalRenderer {
     fn render_kernel_source(&mut self, program: &AstNode) -> String {
         if let AstNode::Program { functions, .. } = program {
             // Use the internal MetalKernelRenderer to generate kernel-only source

@@ -577,6 +577,129 @@ pub trait CLikeRenderer: Renderer {
     }
 }
 
+/// ASTノードからバッファプレースホルダー（input0, input1, ..., output）を抽出
+///
+/// 関数本体を走査して、`inputN`パターンの変数と`output`変数を見つけます。
+/// これはlowering時にパラメータリストが空のまま生成されるFunctionノードに対して
+/// バッファパラメータを自動生成するために使用されます。
+pub fn extract_buffer_placeholders(body: &AstNode) -> (Vec<String>, bool) {
+    use std::collections::HashSet;
+
+    let mut inputs: HashSet<String> = HashSet::new();
+    let mut has_output = false;
+
+    fn visit(node: &AstNode, inputs: &mut HashSet<String>, has_output: &mut bool) {
+        match node {
+            AstNode::Var(name) => {
+                if name == "output" {
+                    *has_output = true;
+                } else if name.starts_with("input") {
+                    inputs.insert(name.clone());
+                }
+            }
+            AstNode::Load { ptr, offset, .. } => {
+                visit(ptr, inputs, has_output);
+                visit(offset, inputs, has_output);
+            }
+            AstNode::Store { ptr, offset, value } => {
+                visit(ptr, inputs, has_output);
+                visit(offset, inputs, has_output);
+                visit(value, inputs, has_output);
+            }
+            // 算術演算（2項）
+            AstNode::Add(l, r)
+            | AstNode::Mul(l, r)
+            | AstNode::Max(l, r)
+            | AstNode::Rem(l, r)
+            | AstNode::Idiv(l, r)
+            | AstNode::Lt(l, r)
+            | AstNode::Le(l, r)
+            | AstNode::Gt(l, r)
+            | AstNode::Ge(l, r)
+            | AstNode::Eq(l, r)
+            | AstNode::Ne(l, r)
+            | AstNode::BitwiseAnd(l, r)
+            | AstNode::BitwiseOr(l, r)
+            | AstNode::BitwiseXor(l, r)
+            | AstNode::LeftShift(l, r)
+            | AstNode::RightShift(l, r) => {
+                visit(l, inputs, has_output);
+                visit(r, inputs, has_output);
+            }
+            // 算術演算（1項）
+            AstNode::Recip(x)
+            | AstNode::Sqrt(x)
+            | AstNode::Log2(x)
+            | AstNode::Exp2(x)
+            | AstNode::Sin(x)
+            | AstNode::BitwiseNot(x) => {
+                visit(x, inputs, has_output);
+            }
+            AstNode::Cast(x, _) => {
+                visit(x, inputs, has_output);
+            }
+            AstNode::Call { args, .. } => {
+                for arg in args {
+                    visit(arg, inputs, has_output);
+                }
+            }
+            AstNode::Block { statements, .. } => {
+                for stmt in statements {
+                    visit(stmt, inputs, has_output);
+                }
+            }
+            AstNode::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                visit(condition, inputs, has_output);
+                visit(then_body, inputs, has_output);
+                if let Some(else_b) = else_body {
+                    visit(else_b, inputs, has_output);
+                }
+            }
+            AstNode::Range {
+                start,
+                step,
+                stop,
+                body,
+                ..
+            } => {
+                visit(start, inputs, has_output);
+                visit(step, inputs, has_output);
+                visit(stop, inputs, has_output);
+                visit(body, inputs, has_output);
+            }
+            AstNode::Assign { value, .. } => {
+                visit(value, inputs, has_output);
+            }
+            AstNode::Return { value } => {
+                visit(value, inputs, has_output);
+            }
+            AstNode::Allocate { size, .. } => {
+                visit(size, inputs, has_output);
+            }
+            AstNode::Deallocate { ptr } => {
+                visit(ptr, inputs, has_output);
+            }
+            _ => {}
+        }
+    }
+
+    visit(body, &mut inputs, &mut has_output);
+
+    // inputNをソートして返す（input0, input1, input2...の順）
+    let mut input_vec: Vec<String> = inputs.into_iter().collect();
+    input_vec.sort_by(|a, b| {
+        let a_num: usize = a.strip_prefix("input").unwrap_or("0").parse().unwrap_or(0);
+        let b_num: usize = b.strip_prefix("input").unwrap_or("0").parse().unwrap_or(0);
+        a_num.cmp(&b_num)
+    });
+
+    (input_vec, has_output)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

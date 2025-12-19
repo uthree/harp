@@ -66,7 +66,8 @@ impl OpenCLRenderer {
     /// 逐次関数をOpenCLカーネルとしてレンダリング
     ///
     /// AstNode::FunctionをOpenCLの__kernel関数として変換します。
-    /// 関数本体はそのままレンダリングされ、単一ワークアイテムで実行されます。
+    /// paramsが空の場合、関数本体からバッファプレースホルダーを抽出して
+    /// 自動的にバッファパラメータを生成します。
     fn render_sequential_function_as_kernel(&mut self, func: &AstNode) -> String {
         if let AstNode::Function {
             name,
@@ -91,12 +92,32 @@ impl OpenCLRenderer {
 
             // パラメータ
             code.push('(');
-            let rendered_params: Vec<String> = params
-                .iter()
-                .map(|p| self.render_param_attribute(p, true))
-                .filter(|s| !s.is_empty())
-                .collect();
-            code.push_str(&rendered_params.join(", "));
+
+            // paramsが空の場合、関数本体からバッファプレースホルダーを抽出
+            if params.is_empty() {
+                use crate::backend::c_like::extract_buffer_placeholders;
+                let (inputs, has_output) = extract_buffer_placeholders(body);
+                let mut buffer_params: Vec<String> = Vec::new();
+
+                // 入力バッファパラメータを生成（__global const float*）
+                for input_name in &inputs {
+                    buffer_params.push(format!("__global const float* {}", input_name));
+                }
+
+                // 出力バッファパラメータを生成（__global float*）
+                if has_output {
+                    buffer_params.push("__global float* output".to_string());
+                }
+
+                code.push_str(&buffer_params.join(", "));
+            } else {
+                let rendered_params: Vec<String> = params
+                    .iter()
+                    .map(|p| self.render_param_attribute(p, true))
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                code.push_str(&rendered_params.join(", "));
+            }
             code.push_str(") {\n");
 
             // 関数本体をレンダリング
@@ -306,7 +327,7 @@ impl CLikeRenderer for OpenCLRenderer {
 
 /// Implementation of KernelSourceRenderer for native OpenCL backend
 #[cfg(feature = "opencl")]
-impl crate::backend::execution::KernelSourceRenderer for OpenCLRenderer {
+impl crate::backend::pipeline::KernelSourceRenderer for OpenCLRenderer {
     fn render_kernel_source(&mut self, program: &AstNode) -> String {
         if let AstNode::Program { functions, .. } = program {
             let mut code = String::new();

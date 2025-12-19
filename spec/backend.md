@@ -10,8 +10,8 @@
 - `mod.rs`: Renderer trait、KernelSignature、BufferSignatureの定義
 - `traits.rs`: GPU実行用の共通trait定義（Device, Buffer, Kernel, Compiler, KernelConfig）
 - `sequence.rs`: 複数カーネル順次実行（CompiledProgram, KernelCallInfo, IntermediateBufferSpec）
-- `pipeline.rs`: Pipeline、PipelineConfig、CompiledKernel、AST式評価関数
-- `c_like.rs`: C言語系構文の共通レンダリングロジック（CLikeRenderer trait）、OptimizationLevel
+- `pipeline.rs`: Pipeline、PipelineConfig、CompiledKernel、AST式評価関数、KernelSourceRenderer trait
+- `c_like.rs`: C言語系構文の共通レンダリングロジック（CLikeRenderer trait）、OptimizationLevel、extract_buffer_placeholders関数
 
 **注意**: グラフ最適化のファクトリ関数（`create_multi_phase_optimizer`, `MultiPhaseConfig`等）は
 `opt/graph/factory.rs` に移動しました。後方互換性のため `backend` モジュールから re-export されています。
@@ -44,6 +44,30 @@ pub trait Renderer {
 ```
 
 C言語系の構文を持つ言語（OpenCL、Metal）は`CLikeRenderer` traitで共通ロジックを共有。
+
+### KernelSourceRenderer trait
+GPU APIに直接渡せるカーネルソースコードのみを生成するためのtrait。`CLikeRenderer`を拡張します。
+
+```rust
+pub trait KernelSourceRenderer: CLikeRenderer {
+    fn render_kernel_source(&mut self, program: &AstNode) -> String;
+}
+```
+
+`Renderer::render()`がホストコード等を含む完全なコードを生成するのに対し、`render_kernel_source()`はGPU APIに直接渡せるカーネル関数のみを返します。PipelineがGPUコンパイラにソースを渡す際に使用されます。
+
+Metal/OpenCLレンダラーの実装では、`AstNode::Function`ノードを`render_sequential_function_as_kernel()`メソッドでカーネル形式に変換します。
+
+### extract_buffer_placeholders関数
+AST本体から入出力バッファのプレースホルダー変数を自動抽出します（`c_like.rs`）。
+
+```rust
+pub fn extract_buffer_placeholders(body: &AstNode) -> (Vec<String>, bool)
+```
+
+- 戻り値: `(入力バッファ名のリスト, outputが存在するか)`
+- `inputN`パターンの変数名と`output`変数を検出
+- Loweringで空のパラメータリストを持つFunctionノードに対してバッファパラメータを自動生成するために使用
 
 ### KernelSignature / BufferSignature
 カーネルの入出力バッファーの形状情報を表す構造体。
@@ -239,6 +263,16 @@ Graph → Lowerer → AST(Kernel) → Pipeline → KernelConfig → execute
 ```
 
 サイズ式（`[Box<AstNode>; 3]`）は`evaluate_ast_expr`関数で評価され、`shape_vars`（シェイプ変数）を参照して具体値に解決されます。
+
+### エントリポイント名の解決
+
+Pipelineは`extract_entry_point_name`内部メソッドでASTからカーネル/関数名を自動解決します：
+
+1. `AstNode::Kernel`ノードの`name`フィールドを優先検索
+2. 見つからなければ`AstNode::Function`ノードの`name`フィールドを検索
+3. どちらも見つからなければ`"main"`をデフォルト値として使用
+
+これにより、Loweringで生成された任意の名前を持つカーネルが正しくコンパイル・実行されます。
 
 ### 複数カーネルの順次実行
 

@@ -144,8 +144,12 @@ where
         // Render kernel source
         let kernel_source = self.renderer.render_kernel_source(&optimized_program);
 
-        // Extract kernel config from the program
-        let kernel_config = self.extract_kernel_config(&optimized_program, &signature);
+        // Extract the actual kernel/function name from the program
+        let entry_point = self.extract_entry_point_name(&optimized_program);
+        let base_config = self.extract_kernel_config(&optimized_program, &signature);
+        let kernel_config = KernelConfig::new(entry_point)
+            .with_global_work_size(base_config.global_work_size)
+            .with_local_work_size(base_config.local_work_size.unwrap_or([1, 1, 1]));
 
         // Compile kernel
         let kernel = self
@@ -235,55 +239,77 @@ where
             vec![]
         };
 
-        // Collect all kernel names from the program
+        // Collect all kernel/function names from the program
         let kernel_names: Vec<String> = functions
             .iter()
-            .filter_map(|f| {
-                if let AstNode::Kernel { name, .. } = f {
-                    name.clone()
-                } else {
-                    None
-                }
+            .filter_map(|f| match f {
+                AstNode::Kernel { name, .. } => name.clone(),
+                AstNode::Function { name, .. } => name.clone(),
+                _ => None,
             })
             .collect();
 
-        // Compile each kernel with its specific config
+        // Compile each kernel/function with its specific config
         let shape_vars = Self::extract_shape_vars(&signature);
         let mut kernels: HashMap<String, Comp::Kernel> = HashMap::new();
         let mut kernel_call_infos: Vec<KernelCallInfo> = Vec::new();
 
         for func in functions {
-            if let AstNode::Kernel {
-                name: Some(name),
-                default_grid_size,
-                default_thread_group_size,
-                ..
-            } = func
-            {
-                let grid = evaluate_dispatch_size(default_grid_size, &shape_vars);
-                let tg = evaluate_dispatch_size(default_thread_group_size, &shape_vars);
+            match func {
+                AstNode::Kernel {
+                    name: Some(name),
+                    default_grid_size,
+                    default_thread_group_size,
+                    ..
+                } => {
+                    let grid = evaluate_dispatch_size(default_grid_size, &shape_vars);
+                    let tg = evaluate_dispatch_size(default_thread_group_size, &shape_vars);
 
-                let mut config = KernelConfig::new(name.clone())
-                    .with_global_work_size(grid)
-                    .with_local_work_size(tg);
+                    let mut config = KernelConfig::new(name.clone())
+                        .with_global_work_size(grid)
+                        .with_local_work_size(tg);
 
-                for (var_name, value) in &shape_vars {
-                    config = config.with_shape_var(var_name.clone(), *value);
+                    for (var_name, value) in &shape_vars {
+                        config = config.with_shape_var(var_name.clone(), *value);
+                    }
+
+                    let kernel =
+                        self.compiler
+                            .compile(&self.context, &kernel_source, config.clone())?;
+                    kernels.insert(name.clone(), kernel);
+
+                    // Create KernelCallInfo for this kernel
+                    kernel_call_infos.push(KernelCallInfo::new(
+                        name.clone(),
+                        signature.inputs.iter().map(|i| i.name.clone()).collect(),
+                        signature.outputs.iter().map(|o| o.name.clone()).collect(),
+                        config.global_work_size,
+                        config.local_work_size.unwrap_or([1, 1, 1]),
+                    ));
                 }
+                AstNode::Function {
+                    name: Some(name), ..
+                } => {
+                    // Function nodes use default grid size based on output shape
+                    let config = self.extract_kernel_config(&optimized_program, &signature);
+                    let config = KernelConfig::new(name.clone())
+                        .with_global_work_size(config.global_work_size)
+                        .with_local_work_size(config.local_work_size.unwrap_or([1, 1, 1]));
 
-                let kernel =
-                    self.compiler
-                        .compile(&self.context, &kernel_source, config.clone())?;
-                kernels.insert(name.clone(), kernel);
+                    let kernel =
+                        self.compiler
+                            .compile(&self.context, &kernel_source, config.clone())?;
+                    kernels.insert(name.clone(), kernel);
 
-                // Create KernelCallInfo for this kernel
-                kernel_call_infos.push(KernelCallInfo::new(
-                    name.clone(),
-                    signature.inputs.iter().map(|i| i.name.clone()).collect(),
-                    signature.outputs.iter().map(|o| o.name.clone()).collect(),
-                    config.global_work_size,
-                    config.local_work_size.unwrap_or([1, 1, 1]),
-                ));
+                    kernel_call_infos.push(KernelCallInfo::new(
+                        name.clone(),
+                        signature.inputs.iter().map(|i| i.name.clone()).collect(),
+                        signature.outputs.iter().map(|o| o.name.clone()).collect(),
+                        config.global_work_size,
+                        config.local_work_size.unwrap_or([1, 1, 1]),
+                    ));
+                }
+                _ => {}
             }
         }
 
@@ -475,6 +501,26 @@ where
         }
 
         optimized
+    }
+
+    // Internal: extract entry point name from AST
+    fn extract_entry_point_name(&self, program: &AstNode) -> String {
+        if let AstNode::Program { functions, .. } = program {
+            // First try to find a Kernel node with a name
+            for f in functions {
+                if let AstNode::Kernel { name: Some(n), .. } = f {
+                    return n.clone();
+                }
+            }
+            // Then try to find a Function node with a name
+            for f in functions {
+                if let AstNode::Function { name: Some(n), .. } = f {
+                    return n.clone();
+                }
+            }
+        }
+        // Fallback to default name
+        "main".to_string()
     }
 
     // Internal: extract kernel config from AST
