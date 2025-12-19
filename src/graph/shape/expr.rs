@@ -171,6 +171,79 @@ impl Expr {
             .unwrap_or_else(|| panic!("Expected non-negative constant: {}", msg))
     }
 
+    /// 変数の値を与えて式を評価する
+    ///
+    /// # Arguments
+    /// * `vars` - 変数名と値のマッピング
+    ///
+    /// # Returns
+    /// * `Ok(isize)` - 評価結果
+    /// * `Err(String)` - 未定義の変数があった場合
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use harp::graph::shape::Expr;
+    /// use std::collections::HashMap;
+    ///
+    /// let expr = Expr::Var("N".to_string()) * Expr::Const(4);
+    /// let mut vars = HashMap::new();
+    /// vars.insert("N".to_string(), 32);
+    /// assert_eq!(expr.evaluate(&vars), Ok(128));
+    /// ```
+    pub fn evaluate(
+        &self,
+        vars: &std::collections::HashMap<String, isize>,
+    ) -> Result<isize, String> {
+        match self {
+            Expr::Const(v) => Ok(*v),
+            Expr::Var(name) => vars
+                .get(name)
+                .copied()
+                .ok_or_else(|| format!("Undefined variable: {}", name)),
+            Expr::Idx(i) => Err(format!("Cannot evaluate loop index Idx({})", i)),
+            Expr::Add(l, r) => Ok(l.evaluate(vars)? + r.evaluate(vars)?),
+            Expr::Sub(l, r) => Ok(l.evaluate(vars)? - r.evaluate(vars)?),
+            Expr::Mul(l, r) => Ok(l.evaluate(vars)? * r.evaluate(vars)?),
+            Expr::Div(l, r) => {
+                let rv = r.evaluate(vars)?;
+                if rv == 0 {
+                    Err("Division by zero".to_string())
+                } else {
+                    Ok(l.evaluate(vars)? / rv)
+                }
+            }
+            Expr::Rem(l, r) => {
+                let rv = r.evaluate(vars)?;
+                if rv == 0 {
+                    Err("Division by zero".to_string())
+                } else {
+                    Ok(l.evaluate(vars)? % rv)
+                }
+            }
+        }
+    }
+
+    /// 変数の値を与えて式をusizeとして評価する
+    ///
+    /// # Arguments
+    /// * `vars` - 変数名と値のマッピング
+    ///
+    /// # Returns
+    /// * `Ok(usize)` - 評価結果（非負の場合）
+    /// * `Err(String)` - 未定義の変数があった場合、または結果が負の場合
+    pub fn evaluate_usize(
+        &self,
+        vars: &std::collections::HashMap<String, isize>,
+    ) -> Result<usize, String> {
+        let result = self.evaluate(vars)?;
+        if result < 0 {
+            Err(format!("Expected non-negative value, got {}", result))
+        } else {
+            Ok(result as usize)
+        }
+    }
+
     /// この式で使用されている全ての変数名を収集
     pub fn collect_vars(&self) -> std::collections::BTreeSet<String> {
         use std::collections::BTreeSet;

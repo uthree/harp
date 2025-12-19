@@ -858,6 +858,14 @@ pub enum KernelExecutionError<KE> {
     KernelError(KE),
     /// Buffer not found
     BufferNotFound(String),
+    /// Buffer shape mismatch
+    ShapeMismatch {
+        buffer_name: String,
+        expected: Vec<usize>,
+        actual: Vec<usize>,
+    },
+    /// Shape evaluation error (undefined variable, etc.)
+    ShapeEvaluationError(String),
 }
 
 impl<KE: std::fmt::Display> std::fmt::Display for KernelExecutionError<KE> {
@@ -865,6 +873,16 @@ impl<KE: std::fmt::Display> std::fmt::Display for KernelExecutionError<KE> {
         match self {
             Self::KernelError(e) => write!(f, "Kernel execution error: {}", e),
             Self::BufferNotFound(name) => write!(f, "Buffer not found: {}", name),
+            Self::ShapeMismatch {
+                buffer_name,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "Shape mismatch for buffer '{}': expected {:?}, got {:?}",
+                buffer_name, expected, actual
+            ),
+            Self::ShapeEvaluationError(msg) => write!(f, "Shape evaluation error: {}", msg),
         }
     }
 }
@@ -873,7 +891,9 @@ impl<KE: std::error::Error + 'static> std::error::Error for KernelExecutionError
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::KernelError(e) => Some(e),
-            Self::BufferNotFound(_) => None,
+            Self::BufferNotFound(_)
+            | Self::ShapeMismatch { .. }
+            | Self::ShapeEvaluationError(_) => None,
         }
     }
 }
@@ -944,6 +964,49 @@ where
         // Merge shape variables: signature defaults + query overrides
         let mut shape_vars = self.signature.shape_vars.clone();
         shape_vars.extend(query.get_shape_vars().iter().map(|(k, v)| (k.clone(), *v)));
+
+        // Validate input buffer shapes
+        for sig in &self.signature.inputs {
+            let buffer = query.inputs().get(&sig.name).unwrap();
+            let actual_shape: Vec<usize> = buffer.shape().to_vec();
+            let expected_shape: Result<Vec<usize>, String> = sig
+                .shape
+                .iter()
+                .map(|expr| expr.evaluate_usize(&shape_vars))
+                .collect();
+            let expected_shape =
+                expected_shape.map_err(KernelExecutionError::ShapeEvaluationError)?;
+
+            if actual_shape != expected_shape {
+                return Err(KernelExecutionError::ShapeMismatch {
+                    buffer_name: sig.name.clone(),
+                    expected: expected_shape,
+                    actual: actual_shape,
+                });
+            }
+        }
+
+        // Validate output buffer shapes
+        for sig in &self.signature.outputs {
+            // SAFETY: We already validated that all outputs exist
+            let buffer = unsafe { &**query.outputs().get(&sig.name).unwrap() };
+            let actual_shape: Vec<usize> = buffer.shape().to_vec();
+            let expected_shape: Result<Vec<usize>, String> = sig
+                .shape
+                .iter()
+                .map(|expr| expr.evaluate_usize(&shape_vars))
+                .collect();
+            let expected_shape =
+                expected_shape.map_err(KernelExecutionError::ShapeEvaluationError)?;
+
+            if actual_shape != expected_shape {
+                return Err(KernelExecutionError::ShapeMismatch {
+                    buffer_name: sig.name.clone(),
+                    expected: expected_shape,
+                    actual: actual_shape,
+                });
+            }
+        }
 
         // Compute dispatch sizes using the merged shape variables
         let grid_size = self.dispatch_config.evaluate_grid_size(&shape_vars);

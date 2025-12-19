@@ -584,3 +584,104 @@ fn test_shape_macro_mixed_all_types() {
         ]
     );
 }
+
+// =============================================================================
+// Expr::evaluate tests
+// =============================================================================
+
+#[test]
+fn test_evaluate_const() {
+    let vars = std::collections::HashMap::new();
+    assert_eq!(Expr::Const(42).evaluate(&vars), Ok(42));
+    assert_eq!(Expr::Const(-10).evaluate(&vars), Ok(-10));
+    assert_eq!(Expr::Const(0).evaluate(&vars), Ok(0));
+}
+
+#[test]
+fn test_evaluate_var() {
+    let mut vars = std::collections::HashMap::new();
+    vars.insert("N".to_string(), 128);
+    vars.insert("M".to_string(), 256);
+
+    assert_eq!(Expr::Var("N".to_string()).evaluate(&vars), Ok(128));
+    assert_eq!(Expr::Var("M".to_string()).evaluate(&vars), Ok(256));
+
+    // Undefined variable should return error
+    assert!(Expr::Var("undefined".to_string()).evaluate(&vars).is_err());
+}
+
+#[test]
+fn test_evaluate_arithmetic() {
+    let mut vars = std::collections::HashMap::new();
+    vars.insert("x".to_string(), 10);
+    vars.insert("y".to_string(), 3);
+
+    // 10 + 3 = 13
+    let add = Expr::Var("x".to_string()) + Expr::Var("y".to_string());
+    assert_eq!(add.evaluate(&vars), Ok(13));
+
+    // 10 - 3 = 7
+    let sub = Expr::Var("x".to_string()) - Expr::Var("y".to_string());
+    assert_eq!(sub.evaluate(&vars), Ok(7));
+
+    // 10 * 3 = 30
+    let mul = Expr::Var("x".to_string()) * Expr::Var("y".to_string());
+    assert_eq!(mul.evaluate(&vars), Ok(30));
+
+    // 10 / 3 = 3
+    let div = Expr::Var("x".to_string()) / Expr::Var("y".to_string());
+    assert_eq!(div.evaluate(&vars), Ok(3));
+
+    // 10 % 3 = 1
+    let rem = Expr::Var("x".to_string()) % Expr::Var("y".to_string());
+    assert_eq!(rem.evaluate(&vars), Ok(1));
+}
+
+#[test]
+fn test_evaluate_complex_expr() {
+    let mut vars = std::collections::HashMap::new();
+    vars.insert("batch".to_string(), 32);
+    vars.insert("seq_len".to_string(), 128);
+    vars.insert("hidden".to_string(), 512);
+
+    // batch * seq_len * hidden = 32 * 128 * 512 = 2097152
+    let expr = Expr::Var("batch".to_string())
+        * Expr::Var("seq_len".to_string())
+        * Expr::Var("hidden".to_string());
+    assert_eq!(expr.evaluate(&vars), Ok(2097152));
+}
+
+#[test]
+fn test_evaluate_division_by_zero() {
+    let vars = std::collections::HashMap::new();
+
+    let div = Expr::Const(10) / Expr::Const(0);
+    assert!(div.evaluate(&vars).is_err());
+
+    let rem = Expr::Const(10) % Expr::Const(0);
+    assert!(rem.evaluate(&vars).is_err());
+}
+
+#[test]
+fn test_evaluate_idx_error() {
+    let vars = std::collections::HashMap::new();
+    let idx = Expr::Idx(0);
+    assert!(idx.evaluate(&vars).is_err());
+}
+
+#[test]
+fn test_evaluate_usize() {
+    let mut vars = std::collections::HashMap::new();
+    vars.insert("N".to_string(), 128);
+
+    assert_eq!(Expr::Const(42).evaluate_usize(&vars), Ok(42));
+    assert_eq!(Expr::Var("N".to_string()).evaluate_usize(&vars), Ok(128));
+
+    // Negative result should error
+    assert!(Expr::Const(-1).evaluate_usize(&vars).is_err());
+    assert!(
+        (Expr::Const(0) - Expr::Const(10))
+            .evaluate_usize(&vars)
+            .is_err()
+    );
+}

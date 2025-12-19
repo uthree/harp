@@ -334,6 +334,47 @@ CompiledKernel::query()
     → .execute() で実行
 ```
 
+### バッファShape検証
+
+`execute_with`および`BoundExecutionQuery::execute()`は、実行前にバッファのshapeを自動検証します。
+
+**検証内容:**
+- 入力/出力バッファの`shape()`と`KernelSignature`の期待されるshapeを比較
+- 動的shape（`Expr::Var`を含む）は`shape_vars`で評価してから比較
+
+**エラー型:**
+```rust
+pub enum KernelExecutionError<KE> {
+    KernelError(KE),
+    BufferNotFound(String),
+    ShapeMismatch {           // バッファのshapeが期待と異なる
+        buffer_name: String,
+        expected: Vec<usize>,
+        actual: Vec<usize>,
+    },
+    ShapeEvaluationError(String),  // 動的shape評価時のエラー（未定義変数など）
+}
+```
+
+**使用例:**
+```rust
+// 正しいshape
+let mut buf = OpenCLBuffer::allocate(&device, vec![32, 128], DType::F32)?;
+compiled_kernel.query()
+    .input("x", &buf)
+    .output("y", &mut out_buf)
+    .shape_var("batch", 32)
+    .shape_var("seq_len", 128)
+    .execute()?;  // OK
+
+// shapeが不正な場合
+let wrong_buf = OpenCLBuffer::allocate(&device, vec![64, 64], DType::F32)?;
+let result = compiled_kernel.query()
+    .input("x", &wrong_buf)  // 期待: [32, 128], 実際: [64, 64]
+    .output("y", &mut out_buf)
+    .execute();  // Err(ShapeMismatch { buffer_name: "x", expected: [32, 128], actual: [64, 64] })
+```
+
 ### DispatchSizeConfig / DispatchSizeExpr
 
 `DispatchSizeConfig`はグリッドサイズとローカルサイズを式として保持し、実行時にshape変数を使って評価します。

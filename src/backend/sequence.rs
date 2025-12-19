@@ -78,6 +78,16 @@ impl<'a, B: Buffer> ExecutionQuery<'a, B> {
         &self.inputs
     }
 
+    /// Get the output buffers map (raw pointers for read-only access)
+    ///
+    /// # Safety
+    /// The returned pointers are valid for the lifetime of the query.
+    /// The caller must not create mutable references from these pointers
+    /// while other references exist.
+    pub(crate) fn outputs(&self) -> &HashMap<String, *mut B> {
+        &self.outputs
+    }
+
     /// Get the shape variables map
     pub fn get_shape_vars(&self) -> &HashMap<String, isize> {
         &self.shape_vars
