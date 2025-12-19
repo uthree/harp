@@ -199,6 +199,48 @@ let (optimized, history) = optimizer.optimize_with_history(graph);
 - 最適化の初期候補生成
 - デバッグ・テスト用途
 
+## Factory モジュール (`opt/graph/factory.rs`)
+
+グラフオプティマイザのファクトリ関数を提供。マルチフェーズ最適化や各種Suggesterを組み合わせたオプティマイザを作成する。
+
+### 主要関数
+
+| 関数 | 説明 |
+|------|------|
+| `create_multi_phase_optimizer(config)` | 7フェーズの最適化パイプラインを作成 |
+| `create_multi_phase_optimizer_with_selector(config, selector)` | カスタムSelectorを使用するパイプライン |
+| `create_greedy_optimizer(config)` | 貪欲法オプティマイザ（高速、ビーム幅=1） |
+| `optimize_graph_multi_phase(graph, config)` | マルチフェーズ最適化を直接実行 |
+| `optimize_graph_greedy(graph, max_steps)` | 貪欲法最適化を直接実行 |
+
+### Suggesterファクトリ
+
+| 関数 | 説明 |
+|------|------|
+| `create_subgraph_inlining_suggester()` | サブグラフインライン展開用 |
+| `create_view_merge_only_suggester()` | ViewMergeのみ |
+| `create_graph_optimization_suggester()` | グラフ構造最適化（View挿入、タイリング等） |
+| `create_lowering_only_suggester()` | Lowering用（Sequentialのみ） |
+| `create_lowering_only_suggester_with_simd(widths)` | SIMD幅指定付きLowering |
+| `create_kernel_partition_suggester()` | カーネル分割用 |
+| `create_fusion_suggester()` | 吸収・マージ用 |
+| `create_ast_loop_suggester()` | ASTループ最適化用 |
+
+### 設定 (`MultiPhaseConfig`)
+
+```rust
+let config = MultiPhaseConfig::new()
+    .with_beam_width(4)           // ビーム幅
+    .with_max_steps(5000)         // 最大ステップ数
+    .with_progress(true)          // プログレス表示
+    .with_collect_logs(true)      // ログ収集
+    .with_early_termination_threshold(Some(10))  // 早期終了
+    .with_subgraph_mode(SubgraphMode::Inline)    // サブグラフ処理モード
+    .with_simd_widths(vec![4, 8]); // SIMD幅候補
+```
+
+**注意**: これらの関数は後方互換性のため `harp::backend` からも re-export されている。
+
 ## BeamSearchGraphOptimizer
 
 - `beam_width`: ビーム幅（デフォルト: 10）

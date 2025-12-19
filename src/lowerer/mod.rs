@@ -30,9 +30,7 @@
 //! let (optimized, _history) = optimizer.optimize_with_history(graph);
 //! ```
 
-use crate::backend::pipeline::{
-    MultiPhaseConfig, create_greedy_optimizer, create_multi_phase_optimizer,
-};
+use crate::backend::{MultiPhaseConfig, create_greedy_optimizer, create_multi_phase_optimizer};
 use crate::graph::{Graph, ops::GraphOp};
 use crate::opt::graph::ChainedGraphOptimizer;
 

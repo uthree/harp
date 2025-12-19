@@ -879,7 +879,7 @@ mod tests {
 
     #[test]
     fn test_kernel_merge_with_optimizer() {
-        use crate::backend::pipeline::{MultiPhaseConfig, create_multi_phase_optimizer};
+        use crate::backend::{MultiPhaseConfig, create_multi_phase_optimizer};
         use crate::opt::graph::GraphOptimizer;
 
         let _ = env_logger::try_init();

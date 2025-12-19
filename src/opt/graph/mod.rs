@@ -1,4 +1,5 @@
 pub mod estimator;
+pub mod factory;
 pub mod history;
 pub mod optimizer;
 pub mod selector;
@@ -149,6 +150,15 @@ pub trait GraphCostEstimator {
 // Re-export commonly used types
 pub use estimator::{
     AstBasedCostEstimator, KernelMergeCostEstimator, LoweringCostEstimator, SimpleCostEstimator,
+};
+pub use factory::{
+    IdentityOptimizer, MultiPhaseConfig, SubgraphMode, create_ast_loop_suggester,
+    create_fusion_suggester, create_graph_optimization_suggester,
+    create_greedy_lowering_only_suggester, create_greedy_optimizer,
+    create_kernel_partition_suggester, create_lowering_only_suggester,
+    create_lowering_only_suggester_with_simd, create_multi_phase_optimizer,
+    create_multi_phase_optimizer_with_selector, create_subgraph_inlining_suggester,
+    create_view_merge_only_suggester, optimize_graph_greedy, optimize_graph_multi_phase,
 };
 pub use history::{AlternativeCandidate, OptimizationHistory, OptimizationSnapshot};
 pub use optimizer::{

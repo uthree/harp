@@ -8,23 +8,25 @@
 
 ### コアモジュール
 - `mod.rs`: Renderer trait、KernelSignature、BufferSignatureの定義
-- `traits.rs`: GPU実行用の共通trait定義（Context, Buffer, Kernel, Compiler, KernelConfig）
+- `traits.rs`: GPU実行用の共通trait定義（Device, Buffer, Kernel, Compiler, KernelConfig）
 - `sequence.rs`: 複数カーネル順次実行（CompiledProgram, KernelCallInfo, IntermediateBufferSpec）
-- `execution.rs`: Pipeline、CompiledKernel、AST式評価関数
-- `pipeline.rs`: 多フェーズ最適化パイプライン（`create_multi_phase_optimizer`, `MultiPhaseConfig`）
+- `pipeline.rs`: Pipeline、PipelineConfig、CompiledKernel、AST式評価関数
 - `c_like.rs`: C言語系構文の共通レンダリングロジック（CLikeRenderer trait）、OptimizationLevel
+
+**注意**: グラフ最適化のファクトリ関数（`create_multi_phase_optimizer`, `MultiPhaseConfig`等）は
+`opt/graph/factory.rs` に移動しました。後方互換性のため `backend` モジュールから re-export されています。
 
 ### バックエンド実装
 - `metal/`: Metalバックエンド（macOS GPU）
   - `mod.rs`: モジュール定義とre-export
   - `renderer.rs`: Metal Shading Languageレンダラー
   - `MetalCode`: Metal Shading Languageソースコードを表す型
-  - `buffer.rs`, `context.rs`, `kernel.rs`, `compiler.rs`: GPU実行用の実装（metal feature）
+  - `buffer.rs`, `device.rs`, `kernel.rs`, `compiler.rs`: GPU実行用の実装（metal feature）
 - `opencl/`: OpenCLバックエンド（クロスプラットフォームGPU）
   - `mod.rs`: モジュール定義とre-export
   - `renderer.rs`: OpenCL Cレンダラー
   - `OpenCLCode`: OpenCL Cコードを表す型
-  - `buffer.rs`, `context.rs`, `kernel.rs`, `compiler.rs`: GPU実行用の実装（opencl feature）
+  - `buffer.rs`, `device.rs`, `kernel.rs`, `compiler.rs`: GPU実行用の実装（opencl feature）
 
 ## 主要コンポーネント
 
@@ -102,8 +104,16 @@ let (optimized_graph, history) = optimizer.optimize_with_history(graph);
 
 ### 主要trait
 
-#### Context
-GPU実行コンテキスト。デバイスの初期化とリソース管理を担当。
+#### Device
+GPUデバイスを表すマーカートレイト。バックエンドの利用可能性チェックのみを提供。
+
+```rust
+pub trait Device {
+    fn is_available() -> bool;
+}
+```
+
+デバイス初期化（`new()`, `with_device()`）やデバイス名取得（`device_name()`）は各具体型（`OpenCLDevice`, `MetalDevice`）の固有メソッドとして実装されており、トレイトでは規定しない。
 
 #### Buffer
 GPUメモリバッファ。ホスト⇔デバイス間のデータ転送を提供。
@@ -122,11 +132,11 @@ GPUメモリバッファ。ホスト⇔デバイス間のデータ転送を提�
 ### 使用例（OpenCL）
 
 ```rust
-use harp::backend::traits::{Buffer, Compiler, Context, KernelConfig};
-use harp::backend::opencl::{OpenCLBuffer, OpenCLCompiler, OpenCLContext};
+use harp::backend::traits::{Buffer, Compiler, Device, KernelConfig};
+use harp::backend::opencl::{OpenCLBuffer, OpenCLCompiler, OpenCLDevice};
 
-// コンテキスト作成
-let context = OpenCLContext::new()?;
+// デバイス作成
+let device = OpenCLDevice::new()?;
 
 // カーネルソース
 let source = r#"
@@ -139,12 +149,12 @@ let source = r#"
 // コンパイル
 let compiler = OpenCLCompiler::new();
 let config = KernelConfig::new("add").with_global_work_size([4, 1, 1]);
-let kernel = compiler.compile(&context, source, config)?;
+let kernel = compiler.compile(&device, source, config)?;
 
 // バッファ作成
-let a = OpenCLBuffer::from_vec(&context, vec![4], DType::F32, &[1.0, 2.0, 3.0, 4.0])?;
-let b = OpenCLBuffer::from_vec(&context, vec![4], DType::F32, &[5.0, 6.0, 7.0, 8.0])?;
-let c = OpenCLBuffer::allocate(&context, vec![4], DType::F32)?;
+let a = OpenCLBuffer::from_vec(&device, vec![4], DType::F32, &[1.0, 2.0, 3.0, 4.0])?;
+let b = OpenCLBuffer::from_vec(&device, vec![4], DType::F32, &[5.0, 6.0, 7.0, 8.0])?;
+let c = OpenCLBuffer::allocate(&device, vec![4], DType::F32)?;
 
 // 実行
 kernel.execute_with_buffers(&[&a, &b, &c])?;
@@ -167,15 +177,15 @@ let result: Vec<f32> = c.read_vec()?;  // [6.0, 8.0, 10.0, 12.0]
 
 **使用例:**
 ```rust
-use harp::backend::{Buffer, Compiler, Context, Pipeline};
-use harp::backend::opencl::{OpenCLBuffer, OpenCLCompiler, OpenCLContext, OpenCLRenderer};
+use harp::backend::{Buffer, Compiler, Device, Pipeline};
+use harp::backend::opencl::{OpenCLBuffer, OpenCLCompiler, OpenCLDevice, OpenCLRenderer};
 use harp::graph::{Graph, DType};
 
 // パイプライン作成
-let context = OpenCLContext::new()?;
+let device = OpenCLDevice::new()?;
 let renderer = OpenCLRenderer::new();
 let compiler = OpenCLCompiler::new();
-let mut pipeline = Pipeline::new(renderer, compiler, context);
+let mut pipeline = Pipeline::new(renderer, compiler, device);
 
 // グラフ作成
 let mut graph = Graph::new();
@@ -244,6 +254,7 @@ Graph → Lowerer → AST(Kernel) → Pipeline → KernelConfig → execute
 ```rust
 // compile_program()は複数カーネルに対応
 let program = pipeline.compile_program(graph)?;
+let device = pipeline.context();  // デバイスを取得
 
 // 名前付きバッファで実行
 let mut inputs = HashMap::new();
@@ -251,10 +262,10 @@ inputs.insert("a".to_string(), &input_a);
 let mut outputs = HashMap::new();
 outputs.insert("out".to_string(), &mut output);
 
-program.execute(&context, &inputs, &mut outputs)?;
+program.execute(device, &inputs, &mut outputs)?;
 
 // または位置引数で実行（単一カーネルの場合に便利）
-program.execute_positional(&context, &[&input_a], &mut [&mut output])?;
+program.execute_positional(device, &[&input_a], &mut [&mut output])?;
 ```
 
 **動的サイズでの実行:**

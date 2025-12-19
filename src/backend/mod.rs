@@ -29,9 +29,6 @@ pub mod c_like;
 pub mod metal;
 pub mod opencl;
 pub mod pipeline;
-
-// Core traits and execution modules
-pub mod execution;
 pub mod sequence;
 pub mod traits;
 
@@ -42,8 +39,8 @@ pub use opencl::{OpenCLCode, OpenCLRenderer};
 // Re-export core traits
 pub use traits::{Buffer, Compiler, Device, Kernel, KernelConfig};
 
-// Re-export execution types
-pub use execution::{
+// Re-export pipeline types (Pipeline, CompiledKernel, etc.)
+pub use pipeline::{
     CompiledKernel, KernelSourceRenderer, OptimizationHistories, Pipeline, PipelineConfig,
 };
 
@@ -52,8 +49,8 @@ pub use sequence::{
     CompiledProgram, IntermediateBufferSpec, KernelCallInfo, ProgramExecutionError,
 };
 
-// Re-export pipeline utilities
-pub use pipeline::{
+// Re-export graph optimizer factory functions from opt::graph
+pub use crate::opt::graph::{
     IdentityOptimizer, MultiPhaseConfig, SubgraphMode, create_greedy_optimizer,
     create_multi_phase_optimizer, create_multi_phase_optimizer_with_selector,
     optimize_graph_greedy, optimize_graph_multi_phase,

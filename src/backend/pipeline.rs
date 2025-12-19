@@ -1,895 +1,767 @@
-/// Pipeline実装のための共通ヘルパー関数
-///
-/// 各バックエンドのPipeline実装で使用される共通機能を提供します。
+//! GPU Pipeline implementation
+//!
+//! This module provides a Pipeline implementation that uses the GPU backends
+//! (OpenCL via `ocl` crate, Metal via `metal` crate).
+
+use crate::ast::{AstKernelCallInfo, AstNode, DType, Literal};
+use crate::backend::KernelSignature;
+use crate::backend::c_like::CLikeRenderer;
+use crate::backend::sequence::{CompiledProgram, IntermediateBufferSpec, KernelCallInfo};
+use crate::backend::traits::{Buffer, Compiler, Device, Kernel, KernelConfig};
 use crate::graph::Graph;
-use crate::lowerer::SubgraphLoweringOptimizer;
+use crate::graph::shape::Expr;
+use crate::opt::ast::rules::all_algebraic_rules;
 use crate::opt::ast::{
+    AstOptimizer, BeamSearchOptimizer as AstBeamSearchOptimizer,
     CompositeSuggester as AstCompositeSuggester, FunctionInliningSuggester, LoopFusionSuggester,
     LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester,
+    OptimizationHistory as AstOptimizationHistory, RuleBaseOptimizer,
 };
-use crate::opt::graph::{
-    BeamSearchGraphOptimizer, BufferAbsorptionSuggester, ChainedGraphOptimizer, CompositeSuggester,
-    ContiguousInsertionSuggester, FusionSuggester, GraphOptimizer, GreedyGraphOptimizer,
-    KernelMergeSuggester, KernelPartitionSuggester, LoweringSuggester, SubgraphInliningSuggester,
-    TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
-};
+use crate::opt::graph::{GraphOptimizer, OptimizationHistory as GraphOptimizationHistory};
+use std::collections::{HashMap, HashSet};
+use std::marker::PhantomData;
 
-// =============================================================================
-// ユーティリティオプティマイザ
-// =============================================================================
-
-use crate::opt::graph::OptimizationHistory;
-
-/// 何も変更しないオプティマイザ
+/// Trait for renderers that can generate kernel-only source code
 ///
-/// グラフをそのまま返す特殊なオプティマイザです。
-/// サブグラフ処理をスキップする場合などに使用します。
+/// This trait extends CLikeRenderer to provide a method that generates
+/// only the kernel source code (without host code), suitable for GPU APIs.
+pub trait KernelSourceRenderer: CLikeRenderer {
+    /// Render only the kernel source code (without host code)
+    ///
+    /// Returns the kernel function source that can be passed directly to
+    /// GPU APIs (OpenCL, Metal).
+    fn render_kernel_source(&mut self, program: &AstNode) -> String;
+}
+
+/// Pipeline configuration
 #[derive(Debug, Clone)]
-pub struct IdentityOptimizer {
-    name: String,
-}
-
-impl IdentityOptimizer {
-    pub fn new(name: &str) -> Self {
-        Self {
-            name: name.to_string(),
-        }
-    }
-}
-
-impl GraphOptimizer for IdentityOptimizer {
-    fn name(&self) -> Option<&str> {
-        Some(&self.name)
-    }
-
-    fn optimize(&self, graph: Graph) -> Graph {
-        graph
-    }
-
-    fn optimize_with_history(&self, graph: Graph) -> (Graph, OptimizationHistory) {
-        (graph, OptimizationHistory::new())
-    }
-}
-
-// =============================================================================
-// サブグラフ処理モード
-// =============================================================================
-
-/// サブグラフの処理方法を指定するモード
-///
-/// コンパイルパイプラインでSubgraphCallノードをどのように扱うかを決定します。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum SubgraphMode {
-    /// サブグラフをインライン展開する
-    ///
-    /// SubgraphCallノードを対応するサブグラフの計算ノードで直接置き換えます。
-    /// これにより、単一の大きなカーネルが生成されます。
-    ///
-    /// **利点**: カーネル呼び出しオーバーヘッドがない
-    /// **欠点**: コードサイズが大きくなる可能性がある
-    #[default]
-    Inline,
-
-    /// サブグラフを個別のカーネル関数として生成する
-    ///
-    /// 各SubgraphCallは独立したカーネル関数として保持され、
-    /// execution_orderで呼び出し順序が管理されます。
-    ///
-    /// **利点**: コードの再利用、モジュール性の維持
-    /// **欠点**: カーネル呼び出しオーバーヘッドがある
-    SeparateKernels,
-
-    /// サブグラフを無視する（SubgraphCallノードを残す）
-    ///
-    /// SubgraphCallノードをそのまま残します。警告が出力されます。
-    /// デバッグや特殊なケースで使用します。
-    Skip,
-}
-
-// =============================================================================
-// マルチフェーズ最適化用の関数
-// =============================================================================
-
-/// サブグラフインライン展開フェーズ用Suggesterを作成
-///
-/// SubgraphCallノードを検出し、対応するサブグラフの計算を
-/// 呼び出し元グラフに直接埋め込みます。
-///
-/// このフェーズは他の最適化の前に実行する必要があります。
-pub fn create_subgraph_inlining_suggester() -> CompositeSuggester {
-    CompositeSuggester::new(vec![Box::new(SubgraphInliningSuggester::new())])
-}
-
-/// ViewMergeとFusionのみのフェーズ用Suggesterを作成
-///
-/// グラフの構築過程で生成された余分なビュー変更を除去します。
-/// 最適化の最初と最後に実行することで、クリーンなグラフ構造を維持します。
-pub fn create_view_merge_only_suggester() -> CompositeSuggester {
-    CompositeSuggester::new(vec![Box::new(ViewMergeSuggester::new())])
-}
-
-/// グラフ最適化フェーズ用のSuggesterを作成
-///
-/// ViewInsertion、Tiling、ContiguousInsertion、Fusion, ViewMergeなど、
-/// グラフ構造の最適化を行うSuggesterを含みます。
-///
-/// ViewMergeはこのフェーズには含めず、独立したフェーズとして実行します。
-pub fn create_graph_optimization_suggester() -> CompositeSuggester {
-    CompositeSuggester::new(vec![
-        Box::new(ViewInsertionSuggester::new()),
-        Box::new(TilingSuggester::new()),
-        Box::new(ContiguousInsertionSuggester::new()),
-        Box::new(FusionSuggester::new()),
-        Box::new(ViewMergeSuggester::new()),
-    ])
-}
-
-/// Loweringのみのフェーズ用Suggesterを作成
-///
-/// 全てのGraphOpノードをKernelノードに変換します。
-///
-/// # 設計方針
-/// - LoweringSuggesterでGraphOp → Kernel(Function/Kernel)に変換
-/// - 並列化戦略の選択がこのフェーズで行われるため、実測値ベース最適化の対象
-/// - ViewMergeは独立したフェーズで実行するため、このSuggesterには含めない
-pub fn create_lowering_only_suggester() -> CompositeSuggester {
-    CompositeSuggester::new(vec![
-        // LoweringSuggesterでGraphOp -> Kernel(Function/Kernel)に変換
-        Box::new(LoweringSuggester::new()),
-    ])
-}
-
-/// Loweringのみのフェーズ用Suggesterを作成（SIMD幅指定付き）
-///
-/// 全てのGraphOpノードをKernelノードに変換します。
-/// SIMD幅が指定されている場合、Elementwise演算のSIMD版も候補として生成します。
-///
-/// # Arguments
-/// * `simd_widths` - SIMD幅候補（空の場合はスカラー版のみ）
-pub fn create_lowering_only_suggester_with_simd(simd_widths: Vec<usize>) -> CompositeSuggester {
-    let suggester = if simd_widths.is_empty() {
-        LoweringSuggester::new()
-    } else {
-        LoweringSuggester::with_simd_widths(simd_widths)
-    };
-    CompositeSuggester::new(vec![Box::new(suggester)])
-}
-
-/// 貪欲法Lowering用のSuggesterを作成
-///
-/// 高速にLoweringを行います。
-pub fn create_greedy_lowering_only_suggester() -> CompositeSuggester {
-    CompositeSuggester::new(vec![Box::new(LoweringSuggester::new())])
-}
-
-/// KernelPartitionフェーズ用のSuggesterを作成
-///
-/// LoweringSuggesterで生成された1D FlatParallel Kernelを
-/// 多次元グリッドに分割します。
-///
-/// # 設計方針
-/// - Loweringで生成された1D tid を持つKernelを対象
-/// - 2D/3Dグリッドへの分割候補を生成
-/// - Absorptionの前に実行することで、グラフレベルでdispatch設定の一貫性を保証
-pub fn create_kernel_partition_suggester() -> CompositeSuggester {
-    CompositeSuggester::new(vec![Box::new(KernelPartitionSuggester::new())])
-}
-
-/// Fusionフェーズ用のSuggesterを作成
-///
-/// Phase 3: Kernelノードの最終処理
-///
-/// # 設計方針
-/// - BufferAbsorptionでKernelに入力Bufferを取り込む
-/// - KernelMergeで複数のKernel(Function)をマージ
-///
-/// Note: カーネル実行順序はCompiledProgram.execution_wavesで管理されます。
-///
-/// このフェーズは実測値ベース最適化の対象外です（決定論的な変換のみ）。
-pub fn create_fusion_suggester() -> CompositeSuggester {
-    CompositeSuggester::new(vec![
-        // BufferAbsorptionでKernelノードに入力Bufferを取り込む
-        Box::new(BufferAbsorptionSuggester::new()),
-        // KernelMergeSuggesterで複数のKernel(Function)をマージ
-        Box::new(KernelMergeSuggester::new()),
-    ])
-}
-
-/// ループ最適化用のSuggesterを作成（RuleBaseSuggesterを除く）
-///
-/// ルールベース最適化を事前に`RuleBaseOptimizer`で実行した後、
-/// ループ構造の最適化のみを行う場合に使用します。
-///
-/// # Example
-/// ```ignore
-/// use harp::opt::ast::{RuleBaseOptimizer, BeamSearchOptimizer};
-/// use harp::opt::ast::rules::all_algebraic_rules;
-/// use harp::backend::pipeline::create_ast_loop_suggester;
-///
-/// // 第1段階: ルールベース最適化（高速、ビームサーチなし）
-/// let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules());
-/// let rule_optimized = rule_optimizer.optimize(program);
-///
-/// // 第2段階: ループ最適化（ビームサーチ）
-/// let loop_suggester = create_ast_loop_suggester();
-/// let beam_optimizer = BeamSearchOptimizer::new(loop_suggester);
-/// let final_optimized = beam_optimizer.optimize(rule_optimized);
-/// ```
-pub fn create_ast_loop_suggester() -> AstCompositeSuggester {
-    AstCompositeSuggester::new(vec![
-        Box::new(LoopTilingSuggester::new()),
-        Box::new(LoopInliningSuggester::new()),
-        Box::new(LoopInterchangeSuggester::new()),
-        Box::new(LoopFusionSuggester::new()),
-        Box::new(FunctionInliningSuggester::with_default_limit()),
-    ])
-}
-
-/// マルチフェーズグラフ最適化の設定
-#[derive(Debug, Clone)]
-pub struct MultiPhaseConfig {
-    /// ビーム幅
-    pub beam_width: usize,
-    /// 各フェーズの最大ステップ数
-    pub max_steps_per_phase: usize,
-    /// 進捗表示フラグ
+pub struct PipelineConfig {
+    /// Beam width for graph optimization
+    pub graph_beam_width: usize,
+    /// Beam width for AST optimization
+    pub ast_beam_width: usize,
+    /// Maximum optimization steps per phase
+    pub max_steps: usize,
+    /// Show progress during optimization
     pub show_progress: bool,
-    /// ログ収集を有効にするか
-    pub collect_logs: bool,
-    /// 早期終了の閾値（改善なしステップ数）
-    ///
-    /// Some(n): n回連続で改善がなければ終了
-    /// None: 早期終了を無効化
-    pub early_termination_threshold: Option<usize>,
-    /// サブグラフの処理モード
-    ///
-    /// - `Inline`: サブグラフをインライン展開（デフォルト、従来の動作）
-    /// - `SeparateKernels`: サブグラフを個別のカーネル関数として生成
-    /// - `Skip`: サブグラフ処理をスキップ
-    pub subgraph_mode: SubgraphMode,
-    /// LoweringSuggesterのSIMD幅候補
-    ///
-    /// 空の場合はスカラー版のみ生成します。
-    /// 例: `vec![4, 8]` で幅4と幅8のSIMD候補を生成
-    pub simd_widths: Vec<usize>,
+    /// Collect optimization history
+    pub collect_history: bool,
 }
 
-impl Default for MultiPhaseConfig {
+impl Default for PipelineConfig {
     fn default() -> Self {
         Self {
-            beam_width: 4,
-            max_steps_per_phase: 5000,
+            graph_beam_width: 4,
+            ast_beam_width: 4,
+            max_steps: 5000,
             show_progress: false,
-            collect_logs: cfg!(debug_assertions),
-            early_termination_threshold: Some(10), // デフォルト: 10ステップ改善なしで終了
-            subgraph_mode: SubgraphMode::default(), // デフォルト: Inline
-            simd_widths: vec![],                   // デフォルト: スカラー版のみ
+            collect_history: cfg!(debug_assertions),
         }
     }
 }
 
-impl MultiPhaseConfig {
-    /// 新しい設定を作成
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// ビーム幅を設定
-    pub fn with_beam_width(mut self, width: usize) -> Self {
-        self.beam_width = width;
-        self
-    }
-
-    /// 各フェーズの最大ステップ数を設定
-    pub fn with_max_steps(mut self, steps: usize) -> Self {
-        self.max_steps_per_phase = steps;
-        self
-    }
-
-    /// 進捗表示を設定
-    pub fn with_progress(mut self, show: bool) -> Self {
-        self.show_progress = show;
-        self
-    }
-
-    /// ログ収集を設定
-    pub fn with_collect_logs(mut self, collect: bool) -> Self {
-        self.collect_logs = collect;
-        self
-    }
-
-    /// 早期終了の閾値を設定
-    ///
-    /// Some(n): n回連続で改善がなければ終了
-    /// None: 早期終了を無効化
-    pub fn with_early_termination_threshold(mut self, threshold: Option<usize>) -> Self {
-        self.early_termination_threshold = threshold;
-        self
-    }
-
-    /// サブグラフの処理モードを設定
-    ///
-    /// # Arguments
-    /// * `mode` - サブグラフの処理方法
-    ///   - `SubgraphMode::Inline`: サブグラフをインライン展開（デフォルト）
-    ///   - `SubgraphMode::SeparateKernels`: サブグラフを個別のカーネル関数として生成
-    ///   - `SubgraphMode::Skip`: サブグラフ処理をスキップ
-    ///
-    /// # Example
-    /// ```ignore
-    /// use harp::backend::pipeline::{MultiPhaseConfig, SubgraphMode};
-    ///
-    /// // サブグラフを個別カーネルとして生成
-    /// let config = MultiPhaseConfig::new()
-    ///     .with_subgraph_mode(SubgraphMode::SeparateKernels);
-    /// ```
-    pub fn with_subgraph_mode(mut self, mode: SubgraphMode) -> Self {
-        self.subgraph_mode = mode;
-        self
-    }
-
-    /// SIMD幅候補を設定
-    ///
-    /// LoweringSuggesterがElementwise演算のSIMD版を生成する際に使用する幅を指定します。
-    /// 空の場合はスカラー版のみ生成します。
-    ///
-    /// # Example
-    /// ```ignore
-    /// use harp::backend::pipeline::MultiPhaseConfig;
-    ///
-    /// // 幅4と幅8のSIMD候補を生成
-    /// let config = MultiPhaseConfig::new()
-    ///     .with_simd_widths(vec![4, 8]);
-    /// ```
-    pub fn with_simd_widths(mut self, widths: Vec<usize>) -> Self {
-        self.simd_widths = widths;
-        self
-    }
+/// Optimization histories for pipeline
+#[derive(Debug, Clone, Default)]
+pub struct OptimizationHistories {
+    /// Graph optimization history
+    pub graph: Option<GraphOptimizationHistory>,
+    /// AST optimization history
+    pub ast: Option<AstOptimizationHistory>,
 }
 
-/// マルチフェーズグラフ最適化を作成
+/// GPU Pipeline for kernel compilation and execution
 ///
-/// 7つのフェーズで段階的にグラフを最適化します：
+/// This pipeline uses GPU APIs (via `ocl` or `metal` crates) directly
+/// from Rust, eliminating the need for external C host code generation.
 ///
-/// 0. **SubgraphInlining** (サブグラフインライン展開): サブグラフ呼び出しを展開
-///    - 目的: SubgraphCallノードを実際の計算ノードに変換
-///    - 他の最適化の前に実行する必要がある
-///
-/// 1. **ViewMerge** (ビューマージ): グラフ構築時に生成された余分なビュー変更を除去
-///    - 目的: クリーンなグラフ構造の確保
-///
-/// 2. **Optimization** (最適化): View挿入、タイリング、Contiguous挿入、融合など
-///    - 目的: グラフ構造の最適化
-///    - ViewInsertionはこのフェーズで使用
-///
-/// 3. **ViewMerge** (ビューマージ): 最適化後に残ったビューをマージ
-///    - 目的: Lowering前のクリーンアップ
-///
-/// 4. **Lowering** (Lowering): 全GraphOpをKernelノードに変換
-///    - 目的: 並列化戦略の選択を含むKernel生成
-///    - 実測値ベース最適化の主な対象
-///
-/// 5. **KernelPartition** (カーネル分割): 1D FlatParallel Kernelを多次元グリッドに分割
-///    - 目的: GPUの多次元スレッドグリッドを活用
-///    - Absorptionの前に実行することでdispatch設定の一貫性を保証
-///
-/// 6. **Absorption** (吸収): Kernelノードの最終処理
-///    - 目的: Bufferの吸収とKernelのマージ
-///    - 決定論的な変換のため、実測値ベース最適化は不要
-///
-/// # Arguments
-/// * `config` - 最適化の設定
-///
-/// # Returns
-/// ChainedGraphOptimizer（各フェーズの名前付き）
-///
-/// # Example
-/// ```ignore
-/// use harp::backend::pipeline::{create_multi_phase_optimizer, MultiPhaseConfig};
-/// use harp::opt::graph::GraphOptimizer;
-///
-/// let config = MultiPhaseConfig::new()
-///     .with_beam_width(8)
-///     .with_max_steps(3000)
-///     .with_progress(true);
-///
-/// let optimizer = create_multi_phase_optimizer(config);
-/// let (optimized, history) = optimizer.optimize_with_history(graph);
-/// ```
-pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOptimizer {
-    // Phase 0: サブグラフ処理（モードによって動作が異なる）
-    let subgraph_optimizer: Box<dyn GraphOptimizer> = match config.subgraph_mode {
-        SubgraphMode::Inline => {
-            // インライン展開: SubgraphInliningSuggesterを使用
-            // コスト増加に関わらず展開する必要があるためGreedyGraphOptimizerを使用
-            let subgraph_inlining_suggester = create_subgraph_inlining_suggester();
-            Box::new(
-                GreedyGraphOptimizer::new(subgraph_inlining_suggester)
-                    .with_max_steps(config.max_steps_per_phase)
-                    .with_name("SubgraphInlining"),
-            )
-        }
-        SubgraphMode::SeparateKernels => {
-            // 個別カーネル生成: SubgraphLoweringOptimizerを使用
-            Box::new(SubgraphLoweringOptimizer::new())
-        }
-        SubgraphMode::Skip => {
-            // スキップ: 何もしないオプティマイザ
-            Box::new(IdentityOptimizer::new("SubgraphSkip"))
-        }
-    };
-
-    // Phase 1: ViewMerge（余分なビュー変更を除去）
-    // 決定論的な変換なのでビーム幅=1で十分
-    let view_merge_1_suggester = create_view_merge_only_suggester();
-    let view_merge_1_optimizer = BeamSearchGraphOptimizer::new(view_merge_1_suggester)
-        .with_beam_width(1) // 決定論的変換
-        .with_max_steps(config.max_steps_per_phase)
-        .with_progress(config.show_progress)
-        .with_collect_logs(config.collect_logs)
-        .with_early_termination_threshold(Some(5)); // 早期終了
-
-    // Phase 2: Optimization（グラフ構造の最適化）
-    let optimization_suggester = create_graph_optimization_suggester();
-    let optimization_optimizer = BeamSearchGraphOptimizer::new(optimization_suggester)
-        .with_beam_width(config.beam_width)
-        .with_max_steps(config.max_steps_per_phase)
-        .with_progress(config.show_progress)
-        .with_collect_logs(config.collect_logs)
-        .with_early_termination_threshold(config.early_termination_threshold);
-
-    // Phase 3: ViewMerge（最適化後のビューをマージ）
-    // 決定論的な変換なのでビーム幅=1で十分
-    let view_merge_2_suggester = create_view_merge_only_suggester();
-    let view_merge_2_optimizer = BeamSearchGraphOptimizer::new(view_merge_2_suggester)
-        .with_beam_width(1) // 決定論的変換
-        .with_max_steps(config.max_steps_per_phase)
-        .with_progress(config.show_progress)
-        .with_collect_logs(config.collect_logs)
-        .with_early_termination_threshold(Some(5)); // 早期終了
-
-    // Phase 4: Lowering（Kernel変換のみ）
-    // BeamSearchを使用してコストベースで最適な並列化戦略を選択
-    // SimpleCostEstimatorは並列カーネルにボーナス（コスト減少）を与えるため、
-    // 適切なスレッドグループサイズとベクトル化が選択される
-    let lowering_suggester = create_lowering_only_suggester_with_simd(config.simd_widths.clone());
-    let lowering_optimizer = BeamSearchGraphOptimizer::new(lowering_suggester)
-        .with_beam_width(config.beam_width)
-        .with_max_steps(config.max_steps_per_phase)
-        .with_progress(config.show_progress)
-        .with_collect_logs(config.collect_logs)
-        .with_early_termination_threshold(config.early_termination_threshold);
-
-    // Phase 5: KernelPartition（1D Kernelを多次元グリッドに分割）
-    let kernel_partition_suggester = create_kernel_partition_suggester();
-    let kernel_partition_optimizer = BeamSearchGraphOptimizer::new(kernel_partition_suggester)
-        .with_beam_width(config.beam_width)
-        .with_max_steps(config.max_steps_per_phase)
-        .with_progress(config.show_progress)
-        .with_collect_logs(config.collect_logs)
-        .with_early_termination_threshold(config.early_termination_threshold);
-
-    // Phase 6: Absorption（Bufferの吸収とKernelのマージ）
-    // 決定論的な変換なのでビーム幅=1で十分、早期終了も不要
-    let absorption_suggester = create_fusion_suggester();
-    let absorption_optimizer = BeamSearchGraphOptimizer::new(absorption_suggester)
-        .with_beam_width(1) // 決定論的変換なのでビーム幅1
-        .with_max_steps(config.max_steps_per_phase)
-        .with_progress(config.show_progress)
-        .with_collect_logs(config.collect_logs)
-        .with_early_termination_threshold(Some(1)); // すぐに終了
-
-    // サブグラフ処理フェーズの名前を決定
-    let subgraph_phase_name = match config.subgraph_mode {
-        SubgraphMode::Inline => "SubgraphInlining",
-        SubgraphMode::SeparateKernels => "SubgraphLowering",
-        SubgraphMode::Skip => "SubgraphSkip",
-    };
-
-    // チェーンを構築
-    ChainedGraphOptimizer::new()
-        .add_phase_boxed(subgraph_phase_name, subgraph_optimizer)
-        .add_phase("ViewMerge (Initial)", view_merge_1_optimizer)
-        .add_phase("Optimization", optimization_optimizer)
-        .add_phase("ViewMerge (Post-Opt)", view_merge_2_optimizer)
-        .add_phase("Lowering", lowering_optimizer)
-        .add_phase("KernelPartition", kernel_partition_optimizer)
-        .add_phase("Absorption", absorption_optimizer)
-}
-
-/// マルチフェーズグラフ最適化を作成（カスタムSelector使用）
-///
-/// `create_multi_phase_optimizer`と同様ですが、Optimization、Lowering、KernelPartitionフェーズで
-/// カスタムSelectorを使用できます。GraphRuntimeSelectorを使用した実測値ベースの最適化に使用します。
-///
-/// ViewMergeフェーズとAbsorptionフェーズは決定論的な変換のため、Selectorは使用しません。
-///
-/// # Arguments
-/// * `config` - 最適化の設定
-/// * `selector` - Optimization、Lowering、KernelPartitionで使用するカスタムSelector（GraphRuntimeSelectorなど）
-///
-/// # Returns
-/// ChainedGraphOptimizer（Optimization、Lowering、KernelPartitionにカスタムSelectorが設定される）
-///
-/// # Example
-/// ```ignore
-/// use harp::backend::pipeline::{create_multi_phase_optimizer_with_selector, MultiPhaseConfig};
-/// use harp::opt::selector::GraphRuntimeSelector;
-/// use harp::opt::graph::GraphOptimizer;
-///
-/// let selector = GraphRuntimeSelector::new(renderer, compiler, buffer_factory);
-/// let config = MultiPhaseConfig::new().with_beam_width(4);
-/// let optimizer = create_multi_phase_optimizer_with_selector(config, selector);
-/// let (optimized, history) = optimizer.optimize_with_history(graph);
-/// ```
-pub fn create_multi_phase_optimizer_with_selector<Sel>(
-    config: MultiPhaseConfig,
-    selector: Sel,
-) -> ChainedGraphOptimizer
+/// # Type Parameters
+/// * `R` - Renderer type (must implement KernelSourceRenderer)
+/// * `Ctx` - GPU context type
+/// * `Comp` - GPU compiler type
+pub struct Pipeline<R, Ctx, Comp>
 where
-    Sel: crate::opt::GraphSelector + Clone + 'static,
+    R: KernelSourceRenderer + Clone,
+    Ctx: Device,
+    Comp: Compiler<Dev = Ctx>,
 {
-    // Phase 0: サブグラフ処理（モードによって動作が異なる）- Selector不使用（決定論的変換）
-    let subgraph_optimizer: Box<dyn GraphOptimizer> = match config.subgraph_mode {
-        SubgraphMode::Inline => {
-            let subgraph_inlining_suggester = create_subgraph_inlining_suggester();
-            Box::new(
-                BeamSearchGraphOptimizer::new(subgraph_inlining_suggester)
-                    .with_beam_width(1)
-                    .with_max_steps(config.max_steps_per_phase)
-                    .with_progress(config.show_progress)
-                    .with_collect_logs(config.collect_logs)
-                    .with_early_termination_threshold(Some(5)),
-            )
+    renderer: R,
+    compiler: Comp,
+    context: Ctx,
+    config: PipelineConfig,
+    /// Optimization histories
+    pub histories: OptimizationHistories,
+    /// Compiled kernel cache
+    kernel_cache: HashMap<String, Comp::Kernel>,
+}
+
+impl<R, Ctx, Comp, Buf> Pipeline<R, Ctx, Comp>
+where
+    R: KernelSourceRenderer + Clone,
+    Ctx: Device,
+    Buf: Buffer<Dev = Ctx>,
+    Comp: Compiler<Dev = Ctx>,
+    Comp::Kernel: Kernel<Buffer = Buf> + Clone,
+{
+    /// Create a new pipeline
+    pub fn new(renderer: R, compiler: Comp, context: Ctx) -> Self {
+        Self {
+            renderer,
+            compiler,
+            context,
+            config: PipelineConfig::default(),
+            histories: OptimizationHistories::default(),
+            kernel_cache: HashMap::new(),
         }
-        SubgraphMode::SeparateKernels => Box::new(SubgraphLoweringOptimizer::new()),
-        SubgraphMode::Skip => Box::new(IdentityOptimizer::new("SubgraphSkip")),
-    };
+    }
 
-    // Phase 1: ViewMerge（余分なビュー変更を除去）- Selector不使用（決定論的変換）
-    let view_merge_1_suggester = create_view_merge_only_suggester();
-    let view_merge_1_optimizer = BeamSearchGraphOptimizer::new(view_merge_1_suggester)
-        .with_beam_width(1) // 決定論的変換
-        .with_max_steps(config.max_steps_per_phase)
-        .with_progress(config.show_progress)
-        .with_collect_logs(config.collect_logs)
-        .with_early_termination_threshold(Some(5)); // 早期終了
+    /// Get reference to the context
+    pub fn context(&self) -> &Ctx {
+        &self.context
+    }
 
-    // Phase 2: Optimization（グラフ構造の最適化）- カスタムSelector使用
-    let optimization_suggester = create_graph_optimization_suggester();
-    let optimization_optimizer = BeamSearchGraphOptimizer::new(optimization_suggester)
-        .with_selector(selector.clone())
-        .with_beam_width(config.beam_width)
-        .with_max_steps(config.max_steps_per_phase)
-        .with_progress(config.show_progress)
-        .with_collect_logs(config.collect_logs)
-        .with_early_termination_threshold(config.early_termination_threshold);
+    /// Get mutable reference to the config
+    pub fn config_mut(&mut self) -> &mut PipelineConfig {
+        &mut self.config
+    }
 
-    // Phase 3: ViewMerge（最適化後のビューをマージ）- Selector不使用（決定論的変換）
-    let view_merge_2_suggester = create_view_merge_only_suggester();
-    let view_merge_2_optimizer = BeamSearchGraphOptimizer::new(view_merge_2_suggester)
-        .with_beam_width(1) // 決定論的変換
-        .with_max_steps(config.max_steps_per_phase)
-        .with_progress(config.show_progress)
-        .with_collect_logs(config.collect_logs)
-        .with_early_termination_threshold(Some(5)); // 早期終了
+    /// Compile a graph to a kernel
+    pub fn compile_graph(
+        &mut self,
+        graph: Graph,
+    ) -> Result<CompiledKernel<Comp::Kernel, Buf>, Comp::Error> {
+        // Create signature from original graph
+        let signature = crate::lowerer::create_signature(&graph);
 
-    // Phase 4: Lowering（Kernel変換のみ）- カスタムSelector使用
-    let lowering_suggester = create_lowering_only_suggester_with_simd(config.simd_widths.clone());
-    let lowering_optimizer = BeamSearchGraphOptimizer::new(lowering_suggester)
-        .with_selector(selector.clone())
-        .with_beam_width(config.beam_width)
-        .with_max_steps(config.max_steps_per_phase)
-        .with_progress(config.show_progress)
-        .with_collect_logs(config.collect_logs)
-        .with_early_termination_threshold(config.early_termination_threshold);
+        // Optimize graph
+        let optimized_graph = self.optimize_graph(graph);
 
-    // Phase 5: KernelPartition（1D Kernelを多次元グリッドに分割）- カスタムSelector使用
-    let kernel_partition_suggester = create_kernel_partition_suggester();
-    let kernel_partition_optimizer = BeamSearchGraphOptimizer::new(kernel_partition_suggester)
-        .with_selector(selector)
-        .with_beam_width(config.beam_width)
-        .with_max_steps(config.max_steps_per_phase)
-        .with_progress(config.show_progress)
-        .with_collect_logs(config.collect_logs)
-        .with_early_termination_threshold(config.early_termination_threshold);
+        // Extract program from graph
+        let program = crate::lowerer::extract_program(optimized_graph);
 
-    // Phase 6: Absorption（Bufferの吸収とKernelのマージ）- Selector不使用（決定論的変換）
-    let absorption_suggester = create_fusion_suggester();
-    let absorption_optimizer = BeamSearchGraphOptimizer::new(absorption_suggester)
-        .with_beam_width(1) // 決定論的変換なのでビーム幅1
-        .with_max_steps(config.max_steps_per_phase)
-        .with_progress(config.show_progress)
-        .with_collect_logs(config.collect_logs)
-        .with_early_termination_threshold(Some(1)); // すぐに終了
+        // Optimize AST
+        let optimized_program = self.optimize_ast(program);
 
-    // サブグラフ処理フェーズの名前を決定
-    let subgraph_phase_name = match config.subgraph_mode {
-        SubgraphMode::Inline => "SubgraphInlining",
-        SubgraphMode::SeparateKernels => "SubgraphLowering",
-        SubgraphMode::Skip => "SubgraphSkip",
-    };
+        // Render kernel source
+        let kernel_source = self.renderer.render_kernel_source(&optimized_program);
 
-    // チェーンを構築
-    ChainedGraphOptimizer::new()
-        .add_phase_boxed(subgraph_phase_name, subgraph_optimizer)
-        .add_phase("ViewMerge (Initial)", view_merge_1_optimizer)
-        .add_phase("Optimization", optimization_optimizer)
-        .add_phase("ViewMerge (Post-Opt)", view_merge_2_optimizer)
-        .add_phase("Lowering", lowering_optimizer)
-        .add_phase("KernelPartition", kernel_partition_optimizer)
-        .add_phase("Absorption", absorption_optimizer)
-}
+        // Extract kernel config from the program
+        let kernel_config = self.extract_kernel_config(&optimized_program, &signature);
 
-/// マルチフェーズグラフ最適化を実行（履歴付き）
-///
-/// 6つのフェーズで段階的にグラフを最適化し、各フェーズの履歴を結合して返します。
-///
-/// # Arguments
-/// * `graph` - 最適化対象のグラフ
-/// * `config` - 最適化の設定
-///
-/// # Returns
-/// (最適化されたグラフ, 結合された最適化履歴)
-///
-/// # Example
-/// ```ignore
-/// use harp::backend::pipeline::{optimize_graph_multi_phase, MultiPhaseConfig};
-///
-/// let config = MultiPhaseConfig::new()
-///     .with_beam_width(8)
-///     .with_progress(true);
-///
-/// let (optimized, history) = optimize_graph_multi_phase(graph, config);
-///
-/// // 履歴には各フェーズの名前がプレフィックスとして付いている
-/// for snapshot in history.snapshots() {
-///     println!("{}: cost={}", snapshot.description, snapshot.cost);
-/// }
-/// ```
-pub fn optimize_graph_multi_phase(
-    graph: Graph,
-    config: MultiPhaseConfig,
-) -> (Graph, crate::opt::graph::OptimizationHistory) {
-    let optimizer = create_multi_phase_optimizer(config);
-    optimizer.optimize_with_history(graph)
-}
+        // Compile kernel
+        let kernel = self
+            .compiler
+            .compile(&self.context, &kernel_source, kernel_config)?;
 
-/// 貪欲法グラフ最適化用のOptimizerを作成
-///
-/// 実行時間の実測など、高速なloweringが必要な場合に使用します。
-///
-/// # 特徴
-/// - 全フェーズでビーム幅=1で貪欲法として動作
-/// - LoweringSuggesterはSequential戦略のみ使用
-/// - 探索空間を最小限に抑え、高速にloweringを完了
-///
-/// # Arguments
-/// * `config` - 最適化の設定（beam_widthは1に強制される）
-///
-/// # Returns
-/// ChainedGraphOptimizer
-pub fn create_greedy_optimizer(config: MultiPhaseConfig) -> ChainedGraphOptimizer {
-    // Phase 0: サブグラフ処理（モードによって動作が異なる）
-    let subgraph_optimizer: Box<dyn GraphOptimizer> = match config.subgraph_mode {
-        SubgraphMode::Inline => {
-            let subgraph_inlining_suggester = create_subgraph_inlining_suggester();
-            Box::new(
-                BeamSearchGraphOptimizer::new(subgraph_inlining_suggester)
-                    .with_beam_width(1) // 貪欲法
-                    .with_max_steps(config.max_steps_per_phase)
-                    .with_progress(config.show_progress)
-                    .with_collect_logs(config.collect_logs)
-                    .with_early_termination_threshold(Some(5)),
-            )
+        Ok(CompiledKernel {
+            kernel,
+            signature,
+            _buffer: PhantomData,
+        })
+    }
+
+    /// Compile and cache a kernel
+    pub fn compile_and_cache(
+        &mut self,
+        key: String,
+        graph: Graph,
+    ) -> Result<&Comp::Kernel, Comp::Error> {
+        let compiled = self.compile_graph(graph)?;
+        self.kernel_cache.insert(key.clone(), compiled.kernel);
+        Ok(self.kernel_cache.get(&key).unwrap())
+    }
+
+    /// Get a cached kernel
+    pub fn get_cached_kernel(&self, key: &str) -> Option<&Comp::Kernel> {
+        self.kernel_cache.get(key)
+    }
+
+    /// Clear the kernel cache
+    pub fn clear_cache(&mut self) {
+        self.kernel_cache.clear();
+    }
+
+    /// Allocate a buffer on the GPU
+    pub fn allocate_buffer(&self, shape: Vec<usize>, dtype: DType) -> Result<Buf, Buf::Error> {
+        Buf::allocate(&self.context, shape, dtype)
+    }
+
+    /// Compile a graph to a program (supports multiple kernels)
+    ///
+    /// This method compiles a graph that may produce multiple kernels after optimization.
+    /// The returned `CompiledProgram` can execute all kernels in the correct order.
+    pub fn compile_program(
+        &mut self,
+        graph: Graph,
+    ) -> Result<CompiledProgram<Comp::Kernel, Buf>, Comp::Error> {
+        // Create signature from original graph
+        let signature = crate::lowerer::create_signature(&graph);
+
+        // Optimize graph
+        let optimized_graph = self.optimize_graph(graph);
+
+        // Extract program from graph
+        let program = crate::lowerer::extract_program(optimized_graph);
+
+        // Optimize AST
+        let optimized_program = self.optimize_ast(program);
+
+        // Render kernel source (all kernels together)
+        let kernel_source = self.renderer.render_kernel_source(&optimized_program);
+
+        // Extract program structure
+        let AstNode::Program { functions, .. } = &optimized_program else {
+            // Fallback for non-Program nodes: use compile_graph
+            let compiled =
+                self.compile_graph_internal(optimized_program, signature.clone(), kernel_source)?;
+            // Use default entry point name
+            let entry_name = "main".to_string();
+            return Ok(CompiledProgram::new(
+                HashMap::from([(entry_name, compiled.kernel)]),
+                vec![], // empty execution_waves
+                vec![],
+                signature.inputs.iter().map(|i| i.name.clone()).collect(),
+                signature.outputs.iter().map(|o| o.name.clone()).collect(),
+            ));
+        };
+
+        // Extract execution_waves if available
+        let ast_execution_waves: Vec<Vec<AstKernelCallInfo>> = if let AstNode::Program {
+            execution_waves,
+            ..
+        } = &optimized_program
+        {
+            execution_waves.clone()
+        } else {
+            vec![]
+        };
+
+        // Collect all kernel names from the program
+        let kernel_names: Vec<String> = functions
+            .iter()
+            .filter_map(|f| {
+                if let AstNode::Kernel { name, .. } = f {
+                    name.clone()
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Compile each kernel with its specific config
+        let shape_vars = Self::extract_shape_vars(&signature);
+        let mut kernels: HashMap<String, Comp::Kernel> = HashMap::new();
+        let mut kernel_call_infos: Vec<KernelCallInfo> = Vec::new();
+
+        for func in functions {
+            if let AstNode::Kernel {
+                name: Some(name),
+                default_grid_size,
+                default_thread_group_size,
+                ..
+            } = func
+            {
+                let grid = evaluate_dispatch_size(default_grid_size, &shape_vars);
+                let tg = evaluate_dispatch_size(default_thread_group_size, &shape_vars);
+
+                let mut config = KernelConfig::new(name.clone())
+                    .with_global_work_size(grid)
+                    .with_local_work_size(tg);
+
+                for (var_name, value) in &shape_vars {
+                    config = config.with_shape_var(var_name.clone(), *value);
+                }
+
+                let kernel =
+                    self.compiler
+                        .compile(&self.context, &kernel_source, config.clone())?;
+                kernels.insert(name.clone(), kernel);
+
+                // Create KernelCallInfo for this kernel
+                kernel_call_infos.push(KernelCallInfo::new(
+                    name.clone(),
+                    signature.inputs.iter().map(|i| i.name.clone()).collect(),
+                    signature.outputs.iter().map(|o| o.name.clone()).collect(),
+                    config.global_work_size,
+                    config.local_work_size.unwrap_or([1, 1, 1]),
+                ));
+            }
         }
-        SubgraphMode::SeparateKernels => Box::new(SubgraphLoweringOptimizer::new()),
-        SubgraphMode::Skip => Box::new(IdentityOptimizer::new("SubgraphSkip")),
-    };
 
-    // Phase 1: ViewMerge（余分なビュー変更を除去）
-    let view_merge_1_suggester = create_view_merge_only_suggester();
-    let view_merge_1_optimizer = BeamSearchGraphOptimizer::new(view_merge_1_suggester)
-        .with_beam_width(1) // 貪欲法
-        .with_max_steps(config.max_steps_per_phase)
-        .with_progress(config.show_progress)
-        .with_collect_logs(config.collect_logs)
-        .with_early_termination_threshold(Some(5)); // 早期終了
+        // If no kernels were found, try to compile a default kernel
+        if kernels.is_empty() {
+            let config = self.extract_kernel_config(&optimized_program, &signature);
+            let kernel = self
+                .compiler
+                .compile(&self.context, &kernel_source, config.clone())?;
+            let kernel_name = config.entry_point.clone();
+            kernels.insert(kernel_name.clone(), kernel);
 
-    // Phase 2: Optimization（グラフ構造の最適化）
-    let optimization_suggester = create_graph_optimization_suggester();
-    let optimization_optimizer = BeamSearchGraphOptimizer::new(optimization_suggester)
-        .with_beam_width(1) // 貪欲法
-        .with_max_steps(config.max_steps_per_phase)
-        .with_progress(config.show_progress)
-        .with_collect_logs(config.collect_logs)
-        .with_early_termination_threshold(config.early_termination_threshold);
+            kernel_call_infos.push(KernelCallInfo::new(
+                kernel_name,
+                signature.inputs.iter().map(|i| i.name.clone()).collect(),
+                signature.outputs.iter().map(|o| o.name.clone()).collect(),
+                config.global_work_size,
+                config.local_work_size.unwrap_or([1, 1, 1]),
+            ));
+        }
 
-    // Phase 3: ViewMerge（最適化後のビューをマージ）
-    let view_merge_2_suggester = create_view_merge_only_suggester();
-    let view_merge_2_optimizer = BeamSearchGraphOptimizer::new(view_merge_2_suggester)
-        .with_beam_width(1) // 貪欲法
-        .with_max_steps(config.max_steps_per_phase)
-        .with_progress(config.show_progress)
-        .with_collect_logs(config.collect_logs)
-        .with_early_termination_threshold(Some(5)); // 早期終了
+        // Convert to execution_waves based on ast_execution_waves
+        let execution_waves: Vec<Vec<KernelCallInfo>> = if !ast_execution_waves.is_empty() {
+            // Use the wave structure from AST directly
+            ast_execution_waves
+                .iter()
+                .map(|wave| {
+                    wave.iter()
+                        .filter_map(|ast_call| {
+                            // Find the compiled kernel info
+                            kernel_call_infos
+                                .iter()
+                                .find(|k| k.kernel_name == ast_call.kernel_name)
+                                .cloned()
+                        })
+                        .collect()
+                })
+                .filter(|wave: &Vec<KernelCallInfo>| !wave.is_empty())
+                .collect()
+        } else {
+            // Fallback: each kernel in its own wave (sequential execution)
+            kernel_call_infos.into_iter().map(|k| vec![k]).collect()
+        };
 
-    // Phase 4: Lowering（Sequential戦略のみ）
-    let lowering_suggester = create_greedy_lowering_only_suggester();
-    let lowering_optimizer = BeamSearchGraphOptimizer::new(lowering_suggester)
-        .with_beam_width(1) // 貪欲法
-        .with_max_steps(config.max_steps_per_phase)
-        .with_progress(config.show_progress)
-        .with_collect_logs(config.collect_logs)
-        .with_early_termination_threshold(config.early_termination_threshold);
+        // Analyze intermediate buffers (flatten waves for analysis)
+        let flat_call_infos: Vec<KernelCallInfo> =
+            execution_waves.iter().flatten().cloned().collect();
+        let intermediate_specs =
+            self.analyze_intermediate_buffers(&flat_call_infos, &signature, &kernel_names);
 
-    // Phase 5: KernelPartition（1D Kernelを多次元グリッドに分割）
-    // 貪欲法なのでビーム幅=1で最初の候補のみを選択
-    let kernel_partition_suggester = create_kernel_partition_suggester();
-    let kernel_partition_optimizer = BeamSearchGraphOptimizer::new(kernel_partition_suggester)
-        .with_beam_width(1) // 貪欲法
-        .with_max_steps(config.max_steps_per_phase)
-        .with_progress(config.show_progress)
-        .with_collect_logs(config.collect_logs)
-        .with_early_termination_threshold(config.early_termination_threshold);
+        Ok(CompiledProgram::new(
+            kernels,
+            execution_waves,
+            intermediate_specs,
+            signature.inputs.iter().map(|i| i.name.clone()).collect(),
+            signature.outputs.iter().map(|o| o.name.clone()).collect(),
+        ))
+    }
 
-    // Phase 6: Absorption（Bufferの吸収とKernelのマージ）
-    let absorption_suggester = create_fusion_suggester();
-    let absorption_optimizer = BeamSearchGraphOptimizer::new(absorption_suggester)
-        .with_beam_width(1) // 決定論的変換
-        .with_max_steps(config.max_steps_per_phase)
-        .with_progress(config.show_progress)
-        .with_collect_logs(config.collect_logs)
-        .with_early_termination_threshold(Some(1)); // すぐに終了
+    // Internal: compile graph with provided AST and source
+    fn compile_graph_internal(
+        &mut self,
+        program: AstNode,
+        signature: KernelSignature,
+        kernel_source: String,
+    ) -> Result<CompiledKernel<Comp::Kernel, Buf>, Comp::Error> {
+        let kernel_config = self.extract_kernel_config(&program, &signature);
+        let kernel = self
+            .compiler
+            .compile(&self.context, &kernel_source, kernel_config)?;
 
-    // サブグラフ処理フェーズの名前を決定
-    let subgraph_phase_name = match config.subgraph_mode {
-        SubgraphMode::Inline => "SubgraphInlining (Greedy)",
-        SubgraphMode::SeparateKernels => "SubgraphLowering (Greedy)",
-        SubgraphMode::Skip => "SubgraphSkip (Greedy)",
-    };
+        Ok(CompiledKernel {
+            kernel,
+            signature,
+            _buffer: PhantomData,
+        })
+    }
 
-    // チェーンを構築
-    ChainedGraphOptimizer::new()
-        .add_phase_boxed(subgraph_phase_name, subgraph_optimizer)
-        .add_phase("ViewMerge (Greedy)", view_merge_1_optimizer)
-        .add_phase("Optimization (Greedy)", optimization_optimizer)
-        .add_phase("ViewMerge (Greedy)", view_merge_2_optimizer)
-        .add_phase("Lowering (Greedy)", lowering_optimizer)
-        .add_phase("KernelPartition (Greedy)", kernel_partition_optimizer)
-        .add_phase("Absorption (Greedy)", absorption_optimizer)
+    // Internal: analyze and identify intermediate buffers
+    fn analyze_intermediate_buffers(
+        &self,
+        call_infos: &[KernelCallInfo],
+        signature: &KernelSignature,
+        _kernel_names: &[String],
+    ) -> Vec<IntermediateBufferSpec> {
+        // Collect all external input/output names
+        let external_inputs: HashSet<_> = signature.inputs.iter().map(|i| i.name.clone()).collect();
+        let external_outputs: HashSet<_> =
+            signature.outputs.iter().map(|o| o.name.clone()).collect();
+
+        // Collect all buffers used in calls
+        let mut all_inputs: HashSet<String> = HashSet::new();
+        let mut all_outputs: HashSet<String> = HashSet::new();
+
+        for call in call_infos {
+            for input in &call.inputs {
+                all_inputs.insert(input.clone());
+            }
+            for output in &call.outputs {
+                all_outputs.insert(output.clone());
+            }
+        }
+
+        // Intermediate buffers are those that are produced (output) by one kernel
+        // and consumed (input) by another, but are not external inputs/outputs
+        let intermediate_names: HashSet<_> = all_outputs
+            .intersection(&all_inputs)
+            .filter(|name| !external_inputs.contains(*name) && !external_outputs.contains(*name))
+            .cloned()
+            .collect();
+
+        // Create specs for intermediate buffers
+        // For now, we try to infer shape from the signature or use a default
+        // Note: BufferSignature doesn't have dtype, so we default to F32
+        intermediate_names
+            .into_iter()
+            .map(|name| {
+                // Try to find buffer shape from signature
+                let shape = signature
+                    .outputs
+                    .iter()
+                    .find(|o| o.name == name)
+                    .map(|o| {
+                        o.shape
+                            .iter()
+                            .map(|e| e.as_usize().unwrap_or(1))
+                            .collect::<Vec<usize>>()
+                    })
+                    .or_else(|| {
+                        signature.inputs.iter().find(|i| i.name == name).map(|i| {
+                            i.shape
+                                .iter()
+                                .map(|e| e.as_usize().unwrap_or(1))
+                                .collect::<Vec<usize>>()
+                        })
+                    })
+                    .unwrap_or_else(|| vec![1]);
+
+                // Default to F32 for intermediate buffers
+                IntermediateBufferSpec::new(name, shape, DType::F32)
+            })
+            .collect()
+    }
+
+    // Internal: optimize graph
+    fn optimize_graph(&mut self, graph: Graph) -> Graph {
+        use crate::opt::graph::{MultiPhaseConfig, create_multi_phase_optimizer};
+
+        let config = MultiPhaseConfig::new()
+            .with_beam_width(self.config.graph_beam_width)
+            .with_max_steps(self.config.max_steps)
+            .with_progress(self.config.show_progress)
+            .with_collect_logs(self.config.collect_history);
+
+        let optimizer = create_multi_phase_optimizer(config);
+        let (optimized_graph, history) = optimizer.optimize_with_history(graph);
+
+        if self.config.collect_history {
+            self.histories.graph = Some(history);
+        }
+
+        optimized_graph
+    }
+
+    // Internal: optimize AST
+    fn optimize_ast(&mut self, program: AstNode) -> AstNode {
+        // Phase 1: Rule-based optimization
+        let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules());
+        let rule_optimized = rule_optimizer.optimize(program);
+
+        // Phase 2: Loop optimization with beam search
+        let loop_suggester = AstCompositeSuggester::new(vec![
+            Box::new(LoopTilingSuggester::new()),
+            Box::new(LoopInliningSuggester::new()),
+            Box::new(LoopInterchangeSuggester::new()),
+            Box::new(LoopFusionSuggester::new()),
+            Box::new(FunctionInliningSuggester::with_default_limit()),
+        ]);
+
+        let loop_optimizer = AstBeamSearchOptimizer::new(loop_suggester)
+            .with_beam_width(self.config.ast_beam_width)
+            .with_max_steps(self.config.max_steps)
+            .with_progress(self.config.show_progress);
+
+        let (optimized, history) = loop_optimizer.optimize_with_history(rule_optimized);
+
+        if self.config.collect_history {
+            self.histories.ast = Some(history);
+        }
+
+        optimized
+    }
+
+    // Internal: extract kernel config from AST
+    fn extract_kernel_config(
+        &self,
+        program: &AstNode,
+        signature: &KernelSignature,
+    ) -> KernelConfig {
+        // Find the first kernel function in the program
+        let first_kernel = if let AstNode::Program { functions, .. } = program {
+            functions.iter().find_map(|f| {
+                if let AstNode::Kernel { name: Some(n), .. } = f {
+                    Some((n.clone(), f))
+                } else {
+                    None
+                }
+            })
+        } else {
+            None
+        };
+
+        // Try to extract grid/thread_group size from first Kernel node
+        if let Some((
+            kernel_name,
+            AstNode::Kernel {
+                default_grid_size,
+                default_thread_group_size,
+                ..
+            },
+        )) = first_kernel
+        {
+            let shape_vars = Self::extract_shape_vars(signature);
+            let grid = evaluate_dispatch_size(default_grid_size, &shape_vars);
+            let tg = evaluate_dispatch_size(default_thread_group_size, &shape_vars);
+
+            let mut config = KernelConfig::new(kernel_name)
+                .with_global_work_size(grid)
+                .with_local_work_size(tg);
+
+            // Add shape vars to config
+            for (name, value) in shape_vars {
+                config = config.with_shape_var(name, value);
+            }
+
+            return config;
+        }
+
+        // Fallback: Calculate global work size from output shapes
+        let total_elements: usize = signature
+            .outputs
+            .iter()
+            .flat_map(|s| {
+                s.shape.iter().filter_map(|e| {
+                    if let crate::graph::shape::Expr::Const(n) = e {
+                        Some(*n as usize)
+                    } else {
+                        None
+                    }
+                })
+            })
+            .product::<usize>()
+            .max(1);
+
+        KernelConfig::new("main").with_global_work_size([total_elements, 1, 1])
+    }
+
+    /// Extract shape variables from signature
+    fn extract_shape_vars(signature: &KernelSignature) -> HashMap<String, isize> {
+        signature.shape_vars.clone()
+    }
 }
 
-/// 貪欲法グラフ最適化を実行（履歴付き）
-///
-/// ビーム幅=1、Sequential戦略のみで高速にloweringを行います。
-/// 実行時間の実測など、軽量なloweringが必要な場合に使用します。
-///
-/// # Arguments
-/// * `graph` - 最適化対象のグラフ
-/// * `max_steps` - 各フェーズの最大ステップ数
-///
-/// # Returns
-/// (最適化されたグラフ, 結合された最適化履歴)
-///
-/// # Example
-/// ```ignore
-/// use harp::backend::pipeline::optimize_graph_greedy;
-///
-/// let (optimized, history) = optimize_graph_greedy(graph, 5000);
-/// ```
-pub fn optimize_graph_greedy(
-    graph: Graph,
-    max_steps: usize,
-) -> (Graph, crate::opt::graph::OptimizationHistory) {
-    let config = MultiPhaseConfig::new()
-        .with_beam_width(1)
-        .with_max_steps(max_steps)
-        .with_progress(false)
-        .with_collect_logs(false);
-    let optimizer = create_greedy_optimizer(config);
-    optimizer.optimize_with_history(graph)
+/// Evaluate dispatch size from AST expressions
+fn evaluate_dispatch_size(
+    size: &[Box<AstNode>; 3],
+    shape_vars: &HashMap<String, isize>,
+) -> [usize; 3] {
+    [
+        evaluate_ast_expr(&size[0], shape_vars).max(1) as usize,
+        evaluate_ast_expr(&size[1], shape_vars).max(1) as usize,
+        evaluate_ast_expr(&size[2], shape_vars).max(1) as usize,
+    ]
+}
+
+/// Evaluate an AST expression to a numeric value
+fn evaluate_ast_expr(ast: &AstNode, shape_vars: &HashMap<String, isize>) -> isize {
+    match ast {
+        AstNode::Const(lit) => match lit {
+            Literal::Int(n) => *n,
+            Literal::F32(f) => *f as isize,
+            Literal::Bool(b) => {
+                if *b {
+                    1
+                } else {
+                    0
+                }
+            }
+        },
+        AstNode::Var(name) => shape_vars.get(name).copied().unwrap_or(1),
+        AstNode::Mul(a, b) => evaluate_ast_expr(a, shape_vars) * evaluate_ast_expr(b, shape_vars),
+        AstNode::Add(a, b) => evaluate_ast_expr(a, shape_vars) + evaluate_ast_expr(b, shape_vars),
+        AstNode::Idiv(a, b) => {
+            let divisor = evaluate_ast_expr(b, shape_vars);
+            if divisor != 0 {
+                evaluate_ast_expr(a, shape_vars) / divisor
+            } else {
+                1
+            }
+        }
+        AstNode::Rem(a, b) => {
+            let divisor = evaluate_ast_expr(b, shape_vars);
+            if divisor != 0 {
+                evaluate_ast_expr(a, shape_vars) % divisor
+            } else {
+                0
+            }
+        }
+        AstNode::Max(a, b) => {
+            let va = evaluate_ast_expr(a, shape_vars);
+            let vb = evaluate_ast_expr(b, shape_vars);
+            va.max(vb)
+        }
+        _ => 1, // Unsupported expressions default to 1
+    }
+}
+
+/// Evaluate a Vec<Expr> to [usize; 3] for dispatch sizes
+#[allow(dead_code)]
+fn evaluate_expr_vec(exprs: &[Expr], shape_vars: &HashMap<String, isize>) -> [usize; 3] {
+    let mut result = [1usize; 3];
+    for (i, expr) in exprs.iter().enumerate().take(3) {
+        result[i] = evaluate_expr(expr, shape_vars).max(1) as usize;
+    }
+    result
+}
+
+/// Evaluate a shape Expr to a numeric value
+#[allow(dead_code)]
+fn evaluate_expr(expr: &Expr, shape_vars: &HashMap<String, isize>) -> isize {
+    match expr {
+        Expr::Const(n) => *n,
+        Expr::Var(name) => shape_vars.get(name).copied().unwrap_or(1),
+        Expr::Idx(_) => {
+            // Idx is used for index expressions in IndexExpr views,
+            // it should not appear in shape evaluation
+            panic!("Expr::Idx cannot be evaluated as a shape expression")
+        }
+        Expr::Add(a, b) => evaluate_expr(a, shape_vars) + evaluate_expr(b, shape_vars),
+        Expr::Sub(a, b) => evaluate_expr(a, shape_vars) - evaluate_expr(b, shape_vars),
+        Expr::Mul(a, b) => evaluate_expr(a, shape_vars) * evaluate_expr(b, shape_vars),
+        Expr::Div(a, b) => {
+            let divisor = evaluate_expr(b, shape_vars);
+            if divisor != 0 {
+                evaluate_expr(a, shape_vars) / divisor
+            } else {
+                1
+            }
+        }
+        Expr::Rem(a, b) => {
+            let divisor = evaluate_expr(b, shape_vars);
+            if divisor != 0 {
+                evaluate_expr(a, shape_vars) % divisor
+            } else {
+                0
+            }
+        }
+    }
+}
+
+/// A compiled kernel with its signature
+pub struct CompiledKernel<K, B>
+where
+    K: Kernel<Buffer = B>,
+    B: Buffer,
+{
+    /// The compiled kernel
+    pub kernel: K,
+    /// The kernel signature
+    pub signature: KernelSignature,
+    _buffer: PhantomData<B>,
+}
+
+impl<K, B> CompiledKernel<K, B>
+where
+    K: Kernel<Buffer = B>,
+    B: Buffer,
+{
+    /// Execute the kernel with the given buffers
+    pub fn execute(&self, inputs: &[&B], outputs: &mut [&mut B]) -> Result<(), K::Error> {
+        self.kernel.execute(inputs, outputs)
+    }
+
+    /// Get the kernel signature
+    pub fn signature(&self) -> &KernelSignature {
+        &self.signature
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{DType, GraphOp};
-    use crate::opt::graph::GraphSuggester;
+    use crate::ast::helper::const_int;
 
+    // Basic test to ensure the module compiles
     #[test]
-    fn test_greedy_lowering_suggester() {
-        let greedy_suggester = create_greedy_lowering_only_suggester();
-
-        let mut graph = Graph::new();
-        let a = graph.input("a", DType::F32, vec![10, 20]);
-        let b = graph.input("b", DType::F32, vec![10, 20]);
-        let c = a + b;
-        graph.output("c", c);
-
-        let suggestions = greedy_suggester.suggest(&graph);
-
-        // LoweringSuggesterは1つの候補を生成
-        assert_eq!(
-            suggestions.len(),
-            1,
-            "LoweringSuggester should generate exactly 1 candidate, got {}",
-            suggestions.len()
-        );
-
-        // 生成された候補はKernelノードを含む
-        let outputs = suggestions[0].graph.outputs();
-        let output = outputs.get("c").unwrap();
-        assert!(
-            matches!(output.op, GraphOp::Kernel { .. }),
-            "Output should be Kernel node"
-        );
+    fn test_pipeline_config_default() {
+        let config = PipelineConfig::default();
+        assert_eq!(config.graph_beam_width, 4);
+        assert_eq!(config.ast_beam_width, 4);
     }
 
     #[test]
-    fn test_optimize_graph_greedy_basic() {
-        let mut graph = Graph::new();
-        let a = graph.input("a", DType::F32, vec![10, 20]);
-        let b = graph.input("b", DType::F32, vec![10, 20]);
-        let c = a + b;
-        graph.output("c", c);
+    fn test_evaluate_ast_expr_const() {
+        let shape_vars = HashMap::new();
+        assert_eq!(evaluate_ast_expr(&const_int(42), &shape_vars), 42);
+        assert_eq!(evaluate_ast_expr(&const_int(0), &shape_vars), 0);
+    }
 
-        let (optimized, history) = optimize_graph_greedy(graph, 1000);
+    #[test]
+    fn test_evaluate_ast_expr_var() {
+        let mut shape_vars = HashMap::new();
+        shape_vars.insert("n".to_string(), 128);
 
-        // 最適化履歴が存在することを確認
-        assert!(
-            !history.is_empty(),
-            "Optimization history should not be empty"
+        let var_n = AstNode::Var("n".to_string());
+        assert_eq!(evaluate_ast_expr(&var_n, &shape_vars), 128);
+
+        // Unknown variable defaults to 1
+        let var_unknown = AstNode::Var("unknown".to_string());
+        assert_eq!(evaluate_ast_expr(&var_unknown, &shape_vars), 1);
+    }
+
+    #[test]
+    fn test_evaluate_ast_expr_arithmetic() {
+        let shape_vars = HashMap::new();
+
+        // 10 * 20 = 200
+        let mul = AstNode::Mul(Box::new(const_int(10)), Box::new(const_int(20)));
+        assert_eq!(evaluate_ast_expr(&mul, &shape_vars), 200);
+
+        // 10 + 20 = 30
+        let add = AstNode::Add(Box::new(const_int(10)), Box::new(const_int(20)));
+        assert_eq!(evaluate_ast_expr(&add, &shape_vars), 30);
+
+        // 100 / 10 = 10
+        let div = AstNode::Idiv(Box::new(const_int(100)), Box::new(const_int(10)));
+        assert_eq!(evaluate_ast_expr(&div, &shape_vars), 10);
+    }
+
+    #[test]
+    fn test_evaluate_dispatch_size() {
+        let shape_vars = HashMap::new();
+        let size: [Box<AstNode>; 3] = [
+            Box::new(const_int(256)),
+            Box::new(const_int(1)),
+            Box::new(const_int(1)),
+        ];
+
+        let result = evaluate_dispatch_size(&size, &shape_vars);
+        assert_eq!(result, [256, 1, 1]);
+    }
+
+    #[test]
+    fn test_evaluate_dispatch_size_with_vars() {
+        let mut shape_vars = HashMap::new();
+        shape_vars.insert("total".to_string(), 1024);
+
+        // grid_size = ceil(total / 64) * 64
+        // Represented as: Mul(Idiv(Add(total, 63), 64), 64)
+        let grid_x = AstNode::Mul(
+            Box::new(AstNode::Idiv(
+                Box::new(AstNode::Add(
+                    Box::new(AstNode::Var("total".to_string())),
+                    Box::new(const_int(63)),
+                )),
+                Box::new(const_int(64)),
+            )),
+            Box::new(const_int(64)),
         );
 
-        // 最適化後のグラフの出力がKernelノードであることを確認
-        // (完全にloweringが完了した場合)
-        for output_node in optimized.outputs().values() {
-            assert!(
-                matches!(output_node.op, GraphOp::Kernel { .. }),
-                "Output should be Kernel node after optimization"
-            );
-        }
-    }
+        let size: [Box<AstNode>; 3] = [
+            Box::new(grid_x),
+            Box::new(const_int(1)),
+            Box::new(const_int(1)),
+        ];
 
-    #[test]
-    fn test_greedy_optimizer_beam_width_is_one() {
-        // 貪欲法オプティマイザのビーム幅が1であることを間接的に確認
-        // ビーム幅=1なので、各ステップで1つの候補のみ保持される
-        let mut graph = Graph::new();
-        let a = graph.input("a", DType::F32, vec![10, 20]);
-        let b = graph.input("b", DType::F32, vec![10, 20]);
-        let c = a + b;
-        graph.output("c", c);
-
-        let config = MultiPhaseConfig::new()
-            .with_max_steps(100)
-            .with_progress(false);
-        let optimizer = create_greedy_optimizer(config);
-
-        let (optimized, _history) = optimizer.optimize_with_history(graph);
-
-        // 最適化が完了することを確認（パニックしない）
-        let _outputs = optimized.outputs();
-    }
-
-    #[test]
-    fn test_multi_phase_vs_greedy() {
-        let mut graph = Graph::new();
-        let a = graph.input("a", DType::F32, vec![10, 20]);
-        let b = graph.input("b", DType::F32, vec![10, 20]);
-        let c = a + b;
-        graph.output("c", c);
-
-        // 両方とも最適化が完了することを確認
-        let multi_phase_config = MultiPhaseConfig::new()
-            .with_beam_width(4)
-            .with_max_steps(1000);
-        let (_multi_phase_result, _) =
-            optimize_graph_multi_phase(graph.clone(), multi_phase_config);
-
-        let (_greedy_result, _) = optimize_graph_greedy(graph, 1000);
-
-        // 両方とも正常に完了（パニックしない）
+        let result = evaluate_dispatch_size(&size, &shape_vars);
+        // (1024 + 63) / 64 = 16, 16 * 64 = 1024
+        assert_eq!(result, [1024, 1, 1]);
     }
 }
