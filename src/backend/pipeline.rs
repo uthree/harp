@@ -6,10 +6,11 @@
 use crate::ast::{AstKernelCallInfo, AstNode, DType, Literal};
 use crate::backend::KernelSignature;
 use crate::backend::c_like::CLikeRenderer;
-use crate::backend::sequence::{CompiledProgram, IntermediateBufferSpec, KernelCallInfo};
+use crate::backend::sequence::{
+    CompiledProgram, ExecutionQuery, IntermediateBufferSpec, KernelCallInfo,
+};
 use crate::backend::traits::{Buffer, Compiler, Device, Kernel, KernelConfig};
 use crate::graph::Graph;
-use crate::graph::shape::Expr;
 use crate::opt::ast::rules::all_algebraic_rules;
 use crate::opt::ast::{
     AstOptimizer, BeamSearchOptimizer as AstBeamSearchOptimizer,
@@ -144,6 +145,9 @@ where
         // Render kernel source
         let kernel_source = self.renderer.render_kernel_source(&optimized_program);
 
+        // Extract dispatch size config (for dynamic shape support)
+        let dispatch_config = self.extract_dispatch_config(&optimized_program, &signature);
+
         // Extract the actual kernel/function name from the program
         let entry_point = self.extract_entry_point_name(&optimized_program);
         let base_config = self.extract_kernel_config(&optimized_program, &signature);
@@ -159,6 +163,7 @@ where
         Ok(CompiledKernel {
             kernel,
             signature,
+            dispatch_config,
             _buffer: PhantomData,
         })
     }
@@ -376,6 +381,7 @@ where
         signature: KernelSignature,
         kernel_source: String,
     ) -> Result<CompiledKernel<Comp::Kernel, Buf>, Comp::Error> {
+        let dispatch_config = self.extract_dispatch_config(&program, &signature);
         let kernel_config = self.extract_kernel_config(&program, &signature);
         let kernel = self
             .compiler
@@ -384,6 +390,7 @@ where
         Ok(CompiledKernel {
             kernel,
             signature,
+            dispatch_config,
             _buffer: PhantomData,
         })
     }
@@ -523,6 +530,48 @@ where
         "main".to_string()
     }
 
+    // Internal: extract dispatch size config from AST (for dynamic shape support)
+    fn extract_dispatch_config(
+        &self,
+        program: &AstNode,
+        signature: &KernelSignature,
+    ) -> DispatchSizeConfig {
+        // Find the first kernel function in the program
+        if let AstNode::Program { functions, .. } = program {
+            for f in functions {
+                if let AstNode::Kernel {
+                    default_grid_size,
+                    default_thread_group_size,
+                    ..
+                } = f
+                {
+                    return DispatchSizeConfig::from_ast(
+                        default_grid_size,
+                        default_thread_group_size,
+                    );
+                }
+            }
+        }
+
+        // Fallback: use output shape as grid size
+        let total_elements: usize = signature
+            .outputs
+            .iter()
+            .flat_map(|s| {
+                s.shape.iter().filter_map(|e| {
+                    if let crate::graph::shape::Expr::Const(n) = e {
+                        Some(*n as usize)
+                    } else {
+                        None
+                    }
+                })
+            })
+            .product::<usize>()
+            .max(1);
+
+        DispatchSizeConfig::from_const([total_elements, 1, 1], [1, 1, 1])
+    }
+
     // Internal: extract kernel config from AST
     fn extract_kernel_config(
         &self,
@@ -647,6 +696,146 @@ fn evaluate_ast_expr(ast: &AstNode, shape_vars: &HashMap<String, isize>) -> isiz
     }
 }
 
+/// Expression for computing dispatch size dynamically
+///
+/// This represents a simple expression tree that can be evaluated
+/// with different shape variable values at runtime.
+#[derive(Debug, Clone)]
+pub enum DispatchSizeExpr {
+    /// Constant value
+    Const(isize),
+    /// Variable reference
+    Var(String),
+    /// Addition
+    Add(Box<DispatchSizeExpr>, Box<DispatchSizeExpr>),
+    /// Multiplication
+    Mul(Box<DispatchSizeExpr>, Box<DispatchSizeExpr>),
+    /// Integer division
+    Div(Box<DispatchSizeExpr>, Box<DispatchSizeExpr>),
+    /// Remainder
+    Rem(Box<DispatchSizeExpr>, Box<DispatchSizeExpr>),
+    /// Maximum of two values
+    Max(Box<DispatchSizeExpr>, Box<DispatchSizeExpr>),
+}
+
+impl DispatchSizeExpr {
+    /// Evaluate the expression with the given shape variables
+    pub fn evaluate(&self, shape_vars: &HashMap<String, isize>) -> isize {
+        match self {
+            Self::Const(n) => *n,
+            Self::Var(name) => shape_vars.get(name).copied().unwrap_or(1),
+            Self::Add(a, b) => a.evaluate(shape_vars) + b.evaluate(shape_vars),
+            Self::Mul(a, b) => a.evaluate(shape_vars) * b.evaluate(shape_vars),
+            Self::Div(a, b) => {
+                let divisor = b.evaluate(shape_vars);
+                if divisor != 0 {
+                    a.evaluate(shape_vars) / divisor
+                } else {
+                    1
+                }
+            }
+            Self::Rem(a, b) => {
+                let divisor = b.evaluate(shape_vars);
+                if divisor != 0 {
+                    a.evaluate(shape_vars) % divisor
+                } else {
+                    0
+                }
+            }
+            Self::Max(a, b) => a.evaluate(shape_vars).max(b.evaluate(shape_vars)),
+        }
+    }
+
+    /// Create from AstNode
+    pub fn from_ast(ast: &AstNode) -> Self {
+        match ast {
+            AstNode::Const(lit) => match lit {
+                Literal::Int(n) => Self::Const(*n),
+                Literal::F32(f) => Self::Const(*f as isize),
+                Literal::Bool(b) => Self::Const(if *b { 1 } else { 0 }),
+            },
+            AstNode::Var(name) => Self::Var(name.clone()),
+            AstNode::Add(a, b) => {
+                Self::Add(Box::new(Self::from_ast(a)), Box::new(Self::from_ast(b)))
+            }
+            AstNode::Mul(a, b) => {
+                Self::Mul(Box::new(Self::from_ast(a)), Box::new(Self::from_ast(b)))
+            }
+            AstNode::Idiv(a, b) => {
+                Self::Div(Box::new(Self::from_ast(a)), Box::new(Self::from_ast(b)))
+            }
+            AstNode::Rem(a, b) => {
+                Self::Rem(Box::new(Self::from_ast(a)), Box::new(Self::from_ast(b)))
+            }
+            AstNode::Max(a, b) => {
+                Self::Max(Box::new(Self::from_ast(a)), Box::new(Self::from_ast(b)))
+            }
+            _ => Self::Const(1), // Unsupported expressions default to 1
+        }
+    }
+}
+
+/// Grid and local size expressions for dynamic dispatch
+#[derive(Debug, Clone)]
+pub struct DispatchSizeConfig {
+    /// Grid size expressions for each dimension
+    pub grid_size: [DispatchSizeExpr; 3],
+    /// Local size expressions for each dimension
+    pub local_size: [DispatchSizeExpr; 3],
+}
+
+impl DispatchSizeConfig {
+    /// Create with constant sizes
+    pub fn from_const(grid: [usize; 3], local: [usize; 3]) -> Self {
+        Self {
+            grid_size: [
+                DispatchSizeExpr::Const(grid[0] as isize),
+                DispatchSizeExpr::Const(grid[1] as isize),
+                DispatchSizeExpr::Const(grid[2] as isize),
+            ],
+            local_size: [
+                DispatchSizeExpr::Const(local[0] as isize),
+                DispatchSizeExpr::Const(local[1] as isize),
+                DispatchSizeExpr::Const(local[2] as isize),
+            ],
+        }
+    }
+
+    /// Create from AST expressions
+    pub fn from_ast(grid: &[Box<AstNode>; 3], local: &[Box<AstNode>; 3]) -> Self {
+        Self {
+            grid_size: [
+                DispatchSizeExpr::from_ast(&grid[0]),
+                DispatchSizeExpr::from_ast(&grid[1]),
+                DispatchSizeExpr::from_ast(&grid[2]),
+            ],
+            local_size: [
+                DispatchSizeExpr::from_ast(&local[0]),
+                DispatchSizeExpr::from_ast(&local[1]),
+                DispatchSizeExpr::from_ast(&local[2]),
+            ],
+        }
+    }
+
+    /// Evaluate grid size with shape variables
+    pub fn evaluate_grid_size(&self, shape_vars: &HashMap<String, isize>) -> [usize; 3] {
+        [
+            self.grid_size[0].evaluate(shape_vars).max(1) as usize,
+            self.grid_size[1].evaluate(shape_vars).max(1) as usize,
+            self.grid_size[2].evaluate(shape_vars).max(1) as usize,
+        ]
+    }
+
+    /// Evaluate local size with shape variables
+    pub fn evaluate_local_size(&self, shape_vars: &HashMap<String, isize>) -> [usize; 3] {
+        [
+            self.local_size[0].evaluate(shape_vars).max(1) as usize,
+            self.local_size[1].evaluate(shape_vars).max(1) as usize,
+            self.local_size[2].evaluate(shape_vars).max(1) as usize,
+        ]
+    }
+}
+
 /// A compiled kernel with its signature
 pub struct CompiledKernel<K, B>
 where
@@ -657,7 +846,36 @@ where
     pub kernel: K,
     /// The kernel signature
     pub signature: KernelSignature,
+    /// Dispatch size configuration (for dynamic shape support)
+    pub dispatch_config: DispatchSizeConfig,
     _buffer: PhantomData<B>,
+}
+
+/// Error type for kernel execution with query
+#[derive(Debug)]
+pub enum KernelExecutionError<KE> {
+    /// Error during kernel execution
+    KernelError(KE),
+    /// Buffer not found
+    BufferNotFound(String),
+}
+
+impl<KE: std::fmt::Display> std::fmt::Display for KernelExecutionError<KE> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::KernelError(e) => write!(f, "Kernel execution error: {}", e),
+            Self::BufferNotFound(name) => write!(f, "Buffer not found: {}", name),
+        }
+    }
+}
+
+impl<KE: std::error::Error + 'static> std::error::Error for KernelExecutionError<KE> {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::KernelError(e) => Some(e),
+            Self::BufferNotFound(_) => None,
+        }
+    }
 }
 
 impl<K, B> CompiledKernel<K, B>
@@ -665,14 +883,205 @@ where
     K: Kernel<Buffer = B>,
     B: Buffer,
 {
-    /// Execute the kernel with the given buffers
+    /// Execute the kernel with the given buffers (positional)
     pub fn execute(&self, inputs: &[&B], outputs: &mut [&mut B]) -> Result<(), K::Error> {
         self.kernel.execute(inputs, outputs)
+    }
+
+    /// Execute the kernel using an ExecutionQuery
+    ///
+    /// This method provides a fluent API for specifying buffers by name.
+    /// The signature is used to map buffer names to the correct positions.
+    /// Shape variables from the query override those from the signature for
+    /// dynamic dispatch size computation.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let query = ExecutionQuery::new()
+    ///     .input("a", &buf_a)
+    ///     .input("b", &buf_b)
+    ///     .output("out", &mut buf_out)
+    ///     .shape_var("batch_size", 32);
+    ///
+    /// compiled_kernel.execute_with(query)?;
+    /// ```
+    pub fn execute_with(
+        &self,
+        mut query: ExecutionQuery<'_, B>,
+    ) -> Result<(), KernelExecutionError<K::Error>> {
+        // Collect input names from signature
+        let input_names: Vec<String> = self
+            .signature
+            .inputs
+            .iter()
+            .map(|s| s.name.clone())
+            .collect();
+        let output_names: Vec<String> = self
+            .signature
+            .outputs
+            .iter()
+            .map(|s| s.name.clone())
+            .collect();
+
+        // Validate that all required buffers are present
+        let missing_inputs = query.missing_inputs(&input_names);
+        if !missing_inputs.is_empty() {
+            return Err(KernelExecutionError::BufferNotFound(format!(
+                "Missing input buffers: {:?}",
+                missing_inputs
+            )));
+        }
+
+        let missing_outputs = query.missing_outputs(&output_names);
+        if !missing_outputs.is_empty() {
+            return Err(KernelExecutionError::BufferNotFound(format!(
+                "Missing output buffers: {:?}",
+                missing_outputs
+            )));
+        }
+
+        // Merge shape variables: signature defaults + query overrides
+        let mut shape_vars = self.signature.shape_vars.clone();
+        shape_vars.extend(query.get_shape_vars().iter().map(|(k, v)| (k.clone(), *v)));
+
+        // Compute dispatch sizes using the merged shape variables
+        let grid_size = self.dispatch_config.evaluate_grid_size(&shape_vars);
+        let local_size = self.dispatch_config.evaluate_local_size(&shape_vars);
+
+        // Build ordered input slice from query
+        let inputs: Vec<&B> = input_names
+            .iter()
+            .map(|name| *query.inputs().get(name).unwrap())
+            .collect();
+
+        // Build ordered output slice from query
+        // SAFETY: ExecutionQuery ensures no aliasing between outputs
+        let mut outputs_map = unsafe { query.outputs_mut() };
+        let mut outputs: Vec<&mut B> = output_names
+            .iter()
+            .map(|name| outputs_map.remove(name).unwrap())
+            .collect();
+
+        // Execute with computed sizes
+        self.kernel
+            .execute_with_sizes(&inputs, &mut outputs, grid_size, local_size)
+            .map_err(KernelExecutionError::KernelError)
     }
 
     /// Get the kernel signature
     pub fn signature(&self) -> &KernelSignature {
         &self.signature
+    }
+
+    /// Get the input buffer names
+    pub fn input_names(&self) -> Vec<String> {
+        self.signature
+            .inputs
+            .iter()
+            .map(|s| s.name.clone())
+            .collect()
+    }
+
+    /// Get the output buffer names
+    pub fn output_names(&self) -> Vec<String> {
+        self.signature
+            .outputs
+            .iter()
+            .map(|s| s.name.clone())
+            .collect()
+    }
+
+    /// Create a bound execution query with default shape variables
+    ///
+    /// This method provides a fluent API for executing the kernel.
+    /// Default shape variables from the signature are pre-populated,
+    /// so you only need to specify inputs, outputs, and any overrides.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// compiled_kernel.query()
+    ///     .input("x", &input_buf)
+    ///     .output("y", &mut output_buf)
+    ///     .shape_var("batch_size", 32)  // Override default
+    ///     .execute()?;
+    /// ```
+    pub fn query(&self) -> BoundExecutionQuery<'_, K, B> {
+        // Pre-populate with default shape variables from signature
+        let mut query = ExecutionQuery::new();
+        for (name, value) in &self.signature.shape_vars {
+            query = query.shape_var(name.clone(), *value);
+        }
+
+        BoundExecutionQuery {
+            kernel: self,
+            query,
+        }
+    }
+}
+
+/// A bound execution query that holds a reference to the kernel
+///
+/// This struct provides a fluent API for specifying buffers and shape
+/// variables, then executing the kernel in a single method chain.
+///
+/// # Example
+///
+/// ```ignore
+/// compiled_kernel.query()
+///     .input("x", &input_buf)
+///     .output("y", &mut output_buf)
+///     .execute()?;
+/// ```
+pub struct BoundExecutionQuery<'a, K, B>
+where
+    K: Kernel<Buffer = B>,
+    B: Buffer,
+{
+    kernel: &'a CompiledKernel<K, B>,
+    query: ExecutionQuery<'a, B>,
+}
+
+impl<'a, K, B> BoundExecutionQuery<'a, K, B>
+where
+    K: Kernel<Buffer = B>,
+    B: Buffer,
+{
+    /// Add an input buffer with the given name
+    pub fn input(mut self, name: impl Into<String>, buffer: &'a B) -> Self {
+        self.query = self.query.input(name, buffer);
+        self
+    }
+
+    /// Add an output buffer with the given name
+    pub fn output(mut self, name: impl Into<String>, buffer: &'a mut B) -> Self {
+        self.query = self.query.output(name, buffer);
+        self
+    }
+
+    /// Set or override a shape variable
+    ///
+    /// If not called, the default value from the kernel signature is used.
+    pub fn shape_var(mut self, name: impl Into<String>, value: isize) -> Self {
+        self.query = self.query.shape_var(name, value);
+        self
+    }
+
+    /// Set or override multiple shape variables at once
+    pub fn shape_vars(mut self, vars: impl IntoIterator<Item = (String, isize)>) -> Self {
+        self.query = self.query.shape_vars(vars);
+        self
+    }
+
+    /// Execute the kernel with the configured buffers and shape variables
+    pub fn execute(self) -> Result<(), KernelExecutionError<K::Error>> {
+        self.kernel.execute_with(self.query)
+    }
+
+    /// Get the underlying ExecutionQuery (for inspection or advanced use)
+    pub fn into_query(self) -> ExecutionQuery<'a, B> {
+        self.query
     }
 }
 
@@ -766,5 +1175,123 @@ mod tests {
         let result = evaluate_dispatch_size(&size, &shape_vars);
         // (1024 + 63) / 64 = 16, 16 * 64 = 1024
         assert_eq!(result, [1024, 1, 1]);
+    }
+
+    #[test]
+    fn test_dispatch_size_expr_const() {
+        let expr = DispatchSizeExpr::Const(42);
+        let shape_vars = HashMap::new();
+        assert_eq!(expr.evaluate(&shape_vars), 42);
+    }
+
+    #[test]
+    fn test_dispatch_size_expr_var() {
+        let expr = DispatchSizeExpr::Var("batch_size".to_string());
+        let mut shape_vars = HashMap::new();
+        shape_vars.insert("batch_size".to_string(), 32);
+
+        assert_eq!(expr.evaluate(&shape_vars), 32);
+
+        // Unknown variable defaults to 1
+        let unknown = DispatchSizeExpr::Var("unknown".to_string());
+        assert_eq!(unknown.evaluate(&shape_vars), 1);
+    }
+
+    #[test]
+    fn test_dispatch_size_expr_arithmetic() {
+        let shape_vars = HashMap::new();
+
+        // 10 + 20 = 30
+        let add = DispatchSizeExpr::Add(
+            Box::new(DispatchSizeExpr::Const(10)),
+            Box::new(DispatchSizeExpr::Const(20)),
+        );
+        assert_eq!(add.evaluate(&shape_vars), 30);
+
+        // 10 * 5 = 50
+        let mul = DispatchSizeExpr::Mul(
+            Box::new(DispatchSizeExpr::Const(10)),
+            Box::new(DispatchSizeExpr::Const(5)),
+        );
+        assert_eq!(mul.evaluate(&shape_vars), 50);
+
+        // 100 / 10 = 10
+        let div = DispatchSizeExpr::Div(
+            Box::new(DispatchSizeExpr::Const(100)),
+            Box::new(DispatchSizeExpr::Const(10)),
+        );
+        assert_eq!(div.evaluate(&shape_vars), 10);
+
+        // max(5, 10) = 10
+        let max = DispatchSizeExpr::Max(
+            Box::new(DispatchSizeExpr::Const(5)),
+            Box::new(DispatchSizeExpr::Const(10)),
+        );
+        assert_eq!(max.evaluate(&shape_vars), 10);
+    }
+
+    #[test]
+    fn test_dispatch_size_expr_with_vars() {
+        let mut shape_vars = HashMap::new();
+        shape_vars.insert("n".to_string(), 1024);
+        shape_vars.insert("block_size".to_string(), 64);
+
+        // grid_size = n / block_size
+        let expr = DispatchSizeExpr::Div(
+            Box::new(DispatchSizeExpr::Var("n".to_string())),
+            Box::new(DispatchSizeExpr::Var("block_size".to_string())),
+        );
+        assert_eq!(expr.evaluate(&shape_vars), 16);
+    }
+
+    #[test]
+    fn test_dispatch_size_config_from_const() {
+        let config = DispatchSizeConfig::from_const([256, 1, 1], [64, 1, 1]);
+        let shape_vars = HashMap::new();
+
+        assert_eq!(config.evaluate_grid_size(&shape_vars), [256, 1, 1]);
+        assert_eq!(config.evaluate_local_size(&shape_vars), [64, 1, 1]);
+    }
+
+    #[test]
+    fn test_dispatch_size_config_dynamic() {
+        // Create config with variable-based expressions
+        let config = DispatchSizeConfig {
+            grid_size: [
+                DispatchSizeExpr::Var("total_elements".to_string()),
+                DispatchSizeExpr::Const(1),
+                DispatchSizeExpr::Const(1),
+            ],
+            local_size: [
+                DispatchSizeExpr::Const(64),
+                DispatchSizeExpr::Const(1),
+                DispatchSizeExpr::Const(1),
+            ],
+        };
+
+        // Different shape_vars produce different sizes
+        let mut vars1 = HashMap::new();
+        vars1.insert("total_elements".to_string(), 1024);
+        assert_eq!(config.evaluate_grid_size(&vars1), [1024, 1, 1]);
+
+        let mut vars2 = HashMap::new();
+        vars2.insert("total_elements".to_string(), 2048);
+        assert_eq!(config.evaluate_grid_size(&vars2), [2048, 1, 1]);
+    }
+
+    #[test]
+    fn test_dispatch_size_expr_from_ast() {
+        // Test conversion from AstNode
+        let ast = AstNode::Mul(
+            Box::new(AstNode::Var("n".to_string())),
+            Box::new(const_int(2)),
+        );
+
+        let expr = DispatchSizeExpr::from_ast(&ast);
+
+        let mut shape_vars = HashMap::new();
+        shape_vars.insert("n".to_string(), 100);
+
+        assert_eq!(expr.evaluate(&shape_vars), 200);
     }
 }

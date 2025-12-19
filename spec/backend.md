@@ -9,8 +9,8 @@
 ### コアモジュール
 - `mod.rs`: Renderer trait、KernelSignature、BufferSignatureの定義
 - `traits.rs`: GPU実行用の共通trait定義（Device, Buffer, Kernel, Compiler, KernelConfig）
-- `sequence.rs`: 複数カーネル順次実行（CompiledProgram, KernelCallInfo, IntermediateBufferSpec）
-- `pipeline.rs`: Pipeline、PipelineConfig、CompiledKernel、AST式評価関数、KernelSourceRenderer trait
+- `sequence.rs`: 複数カーネル順次実行（CompiledProgram, KernelCallInfo, IntermediateBufferSpec, ExecutionQuery）
+- `pipeline.rs`: Pipeline、PipelineConfig、CompiledKernel、KernelExecutionError、DispatchSizeConfig、DispatchSizeExpr、AST式評価関数、KernelSourceRenderer trait
 - `c_like.rs`: C言語系構文の共通レンダリングロジック（CLikeRenderer trait）、OptimizationLevel、extract_buffer_placeholders関数
 
 **注意**: グラフ最適化のファクトリ関数（`create_multi_phase_optimizer`, `MultiPhaseConfig`等）は
@@ -201,7 +201,7 @@ let result: Vec<f32> = c.read_vec()?;  // [6.0, 8.0, 10.0, 12.0]
 
 **使用例:**
 ```rust
-use harp::backend::{Buffer, Compiler, Device, Pipeline};
+use harp::backend::{Buffer, Compiler, Device, Pipeline, ExecutionQuery};
 use harp::backend::opencl::{OpenCLBuffer, OpenCLCompiler, OpenCLDevice, OpenCLRenderer};
 use harp::graph::{Graph, DType};
 
@@ -221,15 +221,23 @@ graph.output("out", c);
 // コンパイル
 let compiled = pipeline.compile_graph(graph)?;
 
-// バッファ作成・実行
+// バッファ作成
 let mut input_a = OpenCLBuffer::allocate(&pipeline.context(), vec![1024], AstDType::F32)?;
 let mut input_b = OpenCLBuffer::allocate(&pipeline.context(), vec![1024], AstDType::F32)?;
 let mut output = OpenCLBuffer::allocate(&pipeline.context(), vec![1024], AstDType::F32)?;
 
-// データ書き込み・カーネル実行・結果読み出し
+// データ書き込み
 input_a.write_vec(&vec![1.0f32; 1024])?;
 input_b.write_vec(&vec![2.0f32; 1024])?;
-compiled.execute(&[&input_a, &input_b], &mut [&mut output])?;
+
+// 実行（名前ベース - ExecutionQuery使用）
+let query = ExecutionQuery::new()
+    .input("a", &input_a)
+    .input("b", &input_b)
+    .output("out", &mut output);
+compiled.execute_with(query)?;
+
+// 結果読み出し
 let result: Vec<f32> = output.read_vec()?;
 ```
 
@@ -242,6 +250,110 @@ let result: Vec<f32> = output.read_vec()?;
     config.max_steps = 1000;        // 最大最適化ステップ数
     config.show_progress = true;    // プログレス表示
     config.collect_history = true;  // 最適化履歴の収集
+}
+```
+
+### ExecutionQuery
+
+`ExecutionQuery`は、バッファを名前ベースで指定するためのビルダー構造体です。動的shape変数もサポートしています。
+
+**利点:**
+- バッファの順序を気にせず名前で指定可能
+- 必要なバッファの欠落を実行前にチェック
+- 型安全なフルエントAPI
+- 動的shape変数による実行時のグリッドサイズ計算
+
+**使用例:**
+```rust
+use harp::backend::ExecutionQuery;
+
+// ビルダーパターンでバッファと動的shapeを指定
+let query = ExecutionQuery::new()
+    .input("a", &buf_a)
+    .input("b", &buf_b)
+    .output("result", &mut buf_out)
+    .shape_var("batch_size", 32)
+    .shape_var("seq_len", 128);
+
+// CompiledKernel での実行（shape_varsに基づいてグリッドサイズを動的計算）
+compiled_kernel.execute_with(query)?;
+
+// CompiledProgram での実行
+compiled_program.execute_with(context, query)?;
+```
+
+**動的shape変数:**
+
+`shape_var()`メソッドで指定した変数は、実行時にグリッドサイズの計算に使用されます。これにより、コンパイル時に固定されないサイズでもカーネルを実行できます。
+
+```rust
+// バッチサイズが実行時に決まる場合
+for batch_size in [16, 32, 64, 128] {
+    let query = ExecutionQuery::new()
+        .input("x", &input_buf)
+        .output("y", &mut output_buf)
+        .shape_var("batch_size", batch_size as isize);
+
+    compiled_kernel.execute_with(query)?;
+}
+```
+
+**実行メソッドの比較:**
+
+| メソッド | バッファ指定 | 動的shape | 用途 |
+|----------|-------------|-----------|------|
+| `execute(&[&B], &mut [&mut B])` | 位置引数 | ✗ | シンプルなケース |
+| `execute_with(ExecutionQuery)` | 名前ベース | ✓ | 複雑なグラフ、動的サイズ |
+| `query().input().output().execute()` | 名前ベース | ✓ | フルエントAPI（推奨） |
+| `execute_positional(...)` | 位置引数 | ✗ | CompiledProgramの便利メソッド |
+
+### BoundExecutionQuery（フルエントAPI）
+
+`BoundExecutionQuery`は`CompiledKernel`にバインドされた`ExecutionQuery`で、よりフルエントなAPIを提供します。
+
+**使用例:**
+```rust
+// query()でデフォルトshape変数が初期化済みのクエリを取得
+compiled_kernel.query()
+    .input("x", &input_buf)
+    .output("y", &mut output_buf)
+    .shape_var("batch_size", batch_size as isize)
+    .execute()?;
+```
+
+**特徴:**
+- `query()`メソッドが`KernelSignature`のデフォルト`shape_vars`で初期化された`ExecutionQuery`を返す
+- 指定しないshape変数はデフォルト値が使用される
+- チェーン呼び出しで`execute()`まで一気に実行可能
+
+**フロー:**
+```
+CompiledKernel::query()
+    → BoundExecutionQuery (デフォルトshape_vars設定済み)
+    → .input() / .output() / .shape_var() で設定を追加
+    → .execute() で実行
+```
+
+### DispatchSizeConfig / DispatchSizeExpr
+
+`DispatchSizeConfig`はグリッドサイズとローカルサイズを式として保持し、実行時にshape変数を使って評価します。
+
+```rust
+// 内部的にCompiledKernelがDispatchSizeConfigを保持
+pub struct CompiledKernel<K, B> {
+    pub kernel: K,
+    pub signature: KernelSignature,
+    pub dispatch_config: DispatchSizeConfig,  // グリッドサイズ式
+}
+
+// DispatchSizeExprで式を表現
+pub enum DispatchSizeExpr {
+    Const(isize),           // 定数
+    Var(String),            // 変数参照
+    Add(Box<...>, Box<...>), // 加算
+    Mul(Box<...>, Box<...>), // 乗算
+    Div(Box<...>, Box<...>), // 除算
+    // ...
 }
 ```
 

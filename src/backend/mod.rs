@@ -41,12 +41,13 @@ pub use traits::{Buffer, Compiler, Device, Kernel, KernelConfig};
 
 // Re-export pipeline types (Pipeline, CompiledKernel, etc.)
 pub use pipeline::{
-    CompiledKernel, KernelSourceRenderer, OptimizationHistories, Pipeline, PipelineConfig,
+    BoundExecutionQuery, CompiledKernel, DispatchSizeConfig, DispatchSizeExpr,
+    KernelExecutionError, KernelSourceRenderer, OptimizationHistories, Pipeline, PipelineConfig,
 };
 
 // Re-export sequence types
 pub use sequence::{
-    CompiledProgram, IntermediateBufferSpec, KernelCallInfo, ProgramExecutionError,
+    CompiledProgram, ExecutionQuery, IntermediateBufferSpec, KernelCallInfo, ProgramExecutionError,
 };
 
 // Re-export graph optimizer factory functions from opt::graph
