@@ -1,7 +1,9 @@
 use crate::ast::AstNode;
+use crate::backend::DeviceProfile;
 use crate::graph::{ElementwiseOp, Graph, GraphNode, GraphOp};
 use crate::opt::ast::AstCostEstimator;
 use crate::opt::ast::SimpleCostEstimator as AstSimpleCostEstimator;
+use crate::opt::context::OptimizationContext;
 use crate::opt::cost_utils::{log_sum_exp, log_sum_exp_iter};
 use crate::opt::graph::GraphCostEstimator;
 use std::collections::HashSet;
@@ -84,6 +86,25 @@ impl SimpleCostEstimator {
     /// 新しいコスト推定器を作成
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// デバイスプロファイルからコスト推定器を作成
+    pub fn from_profile(profile: &DeviceProfile) -> Self {
+        let (min, max) = profile.preferred_work_group_size_range;
+        Self {
+            optimal_thread_group_size_min: min,
+            optimal_thread_group_size_max: max,
+            // Adjust parallel parameters based on compute units
+            gpu_parallel_min_elements: (profile.compute_units * 32) as f32,
+            gpu_parallel_max_speedup_log: (profile.compute_units as f32).ln() + 2.0,
+            gpu_memory_bandwidth_threshold: (profile.local_memory_size * 2) as f32,
+            ..Self::default()
+        }
+    }
+
+    /// 最適化コンテキストからコスト推定器を作成
+    pub fn from_context(ctx: &OptimizationContext) -> Self {
+        Self::from_profile(&ctx.profile)
     }
 
     /// ノード数ペナルティ係数を設定

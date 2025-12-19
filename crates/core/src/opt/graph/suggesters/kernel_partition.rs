@@ -5,6 +5,7 @@
 
 use crate::ast::{AstNode, DType, Mutability, VarDecl, VarKind, helper::*};
 use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp};
+use crate::opt::context::OptimizationContext;
 use crate::opt::graph::{GraphSuggester, SuggestResult};
 use log::{debug, trace};
 use std::collections::HashSet;
@@ -88,6 +89,31 @@ impl KernelPartitionSuggester {
         Self {
             parallel_dims_options: vec![2, 3],
             thread_group_sizes: vec![64, 128, 256],
+        }
+    }
+
+    /// OptimizationContextからKernelPartitionSuggesterを作成
+    ///
+    /// デバイスのprofileに基づいてスレッドグループサイズを設定します。
+    pub fn from_context(ctx: &OptimizationContext) -> Self {
+        let (min_wg, max_wg) = ctx.preferred_work_group_size_range();
+        let max_size = ctx.max_work_group_size();
+
+        // min_wgから2のべき乗で増やしていき、max_wgまたはmax_sizeを超えないサイズを候補とする
+        let mut sizes = Vec::new();
+        let mut size = min_wg;
+        while size <= max_wg.min(max_size) {
+            sizes.push(size);
+            size *= 2;
+        }
+
+        if sizes.is_empty() {
+            sizes.push(64); // フォールバック
+        }
+
+        Self {
+            parallel_dims_options: vec![2, 3],
+            thread_group_sizes: sizes,
         }
     }
 

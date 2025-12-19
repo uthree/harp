@@ -11,6 +11,7 @@ mod other;
 mod reduce;
 
 use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp};
+use crate::opt::context::OptimizationContext;
 use crate::opt::graph::{GraphSuggester, SuggestResult};
 use std::collections::{HashMap, HashSet};
 
@@ -71,6 +72,21 @@ impl LoweringSuggester {
         LoweringSuggester {
             simd_widths: vec![],
         }
+    }
+
+    /// OptimizationContextからLoweringSuggesterを作成
+    ///
+    /// デバイスのprofileに基づいてSIMD幅を設定します。
+    /// サポートされているベクトル幅のうち、1より大きいものをSIMD幅として使用します。
+    pub fn from_context(ctx: &OptimizationContext) -> Self {
+        let simd_widths: Vec<usize> = ctx
+            .supported_vector_widths()
+            .iter()
+            .copied()
+            .filter(|&w| w > 1)
+            .collect();
+
+        LoweringSuggester { simd_widths }
     }
 
     /// SIMD幅候補を指定してLoweringSuggesterを作成

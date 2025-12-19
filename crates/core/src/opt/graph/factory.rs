@@ -9,6 +9,7 @@ use crate::opt::ast::{
     CompositeSuggester as AstCompositeSuggester, FunctionInliningSuggester, LoopFusionSuggester,
     LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester,
 };
+use crate::opt::context::OptimizationContext;
 use crate::opt::graph::{
     BeamSearchGraphOptimizer, BufferAbsorptionSuggester, ChainedGraphOptimizer, CompositeSuggester,
     ContiguousInsertionSuggester, FusionSuggester, GraphOptimizer, GreedyGraphOptimizer,
@@ -252,6 +253,12 @@ pub struct MultiPhaseConfig {
     /// 空の場合はスカラー版のみ生成します。
     /// 例: `vec![4, 8]` で幅4と幅8のSIMD候補を生成
     pub simd_widths: Vec<usize>,
+    /// 最適化コンテキスト（デバイス固有の情報）
+    ///
+    /// 設定されている場合、Suggesterはこのコンテキストからデバイス固有の
+    /// パラメータ（タイルサイズ、スレッドグループサイズ、SIMD幅など）を取得します。
+    /// 設定されていない場合、デフォルト値が使用されます。
+    pub opt_context: Option<OptimizationContext>,
 }
 
 impl Default for MultiPhaseConfig {
@@ -264,6 +271,7 @@ impl Default for MultiPhaseConfig {
             early_termination_threshold: Some(10), // デフォルト: 10ステップ改善なしで終了
             subgraph_mode: SubgraphMode::default(), // デフォルト: Inline
             simd_widths: vec![],                   // デフォルト: スカラー版のみ
+            opt_context: None,                     // デフォルト: コンテキストなし
         }
     }
 }
@@ -343,6 +351,39 @@ impl MultiPhaseConfig {
     /// ```
     pub fn with_simd_widths(mut self, widths: Vec<usize>) -> Self {
         self.simd_widths = widths;
+        self
+    }
+
+    /// 最適化コンテキストを設定
+    ///
+    /// デバイス固有の情報（タイルサイズ、スレッドグループサイズ、SIMD幅など）を
+    /// Suggesterに渡すために使用します。
+    ///
+    /// コンテキストが設定されている場合:
+    /// - TilingSuggesterはコンテキストのpreferred_tile_sizesを使用
+    /// - KernelPartitionSuggesterはコンテキストのwork_group_sizeを使用
+    /// - LoweringSuggesterはコンテキストのvector_widthsを使用
+    ///
+    /// # Example
+    /// ```ignore
+    /// use harp_core::opt::graph::factory::MultiPhaseConfig;
+    /// use harp_core::opt::context::OptimizationContext;
+    ///
+    /// let context = OptimizationContext::from_device(&device);
+    /// let config = MultiPhaseConfig::new()
+    ///     .with_context(context);
+    /// ```
+    pub fn with_context(mut self, context: OptimizationContext) -> Self {
+        // コンテキストからSIMD幅を自動設定（明示的に設定されていない場合）
+        if self.simd_widths.is_empty() {
+            self.simd_widths = context
+                .supported_vector_widths()
+                .iter()
+                .copied()
+                .filter(|&w| w > 1)
+                .collect();
+        }
+        self.opt_context = Some(context);
         self
     }
 }
@@ -430,7 +471,18 @@ pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOpt
         .with_early_termination_threshold(Some(5)); // 早期終了
 
     // Phase 2: Optimization（グラフ構造の最適化）
-    let optimization_suggester = create_graph_optimization_suggester();
+    // コンテキストがある場合はTilingSuggesterにコンテキストを渡す
+    let optimization_suggester = if let Some(ref ctx) = config.opt_context {
+        CompositeSuggester::new(vec![
+            Box::new(ViewInsertionSuggester::new()),
+            Box::new(TilingSuggester::from_context(ctx)),
+            Box::new(ContiguousInsertionSuggester::new()),
+            Box::new(FusionSuggester::new()),
+            Box::new(ViewMergeSuggester::new()),
+        ])
+    } else {
+        create_graph_optimization_suggester()
+    };
     let optimization_optimizer = BeamSearchGraphOptimizer::new(optimization_suggester)
         .with_beam_width(config.beam_width)
         .with_max_steps(config.max_steps_per_phase)
@@ -452,7 +504,12 @@ pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOpt
     // BeamSearchを使用してコストベースで最適な並列化戦略を選択
     // SimpleCostEstimatorは並列カーネルにボーナス（コスト減少）を与えるため、
     // 適切なスレッドグループサイズとベクトル化が選択される
-    let lowering_suggester = create_lowering_only_suggester_with_simd(config.simd_widths.clone());
+    // コンテキストがある場合はLoweringSuggesterにコンテキストを渡す
+    let lowering_suggester = if let Some(ref ctx) = config.opt_context {
+        CompositeSuggester::new(vec![Box::new(LoweringSuggester::from_context(ctx))])
+    } else {
+        create_lowering_only_suggester_with_simd(config.simd_widths.clone())
+    };
     let lowering_optimizer = BeamSearchGraphOptimizer::new(lowering_suggester)
         .with_beam_width(config.beam_width)
         .with_max_steps(config.max_steps_per_phase)
@@ -461,7 +518,12 @@ pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOpt
         .with_early_termination_threshold(config.early_termination_threshold);
 
     // Phase 5: KernelPartition（1D Kernelを多次元グリッドに分割）
-    let kernel_partition_suggester = create_kernel_partition_suggester();
+    // コンテキストがある場合はKernelPartitionSuggesterにコンテキストを渡す
+    let kernel_partition_suggester = if let Some(ref ctx) = config.opt_context {
+        CompositeSuggester::new(vec![Box::new(KernelPartitionSuggester::from_context(ctx))])
+    } else {
+        create_kernel_partition_suggester()
+    };
     let kernel_partition_optimizer = BeamSearchGraphOptimizer::new(kernel_partition_suggester)
         .with_beam_width(config.beam_width)
         .with_max_steps(config.max_steps_per_phase)

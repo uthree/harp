@@ -101,20 +101,32 @@ Graph最適化を3フェーズで行うためのパイプライン。
 - `max_steps`: 最大ステップ数（デフォルト: 10000）
 - `show_progress`: プログレスバー表示（デフォルト: false）
 - `collect_logs`: 最適化ログの収集（デフォルト: false）
+- `opt_context`: 最適化コンテキスト（デバイス固有のパラメータ）
 
 **使用例:**
 ```rust
 use harp::backend::{create_multi_phase_optimizer, MultiPhaseConfig};
 use harp::opt::graph::GraphOptimizer;
+use harp::opt::context::OptimizationContext;
 
+// デバイス固有のパラメータを使用する場合
+let context = OptimizationContext::from_device(&device);
 let config = MultiPhaseConfig::new()
     .with_beam_width(4)
     .with_max_steps(1000)
-    .with_progress(false);
+    .with_context(context);
 
 let optimizer = create_multi_phase_optimizer(config);
 let (optimized_graph, history) = optimizer.optimize_with_history(graph);
 ```
+
+**コンテキストによる最適化:**
+`with_context()`でOptimizationContextを設定すると、各Suggesterはデバイス特性に基づいたパラメータを使用します：
+- TilingSuggester: `preferred_tile_sizes`を使用
+- KernelPartitionSuggester: `preferred_work_group_size_range`を使用
+- LoweringSuggester: `supported_vector_widths`を使用
+
+Pipelineを使用する場合、コンテキストは自動的に設定されます。
 
 ## GPU実行バックエンド
 
@@ -129,15 +141,64 @@ let (optimized_graph, history) = optimizer.optimize_with_history(graph);
 ### 主要trait
 
 #### Device
-GPUデバイスを表すマーカートレイト。バックエンドの利用可能性チェックのみを提供。
+GPUデバイスを表すtrait。バックエンドの利用可能性チェックとハードウェア特性情報を提供。
 
 ```rust
 pub trait Device {
     fn is_available() -> bool;
+    fn profile(&self) -> DeviceProfile;
+    fn supports_feature(&self, feature: DeviceFeature) -> bool;
+    fn supports_instruction(&self, instruction: DeviceInstruction) -> bool;
+    fn supported_vector_widths(&self) -> Vec<usize>;
 }
 ```
 
 デバイス初期化（`new()`, `with_device()`）やデバイス名取得（`device_name()`）は各具体型（`OpenCLDevice`, `MetalDevice`）の固有メソッドとして実装されており、トレイトでは規定しない。
+
+#### DeviceProfile / DeviceFeature / DeviceInstruction
+
+デバイスのハードウェア特性を表す型。最適化時にデバイス固有のパラメータを決定するために使用。
+
+```rust
+pub struct DeviceProfile {
+    pub device_type: DeviceType,          // CPU, GPU（統合/独立）, アクセラレータ
+    pub compute_units: usize,             // 計算ユニット数
+    pub max_work_group_size: usize,       // 最大ワークグループサイズ
+    pub preferred_work_group_size_range: (usize, usize),  // 推奨範囲
+    pub local_memory_size: usize,         // ローカルメモリサイズ
+    pub warp_size: usize,                 // ワープ/ウェーブフロントサイズ
+    pub preferred_tile_sizes: Vec<usize>, // 推奨タイルサイズ
+    pub supported_vector_widths: Vec<usize>,  // サポートされるベクトル幅
+}
+
+pub enum DeviceFeature {
+    FastMath, HalfPrecision, DoublePrecision,
+    LocalMemory, AtomicOperations, SubgroupOperations,
+}
+
+pub enum DeviceInstruction {
+    Fma, Rsqrt, AtomicAddFloat, NativeDiv, NativeExpLog,
+}
+```
+
+#### OptimizationContext
+
+デバイス情報を最適化パイプラインに渡すためのコンテキスト。
+
+```rust
+pub struct OptimizationContext {
+    pub profile: DeviceProfile,
+    pub features: HashSet<DeviceFeature>,
+    pub instructions: HashSet<DeviceInstruction>,
+}
+
+impl OptimizationContext {
+    pub fn from_device<D: Device>(device: &D) -> Self;
+    pub fn default_gpu() -> Self;  // デフォルトGPU向け設定
+}
+```
+
+Pipelineは自動的にデバイスから`OptimizationContext`を作成し、Suggesterに渡します。これにより、タイルサイズ、スレッドグループサイズ、SIMD幅などがデバイス特性に基づいて最適化されます。
 
 #### Buffer
 GPUメモリバッファ。ホスト⇔デバイス間のデータ転送を提供。
