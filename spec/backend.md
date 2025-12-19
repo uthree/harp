@@ -222,9 +222,9 @@ graph.output("out", c);
 let compiled = pipeline.compile_graph(graph)?;
 
 // バッファ作成
-let mut input_a = OpenCLBuffer::allocate(&pipeline.context(), vec![1024], AstDType::F32)?;
-let mut input_b = OpenCLBuffer::allocate(&pipeline.context(), vec![1024], AstDType::F32)?;
-let mut output = OpenCLBuffer::allocate(&pipeline.context(), vec![1024], AstDType::F32)?;
+let mut input_a = OpenCLBuffer::allocate(&pipeline.device(), vec![1024], AstDType::F32)?;
+let mut input_b = OpenCLBuffer::allocate(&pipeline.device(), vec![1024], AstDType::F32)?;
+let mut output = OpenCLBuffer::allocate(&pipeline.device(), vec![1024], AstDType::F32)?;
 
 // データ書き込み
 input_a.write_vec(&vec![1.0f32; 1024])?;
@@ -441,7 +441,7 @@ Pipelineは`extract_entry_point_name`内部メソッドでASTからカーネル/
 ```rust
 // compile_program()は複数カーネルに対応
 let program = pipeline.compile_program(graph)?;
-let device = pipeline.context();  // デバイスを取得
+let device = pipeline.device();  // デバイスを取得
 
 // 名前付きバッファで実行
 let mut inputs = HashMap::new();

@@ -77,17 +77,17 @@ pub struct OptimizationHistories {
 ///
 /// # Type Parameters
 /// * `R` - Renderer type (must implement KernelSourceRenderer)
-/// * `Ctx` - GPU context type
+/// * `Dev` - GPU device type
 /// * `Comp` - GPU compiler type
-pub struct Pipeline<R, Ctx, Comp>
+pub struct Pipeline<R, Dev, Comp>
 where
     R: KernelSourceRenderer + Clone,
-    Ctx: Device,
-    Comp: Compiler<Dev = Ctx>,
+    Dev: Device,
+    Comp: Compiler<Dev = Dev>,
 {
     renderer: R,
     compiler: Comp,
-    context: Ctx,
+    device: Dev,
     config: PipelineConfig,
     /// Optimization histories
     pub histories: OptimizationHistories,
@@ -95,29 +95,29 @@ where
     kernel_cache: HashMap<String, Comp::Kernel>,
 }
 
-impl<R, Ctx, Comp, Buf> Pipeline<R, Ctx, Comp>
+impl<R, Dev, Comp, Buf> Pipeline<R, Dev, Comp>
 where
     R: KernelSourceRenderer + Clone,
-    Ctx: Device,
-    Buf: Buffer<Dev = Ctx>,
-    Comp: Compiler<Dev = Ctx>,
+    Dev: Device,
+    Buf: Buffer<Dev = Dev>,
+    Comp: Compiler<Dev = Dev>,
     Comp::Kernel: Kernel<Buffer = Buf> + Clone,
 {
     /// Create a new pipeline
-    pub fn new(renderer: R, compiler: Comp, context: Ctx) -> Self {
+    pub fn new(renderer: R, compiler: Comp, device: Dev) -> Self {
         Self {
             renderer,
             compiler,
-            context,
+            device,
             config: PipelineConfig::default(),
             histories: OptimizationHistories::default(),
             kernel_cache: HashMap::new(),
         }
     }
 
-    /// Get reference to the context
-    pub fn context(&self) -> &Ctx {
-        &self.context
+    /// Get reference to the device
+    pub fn device(&self) -> &Dev {
+        &self.device
     }
 
     /// Get mutable reference to the config
@@ -158,7 +158,7 @@ where
         // Compile kernel
         let kernel = self
             .compiler
-            .compile(&self.context, &kernel_source, kernel_config)?;
+            .compile(&self.device, &kernel_source, kernel_config)?;
 
         Ok(CompiledKernel {
             kernel,
@@ -191,7 +191,7 @@ where
 
     /// Allocate a buffer on the GPU
     pub fn allocate_buffer(&self, shape: Vec<usize>, dtype: DType) -> Result<Buf, Buf::Error> {
-        Buf::allocate(&self.context, shape, dtype)
+        Buf::allocate(&self.device, shape, dtype)
     }
 
     /// Compile a graph to a program (supports multiple kernels)
@@ -280,7 +280,7 @@ where
 
                     let kernel =
                         self.compiler
-                            .compile(&self.context, &kernel_source, config.clone())?;
+                            .compile(&self.device, &kernel_source, config.clone())?;
                     kernels.insert(name.clone(), kernel);
 
                     // Create KernelCallInfo for this kernel
@@ -303,7 +303,7 @@ where
 
                     let kernel =
                         self.compiler
-                            .compile(&self.context, &kernel_source, config.clone())?;
+                            .compile(&self.device, &kernel_source, config.clone())?;
                     kernels.insert(name.clone(), kernel);
 
                     kernel_call_infos.push(KernelCallInfo::new(
@@ -323,7 +323,7 @@ where
             let config = self.extract_kernel_config(&optimized_program, &signature);
             let kernel = self
                 .compiler
-                .compile(&self.context, &kernel_source, config.clone())?;
+                .compile(&self.device, &kernel_source, config.clone())?;
             let kernel_name = config.entry_point.clone();
             kernels.insert(kernel_name.clone(), kernel);
 
@@ -385,7 +385,7 @@ where
         let kernel_config = self.extract_kernel_config(&program, &signature);
         let kernel = self
             .compiler
-            .compile(&self.context, &kernel_source, kernel_config)?;
+            .compile(&self.device, &kernel_source, kernel_config)?;
 
         Ok(CompiledKernel {
             kernel,
