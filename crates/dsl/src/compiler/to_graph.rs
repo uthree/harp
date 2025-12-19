@@ -962,10 +962,10 @@ fn dsl_expr_to_index_expr(expr: &DslExpr) -> Result<harp::graph::shape::Expr, Ds
         DslExpr::IntLit(v) => Ok(Expr::Const(*v as isize)),
         DslExpr::Var(name) => {
             // Check if the name matches idx0, idx1, idx2, etc.
-            if name.starts_with("idx") {
-                if let Ok(i) = name[3..].parse::<usize>() {
-                    return Ok(Expr::Idx(i));
-                }
+            if let Some(suffix) = name.strip_prefix("idx")
+                && let Ok(i) = suffix.parse::<usize>()
+            {
+                return Ok(Expr::Idx(i));
             }
             // Otherwise treat as a shape variable
             Ok(Expr::Var(name.clone()))

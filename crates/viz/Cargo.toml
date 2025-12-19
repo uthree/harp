@@ -18,7 +18,7 @@ log = "0.4"
 similar = "2.4"
 
 # harpへの参照
-harp = { path = "../.." }
+harp = { path = "../..", features = ["opencl", "metal"] }
 harp-dsl = { path = "../dsl" }
 
 [dev-dependencies]

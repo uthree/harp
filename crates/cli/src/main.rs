@@ -6,6 +6,8 @@ use std::io::{self, IsTerminal, Read, Write};
 use std::path::PathBuf;
 
 use harp::backend::c_like::CLikeRenderer;
+use harp::backend::metal::MetalRenderer;
+use harp::backend::opencl::OpenCLRenderer;
 use harp::backend::{MultiPhaseConfig, Renderer, SubgraphMode, create_multi_phase_optimizer};
 use harp::opt::ast::rules::all_algebraic_rules;
 use harp::opt::ast::{
@@ -273,7 +275,8 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 .and_then(|s| s.to_str())
                 .unwrap_or("graph");
 
-            let formatted = decompile(&graph, name);
+            let _ = name; // unused for now
+            let formatted = decompile(&graph);
 
             if write {
                 fs::write(&input, &formatted)?;
@@ -308,17 +311,10 @@ fn do_compile(
     let graph = compile(&source)?;
 
     let generated = match emit {
-        EmitType::Code => {
-            // Generate code for the target
-            match target {
-                Target::OpenCL => {
-                    compile_to_code::<harp::backend::opencl::OpenCLRenderer>(graph, subgraph_mode)?
-                }
-                Target::Metal => {
-                    compile_to_code::<harp::backend::metal::MetalRenderer>(graph, subgraph_mode)?
-                }
-            }
-        }
+        EmitType::Code => match target {
+            Target::OpenCL => compile_to_code::<OpenCLRenderer>(graph, subgraph_mode)?,
+            Target::Metal => compile_to_code::<MetalRenderer>(graph, subgraph_mode)?,
+        },
         EmitType::Graph => {
             format!("{:#?}", graph)
         }

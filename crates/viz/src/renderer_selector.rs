@@ -2,8 +2,8 @@
 //!
 //! 実行時にバックエンドレンダラーを切り替えるための機能を提供します。
 
-use harp::ast::renderer::render_ast_with;
 use harp::ast::AstNode;
+use harp::backend::c_like::CLikeRenderer;
 use harp::backend::metal::MetalRenderer;
 use harp::backend::opencl::OpenCLRenderer;
 
@@ -44,12 +44,12 @@ impl RendererType {
 pub fn render_with_type(ast: &AstNode, renderer_type: RendererType) -> String {
     match renderer_type {
         RendererType::OpenCL => {
-            let renderer = OpenCLRenderer::new();
-            render_ast_with(ast, &renderer)
+            let mut renderer = OpenCLRenderer::default();
+            renderer.render_program_clike(ast)
         }
         RendererType::Metal => {
-            let renderer = MetalRenderer::new();
-            render_ast_with(ast, &renderer)
+            let mut renderer = MetalRenderer::default();
+            renderer.render_program_clike(ast)
         }
     }
 }

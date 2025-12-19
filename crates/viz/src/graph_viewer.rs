@@ -504,6 +504,9 @@ impl GraphViewerApp {
                     collect_from_expr(l, vars);
                     collect_from_expr(r, vars);
                 }
+                Expr::LoadIndex { offset_expr, .. } => {
+                    collect_from_expr(offset_expr, vars);
+                }
                 Expr::Const(_) | Expr::Idx(_) => {}
             }
         }

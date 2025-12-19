@@ -1,62 +1,98 @@
 # Harp プロジェクト概要
 
-Harpは高性能なテンソル計算ライブラリです。計算グラフを構築し、様々なバックエンド（Metal等）で実行します。
+Harpは高性能なテンソル計算ライブラリです。計算グラフを構築し、様々なバックエンド（OpenCL, Metal等）で実行します。
 
 ## ワークスペース構成
 
 ```
 harp/
-├── Cargo.toml          # ワークスペースルート
-├── src/                # harp (コアクレート)
+├── Cargo.toml            # ワークスペースルート + re-exportクレート
+├── src/lib.rs            # harp (harp-coreのre-export + backend modules)
+├── tests/                # 統合テスト（バックエンド機能を使用）
 ├── crates/
-│   ├── harp-derive/    # proc-macro (Module derive)
-│   └── viz/            # 可視化ツール (harp-viz)
-├── examples/           # 使用例
-└── spec/               # 仕様書
+│   ├── core/             # harp-core（コア機能）
+│   ├── backend-opencl/   # harp-backend-opencl
+│   ├── backend-metal/    # harp-backend-metal (macOS only)
+│   ├── dsl/              # harp-dsl
+│   ├── cli/              # harp-cli (harpc コマンド)
+│   ├── viz/              # harp-viz
+│   └── nn/               # harp-nn
+└── spec/                 # 仕様書
 ```
 
 ## クレート依存関係
 
 ```
-┌──────────┐      ┌───────────────┐
-│ harp-viz │─────▶│     harp      │
-└──────────┘      └───────────────┘
-                          ▲
-                          │
-                  ┌───────────────┐
-                  │  harp-derive  │
-                  └───────────────┘
+     ┌───────────┐      ┌───────────┐
+     │ harp-viz  │──┬──▶│   harp    │
+     ├───────────┤  │   └─────┬─────┘
+     │ harp-cli  │──┤         │ re-exports
+     └───────────┘  │   ┌─────┴─────────────────────┐
+                    │   ▼                           ▼
+               ┌────────────┐  ┌───────────────────────┐
+               │ harp-core  │◀─┤ harp-backend-{opencl,metal} │
+               └────────────┘  └───────────────────────┘
+                    ▲
+          ┌─────────┴─────────┐
+          ▼                   ▼
+   ┌───────────┐       ┌───────────┐
+   │ harp-dsl  │       │  harp-nn  │
+   └───────────┘       └───────────┘
 ```
 
 ### 依存関係の詳細
 
 | クレート | 依存先 | 説明 |
 |---------|--------|------|
-| `harp` | - | コアクレート（Graph, AST, Backend, Lowerer, Optimizer） |
-| `harp-derive` | - | proc-macro（`#[derive(DeriveModule)]`） |
-| `harp-viz` | harp | 計算グラフ可視化 |
+| `harp` | harp-core, harp-backend-* (optional) | re-exportクレート、後方互換性を維持 |
+| `harp-core` | - | コアクレート（Graph, AST, Backend共通, Lowerer, Optimizer） |
+| `harp-backend-opencl` | harp-core | OpenCLバックエンド実装 |
+| `harp-backend-metal` | harp-core | Metalバックエンド実装（macOSのみ） |
+| `harp-dsl` | harp-core | DSLパーサー・コンパイラ |
+| `harp-cli` | harp, harp-dsl | コマンドラインツール |
+| `harp-viz` | harp, harp-dsl | 計算グラフ可視化 |
+| `harp-nn` | harp-core | ニューラルネットワーク用ユーティリティ |
 
 ## クレート詳細
 
-### harp（コアクレート）
+### harp（re-exportクレート）
+
+`harp-core`の内容をすべてre-exportし、オプションでバックエンドも提供。
+
+```toml
+# Cargo.toml での使用例
+[dependencies]
+harp = { version = "0.1", features = ["opencl", "metal"] }
+```
+
+### harp-core（コアクレート）
 
 テンソル計算の基盤となるコアライブラリ。
 
 **主要モジュール:**
 - `graph`: 計算グラフ表現（GraphNode, Graph, DType）
 - `ast`: 抽象構文木（AstNode, Function, Literal）
-- `backend`: バックエンド抽象化（Device, Compiler, Kernel）
+- `backend`: バックエンド共通抽象化（Renderer trait, Pipeline, Device/Buffer/Kernel traits）
 - `lowerer`: Graph→AST変換
 - `opt`: 最適化パイプライン（graph最適化、ast最適化）
 
 **仕様書:** [graph.md](graph.md), [ast.md](ast.md), [backend.md](backend.md), [lowerer.md](lowerer.md), [opt.md](opt.md)
 
-### harp-derive
+### harp-backend-opencl
 
-proc-macroクレート。
+OpenCL GPU向けバックエンド。CLikeRendererを実装。
 
-**提供マクロ:**
-- `#[derive(DeriveModule)]`: Module traitの自動実装
+### harp-backend-metal
+
+Metal GPU向けバックエンド（macOS専用）。CLikeRendererを実装。
+
+### harp-dsl
+
+`.harp`ファイルのパースとグラフへのコンパイル。
+
+### harp-cli
+
+`harpc`コマンド。`.harp`ファイルからカーネルコードを生成。
 
 ### harp-viz
 

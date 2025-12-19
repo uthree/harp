@@ -1744,17 +1744,30 @@ name = "harp"
 version = "0.1.0"
 dependencies = [
  "env_logger",
- "indexmap",
- "indicatif",
- "log",
- "metal",
- "ndarray",
- "objc",
- "ocl",
- "paste",
+ "harp-backend-metal",
+ "harp-backend-opencl",
+ "harp-core",
  "rstest",
  "serial_test",
- "tempfile",
+]
+
+[[package]]
+name = "harp-backend-metal"
+version = "0.1.0"
+dependencies = [
+ "harp-core",
+ "log",
+ "metal",
+ "objc",
+]
+
+[[package]]
+name = "harp-backend-opencl"
+version = "0.1.0"
+dependencies = [
+ "harp-core",
+ "log",
+ "ocl",
 ]
 
 [[package]]
@@ -1766,6 +1779,21 @@ dependencies = [
  "harp",
  "harp-dsl",
  "log",
+]
+
+[[package]]
+name = "harp-core"
+version = "0.1.0"
+dependencies = [
+ "env_logger",
+ "indexmap",
+ "indicatif",
+ "log",
+ "ndarray",
+ "paste",
+ "rstest",
+ "serial_test",
+ "tempfile",
 ]
 
 [[package]]

@@ -151,6 +151,9 @@ impl<'a> Decompiler<'a> {
                 self.collect_expr_vars(a, vars);
                 self.collect_expr_vars(b, vars);
             }
+            Expr::LoadIndex { offset_expr, .. } => {
+                self.collect_expr_vars(offset_expr, vars);
+            }
             Expr::Const(_) | Expr::Idx(_) => {}
         }
     }
@@ -569,6 +572,12 @@ fn expr_to_dsl(expr: &Expr) -> String {
         Expr::Mul(a, b) => format!("({} * {})", expr_to_dsl(a), expr_to_dsl(b)),
         Expr::Div(a, b) => format!("({} / {})", expr_to_dsl(a), expr_to_dsl(b)),
         Expr::Rem(a, b) => format!("({} % {})", expr_to_dsl(a), expr_to_dsl(b)),
+        Expr::LoadIndex {
+            src_index,
+            offset_expr,
+        } => {
+            format!("load_index(src{}, {})", src_index, expr_to_dsl(offset_expr))
+        }
     }
 }
 
