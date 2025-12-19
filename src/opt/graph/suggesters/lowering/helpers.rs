@@ -137,12 +137,6 @@ pub fn build_contiguous_offset_with_shape(ndim: usize, shape: Option<&[Expr]>) -
     offset
 }
 
-/// 特定軸を除いた連続メモリのオフセット計算式を構築（Reduce用）
-#[allow(dead_code)]
-pub fn build_contiguous_offset_excluding_axis(ndim: usize, exclude_axis: usize) -> AstNode {
-    build_contiguous_offset_excluding_axes_with_shape(ndim, &[exclude_axis], None)
-}
-
 /// 特定軸を除いた連続メモリのオフセット計算式を構築（Reduce用、具体的なshapeを使用）
 pub fn build_contiguous_offset_excluding_axis_with_shape(
     ndim: usize,
@@ -150,12 +144,6 @@ pub fn build_contiguous_offset_excluding_axis_with_shape(
     shape: Option<&[Expr]>,
 ) -> AstNode {
     build_contiguous_offset_excluding_axes_with_shape(ndim, &[exclude_axis], shape)
-}
-
-/// 複数の軸を除いた連続メモリのオフセット計算式を構築（複数軸Reduce用）
-#[allow(dead_code)]
-pub fn build_contiguous_offset_excluding_axes(ndim: usize, exclude_axes: &[usize]) -> AstNode {
-    build_contiguous_offset_excluding_axes_with_shape(ndim, exclude_axes, None)
 }
 
 /// 複数の軸を除いた連続メモリのオフセット計算式を構築（複数軸Reduce用、具体的なshapeを使用）
@@ -255,23 +243,6 @@ pub fn wrap_with_loops_with_shape(
     block(vec![body], Scope::new())
 }
 
-/// 特定軸を除いたネストされたループで本体をラップ（スコープ付き）
-#[allow(dead_code)]
-pub fn wrap_with_loops_excluding_axis_with_scope(
-    ndim: usize,
-    exclude_axis: usize,
-    inner_body: Vec<AstNode>,
-    scope: Scope,
-) -> AstNode {
-    wrap_with_loops_excluding_axes_with_scope_and_shape(
-        ndim,
-        &[exclude_axis],
-        inner_body,
-        scope,
-        None,
-    )
-}
-
 /// 特定軸を除いたネストされたループで本体をラップ（スコープ付き、具体的なshapeを使用）
 pub fn wrap_with_loops_excluding_axis_with_scope_and_shape(
     ndim: usize,
@@ -287,17 +258,6 @@ pub fn wrap_with_loops_excluding_axis_with_scope_and_shape(
         scope,
         shape,
     )
-}
-
-/// 複数軸を除いたネストされたループで本体をラップ（スコープ付き、複数軸対応）
-#[allow(dead_code)]
-pub fn wrap_with_loops_excluding_axes_with_scope(
-    ndim: usize,
-    exclude_axes: &[usize],
-    inner_body: Vec<AstNode>,
-    scope: Scope,
-) -> AstNode {
-    wrap_with_loops_excluding_axes_with_scope_and_shape(ndim, exclude_axes, inner_body, scope, None)
 }
 
 /// 複数軸を除いたネストされたループで本体をラップ（スコープ付き、複数軸対応、具体的なshapeを使用）

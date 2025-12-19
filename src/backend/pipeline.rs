@@ -647,49 +647,6 @@ fn evaluate_ast_expr(ast: &AstNode, shape_vars: &HashMap<String, isize>) -> isiz
     }
 }
 
-/// Evaluate a Vec<Expr> to [usize; 3] for dispatch sizes
-#[allow(dead_code)]
-fn evaluate_expr_vec(exprs: &[Expr], shape_vars: &HashMap<String, isize>) -> [usize; 3] {
-    let mut result = [1usize; 3];
-    for (i, expr) in exprs.iter().enumerate().take(3) {
-        result[i] = evaluate_expr(expr, shape_vars).max(1) as usize;
-    }
-    result
-}
-
-/// Evaluate a shape Expr to a numeric value
-#[allow(dead_code)]
-fn evaluate_expr(expr: &Expr, shape_vars: &HashMap<String, isize>) -> isize {
-    match expr {
-        Expr::Const(n) => *n,
-        Expr::Var(name) => shape_vars.get(name).copied().unwrap_or(1),
-        Expr::Idx(_) => {
-            // Idx is used for index expressions in IndexExpr views,
-            // it should not appear in shape evaluation
-            panic!("Expr::Idx cannot be evaluated as a shape expression")
-        }
-        Expr::Add(a, b) => evaluate_expr(a, shape_vars) + evaluate_expr(b, shape_vars),
-        Expr::Sub(a, b) => evaluate_expr(a, shape_vars) - evaluate_expr(b, shape_vars),
-        Expr::Mul(a, b) => evaluate_expr(a, shape_vars) * evaluate_expr(b, shape_vars),
-        Expr::Div(a, b) => {
-            let divisor = evaluate_expr(b, shape_vars);
-            if divisor != 0 {
-                evaluate_expr(a, shape_vars) / divisor
-            } else {
-                1
-            }
-        }
-        Expr::Rem(a, b) => {
-            let divisor = evaluate_expr(b, shape_vars);
-            if divisor != 0 {
-                evaluate_expr(a, shape_vars) % divisor
-            } else {
-                0
-            }
-        }
-    }
-}
-
 /// A compiled kernel with its signature
 pub struct CompiledKernel<K, B>
 where
