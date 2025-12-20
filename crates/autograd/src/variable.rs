@@ -1,8 +1,7 @@
 use std::ops;
 use std::sync::{Arc, Mutex};
 
-use crate::reduce::{ExpandBackward, MaxBackward, ProdBackward, SumBackward};
-use crate::traits::{Expand, GradFn, GradNode, GradRoot, Max, Prod, Sum};
+use crate::traits::{GradFn, GradNode, GradRoot};
 
 // ============================================================================
 // Variable (統合された変数型)
@@ -117,69 +116,5 @@ where
     /// 初期勾配 1 で逆伝播を開始
     pub fn backward(&self) {
         self.backward_with(Variable::new(T::unit_grad()));
-    }
-}
-
-// ============================================================================
-// 縮約演算のブランケット実装
-// ============================================================================
-
-// T: Sum の場合の実装
-impl<T> Variable<T>
-where
-    T: Clone + ops::Add<T, Output = T> + Sum + Expand + 'static,
-{
-    /// 指定した軸で総和を計算
-    pub fn sum(&self, axis: usize) -> Variable<T> {
-        let (output, size) = self.value().sum(axis);
-        Variable::with_grad_fn(output, Box::new(SumBackward::new(self.clone(), axis, size)))
-    }
-}
-
-// T: Prod の場合の実装
-impl<T> Variable<T>
-where
-    T: Clone
-        + ops::Add<T, Output = T>
-        + ops::Mul<T, Output = T>
-        + ops::Div<T, Output = T>
-        + Prod
-        + Expand
-        + 'static,
-{
-    /// 指定した軸で総乗を計算
-    pub fn prod(&self, axis: usize) -> Variable<T> {
-        let (output, size) = self.value().prod(axis);
-        Variable::with_grad_fn(
-            output.clone(),
-            Box::new(ProdBackward::new(self.clone(), output, axis, size)),
-        )
-    }
-}
-
-// T: Max の場合の実装
-impl<T> Variable<T>
-where
-    T: Clone + ops::Add<T, Output = T> + Max + 'static,
-{
-    /// 指定した軸で最大値を計算
-    pub fn max(&self, axis: usize) -> Variable<T> {
-        let (output, size) = self.value().max(axis);
-        Variable::with_grad_fn(
-            output.clone(),
-            Box::new(MaxBackward::new(self.clone(), output, axis, size)),
-        )
-    }
-}
-
-// T: Expand の場合の実装
-impl<T> Variable<T>
-where
-    T: Clone + ops::Add<T, Output = T> + Sum + Expand + 'static,
-{
-    /// 指定した軸方向に拡張
-    pub fn expand(&self, axis: usize, size: usize) -> Variable<T> {
-        let output = self.value().expand(axis, size);
-        Variable::with_grad_fn(output, Box::new(ExpandBackward::new(self.clone(), axis)))
     }
 }

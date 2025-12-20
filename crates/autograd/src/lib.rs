@@ -1,10 +1,9 @@
 mod arithmetic;
-mod ops;
 mod reduce;
 mod traits;
 pub mod variable;
 
 pub use arithmetic::{AddBackward, MulBackward, NegBackward, RecipBackward};
-pub use reduce::{ExpandBackward, MaxBackward, ProdBackward, SumBackward};
-pub use traits::{Expand, GradFn, GradNode, GradRoot, Max, Prod, Sum};
+pub use reduce::{Expand, ExpandBackward, Max, MaxBackward, Prod, ProdBackward, Sum, SumBackward};
+pub use traits::{GradFn, GradNode, GradRoot};
 pub use variable::Variable;

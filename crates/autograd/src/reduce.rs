@@ -1,7 +1,56 @@
 use std::ops;
 
-use crate::traits::{Expand, GradFn, Max, Sum};
+use crate::traits::GradFn;
 use crate::variable::Variable;
+
+// ============================================================================
+// 縮約演算トレイト
+// ============================================================================
+
+/// 総和演算を表すトレイト
+/// 指定した軸に沿って要素を合計する
+pub trait Sum: Sized {
+    /// 指定した軸で総和を計算
+    /// 戻り値: (結果, 縮約前の軸のサイズ)
+    fn sum(&self, axis: usize) -> (Self, usize);
+}
+
+/// 総乗演算を表すトレイト
+/// 指定した軸に沿って要素を乗算する
+pub trait Prod: Sized {
+    /// 指定した軸で総乗を計算
+    /// 戻り値: (結果, 縮約前の軸のサイズ)
+    fn prod(&self, axis: usize) -> (Self, usize);
+}
+
+/// 最大値演算を表すトレイト
+/// 指定した軸に沿って最大値を取得する
+pub trait Max: Sized {
+    /// 指定した軸で最大値を計算
+    /// 戻り値: (結果, 縮約前の軸のサイズ)
+    fn max(&self, axis: usize) -> (Self, usize);
+
+    /// max の逆伝播を計算
+    /// 最大値の位置にのみ勾配を伝播する
+    /// - grad_output: 出力側の勾配
+    /// - input: 順伝播時の入力値
+    /// - output: 順伝播時の出力値（最大値）
+    /// - axis: 縮約した軸
+    /// - size: 縮約前の軸のサイズ
+    fn max_grad(grad_output: &Self, input: &Self, output: &Self, axis: usize, size: usize) -> Self;
+}
+
+// ============================================================================
+// 拡張演算トレイト
+// ============================================================================
+
+/// 軸方向の拡張演算を表すトレイト
+/// 縮約演算の逆操作として使用
+pub trait Expand {
+    /// 指定した軸方向に拡張（ブロードキャスト）
+    /// size: 拡張後のその軸のサイズ
+    fn expand(&self, axis: usize, size: usize) -> Self;
+}
 
 // ============================================================================
 // SumBackward (総和の逆伝播)
@@ -203,5 +252,69 @@ where
             self.size,
         );
         self.input.backward_with(Variable::new(grad_val));
+    }
+}
+
+// ============================================================================
+// Variable<T> への縮約演算のブランケット実装
+// ============================================================================
+
+// T: Sum の場合の実装
+impl<T> Variable<T>
+where
+    T: Clone + ops::Add<T, Output = T> + Sum + Expand + 'static,
+{
+    /// 指定した軸で総和を計算
+    pub fn sum(&self, axis: usize) -> Variable<T> {
+        let (output, size) = self.value().sum(axis);
+        Variable::with_grad_fn(output, Box::new(SumBackward::new(self.clone(), axis, size)))
+    }
+}
+
+// T: Prod の場合の実装
+impl<T> Variable<T>
+where
+    T: Clone
+        + ops::Add<T, Output = T>
+        + ops::Mul<T, Output = T>
+        + ops::Div<T, Output = T>
+        + Prod
+        + Expand
+        + 'static,
+{
+    /// 指定した軸で総乗を計算
+    pub fn prod(&self, axis: usize) -> Variable<T> {
+        let (output, size) = self.value().prod(axis);
+        Variable::with_grad_fn(
+            output.clone(),
+            Box::new(ProdBackward::new(self.clone(), output, axis, size)),
+        )
+    }
+}
+
+// T: Max の場合の実装
+impl<T> Variable<T>
+where
+    T: Clone + ops::Add<T, Output = T> + Max + 'static,
+{
+    /// 指定した軸で最大値を計算
+    pub fn max(&self, axis: usize) -> Variable<T> {
+        let (output, size) = self.value().max(axis);
+        Variable::with_grad_fn(
+            output.clone(),
+            Box::new(MaxBackward::new(self.clone(), output, axis, size)),
+        )
+    }
+}
+
+// T: Expand の場合の実装
+impl<T> Variable<T>
+where
+    T: Clone + ops::Add<T, Output = T> + Sum + Expand + 'static,
+{
+    /// 指定した軸方向に拡張
+    pub fn expand(&self, axis: usize, size: usize) -> Variable<T> {
+        let output = self.value().expand(axis, size);
+        Variable::with_grad_fn(output, Box::new(ExpandBackward::new(self.clone(), axis)))
     }
 }
