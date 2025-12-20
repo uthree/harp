@@ -228,13 +228,15 @@ impl GraphNode {
     /// テンソルをパディング
     ///
     /// 各軸に対して前後にパディングを追加します。
+    /// 動的shapeに対応しており、パディング量にExpr（シンボリック式）を使用可能です。
     ///
     /// # 引数
-    /// - `padding`: 各軸の(前, 後)パディング量のベクタ
+    /// - `padding`: 各軸の(前, 後)パディング量のベクタ（usize, isize, Expr等が使用可能）
     /// - `value`: パディング値（通常0.0）
     ///
     /// # パニック
     /// - padding.len()がテンソルのndimと一致しない場合
+    /// - 静的に評価可能なパディング量が負の場合
     ///
     /// # 例
     /// ```no_run
@@ -243,25 +245,53 @@ impl GraphNode {
     /// let mut graph = Graph::new();
     /// let x = graph.input("x", DType::F32, vec![3, 32, 32]);
     ///
-    /// // 2D画像の高さ・幅に1ピクセルずつパディング
+    /// // 2D画像の高さ・幅に1ピクセルずつパディング（静的）
     /// // (3, 32, 32) -> (3, 34, 34)
     /// let padded = x.pad(vec![(0, 0), (1, 1), (1, 1)], 0.0);
+    ///
+    /// // 動的パディング（Exprを使用）
+    /// // let n = Expr::Var("N".to_string());
+    /// // let padded = x.pad(vec![(n.clone(), n)], 0.0);
     /// ```
-    pub fn pad(&self, padding: Vec<(usize, usize)>, value: f32) -> Self {
+    pub fn pad<E: Into<Expr>>(&self, padding: Vec<(E, E)>, value: f32) -> Self {
+        // Exprに変換
+        let padding: Vec<(Expr, Expr)> = padding
+            .into_iter()
+            .map(|(before, after)| (before.into(), after.into()))
+            .collect();
+
         assert_eq!(
             padding.len(),
             self.view.ndim(),
             "padding length must match tensor ndim"
         );
 
+        // 静的にチェック可能な場合は負値チェック
+        for (i, (before, after)) in padding.iter().enumerate() {
+            if let Some(v) = before.as_const() {
+                assert!(
+                    v >= 0,
+                    "padding[{}].before must be non-negative, got {}",
+                    i,
+                    v
+                );
+            }
+            if let Some(v) = after.as_const() {
+                assert!(
+                    v >= 0,
+                    "padding[{}].after must be non-negative, got {}",
+                    i,
+                    v
+                );
+            }
+        }
+
         // パディング後のshapeを計算
         let old_shape = self.view.shape();
         let new_shape: Vec<Expr> = old_shape
             .iter()
             .zip(padding.iter())
-            .map(|(size, (before, after))| {
-                size.clone() + Expr::from(*before as isize) + Expr::from(*after as isize)
-            })
+            .map(|(size, (before, after))| size.clone() + before.clone() + after.clone())
             .collect();
 
         let new_view = View::contiguous(new_shape);

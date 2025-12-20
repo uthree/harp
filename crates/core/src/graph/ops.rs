@@ -1,5 +1,5 @@
 use crate::ast::Literal;
-use crate::graph::shape::View;
+use crate::graph::shape::{Expr, View};
 use crate::graph::{CumulativeStrategy, DType, GraphNode, ReduceStrategy};
 use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 
@@ -65,8 +65,8 @@ pub enum GraphOp {
         reduce_strategy: Option<ReduceStrategy>,
     }, // 複数のreduce演算を融合（複数軸対応）
     Pad {
-        padding: Vec<(usize, usize)>, // 各軸の(前, 後)パディング量
-        value: f32,                   // パディング値
+        padding: Vec<(Expr, Expr)>, // 各軸の(前, 後)パディング量（動的shape対応）
+        value: f32,                 // パディング値
     }, // テンソルをパディングで拡張
     Slice {
         ranges: Vec<(usize, usize)>, // 各軸の(start, end)範囲（endは含まない）

@@ -804,7 +804,10 @@ fn test_pad_1d() {
     // Pad演算が正しく設定されていることを確認
     match &padded.op {
         GraphOp::Pad { padding, value } => {
-            assert_eq!(*padding, vec![(1, 1)]);
+            use harp_core::graph::shape::Expr;
+            assert_eq!(padding.len(), 1);
+            assert_eq!(padding[0].0, Expr::Const(1));
+            assert_eq!(padding[0].1, Expr::Const(1));
             assert_eq!(*value, 0.0);
         }
         _ => panic!("Expected Pad operation"),
@@ -826,7 +829,10 @@ fn test_pad_2d() {
     // Pad演算が正しく設定されていることを確認
     match &padded.op {
         GraphOp::Pad { padding, value } => {
-            assert_eq!(*padding, vec![(1, 1), (1, 1)]);
+            use harp_core::graph::shape::Expr;
+            assert_eq!(padding.len(), 2);
+            assert_eq!(padding[0], (Expr::Const(1), Expr::Const(1)));
+            assert_eq!(padding[1], (Expr::Const(1), Expr::Const(1)));
             assert_eq!(*value, 0.0);
         }
         _ => panic!("Expected Pad operation"),
@@ -847,7 +853,9 @@ fn test_pad_asymmetric() {
 
     match &padded.op {
         GraphOp::Pad { padding, value } => {
-            assert_eq!(*padding, vec![(2, 3)]);
+            use harp_core::graph::shape::Expr;
+            assert_eq!(padding.len(), 1);
+            assert_eq!(padding[0], (Expr::Const(2), Expr::Const(3)));
             assert_eq!(*value, 1.0);
         }
         _ => panic!("Expected Pad operation"),
@@ -862,6 +870,44 @@ fn test_pad_dimension_mismatch() {
 
     // 2Dテンソルに1Dのパディング指定（エラー）
     let _padded = x.pad(vec![(1, 1)], 0.0);
+}
+
+#[test]
+fn test_pad_dynamic_shape() {
+    use harp_core::graph::shape::Expr;
+
+    let mut graph = Graph::new();
+    // 動的shapeの入力
+    let n = Expr::Var("N".to_string());
+    let x = graph.input("x", DType::F32, vec![n.clone()]);
+
+    // 動的パディング量
+    let pad_size = Expr::Var("P".to_string());
+    let padded = x.pad(vec![(pad_size.clone(), pad_size.clone())], 0.0);
+
+    // 出力shapeは N + P + P
+    assert_eq!(padded.view.ndim(), 1);
+
+    // Pad演算が正しく設定されていることを確認
+    match &padded.op {
+        ops::GraphOp::Pad { padding, value } => {
+            assert_eq!(padding.len(), 1);
+            assert_eq!(padding[0].0, Expr::Var("P".to_string()));
+            assert_eq!(padding[0].1, Expr::Var("P".to_string()));
+            assert_eq!(*value, 0.0);
+        }
+        _ => panic!("Expected Pad operation"),
+    }
+}
+
+#[test]
+#[should_panic(expected = "padding[0].before must be non-negative")]
+fn test_pad_negative_static_value() {
+    let mut graph = Graph::new();
+    let x = graph.input("x", DType::F32, vec![10]);
+
+    // 負のパディング値（静的にチェック可能）
+    let _padded = x.pad(vec![(-1isize, 1)], 0.0);
 }
 
 #[test]

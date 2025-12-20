@@ -256,6 +256,61 @@ graph main(input: f32[10]) -> (out1: f32[10], out2: f32[10]) {
 
 サブグラフは各グラフが独立して最適化されます。`SubgraphCall`と`SubgraphOutput`ノードはLoweringSuggesterではスキップされ、バックエンドで関数呼び出しとして処理されます。
 
+## テンソル操作
+
+### Pad（パディング）
+
+テンソルの各軸に対して前後にパディングを追加します。動的shapeに対応しており、パディング量にExpr（シンボリック式）を使用可能です。
+
+```rust
+// 静的パディング
+let padded = x.pad(vec![(1, 1), (2, 2)], 0.0);
+
+// 動的パディング
+let n = Expr::Var("N".to_string());
+let padded = x.pad(vec![(n.clone(), n)], 0.0);
+```
+
+#### DSL構文
+
+```harp
+// 静的パディング: (3, 4) -> (5, 6)
+result = x.pad([(1, 1), (1, 1)], 0.0)
+
+// 動的パディング
+graph<N=10, P=2> main(x: f32[N]) -> (y: f32[N + P * 2]) {
+    result = x.pad([(P, P)], 0.0)
+    return result
+}
+```
+
+#### 実装詳細
+
+- **GraphOp::Pad**: `padding: Vec<(Expr, Expr)>` で各軸の(前, 後)パディング量を保持
+- **静的チェック**: コンパイル時に評価可能なパディング量が負の場合はエラー
+- **Lowering**: 条件式（if-then-else）を使用して境界チェック
+
+#### 今後の課題
+
+- 動的なパディング値（`Expr::Var`等）が実行時に負になった場合のエラーハンドリング
+- 現時点では静的にチェック可能な場合のみコンパイル時エラー
+
+### Slice（スライス）
+
+テンソルの各軸に対して指定範囲を切り出します。
+
+```rust
+let sliced = x.slice(vec![(2, 7), (0, 5)]);  // [2:7, 0:5]
+```
+
+### Concat（結合）
+
+複数のテンソルを指定軸で結合します。
+
+```rust
+let concatenated = harp::graph::ops::concat(vec![a, b, c], 0);
+```
+
 ## 未実装
 
 - Thread/ThreadGroupレベルの並列実行のLowering

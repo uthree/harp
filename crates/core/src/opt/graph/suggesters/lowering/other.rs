@@ -5,6 +5,7 @@
 
 use crate::ast::{AstNode, DType as AstDType, helper::*};
 use crate::graph::ops::custom_placeholders as ph;
+use crate::graph::shape::Expr;
 use crate::graph::{DType as GraphDType, GraphNode};
 
 use super::helpers::{
@@ -47,14 +48,109 @@ pub fn build_contiguous_function(node: &GraphNode, name: &str) -> Option<AstNode
 }
 
 /// Pad演算の関数を生成
-/// 注意: 現在のASTには条件式がないため、Padのloweringは未サポート
+///
+/// パディング領域には指定値を、それ以外は入力テンソルの値をコピーします。
+/// 動的shapeに対応しており、パディング量にExprを使用可能です。
+///
+/// 生成されるカーネル:
+/// ```text
+/// for ridx0 in 0..output_shape[0]:
+///     for ridx1 in 0..output_shape[1]:
+///         src_idx0 = ridx0 - padding[0].before
+///         src_idx1 = ridx1 - padding[1].before
+///         if src_idx0 >= 0 && src_idx0 < input_shape[0]
+///            && src_idx1 >= 0 && src_idx1 < input_shape[1]:
+///             output[out_offset] = input[in_offset]
+///         else:
+///             output[out_offset] = pad_value
+/// ```
 pub fn build_pad_function(
-    _node: &GraphNode,
-    _padding: &[(usize, usize)],
-    _value: f32,
+    node: &GraphNode,
+    padding: &[(Expr, Expr)],
+    value: f32,
+    name: &str,
 ) -> Option<AstNode> {
-    // TODO: ASTに条件式を追加したら実装
-    None
+    let input = node.src.first()?;
+    let input_shape = input.view.shape();
+    let output_shape = node.view.shape();
+    let ndim = output_shape.len();
+    let load_dtype = graph_dtype_to_ast(&input.dtype);
+
+    // 出力オフセット（連続配置）
+    let output_offset = build_contiguous_offset(ndim);
+
+    // 各軸の入力座標と境界チェック条件を構築
+    let mut conditions: Vec<AstNode> = Vec::new();
+    let mut src_coords: Vec<AstNode> = Vec::new();
+
+    for axis in 0..ndim {
+        let ridx = var(ph::ridx(axis));
+        let before: AstNode = padding[axis].0.clone().into();
+
+        // 入力座標: src_idx = ridx - padding.before
+        let src_coord = ridx - before;
+
+        // 条件1: src_idx >= 0
+        conditions.push(ge(src_coord.clone(), const_int(0)));
+
+        // 条件2: src_idx < input_shape[axis]
+        let dim_size: AstNode = input_shape[axis].clone().into();
+        conditions.push(lt(src_coord.clone(), dim_size));
+
+        src_coords.push(src_coord);
+    }
+
+    // 入力オフセットを計算（row-major順）
+    let input_offset = build_input_offset_from_coords(&src_coords, input_shape);
+
+    // 境界内: 入力から値をロード
+    let load_expr = load(var(ph::input(0)), input_offset, load_dtype);
+    let store_load = store(var(ph::OUTPUT), output_offset.clone(), load_expr);
+
+    // 境界外: パディング値を格納
+    let store_pad = store(var(ph::OUTPUT), output_offset, const_f32(value));
+
+    // 条件を結合（すべての条件がtrueの場合のみコピー）
+    let combined_condition = conditions
+        .into_iter()
+        .reduce(|a, b| AstNode::BitwiseAnd(Box::new(a), Box::new(b)))
+        .expect("conditions should not be empty");
+
+    // if-then-else で分岐
+    let if_stmt = if_then_else(combined_condition, store_load, store_pad);
+
+    let body = wrap_with_loops(ndim, vec![if_stmt]);
+
+    Some(function(
+        Some(name.to_string()),
+        vec![],
+        AstDType::Tuple(vec![]),
+        body,
+    ))
+}
+
+/// 座標リストから入力オフセットを計算（row-major順）
+fn build_input_offset_from_coords(coords: &[AstNode], shape: &[Expr]) -> AstNode {
+    let ndim = coords.len();
+    if ndim == 0 {
+        return const_int(0);
+    }
+
+    // Row-major: offset = coords[0] * stride[0] + coords[1] * stride[1] + ...
+    // stride[i] = shape[i+1] * shape[i+2] * ... * shape[ndim-1]
+    let mut offset = coords[ndim - 1].clone();
+
+    for axis in (0..ndim - 1).rev() {
+        // stride = shape[axis+1] * shape[axis+2] * ... * shape[ndim-1]
+        let mut stride: AstNode = shape[axis + 1].clone().into();
+        for dim in shape.iter().take(ndim).skip(axis + 2) {
+            let s: AstNode = dim.clone().into();
+            stride = stride * s;
+        }
+        offset = coords[axis].clone() * stride + offset;
+    }
+
+    offset
 }
 
 /// Slice演算の関数を生成

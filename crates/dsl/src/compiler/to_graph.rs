@@ -451,7 +451,7 @@ fn compile_method_call(
     args: &[DslArg],
     env: &mut HashMap<String, GraphNode>,
     graph: &mut Graph,
-    _ctx: &mut CompileContext,
+    ctx: &mut CompileContext,
 ) -> Result<GraphNode, DslError> {
     match method {
         // View operations (use View methods via GraphNode::view)
@@ -548,6 +548,18 @@ fn compile_method_call(
         "recip" => Ok(receiver.clone().recip()),
         "square" => Ok(receiver.clone().square()),
         "abs_square" => Ok(receiver.clone().abs_square()),
+
+        // Pad operation
+        "pad" => {
+            if args.len() != 2 {
+                return Err(DslError::InvalidArgument(
+                    "pad requires 2 arguments: padding array and value".to_string(),
+                ));
+            }
+            let padding = get_padding_arg(&args[0], env, graph, ctx)?;
+            let value = get_float_arg(&args[1])?;
+            Ok(receiver.clone().pad(padding, value))
+        }
 
         _ => Err(DslError::UnsupportedOperation(format!(
             "Method '{}' not implemented",
@@ -1055,6 +1067,107 @@ fn get_concat_args_with_context(
     Ok((tensors, axis))
 }
 
+/// Get padding argument for pad operation
+/// Expected format: [(before, after), (before, after), ...]
+fn get_padding_arg(
+    arg: &DslArg,
+    env: &mut HashMap<String, GraphNode>,
+    _graph: &mut Graph,
+    _ctx: &mut CompileContext,
+) -> Result<Vec<(harp::graph::shape::Expr, harp::graph::shape::Expr)>, DslError> {
+    let array = match arg {
+        DslArg::Array(exprs) => exprs,
+        _ => {
+            return Err(DslError::InvalidArgument(
+                "pad requires array of (before, after) tuples".to_string(),
+            ));
+        }
+    };
+
+    let mut padding = Vec::new();
+    for expr in array {
+        // Tuples are parsed as ArrayLit with 2 elements
+        match expr {
+            DslExpr::ArrayLit(elements) if elements.len() == 2 => {
+                let before = expr_to_shape_expr(&elements[0], env)?;
+                let after = expr_to_shape_expr(&elements[1], env)?;
+                padding.push((before, after));
+            }
+            _ => {
+                return Err(DslError::InvalidArgument(
+                    "Each padding element must be (before, after) tuple".to_string(),
+                ));
+            }
+        }
+    }
+    Ok(padding)
+}
+
+/// Convert a DSL expression to a shape Expr
+fn expr_to_shape_expr(
+    expr: &DslExpr,
+    env: &HashMap<String, GraphNode>,
+) -> Result<harp::graph::shape::Expr, DslError> {
+    match expr {
+        DslExpr::IntLit(v) => Ok(harp::graph::shape::Expr::Const(*v as isize)),
+        DslExpr::Var(name) => {
+            // Check if it's a shape variable or a tensor
+            if env.contains_key(name) {
+                // It's a tensor, which is not allowed in shape expressions
+                Err(DslError::InvalidArgument(format!(
+                    "Cannot use tensor '{}' in padding expression",
+                    name
+                )))
+            } else {
+                // Assume it's a shape variable
+                Ok(harp::graph::shape::Expr::Var(name.clone()))
+            }
+        }
+        DslExpr::BinOp { lhs, op, rhs } => {
+            let l = expr_to_shape_expr(lhs, env)?;
+            let r = expr_to_shape_expr(rhs, env)?;
+            match op {
+                DslBinOp::Add => Ok(l + r),
+                DslBinOp::Sub => Ok(l - r),
+                DslBinOp::Mul => Ok(l * r),
+                DslBinOp::Div => Ok(l / r),
+                DslBinOp::Rem => Ok(l % r),
+                _ => Err(DslError::InvalidArgument(format!(
+                    "Unsupported operator '{:?}' in padding expression",
+                    op
+                ))),
+            }
+        }
+        _ => Err(DslError::InvalidArgument(format!(
+            "Invalid expression in padding: {:?}",
+            expr
+        ))),
+    }
+}
+
+/// Get a float argument
+fn get_float_arg(arg: &DslArg) -> Result<f32, DslError> {
+    match arg {
+        DslArg::Positional(expr) => match expr {
+            DslExpr::FloatLit(v) => Ok(*v as f32),
+            DslExpr::IntLit(v) => Ok(*v as f32),
+            _ => Err(DslError::InvalidArgument(
+                "Expected float value".to_string(),
+            )),
+        },
+        DslArg::Named { value, .. } => match value {
+            DslArgValue::Expr(DslExpr::FloatLit(v)) => Ok(*v as f32),
+            DslArgValue::Expr(DslExpr::IntLit(v)) => Ok(*v as f32),
+            _ => Err(DslError::InvalidArgument(
+                "Expected float value".to_string(),
+            )),
+        },
+        _ => Err(DslError::InvalidArgument(
+            "Expected float value".to_string(),
+        )),
+    }
+}
+
 // ============================================================================
 // Legacy API (for backward compatibility)
 // ============================================================================
@@ -1375,5 +1488,47 @@ mod tests {
                 harp::graph::shape::Expr::from(4)
             ]
         );
+    }
+
+    #[test]
+    fn test_compile_pad() {
+        // Test pad method with static padding
+        let source = r#"
+            graph main(x: f32[3, 4]) -> (y: f32[5, 6]) {
+                result = x.pad([(1, 1), (1, 1)], 0.0)
+                return result
+            }
+        "#;
+
+        let module = parse(source).expect("Failed to parse");
+        let graph = compile(&module).expect("Failed to compile");
+
+        assert_eq!(graph.outputs().len(), 1);
+        let output = graph.outputs().get("y").expect("output not found");
+
+        // Check that output shape is padded: (3+1+1, 4+1+1) = (5, 6)
+        let shape = output.view.shape();
+        assert_eq!(shape.len(), 2);
+    }
+
+    #[test]
+    fn test_compile_pad_dynamic() {
+        // Test pad method with dynamic padding using shape variables
+        let source = r#"
+            graph<N=10, P=2> main(x: f32[N]) -> (y: f32[N + P * 2]) {
+                result = x.pad([(P, P)], 0.0)
+                return result
+            }
+        "#;
+
+        let module = parse(source).expect("Failed to parse");
+        let graph = compile(&module).expect("Failed to compile");
+
+        assert_eq!(graph.outputs().len(), 1);
+        let output = graph.outputs().get("y").expect("output not found");
+
+        // Check output shape is dynamic (N + P + P)
+        let shape = output.view.shape();
+        assert_eq!(shape.len(), 1);
     }
 }

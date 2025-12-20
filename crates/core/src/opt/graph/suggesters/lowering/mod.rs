@@ -262,7 +262,9 @@ impl LoweringSuggester {
                 *axis,
                 &name,
             ),
-            GraphOp::Pad { padding, value } => other::build_pad_function(node, padding, *value),
+            GraphOp::Pad { padding, value } => {
+                other::build_pad_function(node, padding, *value, &name)
+            }
             GraphOp::Slice { ranges } => other::build_slice_function(node, ranges, &name),
             GraphOp::Concat { axis } => other::build_concat_function(node, *axis),
             GraphOp::Rand => other::build_rand_function(node, &name),
