@@ -1,21 +1,24 @@
 use std::ops;
 
 use crate::grad_fns::{Add, Mul, Neg};
-use crate::traits::GradNode;
+use crate::traits::{GradNode, GradientInto};
 use crate::variable::Variable;
 
 // ============================================================================
 // 演算子の実装（参照）
 // ============================================================================
 
-// &Variable<T> + &Variable<T> -> Variable<T>
-impl<T> ops::Add<&Variable<T>> for &Variable<T>
+// &Variable<L> + &Variable<R> -> Variable<O>
+impl<L, R, O> ops::Add<&Variable<R>> for &Variable<L>
 where
-    T: GradNode + ops::Add<T, Output = T> + 'static,
+    L: GradNode + ops::Add<L, Output = L> + ops::Add<R, Output = O> + 'static,
+    R: GradNode + ops::Add<R, Output = R> + 'static,
+    O: Clone + 'static,
+    Variable<O>: GradientInto<Variable<L>> + GradientInto<Variable<R>> + Clone,
 {
-    type Output = Variable<T>;
+    type Output = Variable<O>;
 
-    fn add(self, rhs: &Variable<T>) -> Self::Output {
+    fn add(self, rhs: &Variable<R>) -> Self::Output {
         let lhs_val = self.value();
         let rhs_val = rhs.value();
         Variable::with_grad_fn(
@@ -25,14 +28,16 @@ where
     }
 }
 
-// &Variable<T> * &Variable<T> -> Variable<T>
-impl<T> ops::Mul<&Variable<T>> for &Variable<T>
+// &Variable<L> * &Variable<R> -> Variable<O>
+impl<L, R, O> ops::Mul<&Variable<R>> for &Variable<L>
 where
-    T: GradNode + ops::Add<T, Output = T> + ops::Mul<T, Output = T> + 'static,
+    L: GradNode + ops::Add<L, Output = L> + ops::Mul<R, Output = O> + 'static,
+    R: GradNode + ops::Add<R, Output = R> + 'static,
+    O: Clone + ops::Mul<R, Output = L> + ops::Mul<L, Output = R> + 'static,
 {
-    type Output = Variable<T>;
+    type Output = Variable<O>;
 
-    fn mul(self, rhs: &Variable<T>) -> Self::Output {
+    fn mul(self, rhs: &Variable<R>) -> Self::Output {
         let lhs_val = self.value();
         let rhs_val = rhs.value();
         Variable::with_grad_fn(
@@ -42,12 +47,13 @@ where
     }
 }
 
-// -&Variable<T> -> Variable<T>
-impl<T> ops::Neg for &Variable<T>
+// -&Variable<I> -> Variable<O>
+impl<I, O> ops::Neg for &Variable<I>
 where
-    T: GradNode + ops::Add<T, Output = T> + ops::Neg<Output = T> + 'static,
+    I: GradNode + ops::Add<I, Output = I> + ops::Neg<Output = O> + 'static,
+    O: Clone + ops::Neg<Output = I> + 'static,
 {
-    type Output = Variable<T>;
+    type Output = Variable<O>;
 
     fn neg(self) -> Self::Output {
         let val = self.value();
@@ -55,18 +61,22 @@ where
     }
 }
 
-// &Variable<T> - &Variable<T> -> Variable<T>
-// TODO: Neg + Add を組み合わせた実装に変更する
-impl<T> ops::Sub<&Variable<T>> for &Variable<T>
+// &Variable<L> - &Variable<R> -> Variable<O>
+// Neg + Add を組み合わせた実装
+impl<L, R, O> ops::Sub<&Variable<R>> for &Variable<L>
 where
-    T: ops::Sub<T, Output = T> + Clone + 'static,
+    L: GradNode + ops::Add<L, Output = L> + ops::Add<R, Output = O> + 'static,
+    R: GradNode + ops::Add<R, Output = R> + ops::Neg<Output = R> + 'static,
+    O: Clone + 'static,
+    Variable<O>: GradientInto<Variable<L>> + GradientInto<Variable<R>> + Clone,
+    Variable<R>: Clone,
+    for<'a> &'a Variable<R>: ops::Neg<Output = Variable<R>>,
 {
-    type Output = Variable<T>;
+    type Output = Variable<O>;
 
-    fn sub(self, rhs: &Variable<T>) -> Variable<T> {
-        let lhs_val = self.value();
-        let rhs_val = rhs.value();
-        Variable::new(lhs_val - rhs_val)
+    fn sub(self, rhs: &Variable<R>) -> Variable<O> {
+        let neg_rhs = -rhs;
+        self + &neg_rhs
     }
 }
 
@@ -89,42 +99,53 @@ where
 // 演算子の実装（値を消費）
 // ============================================================================
 
-impl<T> ops::Add<Variable<T>> for Variable<T>
+impl<L, R, O> ops::Add<Variable<R>> for Variable<L>
 where
-    T: GradNode + ops::Add<T, Output = T> + 'static,
+    L: GradNode + ops::Add<L, Output = L> + ops::Add<R, Output = O> + 'static,
+    R: GradNode + ops::Add<R, Output = R> + 'static,
+    O: Clone + 'static,
+    Variable<O>: GradientInto<Variable<L>> + GradientInto<Variable<R>> + Clone,
 {
-    type Output = Variable<T>;
-    fn add(self, rhs: Variable<T>) -> Self::Output {
+    type Output = Variable<O>;
+    fn add(self, rhs: Variable<R>) -> Self::Output {
         &self + &rhs
     }
 }
 
-impl<T> ops::Mul<Variable<T>> for Variable<T>
+impl<L, R, O> ops::Mul<Variable<R>> for Variable<L>
 where
-    T: GradNode + ops::Add<T, Output = T> + ops::Mul<T, Output = T> + 'static,
+    L: GradNode + ops::Add<L, Output = L> + ops::Mul<R, Output = O> + 'static,
+    R: GradNode + ops::Add<R, Output = R> + 'static,
+    O: Clone + ops::Mul<R, Output = L> + ops::Mul<L, Output = R> + 'static,
 {
-    type Output = Variable<T>;
-    fn mul(self, rhs: Variable<T>) -> Self::Output {
+    type Output = Variable<O>;
+    fn mul(self, rhs: Variable<R>) -> Self::Output {
         &self * &rhs
     }
 }
 
-impl<T> ops::Neg for Variable<T>
+impl<I, O> ops::Neg for Variable<I>
 where
-    T: GradNode + ops::Add<T, Output = T> + ops::Neg<Output = T> + 'static,
+    I: GradNode + ops::Add<I, Output = I> + ops::Neg<Output = O> + 'static,
+    O: Clone + ops::Neg<Output = I> + 'static,
 {
-    type Output = Variable<T>;
+    type Output = Variable<O>;
     fn neg(self) -> Self::Output {
         -&self
     }
 }
 
-impl<T> ops::Sub<Variable<T>> for Variable<T>
+impl<L, R, O> ops::Sub<Variable<R>> for Variable<L>
 where
-    T: ops::Sub<T, Output = T> + Clone + 'static,
+    L: GradNode + ops::Add<L, Output = L> + ops::Add<R, Output = O> + 'static,
+    R: GradNode + ops::Add<R, Output = R> + ops::Neg<Output = R> + 'static,
+    O: Clone + 'static,
+    Variable<O>: GradientInto<Variable<L>> + GradientInto<Variable<R>> + Clone,
+    Variable<R>: Clone,
+    for<'a> &'a Variable<R>: ops::Neg<Output = Variable<R>>,
 {
-    type Output = Variable<T>;
-    fn sub(self, rhs: Variable<T>) -> Variable<T> {
+    type Output = Variable<O>;
+    fn sub(self, rhs: Variable<R>) -> Variable<O> {
         &self - &rhs
     }
 }

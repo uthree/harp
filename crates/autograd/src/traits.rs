@@ -1,5 +1,7 @@
 use num_traits::One;
 
+use crate::variable::Variable;
+
 /// 逆伝播の中間点として使用可能な型
 /// Clone を実装する全ての型に自動実装される
 pub trait GradNode: Clone {}
@@ -18,6 +20,12 @@ pub trait GradFn<GradType> {
     fn backward(&mut self, grad_y: GradType);
 }
 
+/// 勾配変換トレイト
+/// 出力の勾配から入力の勾配への変換を抽象化
+pub trait GradientInto<T> {
+    fn gradient_into(self) -> T;
+}
+
 // ============================================================================
 // ブランケット実装
 // ============================================================================
@@ -29,5 +37,16 @@ impl<T: Clone> GradNode for T {}
 impl<T: Clone + One> GradRoot for T {
     fn unit_grad() -> Self {
         T::one()
+    }
+}
+
+/// From を実装していれば自動で GradientInto も使える
+impl<T, U> GradientInto<Variable<U>> for Variable<T>
+where
+    T: Clone + 'static,
+    U: From<T> + 'static,
+{
+    fn gradient_into(self) -> Variable<U> {
+        Variable::new(U::from(self.value()))
     }
 }

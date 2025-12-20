@@ -1,6 +1,7 @@
+use std::marker::PhantomData;
 use std::ops;
 
-use crate::traits::{GradFn, GradNode};
+use crate::traits::{GradFn, GradientInto};
 use crate::variable::Variable;
 
 // ============================================================================
@@ -9,25 +10,33 @@ use crate::variable::Variable;
 
 /// 加算の勾配関数
 /// z = lhs + rhs の場合、∂L/∂lhs = ∂L/∂z, ∂L/∂rhs = ∂L/∂z
-pub struct Add<T: 'static> {
-    lhs: Variable<T>,
-    rhs: Variable<T>,
+pub struct Add<L: 'static, R: 'static, O: 'static> {
+    lhs: Variable<L>,
+    rhs: Variable<R>,
+    _output: PhantomData<O>,
 }
 
-impl<T: 'static> Add<T> {
-    pub fn new(lhs: Variable<T>, rhs: Variable<T>) -> Self {
-        Self { lhs, rhs }
+impl<L: 'static, R: 'static, O: 'static> Add<L, R, O> {
+    pub fn new(lhs: Variable<L>, rhs: Variable<R>) -> Self {
+        Self {
+            lhs,
+            rhs,
+            _output: PhantomData,
+        }
     }
 }
 
-impl<T> GradFn<Variable<T>> for Add<T>
+impl<L, R, O> GradFn<Variable<O>> for Add<L, R, O>
 where
-    T: GradNode + ops::Add<T, Output = T> + 'static,
+    L: Clone + ops::Add<L, Output = L> + 'static,
+    R: Clone + ops::Add<R, Output = R> + 'static,
+    O: Clone + 'static,
+    Variable<O>: GradientInto<Variable<L>> + GradientInto<Variable<R>> + Clone,
 {
-    fn backward(&mut self, grad_y: Variable<T>) {
-        // 加算の勾配: 両方に同じ勾配を伝播
-        self.lhs.backward_with(grad_y.clone());
-        self.rhs.backward_with(grad_y);
+    fn backward(&mut self, grad_y: Variable<O>) {
+        // 加算の勾配: 両方に同じ勾配を伝播（型変換付き）
+        self.lhs.backward_with(grad_y.clone().gradient_into());
+        self.rhs.backward_with(grad_y.gradient_into());
     }
 }
 
@@ -37,38 +46,44 @@ where
 
 /// 乗算の勾配関数
 /// z = lhs * rhs の場合、∂L/∂lhs = ∂L/∂z * rhs, ∂L/∂rhs = ∂L/∂z * lhs
-pub struct Mul<T: 'static> {
-    lhs: Variable<T>,
-    rhs: Variable<T>,
+pub struct Mul<L: 'static, R: 'static, O: 'static> {
+    lhs: Variable<L>,
+    rhs: Variable<R>,
     // 順伝播時の値をキャッシュ（逆伝播で使用）
-    lhs_value: Variable<T>,
-    rhs_value: Variable<T>,
+    lhs_value: L,
+    rhs_value: R,
+    _output: PhantomData<O>,
 }
 
-impl<T: Clone + 'static> Mul<T> {
-    pub fn new(lhs: Variable<T>, rhs: Variable<T>) -> Self {
+impl<L: Clone + 'static, R: Clone + 'static, O: 'static> Mul<L, R, O> {
+    pub fn new(lhs: Variable<L>, rhs: Variable<R>) -> Self {
         // 順伝播時の値をコピー（backward 時に必要）
-        let lhs_value = Variable::new(lhs.value());
-        let rhs_value = Variable::new(rhs.value());
+        let lhs_value = lhs.value();
+        let rhs_value = rhs.value();
         Self {
             lhs,
             rhs,
             lhs_value,
             rhs_value,
+            _output: PhantomData,
         }
     }
 }
 
-impl<T> GradFn<Variable<T>> for Mul<T>
+impl<L, R, O> GradFn<Variable<O>> for Mul<L, R, O>
 where
-    T: GradNode + ops::Add<T, Output = T> + ops::Mul<T, Output = T> + 'static,
+    L: Clone + ops::Add<L, Output = L> + 'static,
+    R: Clone + ops::Add<R, Output = R> + 'static,
+    O: Clone + ops::Mul<R, Output = L> + ops::Mul<L, Output = R> + 'static,
+    Variable<L>: GradientInto<Variable<L>>,
+    Variable<R>: GradientInto<Variable<R>>,
 {
-    fn backward(&mut self, grad_y: Variable<T>) {
+    fn backward(&mut self, grad_y: Variable<O>) {
         // 乗算の勾配: ∂L/∂lhs = ∂L/∂z * rhs, ∂L/∂rhs = ∂L/∂z * lhs
-        let grad_lhs_val = grad_y.value() * self.rhs_value.value();
+        let grad_lhs_val = grad_y.value() * self.rhs_value.clone();
         self.lhs.backward_with(Variable::new(grad_lhs_val));
 
-        let grad_rhs_val = grad_y.value() * self.lhs_value.value();
+        let grad_rhs_val = grad_y.value() * self.lhs_value.clone();
         self.rhs.backward_with(Variable::new(grad_rhs_val));
     }
 }
@@ -79,21 +94,26 @@ where
 
 /// 符号反転の勾配関数
 /// z = -x の場合、∂L/∂x = -∂L/∂z
-pub struct Neg<T: 'static> {
-    input: Variable<T>,
+pub struct Neg<I: 'static, O: 'static> {
+    input: Variable<I>,
+    _output: PhantomData<O>,
 }
 
-impl<T: 'static> Neg<T> {
-    pub fn new(input: Variable<T>) -> Self {
-        Self { input }
+impl<I: 'static, O: 'static> Neg<I, O> {
+    pub fn new(input: Variable<I>) -> Self {
+        Self {
+            input,
+            _output: PhantomData,
+        }
     }
 }
 
-impl<T> GradFn<Variable<T>> for Neg<T>
+impl<I, O> GradFn<Variable<O>> for Neg<I, O>
 where
-    T: GradNode + ops::Add<T, Output = T> + ops::Neg<Output = T> + 'static,
+    I: Clone + ops::Add<I, Output = I> + 'static,
+    O: Clone + ops::Neg<Output = I> + 'static,
 {
-    fn backward(&mut self, grad_y: Variable<T>) {
+    fn backward(&mut self, grad_y: Variable<O>) {
         // 符号反転の勾配: ∂L/∂x = -∂L/∂z
         let grad_val = -grad_y.value();
         self.input.backward_with(Variable::new(grad_val));
@@ -106,32 +126,33 @@ where
 
 /// 逆数の勾配関数
 /// z = 1/x の場合、∂L/∂x = -∂L/∂z / x²
-pub struct Recip<T: 'static> {
-    input: Variable<T>,
+pub struct Recip<I: 'static, O: 'static> {
+    input: Variable<I>,
     // 順伝播時の値をキャッシュ（逆伝播で使用）
-    input_value: Variable<T>,
+    input_value: I,
+    _output: PhantomData<O>,
 }
 
-impl<T: Clone + 'static> Recip<T> {
-    pub fn new(input: Variable<T>) -> Self {
+impl<I: Clone + 'static, O: 'static> Recip<I, O> {
+    pub fn new(input: Variable<I>) -> Self {
         // 順伝播時の値をコピー（backward 時に必要）
-        let input_value = Variable::new(input.value());
-        Self { input, input_value }
+        let input_value = input.value();
+        Self {
+            input,
+            input_value,
+            _output: PhantomData,
+        }
     }
 }
 
-impl<T> GradFn<Variable<T>> for Recip<T>
+impl<I, O> GradFn<Variable<O>> for Recip<I, O>
 where
-    T: GradNode
-        + ops::Add<T, Output = T>
-        + ops::Mul<T, Output = T>
-        + ops::Div<T, Output = T>
-        + ops::Neg<Output = T>
-        + 'static,
+    I: Clone + ops::Add<I, Output = I> + ops::Mul<I, Output = I> + ops::Neg<Output = I> + 'static,
+    O: Clone + ops::Div<I, Output = I> + 'static,
 {
-    fn backward(&mut self, grad_y: Variable<T>) {
+    fn backward(&mut self, grad_y: Variable<O>) {
         // 逆数の勾配: ∂L/∂x = -∂L/∂z / x²
-        let x = self.input_value.value();
+        let x = self.input_value.clone();
         let x_squared = x.clone() * x;
         let grad_val = -(grad_y.value() / x_squared);
         self.input.backward_with(Variable::new(grad_val));
