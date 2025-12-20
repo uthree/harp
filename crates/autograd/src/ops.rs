@@ -1,7 +1,8 @@
 use std::ops;
 
-use crate::Variable;
-use crate::arithmetic::{Add, Mul, Neg};
+use crate::grad_fns::{Add, Mul, Neg};
+use crate::traits::GradNode;
+use crate::variable::Variable;
 
 // ============================================================================
 // 演算子の実装（参照）
@@ -10,79 +11,77 @@ use crate::arithmetic::{Add, Mul, Neg};
 // &Variable<T> + &Variable<T> -> Variable<T>
 impl<T> ops::Add<&Variable<T>> for &Variable<T>
 where
-    T: ops::Add<T, Output = T> + Clone + 'static,
+    T: GradNode + ops::Add<T, Output = T> + 'static,
 {
     type Output = Variable<T>;
 
-    fn add(self, rhs: &Variable<T>) -> Variable<T> {
-        let lhs_val = self.0.lock().unwrap().value.clone();
-        let rhs_val = rhs.0.lock().unwrap().value.clone();
-        let result = Variable::new(lhs_val + rhs_val);
-        result.set_grad_fn(Box::new(Add::new(self.clone(), rhs.clone())));
-        result
+    fn add(self, rhs: &Variable<T>) -> Self::Output {
+        let lhs_val = self.value();
+        let rhs_val = rhs.value();
+        Variable::with_grad_fn(
+            lhs_val + rhs_val,
+            Box::new(Add::new(self.clone(), rhs.clone())),
+        )
     }
 }
 
 // &Variable<T> * &Variable<T> -> Variable<T>
 impl<T> ops::Mul<&Variable<T>> for &Variable<T>
 where
-    T: ops::Add<T, Output = T> + ops::Mul<T, Output = T> + Clone + 'static,
+    T: GradNode + ops::Add<T, Output = T> + ops::Mul<T, Output = T> + 'static,
 {
     type Output = Variable<T>;
 
-    fn mul(self, rhs: &Variable<T>) -> Variable<T> {
-        let lhs_val = self.0.lock().unwrap().value.clone();
-        let rhs_val = rhs.0.lock().unwrap().value.clone();
-        let result = Variable::new(lhs_val * rhs_val);
-        result.set_grad_fn(Box::new(Mul::new(self.clone(), rhs.clone())));
-        result
-    }
-}
-
-// &Variable<T> / &Variable<T> -> Variable<T>
-impl<T> ops::Div<&Variable<T>> for &Variable<T>
-where
-    T: ops::Div<T, Output = T> + Clone,
-{
-    type Output = Variable<T>;
-
-    fn div(self, rhs: &Variable<T>) -> Variable<T> {
-        // x / y = x * (1/y) として実装
-        // TODO: Recip を使った実装に変更する
-        let lhs_val = self.0.lock().unwrap().value.clone();
-        let rhs_val = rhs.0.lock().unwrap().value.clone();
-        Variable::new(lhs_val / rhs_val)
-    }
-}
-
-// &Variable<T> - &Variable<T> -> Variable<T>
-impl<T> ops::Sub<&Variable<T>> for &Variable<T>
-where
-    T: ops::Sub<T, Output = T> + Clone,
-{
-    type Output = Variable<T>;
-
-    fn sub(self, rhs: &Variable<T>) -> Variable<T> {
-        // x - y = x + (-y) として実装
-        // TODO: Neg + Add を使った実装に変更する
-        let lhs_val = self.0.lock().unwrap().value.clone();
-        let rhs_val = rhs.0.lock().unwrap().value.clone();
-        Variable::new(lhs_val - rhs_val)
+    fn mul(self, rhs: &Variable<T>) -> Self::Output {
+        let lhs_val = self.value();
+        let rhs_val = rhs.value();
+        Variable::with_grad_fn(
+            lhs_val * rhs_val,
+            Box::new(Mul::new(self.clone(), rhs.clone())),
+        )
     }
 }
 
 // -&Variable<T> -> Variable<T>
 impl<T> ops::Neg for &Variable<T>
 where
-    T: ops::Add<T, Output = T> + ops::Neg<Output = T> + Clone + 'static,
+    T: GradNode + ops::Add<T, Output = T> + ops::Neg<Output = T> + 'static,
 {
     type Output = Variable<T>;
 
-    fn neg(self) -> Variable<T> {
-        let val = self.0.lock().unwrap().value.clone();
-        let result = Variable::new(-val);
-        result.set_grad_fn(Box::new(Neg::new(self.clone())));
-        result
+    fn neg(self) -> Self::Output {
+        let val = self.value();
+        Variable::with_grad_fn(-val, Box::new(Neg::new(self.clone())))
+    }
+}
+
+// &Variable<T> - &Variable<T> -> Variable<T>
+// TODO: Neg + Add を組み合わせた実装に変更する
+impl<T> ops::Sub<&Variable<T>> for &Variable<T>
+where
+    T: ops::Sub<T, Output = T> + Clone + 'static,
+{
+    type Output = Variable<T>;
+
+    fn sub(self, rhs: &Variable<T>) -> Variable<T> {
+        let lhs_val = self.value();
+        let rhs_val = rhs.value();
+        Variable::new(lhs_val - rhs_val)
+    }
+}
+
+// &Variable<T> / &Variable<T> -> Variable<T>
+// TODO: Mul + Recip を組み合わせた実装に変更する
+impl<T> ops::Div<&Variable<T>> for &Variable<T>
+where
+    T: ops::Div<T, Output = T> + Clone + 'static,
+{
+    type Output = Variable<T>;
+
+    fn div(self, rhs: &Variable<T>) -> Variable<T> {
+        let lhs_val = self.value();
+        let rhs_val = rhs.value();
+        Variable::new(lhs_val / rhs_val)
     }
 }
 
@@ -92,37 +91,37 @@ where
 
 impl<T> ops::Add<Variable<T>> for Variable<T>
 where
-    T: ops::Add<T, Output = T> + Clone + 'static,
+    T: GradNode + ops::Add<T, Output = T> + 'static,
 {
     type Output = Variable<T>;
-    fn add(self, rhs: Variable<T>) -> Variable<T> {
+    fn add(self, rhs: Variable<T>) -> Self::Output {
         &self + &rhs
     }
 }
 
 impl<T> ops::Mul<Variable<T>> for Variable<T>
 where
-    T: ops::Add<T, Output = T> + ops::Mul<T, Output = T> + Clone + 'static,
+    T: GradNode + ops::Add<T, Output = T> + ops::Mul<T, Output = T> + 'static,
 {
     type Output = Variable<T>;
-    fn mul(self, rhs: Variable<T>) -> Variable<T> {
+    fn mul(self, rhs: Variable<T>) -> Self::Output {
         &self * &rhs
     }
 }
 
-impl<T> ops::Div<Variable<T>> for Variable<T>
+impl<T> ops::Neg for Variable<T>
 where
-    T: ops::Div<T, Output = T> + Clone,
+    T: GradNode + ops::Add<T, Output = T> + ops::Neg<Output = T> + 'static,
 {
     type Output = Variable<T>;
-    fn div(self, rhs: Variable<T>) -> Variable<T> {
-        &self / &rhs
+    fn neg(self) -> Self::Output {
+        -&self
     }
 }
 
 impl<T> ops::Sub<Variable<T>> for Variable<T>
 where
-    T: ops::Sub<T, Output = T> + Clone,
+    T: ops::Sub<T, Output = T> + Clone + 'static,
 {
     type Output = Variable<T>;
     fn sub(self, rhs: Variable<T>) -> Variable<T> {
@@ -130,12 +129,12 @@ where
     }
 }
 
-impl<T> ops::Neg for Variable<T>
+impl<T> ops::Div<Variable<T>> for Variable<T>
 where
-    T: ops::Add<T, Output = T> + ops::Neg<Output = T> + Clone + 'static,
+    T: ops::Div<T, Output = T> + Clone + 'static,
 {
     type Output = Variable<T>;
-    fn neg(self) -> Variable<T> {
-        -&self
+    fn div(self, rhs: Variable<T>) -> Variable<T> {
+        &self / &rhs
     }
 }

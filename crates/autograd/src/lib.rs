@@ -1,6 +1,8 @@
-mod arithmetic;
+mod grad_fns;
 mod ops;
-mod variable;
+mod traits;
+pub mod variable;
 
-pub use arithmetic::{Add, Mul, Neg, Recip};
-pub use variable::{Backward, Variable};
+pub use grad_fns::{Add, Mul, Neg, Recip};
+pub use traits::{GradFn, GradNode, GradRoot};
+pub use variable::Variable;

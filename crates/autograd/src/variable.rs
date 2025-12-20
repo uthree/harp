@@ -1,33 +1,44 @@
-use num_traits::One;
 use std::ops;
 use std::sync::{Arc, Mutex};
 
-// 内部データ構造
-pub(crate) struct VariableInner<T> {
-    pub(crate) value: T,
-    pub(crate) requires_grad: bool,
-    pub(crate) grad: Option<Variable<T>>,
-    pub(crate) grad_fn: Option<Box<dyn Backward<T>>>,
+use crate::traits::{GradFn, GradNode, GradRoot};
+
+// ============================================================================
+// Variable (統合された変数型)
+// ============================================================================
+
+/// 変数の内部データ
+struct VariableInner<T: 'static> {
+    value: T,
+    grad: Option<Variable<T>>,
+    grad_fn: Option<Box<dyn GradFn<Variable<T>>>>,
 }
 
-// 自動微分を適用する変数（Arc<Mutex<...>> のハンドル）
-pub struct Variable<T>(pub(crate) Arc<Mutex<VariableInner<T>>>);
+/// 変数（リーフまたは計算結果）
+pub struct Variable<T: 'static>(Arc<Mutex<VariableInner<T>>>);
 
-// Clone は Arc::clone のみ（軽量）
-impl<T> Clone for Variable<T> {
+impl<T: 'static> Clone for Variable<T> {
     fn clone(&self) -> Self {
         Variable(Arc::clone(&self.0))
     }
 }
 
-impl<T> Variable<T> {
-    /// 新しい Variable を作成
+impl<T: 'static> Variable<T> {
+    /// 新しいリーフ変数を作成
     pub fn new(value: T) -> Variable<T> {
         Variable(Arc::new(Mutex::new(VariableInner {
             value,
-            requires_grad: true,
             grad: None,
             grad_fn: None,
+        })))
+    }
+
+    /// 勾配関数付きの変数を作成（演算結果用）
+    pub fn with_grad_fn(value: T, grad_fn: Box<dyn GradFn<Variable<T>>>) -> Variable<T> {
+        Variable(Arc::new(Mutex::new(VariableInner {
+            value,
+            grad: None,
+            grad_fn: Some(grad_fn),
         })))
     }
 
@@ -43,33 +54,14 @@ impl<T> Variable<T> {
         f(&mut inner.value)
     }
 
-    /// grad_fn を設定
-    pub fn set_grad_fn(&self, grad_fn: Box<dyn Backward<T>>) {
-        let mut inner = self.0.lock().unwrap();
-        inner.grad_fn = Some(grad_fn);
-    }
-
-    /// grad_fn を None にして勾配の伝搬を遮断
+    /// grad_fn を取り除いて勾配の伝播を遮断
     pub fn detach(&self) {
         let mut inner = self.0.lock().unwrap();
         inner.grad_fn = None;
     }
-
-    /// grad を None にして勾配を初期化
-    pub fn zero_grad(&self) {
-        let mut inner = self.0.lock().unwrap();
-        inner.grad = None;
-    }
-
-    /// 勾配を取得
-    pub fn grad(&self) -> Option<Variable<T>> {
-        let inner = self.0.lock().unwrap();
-        inner.grad.clone()
-    }
 }
 
-// T: Clone の場合、値のコピーを取得可能
-impl<T: Clone> Variable<T> {
+impl<T: Clone + 'static> Variable<T> {
     /// 値のコピーを取得
     pub fn value(&self) -> T {
         let inner = self.0.lock().unwrap();
@@ -77,44 +69,52 @@ impl<T: Clone> Variable<T> {
     }
 }
 
-// 逆伝播
+// T: GradNode の場合の実装
 impl<T> Variable<T>
 where
-    T: ops::Add<T, Output = T> + Clone + 'static,
+    T: GradNode + ops::Add<T, Output = T> + 'static,
 {
-    /// 指定した勾配で逆伝播を実行
-    pub fn backward_with(&self, grad_y: Variable<T>) {
+    /// 累積された勾配を取得
+    pub fn grad(&self) -> Option<Variable<T>> {
+        let inner = self.0.lock().unwrap();
+        inner.grad.clone()
+    }
+
+    /// 勾配をリセット
+    pub fn zero_grad(&self) {
+        let mut inner = self.0.lock().unwrap();
+        inner.grad = None;
+    }
+
+    /// 勾配を伝播
+    pub fn backward_with(&self, grad: Variable<T>) {
         let mut inner = self.0.lock().unwrap();
 
         // 自身の勾配を累積する
         inner.grad = Some(if let Some(existing) = inner.grad.take() {
-            // 既存の勾配と新しい勾配を加算
-            &existing + &grad_y
+            let existing_val = existing.value();
+            let grad_val = grad.value();
+            Variable::new(existing_val + grad_val)
         } else {
-            grad_y.clone()
+            grad.clone()
         });
 
-        // 勾配を伝播する
+        // 勾配を伝播する（grad_fn があれば）
         if let Some(mut grad_fn) = inner.grad_fn.take() {
             // ロックを解放してから backward を呼ぶ（デッドロック防止）
             drop(inner);
-            grad_fn.backward(grad_y);
+            grad_fn.backward(grad);
         }
     }
 }
 
-// 引数なしの逆伝播（初期勾配 = 1）
+// T: GradRoot の場合の追加実装
 impl<T> Variable<T>
 where
-    T: ops::Add<T, Output = T> + Clone + One + 'static,
+    T: GradRoot + ops::Add<T, Output = T> + 'static,
 {
-    /// 初期勾配 1 で逆伝播を実行
+    /// 初期勾配 1 で逆伝播を開始
     pub fn backward(&self) {
-        self.backward_with(Variable::new(T::one()));
+        self.backward_with(Variable::new(T::unit_grad()));
     }
-}
-
-// 微分可能な関数を表現する
-pub trait Backward<T> {
-    fn backward(&mut self, grad_y: Variable<T>);
 }
