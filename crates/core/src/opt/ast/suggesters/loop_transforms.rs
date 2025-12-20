@@ -76,9 +76,7 @@ impl LoopTilingSuggester {
                 ..
             } => {
                 Self::contains_range(then_body)
-                    || else_body
-                        .as_ref()
-                        .map_or(false, |e| Self::contains_range(e))
+                    || else_body.as_ref().is_some_and(|e| Self::contains_range(e))
             }
             _ => false,
         }
