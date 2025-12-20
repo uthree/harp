@@ -89,17 +89,29 @@ mod opencl_tests {
     use harp::backend::opencl::{OpenCLBuffer, OpenCLCompiler, OpenCLDevice, OpenCLRenderer};
     use harp::backend::{Buffer, Compiler, Device, Pipeline};
 
-    fn get_device() -> OpenCLDevice {
-        assert!(
-            OpenCLDevice::is_available(),
-            "OpenCL is not available on this system"
-        );
-        OpenCLDevice::new().expect("Failed to create OpenCL device")
+    fn get_device() -> Option<OpenCLDevice> {
+        if !OpenCLDevice::is_available() {
+            return None;
+        }
+        OpenCLDevice::new().ok()
+    }
+
+    /// Helper macro to skip test if OpenCL device is not available
+    macro_rules! require_device {
+        () => {
+            match get_device() {
+                Some(device) => device,
+                None => {
+                    eprintln!("OpenCL device not available, skipping test");
+                    return;
+                }
+            }
+        };
     }
 
     #[test]
     fn test_pipeline_creation() {
-        let context = get_device();
+        let context = require_device!();
         let renderer = OpenCLRenderer::new();
         let compiler = OpenCLCompiler::new();
         let _pipeline: Pipeline<OpenCLRenderer, OpenCLDevice, OpenCLCompiler> =
@@ -108,7 +120,7 @@ mod opencl_tests {
 
     #[test]
     fn test_pipeline_compile_simple_graph() {
-        let context = get_device();
+        let context = require_device!();
         let renderer = OpenCLRenderer::new();
         let compiler = OpenCLCompiler::new();
         let mut pipeline: Pipeline<OpenCLRenderer, OpenCLDevice, OpenCLCompiler> =
@@ -132,7 +144,7 @@ mod opencl_tests {
 
     #[test]
     fn test_pipeline_buffer_allocation() {
-        let context = get_device();
+        let context = require_device!();
 
         let buffer = OpenCLBuffer::allocate(&context, vec![1024], AstDType::F32)
             .expect("Failed to allocate buffer");
@@ -144,7 +156,7 @@ mod opencl_tests {
 
     #[test]
     fn test_pipeline_buffer_data_transfer() {
-        let context = get_device();
+        let context = require_device!();
 
         let mut buffer = OpenCLBuffer::allocate(&context, vec![16], AstDType::F32)
             .expect("Failed to allocate buffer");
@@ -159,7 +171,7 @@ mod opencl_tests {
 
     #[test]
     fn test_scale_kernel_execution() {
-        let context = get_device();
+        let context = require_device!();
         let renderer = OpenCLRenderer::new();
         let compiler = OpenCLCompiler::new();
         let context_clone = context.clone();
@@ -200,7 +212,7 @@ mod opencl_tests {
 
     #[test]
     fn test_add_kernel_execution() {
-        let context = get_device();
+        let context = require_device!();
         let renderer = OpenCLRenderer::new();
         let compiler = OpenCLCompiler::new();
         let context_clone = context.clone();
@@ -247,7 +259,7 @@ mod opencl_tests {
 
     #[test]
     fn test_complex_kernel_execution() {
-        let context = get_device();
+        let context = require_device!();
         let renderer = OpenCLRenderer::new();
         let compiler = OpenCLCompiler::new();
         let context_clone = context.clone();
@@ -294,7 +306,7 @@ mod opencl_tests {
 
     #[test]
     fn test_reduce_sum_kernel_execution() {
-        let context = get_device();
+        let context = require_device!();
         let renderer = OpenCLRenderer::new();
         let compiler = OpenCLCompiler::new();
         let context_clone = context.clone();
@@ -346,7 +358,7 @@ mod opencl_tests {
 
     #[test]
     fn test_pipeline_config() {
-        let context = get_device();
+        let context = require_device!();
         let renderer = OpenCLRenderer::new();
         let compiler = OpenCLCompiler::new();
         let mut pipeline: Pipeline<OpenCLRenderer, OpenCLDevice, OpenCLCompiler> =

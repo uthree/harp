@@ -51,7 +51,15 @@ pub struct OpenCLDevice {
 
 impl Device for OpenCLDevice {
     fn is_available() -> bool {
-        !Platform::list().is_empty()
+        // Check if there are any platforms with at least one device
+        for platform in Platform::list() {
+            if let Ok(devices) = OclDevice::list_all(platform) {
+                if !devices.is_empty() {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     fn profile(&self) -> DeviceProfile {
