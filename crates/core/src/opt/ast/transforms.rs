@@ -305,13 +305,6 @@ pub fn tile_loop(loop_node: &AstNode, tile_size: usize) -> Option<AstNode> {
             stop,
             body,
         } => {
-            // 既にタイル化されたループは再度タイル化しない
-            // タイル化後のループ本体は、最初の文が元変数への代入文になっている
-            if is_tiled_loop_body(body) {
-                log::trace!("Skipping tiling for already tiled loop: {}", var);
-                return None;
-            }
-
             // ステップが1の場合のみタイル化可能（簡易実装）
             let is_step_one = matches!(step.as_ref(), AstNode::Const(Literal::Int(1)));
             if !is_step_one {
@@ -411,15 +404,15 @@ pub fn tile_loop(loop_node: &AstNode, tile_size: usize) -> Option<AstNode> {
 /// # 変換例
 /// ```text
 /// // 元のループ
-/// for ridx0 in 0..N step 1 {
+/// for ridx0 in start..stop step 1 {
 ///   body(ridx0)
 /// }
 ///
 /// // タイル化後（ガード方式）
-/// for ridx1 in 0..ceil_div(N, tile_size) step 1 {
+/// for ridx1 in 0..ceil_div(stop - start, tile_size) step 1 {
 ///   for ridx2 in 0..tile_size step 1 {
-///     ridx0 = ridx1 * tile_size + ridx2
-///     if (ridx0 < N) {
+///     ridx0 = start + ridx1 * tile_size + ridx2
+///     if (ridx0 < stop) {
 ///       body(ridx0)
 ///     }
 ///   }
@@ -438,12 +431,6 @@ pub fn tile_loop_with_guard(loop_node: &AstNode, tile_size: usize) -> Option<Ast
             stop,
             body,
         } => {
-            // 既にタイル化されたループは再度タイル化しない
-            if is_tiled_loop_body(body) {
-                log::trace!("Skipping tiling with guard for already tiled loop: {}", var);
-                return None;
-            }
-
             // ステップが1の場合のみタイル化可能（簡易実装）
             let is_step_one = matches!(step.as_ref(), AstNode::Const(Literal::Int(1)));
             if !is_step_one {
@@ -454,7 +441,8 @@ pub fn tile_loop_with_guard(loop_node: &AstNode, tile_size: usize) -> Option<Ast
                 return None;
             }
 
-            // startが0であることを要求（簡易実装）
+            // startが0であることを要求（デフォルト）
+            // start != 0 の場合は tile_loop_with_guard_any_start を使用
             let is_start_zero = matches!(start.as_ref(), AstNode::Const(Literal::Int(0)));
             if !is_start_zero {
                 log::trace!(
@@ -464,11 +452,10 @@ pub fn tile_loop_with_guard(loop_node: &AstNode, tile_size: usize) -> Option<Ast
                 return None;
             }
 
-            // stopは定数でなくてもOK（ガード方式の利点）
-            // ただし定数の場合は値を取得して最適化できる
+            // stopの値を取得（定数の場合のみ最適化に使用）
             let stop_val = match stop.as_ref() {
-                AstNode::Const(Literal::Int(v)) if *v >= 0 => Some(*v as usize),
-                _ => None, // 変数の場合はNone
+                AstNode::Const(Literal::Int(v)) => Some(*v),
+                _ => None,
             };
 
             log::debug!(
@@ -482,7 +469,7 @@ pub fn tile_loop_with_guard(loop_node: &AstNode, tile_size: usize) -> Option<Ast
             let used_names = collect_var_names(loop_node);
             let (outer_var, inner_var, _) = find_next_ridx_names(&used_names);
 
-            // 内側ループの本体: original_var = outer_var * tile_size + inner_var; if (original_var < stop) { body }
+            // 内側ループの本体: original_var = outer_var * tile_size + inner_var
             let i_expr = helper_var(outer_var.clone()) * const_int(tile_size as isize)
                 + helper_var(inner_var.clone());
 
@@ -526,7 +513,7 @@ pub fn tile_loop_with_guard(loop_node: &AstNode, tile_size: usize) -> Option<Ast
             // 外側ループの終了値: ceil_div(stop, tile_size)
             let outer_stop = if let Some(n) = stop_val {
                 // 定数の場合: (n + tile_size - 1) / tile_size
-                const_int(n.div_ceil(tile_size) as isize)
+                const_int((n as usize).div_ceil(tile_size) as isize)
             } else {
                 // 変数の場合: (stop + tile_size - 1) / tile_size
                 ceil_div_ast(stop.as_ref().clone(), const_int(tile_size as isize))
@@ -558,24 +545,6 @@ fn ceil_div_ast(a: AstNode, b: AstNode) -> AstNode {
         )),
         Box::new(b),
     )
-}
-
-/// タイル化されたループの本体かどうかを判定する
-///
-/// タイル化後のループ本体は、最初の文が変数への代入文（`var = expr`）になっている。
-/// この構造を持つループは既にタイル化済みとみなし、再タイル化を防ぐ。
-fn is_tiled_loop_body(body: &AstNode) -> bool {
-    match body {
-        AstNode::Block { statements, .. } => {
-            // 本体の最初の文がAssignノードの場合、タイル化済み
-            if let Some(first_stmt) = statements.first() {
-                matches!(first_stmt, AstNode::Assign { .. })
-            } else {
-                false
-            }
-        }
-        _ => false,
-    }
 }
 
 /// AST内の変数を置き換える
