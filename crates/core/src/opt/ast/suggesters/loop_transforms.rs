@@ -17,6 +17,8 @@ pub struct LoopTilingSuggester {
     tile_sizes: Vec<usize>,
     /// ガード方式のパターンも生成するかどうか
     generate_guard_pattern: bool,
+    /// 最内側ループのみタイル化するか（デフォルト: false）
+    tile_innermost_only: bool,
 }
 
 impl Default for LoopTilingSuggester {
@@ -31,6 +33,7 @@ impl LoopTilingSuggester {
         Self {
             tile_sizes: vec![2, 3, 4, 5, 7, 8, 16, 32, 64],
             generate_guard_pattern: true,
+            tile_innermost_only: false,
         }
     }
 
@@ -38,6 +41,7 @@ impl LoopTilingSuggester {
         Self {
             tile_sizes,
             generate_guard_pattern: true,
+            tile_innermost_only: false,
         }
     }
 
@@ -47,23 +51,61 @@ impl LoopTilingSuggester {
         self
     }
 
+    /// 最内側ループのみタイル化するかを設定
+    ///
+    /// trueの場合、ネストしたループの最内側のみをタイル化します。
+    /// VectorizationSuggesterと組み合わせてSIMD化する場合に推奨。
+    pub fn with_innermost_only(mut self, innermost_only: bool) -> Self {
+        self.tile_innermost_only = innermost_only;
+        self
+    }
+
+    /// Rangeノードが最内側ループかどうかを判定
+    fn is_innermost_loop(body: &AstNode) -> bool {
+        !Self::contains_range(body)
+    }
+
+    /// ASTにRangeノードが含まれるかを判定
+    fn contains_range(ast: &AstNode) -> bool {
+        match ast {
+            AstNode::Range { .. } => true,
+            AstNode::Block { statements, .. } => statements.iter().any(Self::contains_range),
+            AstNode::If {
+                then_body,
+                else_body,
+                ..
+            } => {
+                Self::contains_range(then_body)
+                    || else_body
+                        .as_ref()
+                        .map_or(false, |e| Self::contains_range(e))
+            }
+            _ => false,
+        }
+    }
+
     /// AST内の全てのRangeノードを探索してタイル化を試みる
     fn collect_tiling_candidates(&self, ast: &AstNode) -> Vec<AstNode> {
         let mut candidates = Vec::new();
 
         // 現在のノードがRangeの場合、各タイルサイズで変換を試みる
-        if matches!(ast, AstNode::Range { .. }) {
-            for &tile_size in &self.tile_sizes {
-                // 別ループ方式（従来のパターン）
-                if let Some(tiled) = tile_loop(ast, tile_size) {
-                    candidates.push(tiled);
-                }
+        if let AstNode::Range { body, .. } = ast {
+            // tile_innermost_only が true の場合、最内側ループのみタイル化
+            let should_tile = !self.tile_innermost_only || Self::is_innermost_loop(body);
 
-                // ガード方式（条件分岐による端数処理）
-                if self.generate_guard_pattern
-                    && let Some(tiled_with_guard) = tile_loop_with_guard(ast, tile_size)
-                {
-                    candidates.push(tiled_with_guard);
+            if should_tile {
+                for &tile_size in &self.tile_sizes {
+                    // 別ループ方式（従来のパターン）
+                    if let Some(tiled) = tile_loop(ast, tile_size) {
+                        candidates.push(tiled);
+                    }
+
+                    // ガード方式（条件分岐による端数処理）
+                    if self.generate_guard_pattern
+                        && let Some(tiled_with_guard) = tile_loop_with_guard(ast, tile_size)
+                    {
+                        candidates.push(tiled_with_guard);
+                    }
                 }
             }
         }

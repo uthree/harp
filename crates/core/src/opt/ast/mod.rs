@@ -74,5 +74,6 @@ pub use suggesters::{
     CompositeSuggester, CseSuggester, FunctionInliningSuggester, GroupParallelizationSuggester,
     LocalParallelizationSuggester, LoopFusionSuggester, LoopInliningSuggester,
     LoopInterchangeSuggester, LoopTilingSuggester, RuleBaseSuggester, VariableExpansionSuggester,
+    VectorizationSuggester,
 };
 pub use transforms::{inline_small_loop, tile_loop};

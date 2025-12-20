@@ -93,7 +93,6 @@ impl Device for MetalDevice {
             DeviceInstruction::NativeExpLog => true, // Native exp/log available
         }
     }
-
 }
 
 impl MetalDevice {

@@ -141,21 +141,6 @@ pub fn create_lowering_only_suggester() -> CompositeSuggester {
     ])
 }
 
-/// Loweringのみのフェーズ用Suggesterを作成（SIMD幅指定付き）
-///
-/// 全てのGraphOpノードをKernelノードに変換します。
-///
-/// # 注意
-/// SIMD化はASTレベルで行われるため、この関数は`simd_widths`パラメータを無視します。
-/// 後方互換性のために関数シグネチャは維持されています。
-///
-/// # Arguments
-/// * `_simd_widths` - 無視されます（SIMD化はAST最適化で行われます）
-#[allow(unused_variables)]
-pub fn create_lowering_only_suggester_with_simd(_simd_widths: Vec<usize>) -> CompositeSuggester {
-    CompositeSuggester::new(vec![Box::new(LoweringSuggester::new())])
-}
-
 /// 貪欲法Lowering用のSuggesterを作成
 ///
 /// 高速にLoweringを行います。
@@ -248,11 +233,6 @@ pub struct MultiPhaseConfig {
     /// - `SeparateKernels`: サブグラフを個別のカーネル関数として生成
     /// - `Skip`: サブグラフ処理をスキップ
     pub subgraph_mode: SubgraphMode,
-    /// LoweringSuggesterのSIMD幅候補
-    ///
-    /// 空の場合はスカラー版のみ生成します。
-    /// 例: `vec![4, 8]` で幅4と幅8のSIMD候補を生成
-    pub simd_widths: Vec<usize>,
     /// 最適化コンテキスト（デバイス固有の情報）
     ///
     /// 設定されている場合、Suggesterはこのコンテキストからデバイス固有の
@@ -270,7 +250,6 @@ impl Default for MultiPhaseConfig {
             collect_logs: cfg!(debug_assertions),
             early_termination_threshold: Some(10), // デフォルト: 10ステップ改善なしで終了
             subgraph_mode: SubgraphMode::default(), // デフォルト: Inline
-            simd_widths: vec![],                   // デフォルト: スカラー版のみ
             opt_context: None,                     // デフォルト: コンテキストなし
         }
     }
@@ -336,24 +315,6 @@ impl MultiPhaseConfig {
         self
     }
 
-    /// SIMD幅候補を設定
-    ///
-    /// LoweringSuggesterがElementwise演算のSIMD版を生成する際に使用する幅を指定します。
-    /// 空の場合はスカラー版のみ生成します。
-    ///
-    /// # Example
-    /// ```ignore
-    /// use harp_core::opt::graph::factory::MultiPhaseConfig;
-    ///
-    /// // 幅4と幅8のSIMD候補を生成
-    /// let config = MultiPhaseConfig::new()
-    ///     .with_simd_widths(vec![4, 8]);
-    /// ```
-    pub fn with_simd_widths(mut self, widths: Vec<usize>) -> Self {
-        self.simd_widths = widths;
-        self
-    }
-
     /// 最適化コンテキストを設定
     ///
     /// デバイス固有の情報（タイルサイズ、スレッドグループサイズ、SIMD幅など）を
@@ -373,14 +334,6 @@ impl MultiPhaseConfig {
     ///     .with_capabilities(caps);
     /// ```
     pub fn with_capabilities(mut self, caps: DeviceCapabilities) -> Self {
-        // DeviceCapabilitiesからSIMD幅を自動設定（明示的に設定されていない場合）
-        if self.simd_widths.is_empty() {
-            self.simd_widths = caps
-                .all_simd_widths()
-                .into_iter()
-                .filter(|&w| w > 1)
-                .collect();
-        }
         self.opt_context = Some(caps);
         self
     }
@@ -496,7 +449,7 @@ pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOpt
     let lowering_suggester = if let Some(ref caps) = config.opt_context {
         CompositeSuggester::new(vec![Box::new(LoweringSuggester::from_capabilities(caps))])
     } else {
-        create_lowering_only_suggester_with_simd(config.simd_widths.clone())
+        create_greedy_lowering_only_suggester()
     };
     let lowering_optimizer = BeamSearchGraphOptimizer::new(lowering_suggester)
         .with_beam_width(config.beam_width)
@@ -627,7 +580,7 @@ where
         .with_early_termination_threshold(Some(5)); // 早期終了
 
     // Phase 4: Lowering（Kernel変換のみ）- カスタムSelector使用
-    let lowering_suggester = create_lowering_only_suggester_with_simd(config.simd_widths.clone());
+    let lowering_suggester = create_greedy_lowering_only_suggester();
     let lowering_optimizer = BeamSearchGraphOptimizer::new(lowering_suggester)
         .with_selector(selector.clone())
         .with_beam_width(config.beam_width)

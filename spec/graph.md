@@ -161,39 +161,10 @@ Graph最適化フェーズでは、以下のSuggesterにより段階的に演算
 
 ### SIMD化
 
-`LoweringSuggester`はElementwise演算に対してSIMD化されたバージョンを提案できます。
+SIMD化はAST最適化フェーズで`VectorizationSuggester`により行われます。
+`LoweringSuggester`はスカラー版のコードのみを生成します。
 
-```rust
-// スカラー版のみ（デフォルト）
-let suggester = LoweringSuggester::new();
-
-// SIMD版も生成（幅4と8の候補）
-let suggester = LoweringSuggester::with_simd_widths(vec![4, 8]);
-```
-
-SIMD化されたループは以下の構造を持ちます：
-
-1. **SIMDループ**: 最内軸を`simd_width`ずつ処理（ベクトルLoad/Store使用）
-2. **テールループ**: 残りの要素をスカラーで処理
-
-```c
-// 例: shape=[10, 128], simd_width=4
-for (int ridx0 = 0; ridx0 < 10; ridx0++) {
-    // SIMDループ (step=4)
-    for (int ridx1 = 0; ridx1 < 128; ridx1 += 4) {
-        float4 v0 = vload4(0, &input0[offset]);
-        float4 v1 = vload4(0, &input1[offset]);
-        vstore4(v0 + v1, 0, &output[offset]);
-    }
-    // テールループ (128は4で割り切れるので不要)
-}
-```
-
-**対象演算**: Elementwise、FusedElementwise、FusedElementwiseReduce
-
-**制約**:
-- 最内軸のサイズがSIMD幅より小さい場合はSIMD化されません
-- FusedElementwiseReduceは縮約軸が最内軸を含む場合はSIMD化されません（水平加算が必要なため）
+詳細は`spec/opt-ast.md`のVectorizationSuggesterセクションを参照してください。
 
 ## モジュール構成
 

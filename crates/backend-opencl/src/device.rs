@@ -112,7 +112,6 @@ impl Device for OpenCLDevice {
             DeviceInstruction::NativeExpLog => true, // native_exp/log() available
         }
     }
-
 }
 
 impl OpenCLDevice {

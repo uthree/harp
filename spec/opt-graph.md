@@ -236,9 +236,11 @@ let config = MultiPhaseConfig::new()
     .with_progress(true)          // プログレス表示
     .with_collect_logs(true)      // ログ収集
     .with_early_termination_threshold(Some(10))  // 早期終了
-    .with_subgraph_mode(SubgraphMode::Inline)    // サブグラフ処理モード
-    .with_simd_widths(vec![4, 8]); // SIMD幅候補
+    .with_subgraph_mode(SubgraphMode::Inline);   // サブグラフ処理モード
 ```
+
+**SIMD化について**: SIMD化はAST最適化フェーズで`VectorizationSuggester`により行われます。
+詳細は`spec/opt-ast.md`のVectorizationSuggesterセクションを参照。
 
 **注意**: これらの関数は後方互換性のため `harp::backend` からも re-export されている。
 
