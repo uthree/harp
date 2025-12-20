@@ -1,4 +1,4 @@
-use autograd::{Recip, Variable};
+use autograd::{RecipBackward, Variable};
 
 // ============================================================================
 // 順伝播のテスト
@@ -98,7 +98,7 @@ fn test_recip_backward() {
     // z = 1/x
     // ∂z/∂x = -1/x²
     let x = Variable::new(2.0_f64);
-    let z = Variable::with_grad_fn(1.0 / x.value(), Box::new(Recip::new(x.clone())));
+    let z = Variable::with_grad_fn(1.0 / x.value(), Box::new(RecipBackward::new(x.clone())));
 
     z.backward();
 
@@ -239,8 +239,10 @@ fn test_division_chain() {
     let sum = &x + &one;
 
     let sum_var = Variable::new(sum.value());
-    let result =
-        Variable::with_grad_fn(1.0 / sum_var.value(), Box::new(Recip::new(sum_var.clone())));
+    let result = Variable::with_grad_fn(
+        1.0 / sum_var.value(),
+        Box::new(RecipBackward::new(sum_var.clone())),
+    );
 
     assert_eq!(result.value(), 0.5);
 

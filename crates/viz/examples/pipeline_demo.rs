@@ -2,7 +2,7 @@
 //!
 //! 1024x1024の行列積を最適化し、その過程を可視化します。
 
-use harp::backend::opencl::OpenCLRenderer;
+use harp::backend::c_like::{CLikeRenderer, GenericRenderer};
 use harp::backend::{create_multi_phase_optimizer, MultiPhaseConfig, Renderer};
 use harp::graph::{DType, Graph};
 use harp::lowerer::extract_program;
@@ -41,10 +41,10 @@ fn main() -> eframe::Result {
     let (optimized_program, ast_history) = optimize_ast_with_history(program);
 
     // 生成コード表示
-    println!("\n=== Generated OpenCL Code ===");
-    let renderer = OpenCLRenderer::new();
-    let code = renderer.render(&optimized_program);
-    println!("{}", Into::<String>::into(code));
+    println!("\n=== Generated C-like Code ===");
+    let mut renderer = GenericRenderer::new();
+    let code = renderer.render_program_clike(&optimized_program);
+    println!("{}", code);
 
     // 可視化UI起動
     let options = eframe::NativeOptions {
@@ -58,7 +58,7 @@ fn main() -> eframe::Result {
         "Harp Pipeline Demo",
         options,
         Box::new(move |_| {
-            let mut app = HarpVizApp::with_renderer_type(RendererType::OpenCL);
+            let mut app = HarpVizApp::with_renderer_type(RendererType::CLike);
             app.load_graph_optimization_history(graph_history);
             app.load_ast_optimization_history(ast_history);
             app.load_optimized_ast(optimized_program);

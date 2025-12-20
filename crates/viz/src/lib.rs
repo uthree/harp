@@ -242,12 +242,16 @@ mod tests {
     #[test]
     fn test_renderer_type_selection() {
         let mut app = HarpVizApp::new();
-        assert_eq!(app.renderer_type(), RendererType::OpenCL); // OpenCLがデフォルト
+        assert_eq!(app.renderer_type(), RendererType::CLike); // CLikeがデフォルト
 
-        app.set_renderer_type(RendererType::Metal);
-        assert_eq!(app.renderer_type(), RendererType::Metal);
+        // 別のタイプに変更しても戻せることをテスト
+        let types = RendererType::all();
+        if types.len() > 1 {
+            app.set_renderer_type(types[1]);
+            assert_eq!(app.renderer_type(), types[1]);
 
-        app.set_renderer_type(RendererType::OpenCL);
-        assert_eq!(app.renderer_type(), RendererType::OpenCL);
+            app.set_renderer_type(RendererType::CLike);
+            assert_eq!(app.renderer_type(), RendererType::CLike);
+        }
     }
 }

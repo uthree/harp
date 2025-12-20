@@ -6,8 +6,9 @@ use std::io::{self, IsTerminal, Read, Write};
 use std::path::PathBuf;
 
 use harp::backend::c_like::CLikeRenderer;
-#[cfg(target_os = "macos")]
+#[cfg(feature = "metal")]
 use harp::backend::metal::MetalRenderer;
+#[cfg(feature = "opencl")]
 use harp::backend::opencl::OpenCLRenderer;
 use harp::backend::{MultiPhaseConfig, Renderer, SubgraphMode, create_multi_phase_optimizer};
 use harp::opt::ast::rules::all_algebraic_rules;
@@ -34,7 +35,7 @@ struct Cli {
     output: Option<PathBuf>,
 
     /// Target backend
-    #[arg(short, long, default_value = "opencl", global = true)]
+    #[arg(short, long, default_value = "clike", global = true)]
     target: Target,
 
     /// Output type
@@ -93,11 +94,18 @@ enum Commands {
     },
 }
 
-#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+#[derive(Clone, Copy, Debug, Default, clap::ValueEnum)]
 enum Target {
+    /// C-like generic output
+    #[default]
+    #[value(name = "clike", alias = "c")]
+    CLike,
+    /// OpenCL (GPU)
+    #[cfg(feature = "opencl")]
     #[value(name = "opencl", alias = "cl")]
     OpenCL,
-    #[cfg(target_os = "macos")]
+    /// Metal (Apple GPU)
+    #[cfg(feature = "metal")]
     Metal,
 }
 
@@ -105,9 +113,22 @@ impl Target {
     /// Get the file extension for this target
     fn extension(&self) -> &'static str {
         match self {
+            Target::CLike => "c",
+            #[cfg(feature = "opencl")]
             Target::OpenCL => "c",
-            #[cfg(target_os = "macos")]
+            #[cfg(feature = "metal")]
             Target::Metal => "metal",
+        }
+    }
+
+    /// Get the comment prefix for this target
+    fn comment_prefix(&self) -> &'static str {
+        match self {
+            Target::CLike => "//",
+            #[cfg(feature = "opencl")]
+            Target::OpenCL => "//",
+            #[cfg(feature = "metal")]
+            Target::Metal => "//",
         }
     }
 }
@@ -315,8 +336,12 @@ fn do_compile(
 
     let generated = match emit {
         EmitType::Code => match target {
+            Target::CLike => {
+                compile_to_code::<harp::backend::c_like::GenericRenderer>(graph, subgraph_mode)?
+            }
+            #[cfg(feature = "opencl")]
             Target::OpenCL => compile_to_code::<OpenCLRenderer>(graph, subgraph_mode)?,
-            #[cfg(target_os = "macos")]
+            #[cfg(feature = "metal")]
             Target::Metal => compile_to_code::<MetalRenderer>(graph, subgraph_mode)?,
         },
         EmitType::Graph => {
@@ -330,11 +355,7 @@ fn do_compile(
 
     // Optionally embed original DSL source as comment
     let result = if embed_source && matches!(emit, EmitType::Code) {
-        let comment_prefix = match target {
-            Target::OpenCL => "//",
-            #[cfg(target_os = "macos")]
-            Target::Metal => "//",
-        };
+        let comment_prefix = target.comment_prefix();
         let mut output = String::new();
         output.push_str(&format!(
             "{} === Original Harp DSL Source ===\n",

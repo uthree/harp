@@ -740,3 +740,123 @@ pub fn extract_buffer_placeholders(body: &AstNode) -> (Vec<String>, bool) {
 
 // NOTE: CLikeRenderer tests have been moved to crates/backend-opencl/src/renderer.rs
 // because they depend on OpenCLRenderer implementation.
+
+// ============================================================================
+// Generic C-like Renderer (Default Implementation)
+// ============================================================================
+
+/// デフォルトのC言語ライクなレンダラー
+///
+/// OpenCLやMetalなどの特殊なバックエンドを使用できない場合のフォールバックとして使用できます。
+/// 標準的なC言語構文で出力しますが、カーネル実行は行えません（コード生成のみ）。
+#[derive(Debug, Clone, Default)]
+pub struct GenericRenderer {
+    indent_level: usize,
+}
+
+impl GenericRenderer {
+    /// 新しいGenericRendererを作成
+    pub fn new() -> Self {
+        Self { indent_level: 0 }
+    }
+}
+
+impl super::Renderer for GenericRenderer {
+    type CodeRepr = String;
+    type Option = ();
+
+    fn render(&self, program: &AstNode) -> Self::CodeRepr {
+        let mut r = self.clone();
+        r.render_program_clike(program)
+    }
+
+    fn is_available(&self) -> bool {
+        true
+    }
+}
+
+impl CLikeRenderer for GenericRenderer {
+    fn indent_level(&self) -> usize {
+        self.indent_level
+    }
+
+    fn indent_level_mut(&mut self) -> &mut usize {
+        &mut self.indent_level
+    }
+
+    fn render_dtype_backend(&self, dtype: &DType) -> String {
+        match dtype {
+            DType::F32 => "float".to_string(),
+            DType::Bool => "unsigned char".to_string(),
+            DType::Int => "int".to_string(),
+            DType::Ptr(inner) => format!("{}*", self.render_dtype_backend(inner)),
+            DType::Vec(inner, size) => format!("{}[{}]", self.render_dtype_backend(inner), size),
+            DType::Tuple(_) => "/* tuple */".to_string(),
+            DType::Unknown => "/* unknown */".to_string(),
+        }
+    }
+
+    fn render_barrier_backend(&self) -> String {
+        "// barrier (no-op in generic C)".to_string()
+    }
+
+    fn render_header(&self) -> String {
+        "// Generated C-like code (generic backend)\n#include <math.h>\n#include <stdlib.h>\n\n"
+            .to_string()
+    }
+
+    fn render_function_qualifier(&self, _is_kernel: bool) -> String {
+        String::new()
+    }
+
+    fn render_param_attribute(&self, param: &VarDecl, _is_kernel: bool) -> String {
+        // 特殊なパラメータ（スレッドIDなど）は通常の関数では不要
+        match param.name.as_str() {
+            "group_id_x" | "group_id_y" | "group_id_z" | "local_id_x" | "local_id_y"
+            | "local_id_z" | "global_id_x" | "global_id_y" | "global_id_z" => {
+                // スレッドID等は引数として渡す
+                let type_str = self.render_dtype_backend(&param.dtype);
+                format!("{} {}", type_str, param.name)
+            }
+            _ => {
+                let type_str = self.render_dtype_backend(&param.dtype);
+                format!("{} {}", type_str, param.name)
+            }
+        }
+    }
+
+    fn render_thread_var_declarations(&self, _params: &[VarDecl], _indent: &str) -> String {
+        String::new()
+    }
+
+    fn render_math_func(&self, name: &str, args: &[String]) -> String {
+        match name {
+            "max" => format!("fmaxf({}, {})", args[0], args[1]),
+            "min" => format!("fminf({}, {})", args[0], args[1]),
+            "sqrt" => format!("sqrtf({})", args[0]),
+            "log2" => format!("log2f({})", args[0]),
+            "exp2" => format!("exp2f({})", args[0]),
+            "sin" => format!("sinf({})", args[0]),
+            "cos" => format!("cosf({})", args[0]),
+            "floor" => format!("floorf({})", args[0]),
+            "ceil" => format!("ceilf({})", args[0]),
+            _ => format!("{}({})", name, args.join(", ")),
+        }
+    }
+
+    fn render_atomic_add(&self, ptr: &str, offset: &str, value: &str, _dtype: &DType) -> String {
+        // Generic Cではアトミック操作をシミュレート（警告付き）
+        format!(
+            "/* WARNING: non-atomic */ ({}[{}] += {})",
+            ptr, offset, value
+        )
+    }
+
+    fn render_atomic_max(&self, ptr: &str, offset: &str, value: &str, _dtype: &DType) -> String {
+        // Generic Cではアトミック操作をシミュレート（警告付き）
+        format!(
+            "/* WARNING: non-atomic */ ({}[{}] = fmaxf({}[{}], {}))",
+            ptr, offset, ptr, offset, value
+        )
+    }
+}
