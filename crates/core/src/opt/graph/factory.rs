@@ -377,9 +377,8 @@ impl MultiPhaseConfig {
         // コンテキストからSIMD幅を自動設定（明示的に設定されていない場合）
         if self.simd_widths.is_empty() {
             self.simd_widths = context
-                .supported_vector_widths()
-                .iter()
-                .copied()
+                .all_simd_widths()
+                .into_iter()
                 .filter(|&w| w > 1)
                 .collect();
         }

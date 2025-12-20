@@ -210,3 +210,29 @@ pub fn factor_right() -> Rc<AstRewriteRule> {
         (a + b) * c
     })
 }
+
+// ============================================================================
+// FMA (Fused Multiply-Add) Rules
+// ============================================================================
+
+/// 乗算と加算の融合（右加算）: a * b + c => fma(a, b, c)
+/// FMAは単一の丸め操作で実行され、中間結果の精度が保持される
+pub fn mul_add_to_fma() -> Rc<AstRewriteRule> {
+    use crate::ast::helper::fma;
+    astpat!(|a, b, c| {
+        a.clone() * b.clone() + c.clone()
+    } => {
+        fma(a, b, c)
+    })
+}
+
+/// 乗算と加算の融合（左加算）: c + a * b => fma(a, b, c)
+/// 加算の交換則を適用したパターン
+pub fn add_mul_to_fma() -> Rc<AstRewriteRule> {
+    use crate::ast::helper::fma;
+    astpat!(|a, b, c| {
+        c.clone() + a.clone() * b.clone()
+    } => {
+        fma(a, b, c)
+    })
+}

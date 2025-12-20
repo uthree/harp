@@ -84,6 +84,32 @@ pub enum AstNode {
     Sin(Box<AstNode>),
     Cast(Box<AstNode>, DType),
 
+    /// Fused Multiply-Add: fma(a, b, c) = a * b + c
+    /// 1命令で実行されるため、精度が向上し高速
+    Fma {
+        a: Box<AstNode>,
+        b: Box<AstNode>,
+        c: Box<AstNode>,
+    },
+
+    /// アトミック加算（並列Reduce用）
+    /// グローバルメモリ上の値にアトミックに加算し、古い値を返す
+    AtomicAdd {
+        ptr: Box<AstNode>,    // グローバルメモリへのポインタ
+        offset: Box<AstNode>, // オフセット
+        value: Box<AstNode>,  // 加算する値
+        dtype: DType,         // 値の型
+    },
+
+    /// アトミック最大値（並列Reduce用）
+    /// グローバルメモリ上の値とのアトミックmax、古い値を返す
+    AtomicMax {
+        ptr: Box<AstNode>,
+        offset: Box<AstNode>,
+        value: Box<AstNode>,
+        dtype: DType,
+    },
+
     // Random number generation - 乱数生成
     /// 0〜1の一様乱数を生成（F32型）
     Rand,
@@ -254,6 +280,13 @@ impl AstNode {
             | AstNode::Sin(operand)
             | AstNode::BitwiseNot(operand)
             | AstNode::Cast(operand, _) => vec![operand.as_ref()],
+            AstNode::Fma { a, b, c } => vec![a.as_ref(), b.as_ref(), c.as_ref()],
+            AstNode::AtomicAdd {
+                ptr, offset, value, ..
+            }
+            | AstNode::AtomicMax {
+                ptr, offset, value, ..
+            } => vec![ptr.as_ref(), offset.as_ref(), value.as_ref()],
             AstNode::Load { ptr, offset, .. } => vec![ptr.as_ref(), offset.as_ref()],
             AstNode::Store { ptr, offset, value } => {
                 vec![ptr.as_ref(), offset.as_ref(), value.as_ref()]
@@ -369,6 +402,33 @@ impl AstNode {
             AstNode::Sin(operand) => AstNode::Sin(Box::new(f(operand))),
             AstNode::BitwiseNot(operand) => AstNode::BitwiseNot(Box::new(f(operand))),
             AstNode::Cast(operand, dtype) => AstNode::Cast(Box::new(f(operand)), dtype.clone()),
+            AstNode::Fma { a, b, c } => AstNode::Fma {
+                a: Box::new(f(a)),
+                b: Box::new(f(b)),
+                c: Box::new(f(c)),
+            },
+            AstNode::AtomicAdd {
+                ptr,
+                offset,
+                value,
+                dtype,
+            } => AstNode::AtomicAdd {
+                ptr: Box::new(f(ptr)),
+                offset: Box::new(f(offset)),
+                value: Box::new(f(value)),
+                dtype: dtype.clone(),
+            },
+            AstNode::AtomicMax {
+                ptr,
+                offset,
+                value,
+                dtype,
+            } => AstNode::AtomicMax {
+                ptr: Box::new(f(ptr)),
+                offset: Box::new(f(offset)),
+                value: Box::new(f(value)),
+                dtype: dtype.clone(),
+            },
             AstNode::Load {
                 ptr,
                 offset,
@@ -540,6 +600,12 @@ impl AstNode {
             // Mathematical operations that typically return F32
             AstNode::Sqrt(_) | AstNode::Log2(_) | AstNode::Exp2(_) | AstNode::Sin(_) => DType::F32,
 
+            // Fused Multiply-Add - returns same type as operands (typically F32)
+            AstNode::Fma { a, .. } => a.infer_type(),
+
+            // Atomic operations - return the old value at the memory location
+            AstNode::AtomicAdd { dtype, .. } | AstNode::AtomicMax { dtype, .. } => dtype.clone(),
+
             // Random number generation returns F32
             AstNode::Rand => DType::F32,
 
@@ -654,6 +720,25 @@ impl AstNode {
             | AstNode::BitwiseNot(operand)
             | AstNode::Cast(operand, _) => {
                 operand.check_scope(scope)?;
+                Ok(())
+            }
+            // Fused Multiply-Add
+            AstNode::Fma { a, b, c } => {
+                a.check_scope(scope)?;
+                b.check_scope(scope)?;
+                c.check_scope(scope)?;
+                Ok(())
+            }
+            // Atomic operations
+            AstNode::AtomicAdd {
+                ptr, offset, value, ..
+            }
+            | AstNode::AtomicMax {
+                ptr, offset, value, ..
+            } => {
+                ptr.check_scope(scope)?;
+                offset.check_scope(scope)?;
+                value.check_scope(scope)?;
                 Ok(())
             }
             // 定数とワイルドカードはスコープに依存しない

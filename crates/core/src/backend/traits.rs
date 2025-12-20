@@ -48,6 +48,53 @@ pub enum DeviceInstruction {
     NativeExpLog,
 }
 
+/// Operation kind for SIMD capability classification
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum OpKind {
+    /// Addition
+    Add,
+    /// Multiplication
+    Mul,
+    /// Division
+    Div,
+    /// Reciprocal
+    Recip,
+    /// Square root
+    Sqrt,
+    /// Logarithm base 2
+    Log2,
+    /// Exponential base 2
+    Exp2,
+    /// Sine
+    Sin,
+    /// Fused multiply-add
+    Fma,
+    /// Comparison operations (Lt, Le, Gt, Ge, Eq, Ne)
+    Compare,
+    /// Memory load
+    Load,
+    /// Memory store
+    Store,
+}
+
+/// SIMD capability entry describing supported vector width for a specific dtype and operation
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SimdCapability {
+    /// Data type
+    pub dtype: DType,
+    /// Operation kind
+    pub op: OpKind,
+    /// Supported vector width
+    pub width: usize,
+}
+
+impl SimdCapability {
+    /// Create a new SIMD capability entry
+    pub fn new(dtype: DType, op: OpKind, width: usize) -> Self {
+        Self { dtype, op, width }
+    }
+}
+
 /// Device profile containing hardware characteristics
 #[derive(Debug, Clone)]
 pub struct DeviceProfile {
@@ -65,8 +112,8 @@ pub struct DeviceProfile {
     pub warp_size: usize,
     /// Preferred tile sizes for loop tiling
     pub preferred_tile_sizes: Vec<usize>,
-    /// Supported vector widths (e.g., [1, 2, 4, 8])
-    pub supported_vector_widths: Vec<usize>,
+    /// SIMD capabilities per dtype and operation
+    pub simd_capabilities: Vec<SimdCapability>,
 }
 
 impl Default for DeviceProfile {
@@ -79,8 +126,76 @@ impl Default for DeviceProfile {
             local_memory_size: 32768, // 32KB
             warp_size: 32,
             preferred_tile_sizes: vec![16, 32, 64, 128],
-            supported_vector_widths: vec![1, 2, 4],
+            simd_capabilities: Self::default_simd_capabilities(),
         }
+    }
+}
+
+impl DeviceProfile {
+    /// Generate default SIMD capabilities for a typical GPU
+    fn default_simd_capabilities() -> Vec<SimdCapability> {
+        use OpKind::*;
+
+        let mut caps = Vec::new();
+
+        // F32: width 4 for most operations, width 2 for division/transcendental
+        for op in [Add, Mul, Fma, Compare, Load, Store] {
+            caps.push(SimdCapability::new(DType::F32, op, 4));
+        }
+        for op in [Div, Recip, Sqrt, Log2, Exp2, Sin] {
+            caps.push(SimdCapability::new(DType::F32, op, 2));
+        }
+
+        // Int: width 4 for most operations
+        for op in [Add, Mul, Compare, Load, Store] {
+            caps.push(SimdCapability::new(DType::Int, op, 4));
+        }
+        caps.push(SimdCapability::new(DType::Int, Div, 2));
+
+        caps
+    }
+
+    /// Get the maximum SIMD width for a specific dtype and operation
+    pub fn simd_width(&self, dtype: &DType, op: OpKind) -> usize {
+        self.simd_capabilities
+            .iter()
+            .filter(|c| &c.dtype == dtype && c.op == op)
+            .map(|c| c.width)
+            .max()
+            .unwrap_or(1) // Default to scalar if not found
+    }
+
+    /// Check if a specific SIMD width is supported for dtype and operation
+    pub fn supports_simd_width(&self, dtype: &DType, op: OpKind, width: usize) -> bool {
+        width <= self.simd_width(dtype, op)
+    }
+
+    /// Get all available SIMD widths for a dtype and operation (powers of 2 up to max)
+    pub fn available_simd_widths(&self, dtype: &DType, op: OpKind) -> Vec<usize> {
+        let max = self.simd_width(dtype, op);
+        let mut widths = Vec::new();
+        let mut w = 1;
+        while w <= max {
+            widths.push(w);
+            w *= 2;
+        }
+        widths
+    }
+
+    /// Get the minimum SIMD width across multiple operations (for vectorizing expressions)
+    pub fn common_simd_width(&self, dtype: &DType, ops: &[OpKind]) -> usize {
+        ops.iter()
+            .map(|&op| self.simd_width(dtype, op))
+            .min()
+            .unwrap_or(1)
+    }
+
+    /// Get all unique SIMD widths across all capabilities (sorted)
+    pub fn all_simd_widths(&self) -> Vec<usize> {
+        let mut widths: Vec<usize> = self.simd_capabilities.iter().map(|c| c.width).collect();
+        widths.sort();
+        widths.dedup();
+        widths
     }
 }
 
@@ -115,12 +230,12 @@ pub trait Device {
         true
     }
 
-    /// Get supported vector widths for SIMD operations
+    /// Get SIMD width for a specific dtype and operation
     ///
-    /// Returns a list of supported vector widths (e.g., [1, 2, 4]).
-    /// Default implementation returns [1, 2, 4].
-    fn supported_vector_widths(&self) -> Vec<usize> {
-        vec![1, 2, 4]
+    /// Returns the maximum supported vector width.
+    /// Default implementation queries the device profile.
+    fn simd_width(&self, dtype: &DType, op: OpKind) -> usize {
+        self.profile().simd_width(dtype, op)
     }
 }
 

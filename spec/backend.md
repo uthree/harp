@@ -124,7 +124,7 @@ let (optimized_graph, history) = optimizer.optimize_with_history(graph);
 `with_context()`でOptimizationContextを設定すると、各Suggesterはデバイス特性に基づいたパラメータを使用します：
 - TilingSuggester: `preferred_tile_sizes`を使用
 - KernelPartitionSuggester: `preferred_work_group_size_range`を使用
-- LoweringSuggester: `supported_vector_widths`を使用
+- LoweringSuggester: `simd_capabilities`（SIMD能力）を使用
 
 Pipelineを使用する場合、コンテキストは自動的に設定されます。
 
@@ -149,7 +149,7 @@ pub trait Device {
     fn profile(&self) -> DeviceProfile;
     fn supports_feature(&self, feature: DeviceFeature) -> bool;
     fn supports_instruction(&self, instruction: DeviceInstruction) -> bool;
-    fn supported_vector_widths(&self) -> Vec<usize>;
+    fn simd_width(&self, dtype: &DType, op: OpKind) -> usize;
 }
 ```
 
@@ -168,7 +168,7 @@ pub struct DeviceProfile {
     pub local_memory_size: usize,         // ローカルメモリサイズ
     pub warp_size: usize,                 // ワープ/ウェーブフロントサイズ
     pub preferred_tile_sizes: Vec<usize>, // 推奨タイルサイズ
-    pub supported_vector_widths: Vec<usize>,  // サポートされるベクトル幅
+    pub simd_capabilities: Vec<SimdCapability>,  // SIMD能力（dtype×op別）
 }
 
 pub enum DeviceFeature {
@@ -180,6 +180,43 @@ pub enum DeviceInstruction {
     Fma, Rsqrt, AtomicAddFloat, NativeDiv, NativeExpLog,
 }
 ```
+
+#### OpKind / SimdCapability
+
+演算子の種類とSIMD能力を表す型。データ型や演算の種類ごとに異なるSIMD幅をサポートするハードウェア特性を表現。
+
+```rust
+pub enum OpKind {
+    Add, Mul, Div, Recip, Sqrt, Log2, Exp2, Sin,
+    Fma, Compare, Load, Store,
+}
+
+pub struct SimdCapability {
+    pub dtype: DType,    // データ型
+    pub op: OpKind,      // 演算の種類
+    pub width: usize,    // サポートされるベクトル幅
+}
+```
+
+**クエリメソッド:**
+
+```rust
+impl DeviceProfile {
+    // 特定dtype×opの最大SIMD幅を取得
+    pub fn simd_width(&self, dtype: &DType, op: OpKind) -> usize;
+
+    // 複数演算で共通のSIMD幅を取得（式全体のベクトル化用）
+    pub fn common_simd_width(&self, dtype: &DType, ops: &[OpKind]) -> usize;
+
+    // 利用可能なSIMD幅一覧（1, 2, 4, ...）
+    pub fn available_simd_widths(&self, dtype: &DType, op: OpKind) -> Vec<usize>;
+
+    // 全能力から一意の幅リストを取得
+    pub fn all_simd_widths(&self) -> Vec<usize>;
+}
+```
+
+**設計意図:** ハードウェアによっては演算やデータ型ごとにSIMD幅が異なる場合がある（例: F32のMulは4幅だがSqrtは2幅、F64はF32の半分など）。この設計により、そのような特性を正確に表現できる。
 
 #### OptimizationContext
 
@@ -199,6 +236,45 @@ impl OptimizationContext {
 ```
 
 Pipelineは自動的にデバイスから`OptimizationContext`を作成し、Suggesterに渡します。これにより、タイルサイズ、スレッドグループサイズ、SIMD幅などがデバイス特性に基づいて最適化されます。
+
+**条件付き最適化ルール:**
+`DeviceInstruction`に基づいて適用される最適化ルールがあります。
+- `DeviceInstruction::Fma`: `a * b + c` → `fma(a, b, c)` 変換を適用
+- `DeviceInstruction::AtomicAddFloat`: 並列Reduceでatomic add使用可能
+
+```rust
+use harp::opt::ast::rules::{rules_for_context, search_rules_for_context};
+
+// デバイスサポートに基づくルールセット取得
+let rules = rules_for_context(&context);
+let search_rules = search_rules_for_context(&context);  // ビームサーチ用
+```
+
+#### PipelineConfig
+
+パイプラインの動作設定。
+
+```rust
+pub struct PipelineConfig {
+    pub graph_beam_width: usize,   // グラフ最適化のビーム幅
+    pub ast_beam_width: usize,     // AST最適化のビーム幅
+    pub max_steps: usize,          // 最適化の最大ステップ数
+    pub show_progress: bool,       // 進行状況表示
+    pub collect_history: bool,     // 最適化履歴の収集
+    pub fast_math: bool,           // 高速数学最適化の有効化
+}
+```
+
+**fast_math:**
+`fast_math: true`を設定すると、コンパイル時に高速数学オプションが適用されます。
+- **OpenCL**: `-cl-fast-relaxed-math -cl-mad-enable -cl-unsafe-math-optimizations`
+- **Metal**: `CompileOptions.fastMathEnabled = true`
+
+これによりパフォーマンスが向上しますが、数値精度が低下する可能性があります。
+
+```rust
+let config = PipelineConfig::default().with_fast_math(true);
+```
 
 #### Buffer
 GPUメモリバッファ。ホスト⇔デバイス間のデータ転送を提供。
@@ -563,3 +639,42 @@ harpc input.harp --embed-source
 - `check`: 構文チェックのみ
 - `ast`: ASTを出力
 - `fmt`: ソースコードをフォーマット
+
+---
+
+## 今後の実装予定
+
+### 並列Reduce (ReduceStrategy::Parallel)
+
+現在の`ReduceStrategy::Sequential`は単一スレッドでの逐次リダクションですが、GPUでの大規模配列には非効率。並列Reduceを実装することで高速化が可能。
+
+**追加予定の構造体:**
+```rust
+pub enum ReduceStrategy {
+    Sequential { unroll_factor: usize },
+    Parallel {
+        local_size: usize,    // ワークグループサイズ
+        use_atomics: bool,    // アトミック操作使用
+    },
+}
+```
+
+**2段階リダクションアルゴリズム:**
+1. **Stage 1 (ワークグループ内)**: 各スレッドがストライドアクセスで累積 → ローカルメモリでTree-based reduction
+2. **Stage 2 (グローバル集約)**: `AtomicAddFloat`サポート時はatomic_add、非サポート時は中間バッファ経由
+
+**実装に必要なファイル:**
+- `crates/core/src/graph/strategy.rs`: `ReduceStrategy::Parallel`追加
+- `crates/core/src/opt/graph/suggesters/lowering/reduce.rs`: `build_parallel_reduce_function()`実装
+- `crates/core/src/lowerer/reduce.rs`: 並列Reduce用カーネル生成
+
+**前提条件（実装済み）:**
+- `AstNode::AtomicAdd`, `AstNode::AtomicMax`バリアント
+- OpenCL/Metalでのatomicレンダリング
+- `DeviceInstruction::AtomicAddFloat`検出
+
+**推奨アプローチ:**
+1. シンプルなケース（`use_atomics: true`）から実装
+2. ローカルメモリ抽象化（`AstNode::AllocateLocal`）の検討
+3. 小配列でのユニットテストを先に作成
+4. 段階的に非アトミック版を追加

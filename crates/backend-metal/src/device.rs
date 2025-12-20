@@ -74,10 +74,10 @@ impl Device for MetalDevice {
 
     fn supports_feature(&self, feature: DeviceFeature) -> bool {
         match feature {
-            DeviceFeature::FastMath => true, // Metal supports fast math
-            DeviceFeature::HalfPrecision => true, // Metal always supports half
+            DeviceFeature::FastMath => true,         // Metal supports fast math
+            DeviceFeature::HalfPrecision => true,    // Metal always supports half
             DeviceFeature::DoublePrecision => false, // Apple GPUs don't support double
-            DeviceFeature::LocalMemory => true, // Threadgroup memory is always available
+            DeviceFeature::LocalMemory => true,      // Threadgroup memory is always available
             DeviceFeature::AtomicOperations => true, // Basic atomics supported
             DeviceFeature::SubgroupOperations => true, // SIMD-group functions available
         }
@@ -85,7 +85,7 @@ impl Device for MetalDevice {
 
     fn supports_instruction(&self, instruction: DeviceInstruction) -> bool {
         match instruction {
-            DeviceInstruction::Fma => true, // fma() is standard in Metal
+            DeviceInstruction::Fma => true,   // fma() is standard in Metal
             DeviceInstruction::Rsqrt => true, // rsqrt() is available
             DeviceInstruction::AtomicAddFloat => true, // Metal supports atomic float
             DeviceInstruction::NativeDiv => true, // Native divide available

@@ -94,6 +94,36 @@ impl MetalCompiler {
             config,
         ))
     }
+
+    /// Compile with fast math optimizations enabled
+    ///
+    /// This enables Metal's fast math mode which can significantly improve
+    /// performance but may affect numerical precision.
+    pub fn compile_with_fast_math(
+        &self,
+        device: &MetalDevice,
+        source: &str,
+        config: KernelConfig,
+    ) -> Result<MetalKernel, MetalError> {
+        let options = CompileOptions::new();
+        options.set_fast_math_enabled(true);
+        self.compile_with_options(device, source, config, &options)
+    }
+
+    /// Compile with optional fast math based on configuration
+    pub fn compile_configurable(
+        &self,
+        device: &MetalDevice,
+        source: &str,
+        config: KernelConfig,
+        fast_math: bool,
+    ) -> Result<MetalKernel, MetalError> {
+        if fast_math {
+            self.compile_with_fast_math(device, source, config)
+        } else {
+            self.compile(device, source, config)
+        }
+    }
 }
 
 #[cfg(test)]

@@ -41,6 +41,10 @@ impl Compiler for OpenCLCompiler {
 }
 
 impl OpenCLCompiler {
+    /// OpenCL fast math compilation options
+    pub const FAST_MATH_OPTIONS: &'static str =
+        "-cl-fast-relaxed-math -cl-mad-enable -cl-unsafe-math-optimizations";
+
     /// Compile with build options
     pub fn compile_with_options(
         &self,
@@ -61,5 +65,33 @@ impl OpenCLCompiler {
             Arc::clone(&context.queue),
             config,
         ))
+    }
+
+    /// Compile with fast math optimizations enabled
+    ///
+    /// This enables `-cl-fast-relaxed-math -cl-mad-enable -cl-unsafe-math-optimizations`
+    /// which can significantly improve performance but may affect numerical precision.
+    pub fn compile_with_fast_math(
+        &self,
+        context: &OpenCLDevice,
+        source: &str,
+        config: KernelConfig,
+    ) -> Result<OpenCLKernel, OpenCLError> {
+        self.compile_with_options(context, source, config, Self::FAST_MATH_OPTIONS)
+    }
+
+    /// Compile with optional fast math based on configuration
+    pub fn compile_configurable(
+        &self,
+        context: &OpenCLDevice,
+        source: &str,
+        config: KernelConfig,
+        fast_math: bool,
+    ) -> Result<OpenCLKernel, OpenCLError> {
+        if fast_math {
+            self.compile_with_fast_math(context, source, config)
+        } else {
+            self.compile(context, source, config)
+        }
     }
 }

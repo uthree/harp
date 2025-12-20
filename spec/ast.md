@@ -14,6 +14,8 @@
 
 演算子オーバーロードで提供: 減算（`a - b = a + (-b)`）, 除算（`a / b = a * recip(b)`）
 
+ハードウェア最適化演算: `Fma`（Fused Multiply-Add）, `AtomicAdd`, `AtomicMax`（並列Reduce用）
+
 ### ヘルパー関数とビルダー
 
 `src/ast/helper.rs`にAST構築を簡潔にするヘルパー関数群を提供しています。

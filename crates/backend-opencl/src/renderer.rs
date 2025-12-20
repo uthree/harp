@@ -323,6 +323,42 @@ impl CLikeRenderer for OpenCLRenderer {
             None => format!("{}[{}]", ptr_expr, offset_expr),
         }
     }
+
+    fn render_atomic_add(&self, ptr: &str, offset: &str, value: &str, dtype: &DType) -> String {
+        match dtype {
+            DType::Int => {
+                // OpenCLの標準atomic_add（整数用）
+                format!("atomic_add(&{}[{}], {})", ptr, offset, value)
+            }
+            DType::F32 => {
+                // OpenCLはfloatのatomic_addを標準でサポートしない
+                // cl_khr_global_int32_extended_atomics拡張が必要
+                // ここではCASループを使用したヘルパー関数を想定
+                format!("atomic_add_float(&{}[{}], {})", ptr, offset, value)
+            }
+            _ => format!(
+                "/* unsupported atomic_add for {:?} */ {}[{}] += {}",
+                dtype, ptr, offset, value
+            ),
+        }
+    }
+
+    fn render_atomic_max(&self, ptr: &str, offset: &str, value: &str, dtype: &DType) -> String {
+        match dtype {
+            DType::Int => {
+                // OpenCLの標準atomic_max（整数用）
+                format!("atomic_max(&{}[{}], {})", ptr, offset, value)
+            }
+            DType::F32 => {
+                // floatのatomic_maxはCASループが必要
+                format!("atomic_max_float(&{}[{}], {})", ptr, offset, value)
+            }
+            _ => format!(
+                "/* unsupported atomic_max for {:?} */ {}[{}] = max({}[{}], {})",
+                dtype, ptr, offset, ptr, offset, value
+            ),
+        }
+    }
 }
 
 /// Implementation of KernelSourceRenderer for native OpenCL backend

@@ -42,6 +42,38 @@ impl_unary_helper!(log2, Log2, "Create a log2 node: log2(a)");
 impl_unary_helper!(exp2, Exp2, "Create an exp2 node: 2^a");
 impl_unary_helper!(sin, Sin, "Create a sine node: sin(a)");
 
+/// Create a fused multiply-add node: fma(a, b, c) = a * b + c
+/// This is more accurate and potentially faster than separate multiply and add operations.
+pub fn fma(a: AstNode, b: AstNode, c: AstNode) -> AstNode {
+    AstNode::Fma {
+        a: Box::new(a),
+        b: Box::new(b),
+        c: Box::new(c),
+    }
+}
+
+/// Create an atomic add node for parallel reduction
+/// Atomically adds value to the memory location at ptr[offset] and returns the old value.
+pub fn atomic_add(ptr: AstNode, offset: AstNode, value: AstNode, dtype: DType) -> AstNode {
+    AstNode::AtomicAdd {
+        ptr: Box::new(ptr),
+        offset: Box::new(offset),
+        value: Box::new(value),
+        dtype,
+    }
+}
+
+/// Create an atomic max node for parallel reduction
+/// Atomically computes max of current value and new value at ptr[offset], returns the old value.
+pub fn atomic_max(ptr: AstNode, offset: AstNode, value: AstNode, dtype: DType) -> AstNode {
+    AstNode::AtomicMax {
+        ptr: Box::new(ptr),
+        offset: Box::new(offset),
+        value: Box::new(value),
+        dtype,
+    }
+}
+
 /// Create a random number node: generates uniform random value in [0, 1)
 pub fn rand() -> AstNode {
     AstNode::Rand

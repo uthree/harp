@@ -64,6 +64,17 @@ pub trait CLikeRenderer: Renderer {
     /// 数学関数をレンダリング（max vs fmaxf など）
     fn render_math_func(&self, name: &str, args: &[String]) -> String;
 
+    /// Fused Multiply-Addをレンダリング
+    fn render_fma(&self, a: &str, b: &str, c: &str) -> String {
+        format!("fma({}, {}, {})", a, b, c)
+    }
+
+    /// アトミック加算をレンダリング（バックエンド固有の実装が必要）
+    fn render_atomic_add(&self, ptr: &str, offset: &str, value: &str, dtype: &DType) -> String;
+
+    /// アトミック最大値をレンダリング（バックエンド固有の実装が必要）
+    fn render_atomic_max(&self, ptr: &str, offset: &str, value: &str, dtype: &DType) -> String;
+
     /// ベクトルロードをレンダリング（デフォルトはreinterpret_cast）
     fn render_vector_load(&self, ptr_expr: &str, offset_expr: &str, dtype: &str) -> String {
         format!(
@@ -254,6 +265,33 @@ pub trait CLikeRenderer: Renderer {
                     dtype_str, size_expr, dtype_str
                 )
             }
+            AstNode::Fma { a, b, c } => self.render_fma(
+                &self.render_expr(a),
+                &self.render_expr(b),
+                &self.render_expr(c),
+            ),
+            AstNode::AtomicAdd {
+                ptr,
+                offset,
+                value,
+                dtype,
+            } => self.render_atomic_add(
+                &self.render_expr(ptr),
+                &self.render_expr(offset),
+                &self.render_expr(value),
+                dtype,
+            ),
+            AstNode::AtomicMax {
+                ptr,
+                offset,
+                value,
+                dtype,
+            } => self.render_atomic_max(
+                &self.render_expr(ptr),
+                &self.render_expr(offset),
+                &self.render_expr(value),
+                dtype,
+            ),
             _ => format!("/* unsupported expression: {:?} */", node),
         }
     }

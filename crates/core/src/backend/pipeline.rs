@@ -48,6 +48,12 @@ pub struct PipelineConfig {
     pub show_progress: bool,
     /// Collect optimization history
     pub collect_history: bool,
+    /// Enable fast math optimizations
+    ///
+    /// When enabled, the compiler may use faster but potentially less precise
+    /// math operations (e.g., -cl-fast-relaxed-math for OpenCL).
+    /// This can improve performance but may affect numerical precision.
+    pub fast_math: bool,
 }
 
 impl Default for PipelineConfig {
@@ -58,7 +64,16 @@ impl Default for PipelineConfig {
             max_steps: 5000,
             show_progress: false,
             collect_history: cfg!(debug_assertions),
+            fast_math: false, // デフォルトは無効（精度優先）
         }
+    }
+}
+
+impl PipelineConfig {
+    /// Enable fast math optimizations
+    pub fn with_fast_math(mut self, enabled: bool) -> Self {
+        self.fast_math = enabled;
+        self
     }
 }
 

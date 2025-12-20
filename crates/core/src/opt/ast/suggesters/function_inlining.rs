@@ -382,6 +382,27 @@ impl FunctionInliningSuggester {
             AstNode::BitwiseNot(_) => AstNode::BitwiseNot(Box::new(children[0].clone())),
             AstNode::Cast(_, dtype) => AstNode::Cast(Box::new(children[0].clone()), dtype.clone()),
 
+            // Fused Multiply-Add
+            AstNode::Fma { .. } => AstNode::Fma {
+                a: Box::new(children[0].clone()),
+                b: Box::new(children[1].clone()),
+                c: Box::new(children[2].clone()),
+            },
+
+            // Atomic operations
+            AstNode::AtomicAdd { dtype, .. } => AstNode::AtomicAdd {
+                ptr: Box::new(children[0].clone()),
+                offset: Box::new(children[1].clone()),
+                value: Box::new(children[2].clone()),
+                dtype: dtype.clone(),
+            },
+            AstNode::AtomicMax { dtype, .. } => AstNode::AtomicMax {
+                ptr: Box::new(children[0].clone()),
+                offset: Box::new(children[1].clone()),
+                value: Box::new(children[2].clone()),
+                dtype: dtype.clone(),
+            },
+
             // メモリ操作
             AstNode::Load { count, dtype, .. } => AstNode::Load {
                 ptr: Box::new(children[0].clone()),

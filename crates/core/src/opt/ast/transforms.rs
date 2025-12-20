@@ -87,6 +87,21 @@ fn collect_var_names_recursive(ast: &AstNode, names: &mut HashSet<String>) {
         | AstNode::Cast(a, _) => {
             collect_var_names_recursive(a, names);
         }
+        AstNode::Fma { a, b, c } => {
+            collect_var_names_recursive(a, names);
+            collect_var_names_recursive(b, names);
+            collect_var_names_recursive(c, names);
+        }
+        AstNode::AtomicAdd {
+            ptr, offset, value, ..
+        }
+        | AstNode::AtomicMax {
+            ptr, offset, value, ..
+        } => {
+            collect_var_names_recursive(ptr, names);
+            collect_var_names_recursive(offset, names);
+            collect_var_names_recursive(value, names);
+        }
         AstNode::Store { ptr, offset, value } => {
             collect_var_names_recursive(ptr, names);
             collect_var_names_recursive(offset, names);

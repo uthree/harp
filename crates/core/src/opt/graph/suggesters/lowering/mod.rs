@@ -80,9 +80,8 @@ impl LoweringSuggester {
     /// サポートされているベクトル幅のうち、1より大きいものをSIMD幅として使用します。
     pub fn from_context(ctx: &OptimizationContext) -> Self {
         let simd_widths: Vec<usize> = ctx
-            .supported_vector_widths()
-            .iter()
-            .copied()
+            .all_simd_widths()
+            .into_iter()
             .filter(|&w| w > 1)
             .collect();
 

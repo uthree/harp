@@ -121,6 +121,23 @@ impl LoopAnalyzer {
             | AstNode::Cast(a, _) => {
                 self.analyze_recursive(a);
             }
+            // Fused Multiply-Add
+            AstNode::Fma { a, b, c } => {
+                self.analyze_recursive(a);
+                self.analyze_recursive(b);
+                self.analyze_recursive(c);
+            }
+            // Atomic operations - these are inherently parallel-safe
+            AstNode::AtomicAdd {
+                ptr, offset, value, ..
+            }
+            | AstNode::AtomicMax {
+                ptr, offset, value, ..
+            } => {
+                self.analyze_recursive(ptr);
+                self.analyze_recursive(offset);
+                self.analyze_recursive(value);
+            }
             AstNode::Load { ptr, offset, .. } => {
                 self.analyze_recursive(ptr);
                 self.analyze_recursive(offset);
@@ -359,6 +376,37 @@ pub fn substitute_var(ast: &AstNode, var_name: &str, replacement: &AstNode) -> A
             Box::new(substitute_var(a, var_name, replacement)),
             dtype.clone(),
         ),
+
+        // Fused Multiply-Add
+        AstNode::Fma { a, b, c } => AstNode::Fma {
+            a: Box::new(substitute_var(a, var_name, replacement)),
+            b: Box::new(substitute_var(b, var_name, replacement)),
+            c: Box::new(substitute_var(c, var_name, replacement)),
+        },
+
+        // Atomic operations
+        AstNode::AtomicAdd {
+            ptr,
+            offset,
+            value,
+            dtype,
+        } => AstNode::AtomicAdd {
+            ptr: Box::new(substitute_var(ptr, var_name, replacement)),
+            offset: Box::new(substitute_var(offset, var_name, replacement)),
+            value: Box::new(substitute_var(value, var_name, replacement)),
+            dtype: dtype.clone(),
+        },
+        AstNode::AtomicMax {
+            ptr,
+            offset,
+            value,
+            dtype,
+        } => AstNode::AtomicMax {
+            ptr: Box::new(substitute_var(ptr, var_name, replacement)),
+            offset: Box::new(substitute_var(offset, var_name, replacement)),
+            value: Box::new(substitute_var(value, var_name, replacement)),
+            dtype: dtype.clone(),
+        },
 
         // メモリ操作
         AstNode::Load {
@@ -718,6 +766,25 @@ impl FreeVariableCollector {
             | AstNode::BitwiseNot(a)
             | AstNode::Cast(a, _) => {
                 self.collect_recursive(a);
+            }
+
+            // Fused Multiply-Add
+            AstNode::Fma { a, b, c } => {
+                self.collect_recursive(a);
+                self.collect_recursive(b);
+                self.collect_recursive(c);
+            }
+
+            // Atomic operations
+            AstNode::AtomicAdd {
+                ptr, offset, value, ..
+            }
+            | AstNode::AtomicMax {
+                ptr, offset, value, ..
+            } => {
+                self.collect_recursive(ptr);
+                self.collect_recursive(offset);
+                self.collect_recursive(value);
             }
 
             // メモリ操作

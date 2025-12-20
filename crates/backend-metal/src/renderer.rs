@@ -286,6 +286,52 @@ impl CLikeRenderer for MetalKernelRenderer {
     fn render_math_func(&self, name: &str, args: &[String]) -> String {
         render_math_func_metal(name, args)
     }
+
+    fn render_vector_load(&self, ptr_expr: &str, offset_expr: &str, _dtype: &str) -> String {
+        format!("{}[{}]", ptr_expr, offset_expr)
+    }
+
+    fn render_atomic_add(&self, ptr: &str, offset: &str, value: &str, dtype: &DType) -> String {
+        match dtype {
+            DType::Int => {
+                format!(
+                    "atomic_fetch_add_explicit((device atomic_int*)&{}[{}], {}, memory_order_relaxed)",
+                    ptr, offset, value
+                )
+            }
+            DType::F32 => {
+                format!(
+                    "atomic_fetch_add_explicit((device atomic<float>*)&{}[{}], {}, memory_order_relaxed)",
+                    ptr, offset, value
+                )
+            }
+            _ => format!(
+                "/* unsupported atomic_add for {:?} */ {}[{}] += {}",
+                dtype, ptr, offset, value
+            ),
+        }
+    }
+
+    fn render_atomic_max(&self, ptr: &str, offset: &str, value: &str, dtype: &DType) -> String {
+        match dtype {
+            DType::Int => {
+                format!(
+                    "atomic_fetch_max_explicit((device atomic_int*)&{}[{}], {}, memory_order_relaxed)",
+                    ptr, offset, value
+                )
+            }
+            DType::F32 => {
+                format!(
+                    "atomic_fetch_max_explicit((device atomic<float>*)&{}[{}], {}, memory_order_relaxed)",
+                    ptr, offset, value
+                )
+            }
+            _ => format!(
+                "/* unsupported atomic_max for {:?} */ {}[{}] = max({}[{}], {})",
+                dtype, ptr, offset, ptr, offset, value
+            ),
+        }
+    }
 }
 
 // CLikeRendererトレイトの実装（共通ヘルパー関数を使用）
@@ -325,6 +371,56 @@ impl CLikeRenderer for MetalRenderer {
 
     fn render_math_func(&self, name: &str, args: &[String]) -> String {
         render_math_func_metal(name, args)
+    }
+
+    fn render_vector_load(&self, ptr_expr: &str, offset_expr: &str, _dtype: &str) -> String {
+        // Metalではポインタアクセスを使用
+        format!("{}[{}]", ptr_expr, offset_expr)
+    }
+
+    fn render_atomic_add(&self, ptr: &str, offset: &str, value: &str, dtype: &DType) -> String {
+        match dtype {
+            DType::Int => {
+                // Metalのatomic_fetch_add_explicit
+                format!(
+                    "atomic_fetch_add_explicit((device atomic_int*)&{}[{}], {}, memory_order_relaxed)",
+                    ptr, offset, value
+                )
+            }
+            DType::F32 => {
+                // Metal 3.0以降でfloatのアトミック操作がサポートされている
+                format!(
+                    "atomic_fetch_add_explicit((device atomic<float>*)&{}[{}], {}, memory_order_relaxed)",
+                    ptr, offset, value
+                )
+            }
+            _ => format!(
+                "/* unsupported atomic_add for {:?} */ {}[{}] += {}",
+                dtype, ptr, offset, value
+            ),
+        }
+    }
+
+    fn render_atomic_max(&self, ptr: &str, offset: &str, value: &str, dtype: &DType) -> String {
+        match dtype {
+            DType::Int => {
+                format!(
+                    "atomic_fetch_max_explicit((device atomic_int*)&{}[{}], {}, memory_order_relaxed)",
+                    ptr, offset, value
+                )
+            }
+            DType::F32 => {
+                // Metal 3.0以降でfloatのアトミック操作がサポートされている
+                format!(
+                    "atomic_fetch_max_explicit((device atomic<float>*)&{}[{}], {}, memory_order_relaxed)",
+                    ptr, offset, value
+                )
+            }
+            _ => format!(
+                "/* unsupported atomic_max for {:?} */ {}[{}] = max({}[{}], {})",
+                dtype, ptr, offset, ptr, offset, value
+            ),
+        }
     }
 }
 

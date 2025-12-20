@@ -129,6 +129,24 @@ mod tests {
         fn render_math_func(&self, name: &str, args: &[String]) -> String {
             format!("{}({})", name, args.join(", "))
         }
+        fn render_atomic_add(
+            &self,
+            ptr: &str,
+            offset: &str,
+            value: &str,
+            _dtype: &DType,
+        ) -> String {
+            format!("atomic_add(&{}[{}], {})", ptr, offset, value)
+        }
+        fn render_atomic_max(
+            &self,
+            ptr: &str,
+            offset: &str,
+            value: &str,
+            _dtype: &DType,
+        ) -> String {
+            format!("atomic_max(&{}[{}], {})", ptr, offset, value)
+        }
     }
 
     fn render_ast(ast: &super::AstNode) -> String {

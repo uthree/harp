@@ -101,7 +101,7 @@ impl Device for OpenCLDevice {
     fn supports_instruction(&self, instruction: DeviceInstruction) -> bool {
         let extensions = self.query_extensions();
         match instruction {
-            DeviceInstruction::Fma => true, // fma() is standard in OpenCL
+            DeviceInstruction::Fma => true,   // fma() is standard in OpenCL
             DeviceInstruction::Rsqrt => true, // rsqrt() is standard in OpenCL
             DeviceInstruction::AtomicAddFloat => {
                 extensions.contains("cl_ext_float_atomics")

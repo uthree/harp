@@ -9,6 +9,8 @@ pub mod const_folding;
 mod macros;
 
 use crate::ast::pat::AstRewriteRule;
+use crate::backend::traits::DeviceInstruction;
+use crate::opt::context::OptimizationContext;
 use std::rc::Rc;
 
 // 各モジュールから主要な関数を再エクスポート
@@ -18,6 +20,8 @@ pub use algebraic::{
     add_associate_right_to_left,
     // 交換則
     add_commutative,
+    // FMA
+    add_mul_to_fma,
     // 同項規則
     add_same_to_mul_two,
     // 単位元
@@ -34,6 +38,8 @@ pub use algebraic::{
     max_commutative,
     // 冪等則
     max_idempotent,
+    // FMA
+    mul_add_to_fma,
     mul_associate_left_to_right,
     mul_associate_right_to_left,
     mul_commutative,
@@ -100,6 +106,51 @@ pub fn all_algebraic_rules() -> Vec<Rc<AstRewriteRule>> {
     rules.extend(simplification_rules());
     rules.extend(normalization_rules());
     // 交換則は探索用なのでデフォルトには含めない（無限ループの可能性）
+    rules
+}
+
+/// FMA（Fused Multiply-Add）ルール集
+///
+/// a * b + c => fma(a, b, c) および c + a * b => fma(a, b, c) の変換ルール
+/// DeviceInstruction::Fma がサポートされている場合に使用
+pub fn fma_rules() -> Vec<Rc<AstRewriteRule>> {
+    vec![mul_add_to_fma(), add_mul_to_fma()]
+}
+
+/// OptimizationContextに基づいて最適化ルールを取得
+///
+/// デバイスがサポートする命令に応じて、適切なルールセットを返します：
+/// - FMAサポート時：mul_add_to_fma, add_mul_to_fma を追加
+///
+/// # Example
+/// ```ignore
+/// let ctx = OptimizationContext::from_device(&device);
+/// let rules = rules_for_context(&ctx);
+/// let optimizer = RuleBaseOptimizer::new(rules);
+/// ```
+pub fn rules_for_context(ctx: &OptimizationContext) -> Vec<Rc<AstRewriteRule>> {
+    let mut rules = all_algebraic_rules();
+
+    // FMAサポート時はFMAルールを追加
+    if ctx.instructions.contains(&DeviceInstruction::Fma) {
+        rules.extend(fma_rules());
+    }
+
+    rules
+}
+
+/// OptimizationContextに基づいて探索用ルールを取得（交換則・分配則を含む）
+///
+/// `rules_for_context`と同様にデバイスサポートを考慮しつつ、
+/// ビームサーチ等の探索ベース最適化用のルールセットを返します。
+pub fn search_rules_for_context(ctx: &OptimizationContext) -> Vec<Rc<AstRewriteRule>> {
+    let mut rules = all_rules_with_search();
+
+    // FMAサポート時はFMAルールを追加
+    if ctx.instructions.contains(&DeviceInstruction::Fma) {
+        rules.extend(fma_rules());
+    }
+
     rules
 }
 
@@ -450,6 +501,38 @@ mod tests {
         let input = log2(exp2(var_a.clone()));
         let result = rule.apply(&input);
         assert_eq!(result, var_a);
+    }
+
+    #[test]
+    fn test_mul_add_to_fma() {
+        use crate::ast::helper::fma;
+        let rule = mul_add_to_fma();
+        // a * b + c => fma(a, b, c)
+        let a = var("a");
+        let b = var("b");
+        let c = var("c");
+        let input = a.clone() * b.clone() + c.clone();
+        let result = rule.apply(&input);
+        assert_eq!(result, fma(a, b, c));
+    }
+
+    #[test]
+    fn test_add_mul_to_fma() {
+        use crate::ast::helper::fma;
+        let rule = add_mul_to_fma();
+        // c + a * b => fma(a, b, c)
+        let a = var("a");
+        let b = var("b");
+        let c = var("c");
+        let input = c.clone() + a.clone() * b.clone();
+        let result = rule.apply(&input);
+        assert_eq!(result, fma(a, b, c));
+    }
+
+    #[test]
+    fn test_fma_rules_collection() {
+        let rules = fma_rules();
+        assert_eq!(rules.len(), 2, "Should contain 2 FMA rules");
     }
 
     #[test]

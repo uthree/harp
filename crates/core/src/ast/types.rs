@@ -1,7 +1,7 @@
 //! データ型とリテラルの定義
 
 /// ASTノードの型を表す列挙型
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DType {
     Bool,                   // boolean (internally represented as u8: 0 = false, non-zero = true)
     Int,                    // integer (for array indexing and general computation)

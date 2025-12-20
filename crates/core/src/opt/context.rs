@@ -3,7 +3,8 @@
 //! This module provides a context that carries device information
 //! throughout the optimization pipeline.
 
-use crate::backend::{Device, DeviceFeature, DeviceInstruction, DeviceProfile};
+use crate::ast::DType;
+use crate::backend::{Device, DeviceFeature, DeviceInstruction, DeviceProfile, OpKind};
 use std::collections::HashSet;
 
 /// Optimization context carrying device information
@@ -108,9 +109,24 @@ impl OptimizationContext {
         self.profile.max_work_group_size
     }
 
-    /// Get supported vector widths
-    pub fn supported_vector_widths(&self) -> &[usize] {
-        &self.profile.supported_vector_widths
+    /// Get SIMD width for a specific dtype and operation
+    pub fn simd_width(&self, dtype: &DType, op: OpKind) -> usize {
+        self.profile.simd_width(dtype, op)
+    }
+
+    /// Get common SIMD width across multiple operations
+    pub fn common_simd_width(&self, dtype: &DType, ops: &[OpKind]) -> usize {
+        self.profile.common_simd_width(dtype, ops)
+    }
+
+    /// Get available SIMD widths for a dtype and operation
+    pub fn available_simd_widths(&self, dtype: &DType, op: OpKind) -> Vec<usize> {
+        self.profile.available_simd_widths(dtype, op)
+    }
+
+    /// Get all unique SIMD widths across all capabilities
+    pub fn all_simd_widths(&self) -> Vec<usize> {
+        self.profile.all_simd_widths()
     }
 }
 
