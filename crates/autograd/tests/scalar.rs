@@ -1,4 +1,4 @@
-use autograd::{Add, Mul, Neg, Recip, Variable};
+use autograd::{Recip, Variable};
 
 // ============================================================================
 // 順伝播のテスト
@@ -59,12 +59,8 @@ fn test_add_backward() {
     // ∂z/∂x = 1, ∂z/∂y = 1
     let x = Variable::new(2.0_f64);
     let y = Variable::new(3.0_f64);
-    let z = &x + &y;
+    let z = &x + &y; // 演算子が自動で grad_fn を設定
 
-    // grad_fn を設定
-    z.set_grad_fn(Box::new(Add::new(x.clone(), y.clone())));
-
-    // backward
     z.backward();
 
     assert_eq!(x.grad().unwrap().value(), 1.0);
@@ -77,12 +73,8 @@ fn test_mul_backward() {
     // ∂z/∂x = y, ∂z/∂y = x
     let x = Variable::new(2.0_f64);
     let y = Variable::new(3.0_f64);
-    let z = &x * &y;
+    let z = &x * &y; // 演算子が自動で grad_fn を設定
 
-    // grad_fn を設定
-    z.set_grad_fn(Box::new(Mul::new(x.clone(), y.clone())));
-
-    // backward
     z.backward();
 
     assert_eq!(x.grad().unwrap().value(), 3.0); // ∂z/∂x = y = 3
@@ -94,12 +86,8 @@ fn test_neg_backward() {
     // z = -x
     // ∂z/∂x = -1
     let x = Variable::new(3.0_f64);
-    let z = -&x;
+    let z = -&x; // 演算子が自動で grad_fn を設定
 
-    // grad_fn を設定
-    z.set_grad_fn(Box::new(Neg::new(x.clone())));
-
-    // backward
     z.backward();
 
     assert_eq!(x.grad().unwrap().value(), -1.0);
@@ -134,15 +122,12 @@ fn test_chain_rule() {
     let one = Variable::new(1.0_f64);
     let two = Variable::new(2.0_f64);
 
-    // x + 1
+    // x + 1 (演算子が自動で grad_fn を設定)
     let sum = &x + &one;
-    sum.set_grad_fn(Box::new(Add::new(x.clone(), one.clone())));
 
-    // (x + 1) * 2
+    // (x + 1) * 2 (演算子が自動で grad_fn を設定)
     let result = &sum * &two;
-    result.set_grad_fn(Box::new(Mul::new(sum.clone(), two.clone())));
 
-    // backward
     result.backward();
 
     // ∂result/∂sum = 2, ∂sum/∂x = 1
@@ -155,12 +140,8 @@ fn test_multiple_paths() {
     // f(x) = x * x = x²
     // df/dx = 2x
     let x = Variable::new(3.0_f64);
-    let z = &x * &x;
+    let z = &x * &x; // 演算子が自動で grad_fn を設定
 
-    // grad_fn を設定（x を両方の入力として使用）
-    z.set_grad_fn(Box::new(Mul::new(x.clone(), x.clone())));
-
-    // backward
     z.backward();
 
     // ∂z/∂x = 2x = 6
@@ -178,16 +159,14 @@ fn test_gradient_accumulation() {
     let x = Variable::new(2.0_f64);
     let y = Variable::new(3.0_f64);
 
-    // z1 = x + y
+    // z1 = x + y (演算子が自動で grad_fn を設定)
     let z1 = &x + &y;
-    z1.set_grad_fn(Box::new(Add::new(x.clone(), y.clone())));
     z1.backward();
 
     assert_eq!(x.grad().unwrap().value(), 1.0);
 
     // 再度 backward (勾配が累積される)
     let z2 = &x + &y;
-    z2.set_grad_fn(Box::new(Add::new(x.clone(), y.clone())));
     z2.backward();
 
     // 1.0 + 1.0 = 2.0
@@ -199,8 +178,7 @@ fn test_zero_grad() {
     let x = Variable::new(2.0_f64);
     let y = Variable::new(3.0_f64);
 
-    let z = &x + &y;
-    z.set_grad_fn(Box::new(Add::new(x.clone(), y.clone())));
+    let z = &x + &y; // 演算子が自動で grad_fn を設定
     z.backward();
 
     assert!(x.grad().is_some());
@@ -216,8 +194,7 @@ fn test_detach() {
     let x = Variable::new(2.0_f64);
     let y = Variable::new(3.0_f64);
 
-    let z = &x + &y;
-    z.set_grad_fn(Box::new(Add::new(x.clone(), y.clone())));
+    let z = &x + &y; // 演算子が自動で grad_fn を設定
 
     // detach で grad_fn を削除
     z.detach();
@@ -241,13 +218,11 @@ fn test_simple_chain() {
     let one = Variable::new(1.0_f64);
     let two = Variable::new(2.0_f64);
 
-    // x + 1 = 4
+    // x + 1 = 4 (演算子が自動で grad_fn を設定)
     let sum = &x + &one;
-    sum.set_grad_fn(Box::new(Add::new(x.clone(), one.clone())));
 
-    // 2 * (x + 1) = 8
+    // 2 * (x + 1) = 8 (演算子が自動で grad_fn を設定)
     let result = &two * &sum;
-    result.set_grad_fn(Box::new(Mul::new(two.clone(), sum.clone())));
 
     assert_eq!(result.value(), 8.0);
 
@@ -266,11 +241,10 @@ fn test_division_chain() {
     let x = Variable::new(1.0_f64);
     let one = Variable::new(1.0_f64);
 
-    // x + 1 = 2
+    // x + 1 = 2 (演算子が自動で grad_fn を設定)
     let sum = &x + &one;
-    sum.set_grad_fn(Box::new(Add::new(x.clone(), one.clone())));
 
-    // 1 / (x + 1) = 0.5
+    // 1 / (x + 1) = 0.5 (Recip 演算子は未実装なので手動設定)
     let result = Variable::new(1.0 / sum.value());
     result.set_grad_fn(Box::new(Recip::new(sum.clone())));
 

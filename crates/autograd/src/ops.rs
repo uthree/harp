@@ -1,6 +1,7 @@
 use std::ops;
 
 use crate::Variable;
+use crate::arithmetic::{Add, Mul, Neg};
 
 // ============================================================================
 // 演算子の実装（参照）
@@ -9,28 +10,32 @@ use crate::Variable;
 // &Variable<T> + &Variable<T> -> Variable<T>
 impl<T> ops::Add<&Variable<T>> for &Variable<T>
 where
-    T: ops::Add<T, Output = T> + Clone,
+    T: ops::Add<T, Output = T> + Clone + 'static,
 {
     type Output = Variable<T>;
 
     fn add(self, rhs: &Variable<T>) -> Variable<T> {
         let lhs_val = self.0.lock().unwrap().value.clone();
         let rhs_val = rhs.0.lock().unwrap().value.clone();
-        Variable::new(lhs_val + rhs_val)
+        let result = Variable::new(lhs_val + rhs_val);
+        result.set_grad_fn(Box::new(Add::new(self.clone(), rhs.clone())));
+        result
     }
 }
 
 // &Variable<T> * &Variable<T> -> Variable<T>
 impl<T> ops::Mul<&Variable<T>> for &Variable<T>
 where
-    T: ops::Mul<T, Output = T> + Clone,
+    T: ops::Add<T, Output = T> + ops::Mul<T, Output = T> + Clone + 'static,
 {
     type Output = Variable<T>;
 
     fn mul(self, rhs: &Variable<T>) -> Variable<T> {
         let lhs_val = self.0.lock().unwrap().value.clone();
         let rhs_val = rhs.0.lock().unwrap().value.clone();
-        Variable::new(lhs_val * rhs_val)
+        let result = Variable::new(lhs_val * rhs_val);
+        result.set_grad_fn(Box::new(Mul::new(self.clone(), rhs.clone())));
+        result
     }
 }
 
@@ -42,6 +47,8 @@ where
     type Output = Variable<T>;
 
     fn div(self, rhs: &Variable<T>) -> Variable<T> {
+        // x / y = x * (1/y) として実装
+        // TODO: Recip を使った実装に変更する
         let lhs_val = self.0.lock().unwrap().value.clone();
         let rhs_val = rhs.0.lock().unwrap().value.clone();
         Variable::new(lhs_val / rhs_val)
@@ -56,6 +63,8 @@ where
     type Output = Variable<T>;
 
     fn sub(self, rhs: &Variable<T>) -> Variable<T> {
+        // x - y = x + (-y) として実装
+        // TODO: Neg + Add を使った実装に変更する
         let lhs_val = self.0.lock().unwrap().value.clone();
         let rhs_val = rhs.0.lock().unwrap().value.clone();
         Variable::new(lhs_val - rhs_val)
@@ -65,13 +74,15 @@ where
 // -&Variable<T> -> Variable<T>
 impl<T> ops::Neg for &Variable<T>
 where
-    T: ops::Neg<Output = T> + Clone,
+    T: ops::Add<T, Output = T> + ops::Neg<Output = T> + Clone + 'static,
 {
     type Output = Variable<T>;
 
     fn neg(self) -> Variable<T> {
         let val = self.0.lock().unwrap().value.clone();
-        Variable::new(-val)
+        let result = Variable::new(-val);
+        result.set_grad_fn(Box::new(Neg::new(self.clone())));
+        result
     }
 }
 
@@ -81,7 +92,7 @@ where
 
 impl<T> ops::Add<Variable<T>> for Variable<T>
 where
-    T: ops::Add<T, Output = T> + Clone,
+    T: ops::Add<T, Output = T> + Clone + 'static,
 {
     type Output = Variable<T>;
     fn add(self, rhs: Variable<T>) -> Variable<T> {
@@ -91,7 +102,7 @@ where
 
 impl<T> ops::Mul<Variable<T>> for Variable<T>
 where
-    T: ops::Mul<T, Output = T> + Clone,
+    T: ops::Add<T, Output = T> + ops::Mul<T, Output = T> + Clone + 'static,
 {
     type Output = Variable<T>;
     fn mul(self, rhs: Variable<T>) -> Variable<T> {
@@ -121,7 +132,7 @@ where
 
 impl<T> ops::Neg for Variable<T>
 where
-    T: ops::Neg<Output = T> + Clone,
+    T: ops::Add<T, Output = T> + ops::Neg<Output = T> + Clone + 'static,
 {
     type Output = Variable<T>;
     fn neg(self) -> Variable<T> {

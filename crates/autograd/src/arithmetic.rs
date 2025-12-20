@@ -22,7 +22,7 @@ impl<T> Add<T> {
 
 impl<T> Backward<T> for Add<T>
 where
-    T: ops::Add<T, Output = T> + Clone,
+    T: ops::Add<T, Output = T> + Clone + 'static,
 {
     fn backward(&mut self, grad_y: Variable<T>) {
         // 加算の勾配: 両方に同じ勾配を伝播
@@ -58,7 +58,7 @@ impl<T: Clone> Mul<T> {
 
 impl<T> Backward<T> for Mul<T>
 where
-    T: ops::Add<T, Output = T> + ops::Mul<T, Output = T> + Clone,
+    T: ops::Add<T, Output = T> + ops::Mul<T, Output = T> + Clone + 'static,
 {
     fn backward(&mut self, grad_y: Variable<T>) {
         // 乗算の勾配: ∂L/∂x = ∂L/∂z * y, ∂L/∂y = ∂L/∂z * x
@@ -84,7 +84,7 @@ impl<T> Neg<T> {
 
 impl<T> Backward<T> for Neg<T>
 where
-    T: ops::Add<T, Output = T> + ops::Neg<Output = T> + Clone,
+    T: ops::Add<T, Output = T> + ops::Neg<Output = T> + Clone + 'static,
 {
     fn backward(&mut self, grad_y: Variable<T>) {
         // 符号反転の勾配: ∂L/∂x = -∂L/∂z
@@ -114,7 +114,8 @@ where
         + ops::Mul<T, Output = T>
         + ops::Div<T, Output = T>
         + ops::Neg<Output = T>
-        + Clone,
+        + Clone
+        + 'static,
 {
     fn backward(&mut self, grad_y: Variable<T>) {
         // 逆数の勾配: ∂L/∂x = -∂L/∂z / x²

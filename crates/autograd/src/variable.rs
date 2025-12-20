@@ -80,7 +80,7 @@ impl<T: Clone> Variable<T> {
 // 逆伝播
 impl<T> Variable<T>
 where
-    T: ops::Add<T, Output = T> + Clone,
+    T: ops::Add<T, Output = T> + Clone + 'static,
 {
     /// 指定した勾配で逆伝播を実行
     pub fn backward_with(&self, grad_y: Variable<T>) {
@@ -106,7 +106,7 @@ where
 // 引数なしの逆伝播（初期勾配 = 1）
 impl<T> Variable<T>
 where
-    T: ops::Add<T, Output = T> + Clone + One,
+    T: ops::Add<T, Output = T> + Clone + One + 'static,
 {
     /// 初期勾配 1 で逆伝播を実行
     pub fn backward(&self) {
