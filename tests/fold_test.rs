@@ -1,6 +1,9 @@
-/// Fold演算のテスト
-///
-/// Fold演算（col2im）が正しくコンパイルされることを確認
+//! Fold演算のテスト
+//!
+//! Fold演算（col2im）が正しくコンパイルされることを確認
+
+#![cfg(feature = "opencl")]
+
 use harp::backend::opencl::OpenCLRenderer;
 use harp::backend::{MultiPhaseConfig, Renderer, create_multi_phase_optimizer};
 use harp::lowerer::extract_program;
