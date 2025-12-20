@@ -33,6 +33,7 @@
 | VariableExpansionSuggester | 変数展開（CSEの逆操作） |
 | GroupParallelizationSuggester | ループ並列化（GroupId使用、動的分岐チェックあり） |
 | LocalParallelizationSuggester | ループ並列化（LocalId使用、動的分岐チェックなし） |
+| VectorizationSuggester | 連続メモリアクセスのSIMD化 |
 | CompositeSuggester | 複数Suggesterを組み合わせ |
 
 ## 並列化Suggester
@@ -87,6 +88,37 @@ Kernel { params: [gidx0: GroupId(0), lidx1: LocalId(1)], thread_group_size: [..,
 
 **LoopInterchangeSuggesterとの組み合わせ:**
 内側ループを並列化したい場合は、LoopInterchangeSuggesterで外側に持ってきてから並列化する。
+
+## VectorizationSuggester
+
+ループ展開後の連続メモリアクセスパターンを検出し、SIMD（ベクトル）命令に変換する。
+
+### 処理フロー
+
+1. Block内のStore文をグループ化（同一ポインタ、同一ベースオフセット）
+2. 定数オフセットが連続（0, 1, 2, ...）かチェック
+3. 式構造の同一性を検証
+4. Load → load_vec、Const → broadcast に変換
+5. Store → store_vec（count > 1）に変換
+
+### 推奨パイプライン
+
+```
+LoopTilingSuggester (タイル化)
+    ↓
+LoopInliningSuggester (展開)
+    ↓ 連続アクセスが露出
+VectorizationSuggester (SIMD化)
+    ↓
+GroupParallelizationSuggester (並列化)
+```
+
+### 設計上の決定
+
+**グラフLoweringではなくAST最適化で行う理由:**
+- ループ展開後にのみ連続アクセスパターンが検出可能
+- 全演算（四則演算、超越関数含む）を統一的に処理
+- LoweringSuggesterはスカラー版のみ生成し、役割を明確化
 
 ## 代数的書き換えルール
 

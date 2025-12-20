@@ -144,17 +144,16 @@ pub fn create_lowering_only_suggester() -> CompositeSuggester {
 /// Loweringのみのフェーズ用Suggesterを作成（SIMD幅指定付き）
 ///
 /// 全てのGraphOpノードをKernelノードに変換します。
-/// SIMD幅が指定されている場合、Elementwise演算のSIMD版も候補として生成します。
+///
+/// # 注意
+/// SIMD化はASTレベルで行われるため、この関数は`simd_widths`パラメータを無視します。
+/// 後方互換性のために関数シグネチャは維持されています。
 ///
 /// # Arguments
-/// * `simd_widths` - SIMD幅候補（空の場合はスカラー版のみ）
-pub fn create_lowering_only_suggester_with_simd(simd_widths: Vec<usize>) -> CompositeSuggester {
-    let suggester = if simd_widths.is_empty() {
-        LoweringSuggester::new()
-    } else {
-        LoweringSuggester::with_simd_widths(simd_widths)
-    };
-    CompositeSuggester::new(vec![Box::new(suggester)])
+/// * `_simd_widths` - 無視されます（SIMD化はAST最適化で行われます）
+#[allow(unused_variables)]
+pub fn create_lowering_only_suggester_with_simd(_simd_widths: Vec<usize>) -> CompositeSuggester {
+    CompositeSuggester::new(vec![Box::new(LoweringSuggester::new())])
 }
 
 /// 貪欲法Lowering用のSuggesterを作成

@@ -97,9 +97,12 @@ harpc --subgraph-mode skip input.harp     # スキップ（デバッグ用）
 ### 未実装
 - FusedReduce演算（タプル出力が必要）
 
-## 並列化サポート
+## 並列化・SIMD化サポート
 
 LoweringSuggesterは各演算に対して複数の並列化戦略で候補を生成し、ビームサーチが最適な戦略を選択します。
+
+**SIMD化はAST最適化フェーズで実行:**
+LoweringSuggesterはスカラー版のコードのみを生成します。SIMD（ベクトル）化は`VectorizationSuggester`（AST最適化）で行われます。ループ展開後に連続メモリアクセスパターンを検出し、ベクトル命令に変換します。詳細は`spec/opt-ast.md`のVectorizationSuggesterセクションを参照。
 
 ### 戦略一覧
 - **Sequential**: 逐次実行（CPU向け、Rangeループ使用）

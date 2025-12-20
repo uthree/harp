@@ -8,6 +8,7 @@ pub mod parallelization;
 pub mod parallelization_common;
 pub mod rule_based;
 pub mod variable_expansion;
+pub mod vectorization;
 
 use crate::ast::AstNode;
 use std::collections::HashSet;
@@ -22,6 +23,7 @@ pub use loop_transforms::{LoopInliningSuggester, LoopInterchangeSuggester, LoopT
 pub use parallelization::{GroupParallelizationSuggester, LocalParallelizationSuggester};
 pub use rule_based::RuleBaseSuggester;
 pub use variable_expansion::VariableExpansionSuggester;
+pub use vectorization::VectorizationSuggester;
 
 /// 重複を排除しながら候補リストを作成するヘルパー関数
 ///
