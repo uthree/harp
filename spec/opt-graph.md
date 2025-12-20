@@ -29,8 +29,47 @@ AST版よりも計測コストが高いため、足切り候補数を少なめ�
 - **ViewMergeSuggester**: Viewノードを上流ノードにマージ
 - **ViewInsertionSuggester**: メモリレイアウト最適化のためのView挿入
 - **ContiguousInsertionSuggester**: 非contiguousなViewを実体化
+- **PaddingSliceSuggester**: アライメント最適化のためのパディング/スライス挿入
 
 Note: ループタイル化はAST最適化フェーズ（LoopTilingSuggester）で行われる。
+
+#### PaddingSliceSuggester
+
+SIMD化やタイリング最適化のために、演算の入出力をアライメントに揃える変換を提案する。
+
+**変換パターン:**
+```text
+入力 [N] → 演算 → 出力 [N]
+↓
+入力 [N] → Pad → [N'] → 演算 → [N''] → Slice → 出力 [N]
+```
+（N' = ceil(N / alignment) * alignment）
+
+**パディング値:**
+- Elementwise演算: 0.0（結果はスライスで切り捨て）
+- Reduce演算: 中性値
+  - Sum: 0
+  - Prod: 1
+  - Max: -∞（f32::NEG_INFINITY）
+
+**使用例:**
+```rust
+use harp_core::opt::graph::suggesters::PaddingSliceSuggester;
+
+// 単一のアライメント値
+let suggester = PaddingSliceSuggester::new(vec![4]);
+
+// 複数のアライメント値（各値に対して候補を生成）
+let suggester = PaddingSliceSuggester::new(vec![4, 8, 16]);
+
+// デフォルト（vec![4, 8, 16]）
+let suggester = PaddingSliceSuggester::default();
+```
+
+**制約:**
+- 静的shapeのみ対応（slice()が静的のため）
+- Cumulative演算は現時点で対象外
+- スカラー入力はスキップ
 
 ### Lowering系
 - **LoweringSuggester**: GraphOpをKernel(Function)に変換
