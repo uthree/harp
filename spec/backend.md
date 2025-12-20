@@ -122,9 +122,10 @@ let (optimized_graph, history) = optimizer.optimize_with_history(graph);
 
 **デバイス能力による最適化:**
 `with_capabilities()`でDeviceCapabilitiesを設定すると、各Suggesterはデバイス特性に基づいたパラメータを使用します：
-- TilingSuggester: `preferred_tile_sizes`を使用
 - KernelPartitionSuggester: `preferred_work_group_size_range`を使用
 - LoweringSuggester: `simd_capabilities`（SIMD能力）を使用
+
+Note: ループタイル化はAST最適化フェーズ（LoopTilingSuggester）で行われます。
 
 Pipelineを使用する場合、コンテキストは自動的に設定されます。
 

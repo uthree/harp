@@ -168,5 +168,5 @@ pub use selector::{GraphCostSelector, GraphMultiStageSelector, GraphSelector};
 pub use suggesters::{
     BufferAbsorptionSuggester, CompositeSuggester, ContiguousInsertionSuggester, FusionSuggester,
     KernelMergeSuggester, KernelPartitionSuggester, LoweringSuggester, SubgraphInliningSuggester,
-    TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
+    ViewInsertionSuggester, ViewMergeSuggester,
 };

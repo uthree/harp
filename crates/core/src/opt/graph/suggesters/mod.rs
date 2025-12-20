@@ -6,7 +6,6 @@ pub mod kernel_merge;
 pub mod kernel_partition;
 pub mod lowering;
 pub mod subgraph_inlining;
-pub mod tiling;
 pub mod view;
 pub mod view_merge;
 
@@ -19,6 +18,5 @@ pub use kernel_merge::KernelMergeSuggester;
 pub use kernel_partition::KernelPartitionSuggester;
 pub use lowering::LoweringSuggester;
 pub use subgraph_inlining::SubgraphInliningSuggester;
-pub use tiling::TilingSuggester;
 pub use view::ViewInsertionSuggester;
 pub use view_merge::ViewMergeSuggester;

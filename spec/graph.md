@@ -288,6 +288,5 @@ graph main(input: f32[10]) -> (out1: f32[10], out2: f32[10]) {
 ## 未実装
 
 - Thread/ThreadGroupレベルの並列実行のLowering
-- ループタイル化（TilingSuggester）
 - 行列乗算（matmul、batch_matmul）
 - サブグラフ呼び出しのバックエンド実装（現在はグラフ構造のみ）

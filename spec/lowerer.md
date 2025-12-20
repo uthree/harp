@@ -13,7 +13,6 @@ Graph
   ↓ Phase 1 (Preparation)
   │  - ViewInsertionSuggester
   │  - ViewMergeSuggester
-  │  - TilingSuggester
   │  - ContiguousInsertionSuggester
   │  - FusionSuggester
   ↓ Phase 2 (Lowering)

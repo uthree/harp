@@ -14,7 +14,7 @@ use crate::opt::graph::{
     BeamSearchGraphOptimizer, BufferAbsorptionSuggester, ChainedGraphOptimizer, CompositeSuggester,
     ContiguousInsertionSuggester, FusionSuggester, GraphOptimizer, GreedyGraphOptimizer,
     KernelMergeSuggester, KernelPartitionSuggester, LoweringSuggester, OptimizationHistory,
-    SubgraphInliningSuggester, TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
+    SubgraphInliningSuggester, ViewInsertionSuggester, ViewMergeSuggester,
 };
 
 // =============================================================================
@@ -111,14 +111,15 @@ pub fn create_view_merge_only_suggester() -> CompositeSuggester {
 
 /// グラフ最適化フェーズ用のSuggesterを作成
 ///
-/// ViewInsertion、Tiling、ContiguousInsertion、Fusion, ViewMergeなど、
+/// ViewInsertion、ContiguousInsertion、Fusion, ViewMergeなど、
 /// グラフ構造の最適化を行うSuggesterを含みます。
 ///
 /// ViewMergeはこのフェーズには含めず、独立したフェーズとして実行します。
+///
+/// Note: タイル化はAST最適化フェーズで行われるため、グラフレベルでは行いません。
 pub fn create_graph_optimization_suggester() -> CompositeSuggester {
     CompositeSuggester::new(vec![
         Box::new(ViewInsertionSuggester::new()),
-        Box::new(TilingSuggester::new()),
         Box::new(ContiguousInsertionSuggester::new()),
         Box::new(FusionSuggester::new()),
         Box::new(ViewMergeSuggester::new()),
@@ -360,7 +361,6 @@ impl MultiPhaseConfig {
     /// Suggesterに渡すために使用します。
     ///
     /// コンテキストが設定されている場合:
-    /// - TilingSuggesterはコンテキストのpreferred_tile_sizesを使用
     /// - KernelPartitionSuggesterはコンテキストのwork_group_sizeを使用
     /// - LoweringSuggesterはコンテキストのvector_widthsを使用
     ///
@@ -470,18 +470,8 @@ pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOpt
         .with_early_termination_threshold(Some(5)); // 早期終了
 
     // Phase 2: Optimization（グラフ構造の最適化）
-    // DeviceCapabilitiesがある場合はTilingSuggesterに渡す
-    let optimization_suggester = if let Some(ref caps) = config.opt_context {
-        CompositeSuggester::new(vec![
-            Box::new(ViewInsertionSuggester::new()),
-            Box::new(TilingSuggester::from_capabilities(caps)),
-            Box::new(ContiguousInsertionSuggester::new()),
-            Box::new(FusionSuggester::new()),
-            Box::new(ViewMergeSuggester::new()),
-        ])
-    } else {
-        create_graph_optimization_suggester()
-    };
+    // タイル化はAST最適化フェーズで行われるため、グラフレベルでは行わない
+    let optimization_suggester = create_graph_optimization_suggester();
     let optimization_optimizer = BeamSearchGraphOptimizer::new(optimization_suggester)
         .with_beam_width(config.beam_width)
         .with_max_steps(config.max_steps_per_phase)

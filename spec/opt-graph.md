@@ -29,7 +29,8 @@ AST版よりも計測コストが高いため、足切り候補数を少なめ�
 - **ViewMergeSuggester**: Viewノードを上流ノードにマージ
 - **ViewInsertionSuggester**: メモリレイアウト最適化のためのView挿入
 - **ContiguousInsertionSuggester**: 非contiguousなViewを実体化
-- **TilingSuggester**: ループタイリング適用
+
+Note: ループタイル化はAST最適化フェーズ（LoopTilingSuggester）で行われる。
 
 ### Lowering系
 - **LoweringSuggester**: GraphOpをKernel(Function)に変換
@@ -219,7 +220,7 @@ let (optimized, history) = optimizer.optimize_with_history(graph);
 |------|------|
 | `create_subgraph_inlining_suggester()` | サブグラフインライン展開用 |
 | `create_view_merge_only_suggester()` | ViewMergeのみ |
-| `create_graph_optimization_suggester()` | グラフ構造最適化（View挿入、タイリング等） |
+| `create_graph_optimization_suggester()` | グラフ構造最適化（View挿入、融合等） |
 | `create_lowering_only_suggester()` | Lowering用（Sequentialのみ） |
 | `create_lowering_only_suggester_with_simd(widths)` | SIMD幅指定付きLowering |
 | `create_kernel_partition_suggester()` | カーネル分割用 |
