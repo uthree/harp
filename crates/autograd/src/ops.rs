@@ -1,29 +1,25 @@
 use std::ops;
 
 use crate::arithmetic::{Add, Mul, Neg};
-use crate::traits::{GradInto, GradNode};
+use crate::traits::GradNode;
 use crate::variable::Variable;
 
 // ============================================================================
 // 2項演算子の4パターン生成マクロ
 // ============================================================================
 
-/// 2項演算子の全組み合わせを生成するマクロ
-/// - &Variable op &Variable (基本実装)
-/// - Variable op Variable
-/// - Variable op &Variable
-/// - &Variable op Variable
+/// 2項演算子の全組み合わせを生成するマクロ（単一型パラメータ版）
 macro_rules! impl_binary_op {
     // Add演算子
-    (Add, $lhs:ident, $rhs:ident, $out:ident, $method:ident, $grad_fn:ident, [$($bounds:tt)*]) => {
-        // &Variable<L> + &Variable<R> -> Variable<O> (基本実装)
-        impl<$lhs, $rhs, $out> ops::Add<&Variable<$rhs>> for &Variable<$lhs>
+    (Add, $t:ident, $method:ident, $grad_fn:ident, [$($bounds:tt)*]) => {
+        // &Variable<T> + &Variable<T> -> Variable<T> (基本実装)
+        impl<$t> ops::Add<&Variable<$t>> for &Variable<$t>
         where
             $($bounds)*
         {
-            type Output = Variable<$out>;
+            type Output = Variable<$t>;
 
-            fn $method(self, rhs: &Variable<$rhs>) -> Self::Output {
+            fn $method(self, rhs: &Variable<$t>) -> Self::Output {
                 let lhs_val = self.value();
                 let rhs_val = rhs.value();
                 Variable::with_grad_fn(
@@ -33,50 +29,50 @@ macro_rules! impl_binary_op {
             }
         }
 
-        // Variable<L> + Variable<R>
-        impl<$lhs, $rhs, $out> ops::Add<Variable<$rhs>> for Variable<$lhs>
+        // Variable<T> + Variable<T>
+        impl<$t> ops::Add<Variable<$t>> for Variable<$t>
         where
             $($bounds)*
         {
-            type Output = Variable<$out>;
-            fn $method(self, rhs: Variable<$rhs>) -> Self::Output {
+            type Output = Variable<$t>;
+            fn $method(self, rhs: Variable<$t>) -> Self::Output {
                 &self + &rhs
             }
         }
 
-        // Variable<L> + &Variable<R>
-        impl<$lhs, $rhs, $out> ops::Add<&Variable<$rhs>> for Variable<$lhs>
+        // Variable<T> + &Variable<T>
+        impl<$t> ops::Add<&Variable<$t>> for Variable<$t>
         where
             $($bounds)*
         {
-            type Output = Variable<$out>;
-            fn $method(self, rhs: &Variable<$rhs>) -> Self::Output {
+            type Output = Variable<$t>;
+            fn $method(self, rhs: &Variable<$t>) -> Self::Output {
                 &self + rhs
             }
         }
 
-        // &Variable<L> + Variable<R>
-        impl<$lhs, $rhs, $out> ops::Add<Variable<$rhs>> for &Variable<$lhs>
+        // &Variable<T> + Variable<T>
+        impl<$t> ops::Add<Variable<$t>> for &Variable<$t>
         where
             $($bounds)*
         {
-            type Output = Variable<$out>;
-            fn $method(self, rhs: Variable<$rhs>) -> Self::Output {
+            type Output = Variable<$t>;
+            fn $method(self, rhs: Variable<$t>) -> Self::Output {
                 self + &rhs
             }
         }
     };
 
     // Mul演算子
-    (Mul, $lhs:ident, $rhs:ident, $out:ident, $method:ident, $grad_fn:ident, [$($bounds:tt)*]) => {
-        // &Variable<L> * &Variable<R> -> Variable<O> (基本実装)
-        impl<$lhs, $rhs, $out> ops::Mul<&Variable<$rhs>> for &Variable<$lhs>
+    (Mul, $t:ident, $method:ident, $grad_fn:ident, [$($bounds:tt)*]) => {
+        // &Variable<T> * &Variable<T> -> Variable<T> (基本実装)
+        impl<$t> ops::Mul<&Variable<$t>> for &Variable<$t>
         where
             $($bounds)*
         {
-            type Output = Variable<$out>;
+            type Output = Variable<$t>;
 
-            fn $method(self, rhs: &Variable<$rhs>) -> Self::Output {
+            fn $method(self, rhs: &Variable<$t>) -> Self::Output {
                 let lhs_val = self.value();
                 let rhs_val = rhs.value();
                 Variable::with_grad_fn(
@@ -86,84 +82,84 @@ macro_rules! impl_binary_op {
             }
         }
 
-        // Variable<L> * Variable<R>
-        impl<$lhs, $rhs, $out> ops::Mul<Variable<$rhs>> for Variable<$lhs>
+        // Variable<T> * Variable<T>
+        impl<$t> ops::Mul<Variable<$t>> for Variable<$t>
         where
             $($bounds)*
         {
-            type Output = Variable<$out>;
-            fn $method(self, rhs: Variable<$rhs>) -> Self::Output {
+            type Output = Variable<$t>;
+            fn $method(self, rhs: Variable<$t>) -> Self::Output {
                 &self * &rhs
             }
         }
 
-        // Variable<L> * &Variable<R>
-        impl<$lhs, $rhs, $out> ops::Mul<&Variable<$rhs>> for Variable<$lhs>
+        // Variable<T> * &Variable<T>
+        impl<$t> ops::Mul<&Variable<$t>> for Variable<$t>
         where
             $($bounds)*
         {
-            type Output = Variable<$out>;
-            fn $method(self, rhs: &Variable<$rhs>) -> Self::Output {
+            type Output = Variable<$t>;
+            fn $method(self, rhs: &Variable<$t>) -> Self::Output {
                 &self * rhs
             }
         }
 
-        // &Variable<L> * Variable<R>
-        impl<$lhs, $rhs, $out> ops::Mul<Variable<$rhs>> for &Variable<$lhs>
+        // &Variable<T> * Variable<T>
+        impl<$t> ops::Mul<Variable<$t>> for &Variable<$t>
         where
             $($bounds)*
         {
-            type Output = Variable<$out>;
-            fn $method(self, rhs: Variable<$rhs>) -> Self::Output {
+            type Output = Variable<$t>;
+            fn $method(self, rhs: Variable<$t>) -> Self::Output {
                 self * &rhs
             }
         }
     };
 
     // Sub演算子
-    (Sub, $lhs:ident, $rhs:ident, $out:ident, $method:ident, [$($bounds:tt)*]) => {
-        // &Variable<L> - &Variable<R> -> Variable<O> (基本実装: Neg + Add)
-        impl<$lhs, $rhs, $out> ops::Sub<&Variable<$rhs>> for &Variable<$lhs>
+    (Sub, $t:ident, $method:ident, [$($bounds:tt)*]) => {
+        // &Variable<T> - &Variable<T> -> Variable<T> (基本実装: Neg + Add)
+        impl<$t> ops::Sub<&Variable<$t>> for &Variable<$t>
         where
             $($bounds)*
         {
-            type Output = Variable<$out>;
+            type Output = Variable<$t>;
 
-            fn $method(self, rhs: &Variable<$rhs>) -> Variable<$out> {
+            fn $method(self, rhs: &Variable<$t>) -> Variable<$t> {
                 let neg_rhs = -rhs;
                 self + &neg_rhs
             }
         }
 
-        // Variable<L> - Variable<R>
-        impl<$lhs, $rhs, $out> ops::Sub<Variable<$rhs>> for Variable<$lhs>
+        // Variable<T> - Variable<T>
+        impl<$t> ops::Sub<Variable<$t>> for Variable<$t>
         where
             $($bounds)*
         {
-            type Output = Variable<$out>;
-            fn $method(self, rhs: Variable<$rhs>) -> Variable<$out> {
+            type Output = Variable<$t>;
+            fn $method(self, rhs: Variable<$t>) -> Variable<$t> {
                 &self - &rhs
             }
         }
 
-        // Variable<L> - &Variable<R>
-        impl<$lhs, $rhs, $out> ops::Sub<&Variable<$rhs>> for Variable<$lhs>
+        // Variable<T> - &Variable<T>
+        impl<$t> ops::Sub<&Variable<$t>> for Variable<$t>
         where
             $($bounds)*
         {
-            type Output = Variable<$out>;
-            fn $method(self, rhs: &Variable<$rhs>) -> Variable<$out> {
+            type Output = Variable<$t>;
+            fn $method(self, rhs: &Variable<$t>) -> Variable<$t> {
                 &self - rhs
             }
         }
 
-        // &Variable<L> - Variable<R>
-        impl<$lhs, $rhs, $out> ops::Sub<Variable<$rhs>> for &Variable<$lhs>
+        // &Variable<T> - Variable<T>
+        impl<$t> ops::Sub<Variable<$t>> for &Variable<$t>
         where
             $($bounds)*
         {
-            type Output = Variable<$out>;
-            fn $method(self, rhs: Variable<$rhs>) -> Variable<$out> {
+            type Output = Variable<$t>;
+            fn $method(self, rhs: Variable<$t>) -> Variable<$t> {
                 self - &rhs
             }
         }
@@ -220,15 +216,15 @@ macro_rules! impl_binary_op {
     };
 }
 
-/// 単項演算子の全組み合わせを生成するマクロ
+/// 単項演算子の全組み合わせを生成するマクロ（単一型パラメータ版）
 macro_rules! impl_unary_op {
-    (Neg, $inp:ident, $out:ident, $method:ident, $grad_fn:ident, [$($bounds:tt)*]) => {
-        // -&Variable<I> -> Variable<O> (基本実装)
-        impl<$inp, $out> ops::Neg for &Variable<$inp>
+    (Neg, $t:ident, $method:ident, $grad_fn:ident, [$($bounds:tt)*]) => {
+        // -&Variable<T> -> Variable<T> (基本実装)
+        impl<$t> ops::Neg for &Variable<$t>
         where
             $($bounds)*
         {
-            type Output = Variable<$out>;
+            type Output = Variable<$t>;
 
             fn $method(self) -> Self::Output {
                 let val = self.value();
@@ -236,12 +232,12 @@ macro_rules! impl_unary_op {
             }
         }
 
-        // -Variable<I> -> Variable<O>
-        impl<$inp, $out> ops::Neg for Variable<$inp>
+        // -Variable<T> -> Variable<T>
+        impl<$t> ops::Neg for Variable<$t>
         where
             $($bounds)*
         {
-            type Output = Variable<$out>;
+            type Output = Variable<$t>;
             fn $method(self) -> Self::Output {
                 -&self
             }
@@ -253,29 +249,20 @@ macro_rules! impl_unary_op {
 // 演算子の実装
 // ============================================================================
 
-// Add: L + R -> O
-impl_binary_op!(Add, L, R, O, add, Add, [
-    L: GradNode + ops::Add<L, Output = L> + ops::Add<R, Output = O> + 'static,
-    R: GradNode + ops::Add<R, Output = R> + 'static,
-    O: Clone + 'static,
-    Variable<O>: GradInto<Variable<L>> + GradInto<Variable<R>> + Clone,
+// Add: T + T -> T
+impl_binary_op!(Add, T, add, Add, [
+    T: GradNode + ops::Add<T, Output = T> + 'static,
 ]);
 
-// Mul: L * R -> O
-impl_binary_op!(Mul, L, R, O, mul, Mul, [
-    L: GradNode + ops::Add<L, Output = L> + ops::Mul<R, Output = O> + 'static,
-    R: GradNode + ops::Add<R, Output = R> + 'static,
-    O: Clone + ops::Mul<R, Output = L> + ops::Mul<L, Output = R> + 'static,
+// Mul: T * T -> T
+impl_binary_op!(Mul, T, mul, Mul, [
+    T: GradNode + ops::Add<T, Output = T> + ops::Mul<T, Output = T> + 'static,
 ]);
 
-// Sub: L - R -> O (Neg + Add で実装)
-impl_binary_op!(Sub, L, R, O, sub, [
-    L: GradNode + ops::Add<L, Output = L> + ops::Add<R, Output = O> + 'static,
-    R: GradNode + ops::Add<R, Output = R> + ops::Neg<Output = R> + 'static,
-    O: Clone + 'static,
-    Variable<O>: GradInto<Variable<L>> + GradInto<Variable<R>> + Clone,
-    Variable<R>: Clone,
-    for<'a> &'a Variable<R>: ops::Neg<Output = Variable<R>>,
+// Sub: T - T -> T (Neg + Add で実装)
+impl_binary_op!(Sub, T, sub, [
+    T: GradNode + ops::Add<T, Output = T> + ops::Neg<Output = T> + 'static,
+    for<'a> &'a Variable<T>: ops::Neg<Output = Variable<T>>,
 ]);
 
 // Div: T / T -> T (TODO: Mul + Recip を組み合わせた実装に変更する)
@@ -283,8 +270,7 @@ impl_binary_op!(Div, T, [
     T: ops::Div<T, Output = T> + Clone + 'static,
 ]);
 
-// Neg: -I -> O
-impl_unary_op!(Neg, I, O, neg, Neg, [
-    I: GradNode + ops::Add<I, Output = I> + ops::Neg<Output = O> + 'static,
-    O: Clone + ops::Neg<Output = I> + 'static,
+// Neg: -T -> T
+impl_unary_op!(Neg, T, neg, Neg, [
+    T: GradNode + ops::Add<T, Output = T> + ops::Neg<Output = T> + 'static,
 ]);
