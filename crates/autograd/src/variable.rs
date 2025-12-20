@@ -1,3 +1,4 @@
+use num_traits::One;
 use std::ops;
 use std::sync::{Arc, Mutex};
 
@@ -81,7 +82,8 @@ impl<T> Variable<T>
 where
     T: ops::Add<T, Output = T> + Clone,
 {
-    pub fn backward(&self, grad_y: Variable<T>) {
+    /// 指定した勾配で逆伝播を実行
+    pub fn backward_with(&self, grad_y: Variable<T>) {
         let mut inner = self.0.lock().unwrap();
 
         // 自身の勾配を累積する
@@ -98,6 +100,17 @@ where
             drop(inner);
             grad_fn.backward(grad_y);
         }
+    }
+}
+
+// 引数なしの逆伝播（初期勾配 = 1）
+impl<T> Variable<T>
+where
+    T: ops::Add<T, Output = T> + Clone + One,
+{
+    /// 初期勾配 1 で逆伝播を実行
+    pub fn backward(&self) {
+        self.backward_with(Variable::new(T::one()));
     }
 }
 

@@ -65,7 +65,7 @@ fn test_add_backward() {
     z.set_grad_fn(Box::new(Add::new(x.clone(), y.clone())));
 
     // backward
-    z.backward(Variable::new(1.0));
+    z.backward();
 
     assert_eq!(x.grad().unwrap().value(), 1.0);
     assert_eq!(y.grad().unwrap().value(), 1.0);
@@ -83,7 +83,7 @@ fn test_mul_backward() {
     z.set_grad_fn(Box::new(Mul::new(x.clone(), y.clone())));
 
     // backward
-    z.backward(Variable::new(1.0));
+    z.backward();
 
     assert_eq!(x.grad().unwrap().value(), 3.0); // ∂z/∂x = y = 3
     assert_eq!(y.grad().unwrap().value(), 2.0); // ∂z/∂y = x = 2
@@ -100,7 +100,7 @@ fn test_neg_backward() {
     z.set_grad_fn(Box::new(Neg::new(x.clone())));
 
     // backward
-    z.backward(Variable::new(1.0));
+    z.backward();
 
     assert_eq!(x.grad().unwrap().value(), -1.0);
 }
@@ -116,7 +116,7 @@ fn test_recip_backward() {
     z.set_grad_fn(Box::new(Recip::new(x.clone())));
 
     // backward
-    z.backward(Variable::new(1.0));
+    z.backward();
 
     // ∂z/∂x = -1/x² = -1/4 = -0.25
     assert_eq!(x.grad().unwrap().value(), -0.25);
@@ -143,7 +143,7 @@ fn test_chain_rule() {
     result.set_grad_fn(Box::new(Mul::new(sum.clone(), two.clone())));
 
     // backward
-    result.backward(Variable::new(1.0));
+    result.backward();
 
     // ∂result/∂sum = 2, ∂sum/∂x = 1
     // => ∂result/∂x = 2 * 1 = 2
@@ -161,7 +161,7 @@ fn test_multiple_paths() {
     z.set_grad_fn(Box::new(Mul::new(x.clone(), x.clone())));
 
     // backward
-    z.backward(Variable::new(1.0));
+    z.backward();
 
     // ∂z/∂x = 2x = 6
     // (勾配は累積されるので、x に対して 3 + 3 = 6)
@@ -181,14 +181,14 @@ fn test_gradient_accumulation() {
     // z1 = x + y
     let z1 = &x + &y;
     z1.set_grad_fn(Box::new(Add::new(x.clone(), y.clone())));
-    z1.backward(Variable::new(1.0));
+    z1.backward();
 
     assert_eq!(x.grad().unwrap().value(), 1.0);
 
     // 再度 backward (勾配が累積される)
     let z2 = &x + &y;
     z2.set_grad_fn(Box::new(Add::new(x.clone(), y.clone())));
-    z2.backward(Variable::new(1.0));
+    z2.backward();
 
     // 1.0 + 1.0 = 2.0
     assert_eq!(x.grad().unwrap().value(), 2.0);
@@ -201,7 +201,7 @@ fn test_zero_grad() {
 
     let z = &x + &y;
     z.set_grad_fn(Box::new(Add::new(x.clone(), y.clone())));
-    z.backward(Variable::new(1.0));
+    z.backward();
 
     assert!(x.grad().is_some());
 
@@ -222,7 +222,7 @@ fn test_detach() {
     // detach で grad_fn を削除
     z.detach();
 
-    z.backward(Variable::new(1.0));
+    z.backward();
 
     // z 自身には勾配が設定されるが、x, y には伝播しない
     assert!(x.grad().is_none());
@@ -251,7 +251,7 @@ fn test_simple_chain() {
 
     assert_eq!(result.value(), 8.0);
 
-    result.backward(Variable::new(1.0));
+    result.backward();
 
     // ∂result/∂sum = 2, ∂sum/∂x = 1
     // => ∂result/∂x = 2
@@ -276,7 +276,7 @@ fn test_division_chain() {
 
     assert_eq!(result.value(), 0.5);
 
-    result.backward(Variable::new(1.0));
+    result.backward();
 
     // f'(1) = -0.25
     assert_eq!(x.grad().unwrap().value(), -0.25);
