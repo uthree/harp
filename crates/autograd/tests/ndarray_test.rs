@@ -2,6 +2,73 @@ use autograd::Variable;
 use ndarray::{Array1, Array2, array};
 
 // ============================================================================
+// 演算子の組み合わせテスト（値/参照の混合）
+// ============================================================================
+
+#[test]
+fn test_ref_ref() {
+    // &x + &y (両方参照)
+    let x = Variable::new(array![1.0, 2.0]);
+    let y = Variable::new(array![3.0, 4.0]);
+    let z = &x + &y;
+    assert_eq!(z.value(), array![4.0, 6.0]);
+    // x, y はまだ使える
+    assert_eq!(x.value(), array![1.0, 2.0]);
+    assert_eq!(y.value(), array![3.0, 4.0]);
+}
+
+#[test]
+fn test_val_ref() {
+    // x + &y (左が値、右が参照)
+    let x = Variable::new(array![1.0, 2.0]);
+    let y = Variable::new(array![3.0, 4.0]);
+    let z = x.clone() + &y;
+    assert_eq!(z.value(), array![4.0, 6.0]);
+    // y はまだ使える
+    assert_eq!(y.value(), array![3.0, 4.0]);
+}
+
+#[test]
+fn test_ref_val() {
+    // &x + y (左が参照、右が値)
+    let x = Variable::new(array![1.0, 2.0]);
+    let y = Variable::new(array![3.0, 4.0]);
+    let z = &x + y.clone();
+    assert_eq!(z.value(), array![4.0, 6.0]);
+    // x はまだ使える
+    assert_eq!(x.value(), array![1.0, 2.0]);
+}
+
+#[test]
+fn test_val_val() {
+    // x + y (両方値、所有権を消費)
+    let x = Variable::new(array![1.0, 2.0]);
+    let y = Variable::new(array![3.0, 4.0]);
+    let z = x.clone() + y.clone();
+    assert_eq!(z.value(), array![4.0, 6.0]);
+}
+
+#[test]
+fn test_mixed_chain() {
+    // 複合演算で異なる組み合わせを使用
+    let x: Variable<Array1<f64>> = Variable::new(array![1.0, 2.0]);
+    let y: Variable<Array1<f64>> = Variable::new(array![3.0, 4.0]);
+
+    // (x + y) * x - y
+    // 参照と値を自由に混ぜられる
+    let sum = &x + &y; // ref + ref
+    let prod = sum * &x; // val + ref
+    let result = &prod - y.clone(); // ref - val
+
+    // (1+3)*1 - 3 = 1, (2+4)*2 - 4 = 8
+    assert_eq!(result.value(), array![1.0, 8.0]);
+
+    // 勾配計算も正常に動作
+    result.backward_with(Variable::new(array![1.0, 1.0]));
+    assert!(x.grad().is_some());
+}
+
+// ============================================================================
 // 順伝播のテスト（1次元配列）
 // ============================================================================
 
