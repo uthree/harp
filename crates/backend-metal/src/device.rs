@@ -1,7 +1,8 @@
 //! Metal native device
 
+use harp_core::ast::DType;
 use harp_core::backend::traits::{
-    Device, DeviceFeature, DeviceInstruction, DeviceProfile, DeviceType,
+    Device, DeviceFeature, DeviceInstruction, DeviceProfile, DeviceType, OpKind, SimdCapability,
 };
 use metal::{CommandQueue, Device as MtlDevice};
 use std::sync::Arc;
@@ -68,7 +69,7 @@ impl Device for MetalDevice {
             local_memory_size: 32768, // 32KB typical for Apple GPUs
             warp_size,
             preferred_tile_sizes: vec![16, 32, 64],
-            supported_vector_widths: vec![1, 2, 4], // Metal supports up to float4
+            simd_capabilities: Self::build_simd_capabilities(),
         }
     }
 
@@ -93,15 +94,35 @@ impl Device for MetalDevice {
         }
     }
 
-    fn supported_vector_widths(&self) -> Vec<usize> {
-        vec![1, 2, 4] // Metal supports float, float2, float4
-    }
 }
 
 impl MetalDevice {
     /// Create a new context using the default device
     pub fn new() -> Result<Self, MetalError> {
         Self::with_device(0)
+    }
+
+    /// Build SIMD capabilities for Metal (Apple GPUs support float4)
+    fn build_simd_capabilities() -> Vec<SimdCapability> {
+        use OpKind::*;
+
+        let mut caps = Vec::new();
+
+        // F32: width 4 for most operations, width 2 for division/transcendental
+        for op in [Add, Mul, Fma, Compare, Load, Store] {
+            caps.push(SimdCapability::new(DType::F32, op, 4));
+        }
+        for op in [Div, Recip, Sqrt, Log2, Exp2, Sin] {
+            caps.push(SimdCapability::new(DType::F32, op, 2));
+        }
+
+        // Int: width 4 for basic ops
+        for op in [Add, Mul, Compare, Load, Store] {
+            caps.push(SimdCapability::new(DType::Int, op, 4));
+        }
+        caps.push(SimdCapability::new(DType::Int, Div, 2));
+
+        caps
     }
 
     /// Create a new context for a specific device index

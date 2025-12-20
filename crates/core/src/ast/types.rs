@@ -3,10 +3,10 @@
 /// ASTノードの型を表す列挙型
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DType {
-    Bool,                   // boolean (internally represented as u8: 0 = false, non-zero = true)
-    Int,                    // integer (for array indexing and general computation)
-    F32,                    // float
-    Ptr(Box<DType>),        // pointer for memory buffer, 値を渡す時は参照を渡す。
+    Bool,            // boolean (internally represented as u8 or i8: 0 = false, non-zero = true)
+    Int,             // integer (for array indexing and general computation)
+    F32,             // float
+    Ptr(Box<DType>), // pointer for memory buffer, 値を渡す時は参照を渡す。
     Vec(Box<DType>, usize), // fixed size vector for SIMD, 値は渡す時にコピーされる
     Tuple(Vec<DType>),
     Unknown,

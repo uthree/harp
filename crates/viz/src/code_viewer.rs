@@ -242,11 +242,12 @@ impl CodeViewerApp {
             return Some(ast);
         }
 
-        // Kernel(Function)が複数ある場合は全て連結してProgram化
+        // Kernel(Function/Kernel)をProgramでラップして返す
         if !function_asts.is_empty() {
-            // 最初のASTを返す（複数ある場合は後で処理）
-            // TODO: 複数のFunctionをProgramにまとめる
-            return Some(function_asts.remove(0));
+            return Some(harp::ast::AstNode::Program {
+                functions: function_asts,
+                execution_waves: vec![],
+            });
         }
 
         None

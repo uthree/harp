@@ -1,7 +1,8 @@
 //! OpenCL native device
 
+use harp_core::ast::DType;
 use harp_core::backend::traits::{
-    Device, DeviceFeature, DeviceInstruction, DeviceProfile, DeviceType,
+    Device, DeviceFeature, DeviceInstruction, DeviceProfile, DeviceType, OpKind, SimdCapability,
 };
 use ocl::core::{DeviceInfo, DeviceInfoResult};
 use ocl::{Context as OclContext, Device as OclDevice, Platform, Queue};
@@ -69,8 +70,8 @@ impl Device for OpenCLDevice {
         // Compute tile sizes based on local memory
         let preferred_tile_sizes = self.compute_preferred_tile_sizes(local_memory_size);
 
-        // Get supported vector widths
-        let supported_vector_widths = self.detect_vector_widths();
+        // Build SIMD capabilities from detected vector widths
+        let simd_capabilities = self.build_simd_capabilities();
 
         DeviceProfile {
             device_type: self.detect_device_type(),
@@ -80,7 +81,7 @@ impl Device for OpenCLDevice {
             local_memory_size,
             warp_size,
             preferred_tile_sizes,
-            supported_vector_widths,
+            simd_capabilities,
         }
     }
 
@@ -112,9 +113,6 @@ impl Device for OpenCLDevice {
         }
     }
 
-    fn supported_vector_widths(&self) -> Vec<usize> {
-        self.detect_vector_widths()
-    }
 }
 
 impl OpenCLDevice {
@@ -185,17 +183,40 @@ impl OpenCLDevice {
             .collect()
     }
 
-    /// Detect supported vector widths
-    fn detect_vector_widths(&self) -> Vec<usize> {
+    /// Detect preferred vector width for F32
+    fn detect_preferred_vector_width(&self) -> usize {
         let preferred = self.query_preferred_vector_width();
         match preferred {
-            1 => vec![1],
-            2 => vec![1, 2],
-            4 => vec![1, 2, 4],
-            8 => vec![1, 2, 4, 8],
-            16 => vec![1, 2, 4, 8, 16],
-            _ => vec![1, 2, 4],
+            1 | 2 | 4 | 8 | 16 => preferred,
+            _ => 4,
         }
+    }
+
+    /// Build SIMD capabilities based on device characteristics
+    fn build_simd_capabilities(&self) -> Vec<SimdCapability> {
+        use OpKind::*;
+
+        let max_width = self.detect_preferred_vector_width();
+        let mut caps = Vec::new();
+
+        // F32: full width for most operations, half for division/transcendental
+        let f32_width = max_width.min(4); // OpenCL float4 is common
+        let f32_slow_width = (f32_width / 2).max(1);
+
+        for op in [Add, Mul, Fma, Compare, Load, Store] {
+            caps.push(SimdCapability::new(DType::F32, op, f32_width));
+        }
+        for op in [Div, Recip, Sqrt, Log2, Exp2, Sin] {
+            caps.push(SimdCapability::new(DType::F32, op, f32_slow_width));
+        }
+
+        // Int: same width as F32 for basic ops
+        for op in [Add, Mul, Compare, Load, Store] {
+            caps.push(SimdCapability::new(DType::Int, op, f32_width));
+        }
+        caps.push(SimdCapability::new(DType::Int, Div, f32_slow_width));
+
+        caps
     }
 
     /// Detect device type
