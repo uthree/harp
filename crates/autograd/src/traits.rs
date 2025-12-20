@@ -22,7 +22,7 @@ pub trait GradFn<GradType> {
 
 /// 勾配変換トレイト
 /// 出力の勾配から入力の勾配への変換を抽象化
-pub trait GradientInto<T> {
+pub trait GradInto<T> {
     fn gradient_into(self) -> T;
 }
 
@@ -41,7 +41,7 @@ impl<T: Clone + One> GradRoot for T {
 }
 
 /// From を実装していれば自動で GradientInto も使える
-impl<T, U> GradientInto<Variable<U>> for Variable<T>
+impl<T, U> GradInto<Variable<U>> for Variable<T>
 where
     T: Clone + 'static,
     U: From<T> + 'static,

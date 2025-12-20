@@ -1,7 +1,7 @@
 use std::ops;
 
 use crate::arithmetic::{Add, Mul, Neg};
-use crate::traits::{GradNode, GradientInto};
+use crate::traits::{GradInto, GradNode};
 use crate::variable::Variable;
 
 // ============================================================================
@@ -258,7 +258,7 @@ impl_binary_op!(Add, L, R, O, add, Add, [
     L: GradNode + ops::Add<L, Output = L> + ops::Add<R, Output = O> + 'static,
     R: GradNode + ops::Add<R, Output = R> + 'static,
     O: Clone + 'static,
-    Variable<O>: GradientInto<Variable<L>> + GradientInto<Variable<R>> + Clone,
+    Variable<O>: GradInto<Variable<L>> + GradInto<Variable<R>> + Clone,
 ]);
 
 // Mul: L * R -> O
@@ -273,7 +273,7 @@ impl_binary_op!(Sub, L, R, O, sub, [
     L: GradNode + ops::Add<L, Output = L> + ops::Add<R, Output = O> + 'static,
     R: GradNode + ops::Add<R, Output = R> + ops::Neg<Output = R> + 'static,
     O: Clone + 'static,
-    Variable<O>: GradientInto<Variable<L>> + GradientInto<Variable<R>> + Clone,
+    Variable<O>: GradInto<Variable<L>> + GradInto<Variable<R>> + Clone,
     Variable<R>: Clone,
     for<'a> &'a Variable<R>: ops::Neg<Output = Variable<R>>,
 ]);

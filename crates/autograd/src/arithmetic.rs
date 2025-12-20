@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 use std::ops;
 
-use crate::traits::{GradFn, GradientInto};
+use crate::traits::{GradFn, GradInto};
 use crate::variable::Variable;
 
 // ============================================================================
@@ -31,7 +31,7 @@ where
     L: Clone + ops::Add<L, Output = L> + 'static,
     R: Clone + ops::Add<R, Output = R> + 'static,
     O: Clone + 'static,
-    Variable<O>: GradientInto<Variable<L>> + GradientInto<Variable<R>> + Clone,
+    Variable<O>: GradInto<Variable<L>> + GradInto<Variable<R>> + Clone,
 {
     fn backward(&mut self, grad_y: Variable<O>) {
         // 加算の勾配: 両方に同じ勾配を伝播（型変換付き）
@@ -75,8 +75,8 @@ where
     L: Clone + ops::Add<L, Output = L> + 'static,
     R: Clone + ops::Add<R, Output = R> + 'static,
     O: Clone + ops::Mul<R, Output = L> + ops::Mul<L, Output = R> + 'static,
-    Variable<L>: GradientInto<Variable<L>>,
-    Variable<R>: GradientInto<Variable<R>>,
+    Variable<L>: GradInto<Variable<L>>,
+    Variable<R>: GradInto<Variable<R>>,
 {
     fn backward(&mut self, grad_y: Variable<O>) {
         // 乗算の勾配: ∂L/∂lhs = ∂L/∂z * rhs, ∂L/∂rhs = ∂L/∂z * lhs

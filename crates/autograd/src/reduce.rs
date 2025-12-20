@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 use std::ops;
 
-use crate::traits::{GradFn, GradientInto};
+use crate::traits::{GradFn, GradInto};
 use crate::variable::Variable;
 
 // ============================================================================
@@ -40,7 +40,7 @@ impl<I, O> GradFn<Variable<O>> for Sum<I, O>
 where
     I: Clone + ops::Add<I, Output = I> + 'static,
     O: Clone + 'static,
-    Variable<O>: GradientInto<Variable<I>>,
+    Variable<O>: GradInto<Variable<I>>,
 {
     fn backward(&mut self, grad_y: Variable<O>) {
         // 総和の勾配: 出力の勾配を入力に伝播
@@ -84,7 +84,7 @@ impl<I, O> GradFn<Variable<O>> for Expand<I, O>
 where
     I: Clone + ops::Add<I, Output = I> + 'static,
     O: Clone + 'static,
-    Variable<O>: GradientInto<Variable<I>>,
+    Variable<O>: GradInto<Variable<I>>,
 {
     fn backward(&mut self, grad_y: Variable<O>) {
         // 拡張の勾配: 出力の勾配を入力に伝播
