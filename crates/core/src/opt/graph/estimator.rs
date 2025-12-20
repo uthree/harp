@@ -3,7 +3,7 @@ use crate::backend::DeviceProfile;
 use crate::graph::{ElementwiseOp, Graph, GraphNode, GraphOp};
 use crate::opt::ast::AstCostEstimator;
 use crate::opt::ast::SimpleCostEstimator as AstSimpleCostEstimator;
-use crate::opt::context::OptimizationContext;
+use crate::opt::context::DeviceCapabilities;
 use crate::opt::cost_utils::{log_sum_exp, log_sum_exp_iter};
 use crate::opt::graph::GraphCostEstimator;
 use std::collections::HashSet;
@@ -102,9 +102,9 @@ impl SimpleCostEstimator {
         }
     }
 
-    /// 最適化コンテキストからコスト推定器を作成
-    pub fn from_context(ctx: &OptimizationContext) -> Self {
-        Self::from_profile(&ctx.profile)
+    /// DeviceCapabilitiesからコスト推定器を作成
+    pub fn from_capabilities(caps: &DeviceCapabilities) -> Self {
+        Self::from_profile(&caps.profile)
     }
 
     /// ノード数ペナルティ係数を設定

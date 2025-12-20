@@ -6,5 +6,5 @@ pub mod log_capture;
 
 // Re-export selector types from their respective modules
 pub use ast::{AstCostSelector, AstMultiStageSelector, AstSelector};
-pub use context::OptimizationContext;
+pub use context::DeviceCapabilities;
 pub use graph::{GraphCostSelector, GraphMultiStageSelector, GraphSelector};

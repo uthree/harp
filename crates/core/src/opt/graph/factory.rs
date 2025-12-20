@@ -9,7 +9,7 @@ use crate::opt::ast::{
     CompositeSuggester as AstCompositeSuggester, FunctionInliningSuggester, LoopFusionSuggester,
     LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester,
 };
-use crate::opt::context::OptimizationContext;
+use crate::opt::context::DeviceCapabilities;
 use crate::opt::graph::{
     BeamSearchGraphOptimizer, BufferAbsorptionSuggester, ChainedGraphOptimizer, CompositeSuggester,
     ContiguousInsertionSuggester, FusionSuggester, GraphOptimizer, GreedyGraphOptimizer,
@@ -258,7 +258,7 @@ pub struct MultiPhaseConfig {
     /// 設定されている場合、Suggesterはこのコンテキストからデバイス固有の
     /// パラメータ（タイルサイズ、スレッドグループサイズ、SIMD幅など）を取得します。
     /// 設定されていない場合、デフォルト値が使用されます。
-    pub opt_context: Option<OptimizationContext>,
+    pub opt_context: Option<DeviceCapabilities>,
 }
 
 impl Default for MultiPhaseConfig {
@@ -367,22 +367,22 @@ impl MultiPhaseConfig {
     /// # Example
     /// ```ignore
     /// use harp_core::opt::graph::factory::MultiPhaseConfig;
-    /// use harp_core::opt::context::OptimizationContext;
+    /// use harp_core::opt::context::DeviceCapabilities;
     ///
-    /// let context = OptimizationContext::from_device(&device);
+    /// let caps = DeviceCapabilities::from_device(&device);
     /// let config = MultiPhaseConfig::new()
-    ///     .with_context(context);
+    ///     .with_capabilities(caps);
     /// ```
-    pub fn with_context(mut self, context: OptimizationContext) -> Self {
-        // コンテキストからSIMD幅を自動設定（明示的に設定されていない場合）
+    pub fn with_capabilities(mut self, caps: DeviceCapabilities) -> Self {
+        // DeviceCapabilitiesからSIMD幅を自動設定（明示的に設定されていない場合）
         if self.simd_widths.is_empty() {
-            self.simd_widths = context
+            self.simd_widths = caps
                 .all_simd_widths()
                 .into_iter()
                 .filter(|&w| w > 1)
                 .collect();
         }
-        self.opt_context = Some(context);
+        self.opt_context = Some(caps);
         self
     }
 }
@@ -470,11 +470,11 @@ pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOpt
         .with_early_termination_threshold(Some(5)); // 早期終了
 
     // Phase 2: Optimization（グラフ構造の最適化）
-    // コンテキストがある場合はTilingSuggesterにコンテキストを渡す
-    let optimization_suggester = if let Some(ref ctx) = config.opt_context {
+    // DeviceCapabilitiesがある場合はTilingSuggesterに渡す
+    let optimization_suggester = if let Some(ref caps) = config.opt_context {
         CompositeSuggester::new(vec![
             Box::new(ViewInsertionSuggester::new()),
-            Box::new(TilingSuggester::from_context(ctx)),
+            Box::new(TilingSuggester::from_capabilities(caps)),
             Box::new(ContiguousInsertionSuggester::new()),
             Box::new(FusionSuggester::new()),
             Box::new(ViewMergeSuggester::new()),
@@ -503,9 +503,9 @@ pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOpt
     // BeamSearchを使用してコストベースで最適な並列化戦略を選択
     // SimpleCostEstimatorは並列カーネルにボーナス（コスト減少）を与えるため、
     // 適切なスレッドグループサイズとベクトル化が選択される
-    // コンテキストがある場合はLoweringSuggesterにコンテキストを渡す
-    let lowering_suggester = if let Some(ref ctx) = config.opt_context {
-        CompositeSuggester::new(vec![Box::new(LoweringSuggester::from_context(ctx))])
+    // DeviceCapabilitiesがある場合はLoweringSuggesterに渡す
+    let lowering_suggester = if let Some(ref caps) = config.opt_context {
+        CompositeSuggester::new(vec![Box::new(LoweringSuggester::from_capabilities(caps))])
     } else {
         create_lowering_only_suggester_with_simd(config.simd_widths.clone())
     };
@@ -517,9 +517,11 @@ pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOpt
         .with_early_termination_threshold(config.early_termination_threshold);
 
     // Phase 5: KernelPartition（1D Kernelを多次元グリッドに分割）
-    // コンテキストがある場合はKernelPartitionSuggesterにコンテキストを渡す
-    let kernel_partition_suggester = if let Some(ref ctx) = config.opt_context {
-        CompositeSuggester::new(vec![Box::new(KernelPartitionSuggester::from_context(ctx))])
+    // DeviceCapabilitiesがある場合はKernelPartitionSuggesterに渡す
+    let kernel_partition_suggester = if let Some(ref caps) = config.opt_context {
+        CompositeSuggester::new(vec![Box::new(KernelPartitionSuggester::from_capabilities(
+            caps,
+        ))])
     } else {
         create_kernel_partition_suggester()
     };

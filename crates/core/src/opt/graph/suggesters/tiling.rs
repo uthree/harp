@@ -1,6 +1,6 @@
 use crate::graph::shape::Expr;
 use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp};
-use crate::opt::context::OptimizationContext;
+use crate::opt::context::DeviceCapabilities;
 use crate::opt::graph::{GraphSuggester, SuggestResult};
 use std::collections::{HashMap, HashSet};
 
@@ -32,12 +32,12 @@ impl TilingSuggester {
         }
     }
 
-    /// OptimizationContextからTilingSuggesterを作成
+    /// DeviceCapabilitiesからTilingSuggesterを作成
     ///
     /// デバイスのprofileに基づいてタイルサイズを設定します。
-    pub fn from_context(ctx: &OptimizationContext) -> Self {
+    pub fn from_capabilities(caps: &DeviceCapabilities) -> Self {
         Self {
-            tile_sizes: ctx.preferred_tile_sizes().to_vec(),
+            tile_sizes: caps.preferred_tile_sizes().to_vec(),
         }
     }
 

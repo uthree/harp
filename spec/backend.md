@@ -107,21 +107,21 @@ Graph最適化を3フェーズで行うためのパイプライン。
 ```rust
 use harp::backend::{create_multi_phase_optimizer, MultiPhaseConfig};
 use harp::opt::graph::GraphOptimizer;
-use harp::opt::context::OptimizationContext;
+use harp::opt::context::DeviceCapabilities;
 
 // デバイス固有のパラメータを使用する場合
-let context = OptimizationContext::from_device(&device);
+let caps = DeviceCapabilities::from_device(&device);
 let config = MultiPhaseConfig::new()
     .with_beam_width(4)
     .with_max_steps(1000)
-    .with_context(context);
+    .with_capabilities(caps);
 
 let optimizer = create_multi_phase_optimizer(config);
 let (optimized_graph, history) = optimizer.optimize_with_history(graph);
 ```
 
-**コンテキストによる最適化:**
-`with_context()`でOptimizationContextを設定すると、各Suggesterはデバイス特性に基づいたパラメータを使用します：
+**デバイス能力による最適化:**
+`with_capabilities()`でDeviceCapabilitiesを設定すると、各Suggesterはデバイス特性に基づいたパラメータを使用します：
 - TilingSuggester: `preferred_tile_sizes`を使用
 - KernelPartitionSuggester: `preferred_work_group_size_range`を使用
 - LoweringSuggester: `simd_capabilities`（SIMD能力）を使用
@@ -218,24 +218,24 @@ impl DeviceProfile {
 
 **設計意図:** ハードウェアによっては演算やデータ型ごとにSIMD幅が異なる場合がある（例: F32のMulは4幅だがSqrtは2幅、F64はF32の半分など）。この設計により、そのような特性を正確に表現できる。
 
-#### OptimizationContext
+#### DeviceCapabilities
 
-デバイス情報を最適化パイプラインに渡すためのコンテキスト。
+デバイス情報を最適化パイプラインに渡すための構造体。デバイスが持つ能力（何ができるか）を表現します。
 
 ```rust
-pub struct OptimizationContext {
+pub struct DeviceCapabilities {
     pub profile: DeviceProfile,
     pub features: HashSet<DeviceFeature>,
     pub instructions: HashSet<DeviceInstruction>,
 }
 
-impl OptimizationContext {
+impl DeviceCapabilities {
     pub fn from_device<D: Device>(device: &D) -> Self;
     pub fn default_gpu() -> Self;  // デフォルトGPU向け設定
 }
 ```
 
-Pipelineは自動的にデバイスから`OptimizationContext`を作成し、Suggesterに渡します。これにより、タイルサイズ、スレッドグループサイズ、SIMD幅などがデバイス特性に基づいて最適化されます。
+Pipelineは自動的にデバイスから`DeviceCapabilities`を作成し、Suggesterに渡します。これにより、タイルサイズ、スレッドグループサイズ、SIMD幅などがデバイス特性に基づいて最適化されます。
 
 **条件付き最適化ルール:**
 `DeviceInstruction`に基づいて適用される最適化ルールがあります。
@@ -243,11 +243,11 @@ Pipelineは自動的にデバイスから`OptimizationContext`を作成し、Sug
 - `DeviceInstruction::AtomicAddFloat`: 並列Reduceでatomic add使用可能
 
 ```rust
-use harp::opt::ast::rules::{rules_for_context, search_rules_for_context};
+use harp::opt::ast::rules::{rules_for_capabilities, search_rules_for_capabilities};
 
 // デバイスサポートに基づくルールセット取得
-let rules = rules_for_context(&context);
-let search_rules = search_rules_for_context(&context);  // ビームサーチ用
+let rules = rules_for_capabilities(&caps);
+let search_rules = search_rules_for_capabilities(&caps);  // ビームサーチ用
 ```
 
 #### PipelineConfig

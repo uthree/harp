@@ -12,7 +12,7 @@ use std::collections::HashSet;
 /// This context is passed to suggesters and cost estimators to enable
 /// hardware-aware optimization decisions.
 #[derive(Debug, Clone)]
-pub struct OptimizationContext {
+pub struct DeviceCapabilities {
     /// Device profile with hardware characteristics
     pub profile: DeviceProfile,
     /// Set of supported features
@@ -21,7 +21,7 @@ pub struct OptimizationContext {
     pub instructions: HashSet<DeviceInstruction>,
 }
 
-impl OptimizationContext {
+impl DeviceCapabilities {
     /// Create a context from a device
     pub fn from_device<D: Device>(device: &D) -> Self {
         let profile = device.profile();
@@ -130,7 +130,7 @@ impl OptimizationContext {
     }
 }
 
-impl Default for OptimizationContext {
+impl Default for DeviceCapabilities {
     fn default() -> Self {
         Self::default_gpu()
     }
@@ -142,7 +142,7 @@ mod tests {
 
     #[test]
     fn test_default_context() {
-        let ctx = OptimizationContext::default_gpu();
+        let ctx = DeviceCapabilities::default_gpu();
         assert!(ctx.supports_feature(DeviceFeature::FastMath));
         assert!(ctx.supports_instruction(DeviceInstruction::Fma));
         assert_eq!(ctx.max_work_group_size(), 1024);
@@ -150,7 +150,7 @@ mod tests {
 
     #[test]
     fn test_preferred_tile_sizes() {
-        let ctx = OptimizationContext::default_gpu();
+        let ctx = DeviceCapabilities::default_gpu();
         let tiles = ctx.preferred_tile_sizes();
         assert!(!tiles.is_empty());
         assert!(tiles.contains(&32));
@@ -158,7 +158,7 @@ mod tests {
 
     #[test]
     fn test_work_group_size_range() {
-        let ctx = OptimizationContext::default_gpu();
+        let ctx = DeviceCapabilities::default_gpu();
         let (min, max) = ctx.preferred_work_group_size_range();
         assert!(min <= max);
         assert!(max <= ctx.max_work_group_size());

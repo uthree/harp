@@ -11,14 +11,14 @@ use crate::backend::sequence::{
 };
 use crate::backend::traits::{Buffer, Compiler, Device, Kernel, KernelConfig};
 use crate::graph::Graph;
-use crate::opt::ast::rules::all_algebraic_rules;
+use crate::opt::ast::rules::rules_for_capabilities;
 use crate::opt::ast::{
     AstOptimizer, BeamSearchOptimizer as AstBeamSearchOptimizer,
     CompositeSuggester as AstCompositeSuggester, FunctionInliningSuggester, LoopFusionSuggester,
     LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester,
     OptimizationHistory as AstOptimizationHistory, RuleBaseOptimizer,
 };
-use crate::opt::context::OptimizationContext;
+use crate::opt::context::DeviceCapabilities;
 use crate::opt::graph::{GraphOptimizer, OptimizationHistory as GraphOptimizationHistory};
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
@@ -481,15 +481,15 @@ where
     fn optimize_graph(&mut self, graph: Graph) -> Graph {
         use crate::opt::graph::{MultiPhaseConfig, create_multi_phase_optimizer};
 
-        // デバイスからOptimizationContextを作成
-        let opt_context = OptimizationContext::from_device(&self.device);
+        // デバイスからDeviceCapabilitiesを作成
+        let opt_context = DeviceCapabilities::from_device(&self.device);
 
         let config = MultiPhaseConfig::new()
             .with_beam_width(self.config.graph_beam_width)
             .with_max_steps(self.config.max_steps)
             .with_progress(self.config.show_progress)
             .with_collect_logs(self.config.collect_history)
-            .with_context(opt_context);
+            .with_capabilities(opt_context);
 
         let optimizer = create_multi_phase_optimizer(config);
         let (optimized_graph, history) = optimizer.optimize_with_history(graph);
@@ -503,8 +503,10 @@ where
 
     // Internal: optimize AST
     fn optimize_ast(&mut self, program: AstNode) -> AstNode {
-        // Phase 1: Rule-based optimization
-        let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules());
+        // Phase 1: Rule-based optimization (with device-aware rules)
+        let opt_context = DeviceCapabilities::from_device(&self.device);
+        let rules = rules_for_capabilities(&opt_context);
+        let rule_optimizer = RuleBaseOptimizer::new(rules);
         let rule_optimized = rule_optimizer.optimize(program);
 
         // Phase 2: Loop optimization with beam search

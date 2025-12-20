@@ -10,7 +10,7 @@ mod macros;
 
 use crate::ast::pat::AstRewriteRule;
 use crate::backend::traits::DeviceInstruction;
-use crate::opt::context::OptimizationContext;
+use crate::opt::context::DeviceCapabilities;
 use std::rc::Rc;
 
 // 各モジュールから主要な関数を再エクスポート
@@ -117,18 +117,18 @@ pub fn fma_rules() -> Vec<Rc<AstRewriteRule>> {
     vec![mul_add_to_fma(), add_mul_to_fma()]
 }
 
-/// OptimizationContextに基づいて最適化ルールを取得
+/// DeviceCapabilitiesに基づいて最適化ルールを取得
 ///
 /// デバイスがサポートする命令に応じて、適切なルールセットを返します：
 /// - FMAサポート時：mul_add_to_fma, add_mul_to_fma を追加
 ///
 /// # Example
 /// ```ignore
-/// let ctx = OptimizationContext::from_device(&device);
-/// let rules = rules_for_context(&ctx);
+/// let caps = DeviceCapabilities::from_device(&device);
+/// let rules = rules_for_capabilities(&caps);
 /// let optimizer = RuleBaseOptimizer::new(rules);
 /// ```
-pub fn rules_for_context(ctx: &OptimizationContext) -> Vec<Rc<AstRewriteRule>> {
+pub fn rules_for_capabilities(ctx: &DeviceCapabilities) -> Vec<Rc<AstRewriteRule>> {
     let mut rules = all_algebraic_rules();
 
     // FMAサポート時はFMAルールを追加
@@ -139,11 +139,11 @@ pub fn rules_for_context(ctx: &OptimizationContext) -> Vec<Rc<AstRewriteRule>> {
     rules
 }
 
-/// OptimizationContextに基づいて探索用ルールを取得（交換則・分配則を含む）
+/// DeviceCapabilitiesに基づいて探索用ルールを取得（交換則・分配則を含む）
 ///
-/// `rules_for_context`と同様にデバイスサポートを考慮しつつ、
+/// `rules_for_capabilities`と同様にデバイスサポートを考慮しつつ、
 /// ビームサーチ等の探索ベース最適化用のルールセットを返します。
-pub fn search_rules_for_context(ctx: &OptimizationContext) -> Vec<Rc<AstRewriteRule>> {
+pub fn search_rules_for_capabilities(ctx: &DeviceCapabilities) -> Vec<Rc<AstRewriteRule>> {
     let mut rules = all_rules_with_search();
 
     // FMAサポート時はFMAルールを追加
