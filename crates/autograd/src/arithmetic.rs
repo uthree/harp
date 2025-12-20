@@ -110,10 +110,8 @@ impl<T: Clone> Recip<T> {
 
 impl<T> Backward<T> for Recip<T>
 where
-    for<'a> &'a T: ops::Add<Output = T>
-        + ops::Mul<Output = T>
-        + ops::Div<Output = T>
-        + ops::Neg<Output = T>,
+    for<'a> &'a T:
+        ops::Add<Output = T> + ops::Mul<Output = T> + ops::Div<Output = T> + ops::Neg<Output = T>,
 {
     fn backward(&mut self, grad_y: Variable<T>) {
         // 逆数の勾配: ∂L/∂x = -∂L/∂z / x²
