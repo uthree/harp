@@ -52,9 +52,18 @@ pub trait Prod {
 
 /// 最大値演算を表すトレイト
 /// 指定した軸に沿って最大値を取得する
-pub trait Max {
+pub trait Max: Sized {
     /// 指定した軸で最大値を計算
     fn max(&self, axis: usize) -> Self;
+
+    /// max の逆伝播を計算
+    /// 最大値の位置にのみ勾配を伝播する
+    /// - grad_output: 出力側の勾配
+    /// - input: 順伝播時の入力値
+    /// - output: 順伝播時の出力値（最大値）
+    /// - axis: 縮約した軸
+    /// - size: 縮約前の軸のサイズ
+    fn max_grad(grad_output: &Self, input: &Self, output: &Self, axis: usize, size: usize) -> Self;
 }
 
 // ============================================================================

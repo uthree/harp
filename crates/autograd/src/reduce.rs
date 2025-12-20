@@ -1,6 +1,6 @@
 use std::ops;
 
-use crate::traits::{Expand, GradFn, Sum};
+use crate::traits::{Expand, GradFn, Max, Sum};
 use crate::variable::Variable;
 
 // ============================================================================
@@ -191,25 +191,17 @@ impl<T: Clone + 'static> MaxBackward<T> {
 
 impl<T> GradFn<Variable<T>> for MaxBackward<T>
 where
-    T: Clone + ops::Add<T, Output = T> + Expand + MaxGrad + 'static,
+    T: Clone + ops::Add<T, Output = T> + Max + 'static,
 {
     fn backward(&mut self, grad_y: Variable<T>) {
         // 最大値の勾配: 最大値の位置にのみ勾配を伝播
-        let grad_val =
-            grad_y
-                .value()
-                .max_grad(&self.input_value, &self.output_value, self.axis, self.size);
+        let grad_val = T::max_grad(
+            &grad_y.value(),
+            &self.input_value,
+            &self.output_value,
+            self.axis,
+            self.size,
+        );
         self.input.backward_with(Variable::new(grad_val));
     }
-}
-
-/// Max演算の逆伝播を計算するトレイト
-/// 最大値の位置にのみ勾配を伝播する
-pub trait MaxGrad: Sized {
-    /// max の逆伝播を計算
-    /// - input: 順伝播時の入力値
-    /// - output: 順伝播時の出力値（最大値）
-    /// - axis: 縮約した軸
-    /// - size: 縮約前の軸のサイズ
-    fn max_grad(&self, input: &Self, output: &Self, axis: usize, size: usize) -> Self;
 }
