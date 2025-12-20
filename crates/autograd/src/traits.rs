@@ -38,23 +38,26 @@ impl<T: Clone + One> GradRoot for T {
 
 /// 総和演算を表すトレイト
 /// 指定した軸に沿って要素を合計する
-pub trait Sum {
+pub trait Sum: Sized {
     /// 指定した軸で総和を計算
-    fn sum(&self, axis: usize) -> Self;
+    /// 戻り値: (結果, 縮約前の軸のサイズ)
+    fn sum(&self, axis: usize) -> (Self, usize);
 }
 
 /// 総乗演算を表すトレイト
 /// 指定した軸に沿って要素を乗算する
-pub trait Prod {
+pub trait Prod: Sized {
     /// 指定した軸で総乗を計算
-    fn prod(&self, axis: usize) -> Self;
+    /// 戻り値: (結果, 縮約前の軸のサイズ)
+    fn prod(&self, axis: usize) -> (Self, usize);
 }
 
 /// 最大値演算を表すトレイト
 /// 指定した軸に沿って最大値を取得する
 pub trait Max: Sized {
     /// 指定した軸で最大値を計算
-    fn max(&self, axis: usize) -> Self;
+    /// 戻り値: (結果, 縮約前の軸のサイズ)
+    fn max(&self, axis: usize) -> (Self, usize);
 
     /// max の逆伝播を計算
     /// 最大値の位置にのみ勾配を伝播する

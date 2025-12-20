@@ -74,7 +74,7 @@ where
 {
     fn backward(&mut self, grad_y: Variable<T>) {
         // 拡張の勾配: 出力の勾配を縮約
-        let reduced = grad_y.value().sum(self.axis);
+        let (reduced, _) = grad_y.value().sum(self.axis);
         self.input.backward_with(Variable::new(reduced));
     }
 }
