@@ -6,6 +6,7 @@ use std::io::{self, IsTerminal, Read, Write};
 use std::path::PathBuf;
 
 use harp::backend::c_like::CLikeRenderer;
+#[cfg(target_os = "macos")]
 use harp::backend::metal::MetalRenderer;
 use harp::backend::opencl::OpenCLRenderer;
 use harp::backend::{MultiPhaseConfig, Renderer, SubgraphMode, create_multi_phase_optimizer};
@@ -96,6 +97,7 @@ enum Commands {
 enum Target {
     #[value(name = "opencl", alias = "cl")]
     OpenCL,
+    #[cfg(target_os = "macos")]
     Metal,
 }
 
@@ -104,6 +106,7 @@ impl Target {
     fn extension(&self) -> &'static str {
         match self {
             Target::OpenCL => "c",
+            #[cfg(target_os = "macos")]
             Target::Metal => "metal",
         }
     }
@@ -313,6 +316,7 @@ fn do_compile(
     let generated = match emit {
         EmitType::Code => match target {
             Target::OpenCL => compile_to_code::<OpenCLRenderer>(graph, subgraph_mode)?,
+            #[cfg(target_os = "macos")]
             Target::Metal => compile_to_code::<MetalRenderer>(graph, subgraph_mode)?,
         },
         EmitType::Graph => {
@@ -327,7 +331,9 @@ fn do_compile(
     // Optionally embed original DSL source as comment
     let result = if embed_source && matches!(emit, EmitType::Code) {
         let comment_prefix = match target {
-            Target::OpenCL | Target::Metal => "//",
+            Target::OpenCL => "//",
+            #[cfg(target_os = "macos")]
+            Target::Metal => "//",
         };
         let mut output = String::new();
         output.push_str(&format!(
