@@ -1,6 +1,6 @@
 use std::ops;
 
-use crate::grad_fns::{Add, Mul, Neg};
+use crate::arithmetic::{Add, Mul, Neg};
 use crate::traits::{GradNode, GradientInto};
 use crate::variable::Variable;
 
