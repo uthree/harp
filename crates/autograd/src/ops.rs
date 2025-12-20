@@ -1,6 +1,6 @@
 use std::ops;
 
-use crate::arithmetic::{Add, Mul, Neg};
+use crate::arithmetic::{AddBackward, MulBackward, NegBackward};
 use crate::traits::GradNode;
 use crate::variable::Variable;
 
@@ -250,12 +250,12 @@ macro_rules! impl_unary_op {
 // ============================================================================
 
 // Add: T + T -> T
-impl_binary_op!(Add, T, add, Add, [
+impl_binary_op!(Add, T, add, AddBackward, [
     T: GradNode + ops::Add<T, Output = T> + 'static,
 ]);
 
 // Mul: T * T -> T
-impl_binary_op!(Mul, T, mul, Mul, [
+impl_binary_op!(Mul, T, mul, MulBackward, [
     T: GradNode + ops::Add<T, Output = T> + ops::Mul<T, Output = T> + 'static,
 ]);
 
@@ -271,6 +271,6 @@ impl_binary_op!(Div, T, [
 ]);
 
 // Neg: -T -> T
-impl_unary_op!(Neg, T, neg, Neg, [
+impl_unary_op!(Neg, T, neg, NegBackward, [
     T: GradNode + ops::Add<T, Output = T> + ops::Neg<Output = T> + 'static,
 ]);

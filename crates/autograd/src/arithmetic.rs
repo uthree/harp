@@ -4,23 +4,23 @@ use crate::traits::GradFn;
 use crate::variable::Variable;
 
 // ============================================================================
-// 加算の勾配関数
+// AddBackward (加算の逆伝播)
 // ============================================================================
 
 /// 加算の勾配関数
 /// z = lhs + rhs の場合、∂L/∂lhs = ∂L/∂z, ∂L/∂rhs = ∂L/∂z
-pub struct Add<T: 'static> {
+pub struct AddBackward<T: 'static> {
     lhs: Variable<T>,
     rhs: Variable<T>,
 }
 
-impl<T: 'static> Add<T> {
+impl<T: 'static> AddBackward<T> {
     pub fn new(lhs: Variable<T>, rhs: Variable<T>) -> Self {
         Self { lhs, rhs }
     }
 }
 
-impl<T> GradFn<Variable<T>> for Add<T>
+impl<T> GradFn<Variable<T>> for AddBackward<T>
 where
     T: Clone + ops::Add<T, Output = T> + 'static,
 {
@@ -32,12 +32,12 @@ where
 }
 
 // ============================================================================
-// 乗算の勾配関数
+// MulBackward (乗算の逆伝播)
 // ============================================================================
 
 /// 乗算の勾配関数
 /// z = lhs * rhs の場合、∂L/∂lhs = ∂L/∂z * rhs, ∂L/∂rhs = ∂L/∂z * lhs
-pub struct Mul<T: 'static> {
+pub struct MulBackward<T: 'static> {
     lhs: Variable<T>,
     rhs: Variable<T>,
     // 順伝播時の値をキャッシュ（逆伝播で使用）
@@ -45,7 +45,7 @@ pub struct Mul<T: 'static> {
     rhs_value: T,
 }
 
-impl<T: Clone + 'static> Mul<T> {
+impl<T: Clone + 'static> MulBackward<T> {
     pub fn new(lhs: Variable<T>, rhs: Variable<T>) -> Self {
         // 順伝播時の値をコピー（backward 時に必要）
         let lhs_value = lhs.value();
@@ -59,7 +59,7 @@ impl<T: Clone + 'static> Mul<T> {
     }
 }
 
-impl<T> GradFn<Variable<T>> for Mul<T>
+impl<T> GradFn<Variable<T>> for MulBackward<T>
 where
     T: Clone + ops::Add<T, Output = T> + ops::Mul<T, Output = T> + 'static,
 {
@@ -74,22 +74,22 @@ where
 }
 
 // ============================================================================
-// 符号反転の勾配関数
+// NegBackward (符号反転の逆伝播)
 // ============================================================================
 
 /// 符号反転の勾配関数
 /// z = -x の場合、∂L/∂x = -∂L/∂z
-pub struct Neg<T: 'static> {
+pub struct NegBackward<T: 'static> {
     input: Variable<T>,
 }
 
-impl<T: 'static> Neg<T> {
+impl<T: 'static> NegBackward<T> {
     pub fn new(input: Variable<T>) -> Self {
         Self { input }
     }
 }
 
-impl<T> GradFn<Variable<T>> for Neg<T>
+impl<T> GradFn<Variable<T>> for NegBackward<T>
 where
     T: Clone + ops::Add<T, Output = T> + ops::Neg<Output = T> + 'static,
 {
@@ -101,18 +101,18 @@ where
 }
 
 // ============================================================================
-// 逆数の勾配関数
+// RecipBackward (逆数の逆伝播)
 // ============================================================================
 
 /// 逆数の勾配関数
 /// z = 1/x の場合、∂L/∂x = -∂L/∂z / x²
-pub struct Recip<T: 'static> {
+pub struct RecipBackward<T: 'static> {
     input: Variable<T>,
     // 順伝播時の値をキャッシュ（逆伝播で使用）
     input_value: T,
 }
 
-impl<T: Clone + 'static> Recip<T> {
+impl<T: Clone + 'static> RecipBackward<T> {
     pub fn new(input: Variable<T>) -> Self {
         // 順伝播時の値をコピー（backward 時に必要）
         let input_value = input.value();
@@ -120,7 +120,7 @@ impl<T: Clone + 'static> Recip<T> {
     }
 }
 
-impl<T> GradFn<Variable<T>> for Recip<T>
+impl<T> GradFn<Variable<T>> for RecipBackward<T>
 where
     T: Clone
         + ops::Add<T, Output = T>
