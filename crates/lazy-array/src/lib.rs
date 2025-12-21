@@ -22,6 +22,7 @@
 //! }
 //! ```
 
+pub mod cache;
 pub mod device;
 pub mod dim;
 pub mod dyn_backend;

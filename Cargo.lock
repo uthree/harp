@@ -1847,6 +1847,7 @@ dependencies = [
  "harp-backend-metal",
  "harp-backend-opencl",
  "harp-core",
+ "harp-dsl",
  "thiserror 1.0.69",
 ]
 

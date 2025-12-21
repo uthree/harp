@@ -11,6 +11,7 @@ opencl = ["harp-backend-opencl"]
 
 [dependencies]
 harp-core = { path = "../core" }
+harp-dsl = { path = "../dsl" }
 harp-backend-opencl = { path = "../backend-opencl", optional = true }
 harp-backend-metal = { path = "../backend-metal", optional = true }
 thiserror = "1.0"

@@ -2,17 +2,22 @@
 //!
 //! 遅延評価されたArrayをGPU上で実行するためのコンテキストを提供します。
 
-
 // ============================================================================
 // OpenCL ExecutionContext
 // ============================================================================
 
 #[cfg(feature = "opencl")]
 pub mod opencl {
-    use super::*;
+    use std::cell::RefCell;
+
     use harp_backend_opencl::{OpenCLBuffer, OpenCLCompiler, OpenCLDevice, OpenCLRenderer};
+    use harp_core::ast::DType;
     use harp_core::backend::sequence::CompiledProgram;
-    use harp_core::backend::{Buffer, CompiledKernel, Compiler};
+    use harp_core::backend::{Buffer, CompiledKernel, Compiler, Pipeline};
+    use harp_core::graph::Graph;
+
+    use crate::cache::ProgramCache;
+    use crate::dyn_backend::ArrayError;
 
     /// OpenCL用のパイプライン型エイリアス
     pub type OpenCLPipeline = Pipeline<OpenCLRenderer, OpenCLDevice, OpenCLCompiler>;
@@ -31,6 +36,7 @@ pub mod opencl {
     pub struct OpenCLExecutionContext {
         device: OpenCLDevice,
         pipeline: OpenCLPipeline,
+        program_cache: ProgramCache<OpenCLCompiledProgram>,
     }
 
     thread_local! {
@@ -46,7 +52,11 @@ pub mod opencl {
             let compiler = OpenCLCompiler::new();
             let pipeline = Pipeline::new(renderer, compiler, device.clone());
 
-            Ok(Self { device, pipeline })
+            Ok(Self {
+                device,
+                pipeline,
+                program_cache: ProgramCache::new(),
+            })
         }
 
         /// デバイスを取得
@@ -61,14 +71,37 @@ pub mod opencl {
                 .map_err(|e| ArrayError::Compilation(e.to_string()))
         }
 
-        /// グラフをコンパイル（複数カーネル対応）
+        /// グラフをコンパイル（複数カーネル対応、キャッシュ付き）
         pub fn compile_program(
             &mut self,
             graph: Graph,
         ) -> Result<OpenCLCompiledProgram, ArrayError> {
-            self.pipeline
+            // Generate cache key using DSL decompile
+            let cache_key = harp_dsl::decompile(&graph);
+
+            // Check cache
+            if let Some(cached) = self.program_cache.get(&cache_key) {
+                return Ok(cached.clone());
+            }
+
+            // Compile and cache
+            let program = self
+                .pipeline
                 .compile_program(graph)
-                .map_err(|e| ArrayError::Compilation(e.to_string()))
+                .map_err(|e| ArrayError::Compilation(e.to_string()))?;
+
+            self.program_cache.insert(cache_key, program.clone());
+            Ok(program)
+        }
+
+        /// Get cache statistics
+        pub fn cache_stats(&self) -> &crate::cache::CacheStats {
+            self.program_cache.stats()
+        }
+
+        /// Clear the program cache
+        pub fn clear_cache(&mut self) {
+            self.program_cache.clear();
         }
 
         /// バッファを確保
@@ -126,9 +159,16 @@ pub mod opencl {
 
 #[cfg(feature = "metal")]
 pub mod metal {
-    use super::*;
+    use std::cell::RefCell;
+
     use harp_backend_metal::{MetalBuffer, MetalCompiler, MetalDevice, MetalRenderer};
-    use harp_core::backend::{Buffer, CompiledKernel};
+    use harp_core::ast::DType;
+    use harp_core::backend::sequence::CompiledProgram;
+    use harp_core::backend::{Buffer, CompiledKernel, Pipeline};
+    use harp_core::graph::Graph;
+
+    use crate::cache::ProgramCache;
+    use crate::dyn_backend::ArrayError;
 
     /// Metal用のパイプライン型エイリアス
     pub type MetalPipeline = Pipeline<MetalRenderer, MetalDevice, MetalCompiler>;
@@ -137,10 +177,15 @@ pub mod metal {
     pub type MetalCompiledKernel =
         CompiledKernel<<MetalCompiler as harp_core::backend::Compiler>::Kernel, MetalBuffer>;
 
+    /// Metal用のコンパイル済みプログラム型エイリアス
+    pub type MetalCompiledProgram =
+        CompiledProgram<<MetalCompiler as harp_core::backend::Compiler>::Kernel, MetalBuffer>;
+
     /// Metal実行コンテキスト
     pub struct MetalExecutionContext {
         device: MetalDevice,
         pipeline: MetalPipeline,
+        program_cache: ProgramCache<MetalCompiledProgram>,
     }
 
     thread_local! {
@@ -156,7 +201,11 @@ pub mod metal {
             let compiler = MetalCompiler::new();
             let pipeline = Pipeline::new(renderer, compiler, device.clone());
 
-            Ok(Self { device, pipeline })
+            Ok(Self {
+                device,
+                pipeline,
+                program_cache: ProgramCache::new(),
+            })
         }
 
         /// デバイスを取得
@@ -164,11 +213,44 @@ pub mod metal {
             &self.device
         }
 
-        /// グラフをコンパイル
+        /// グラフをコンパイル（単一カーネル）
         pub fn compile(&mut self, graph: Graph) -> Result<MetalCompiledKernel, ArrayError> {
             self.pipeline
                 .compile_graph(graph)
                 .map_err(|e| ArrayError::Compilation(e.to_string()))
+        }
+
+        /// グラフをコンパイル（複数カーネル対応、キャッシュ付き）
+        pub fn compile_program(
+            &mut self,
+            graph: Graph,
+        ) -> Result<MetalCompiledProgram, ArrayError> {
+            // Generate cache key using DSL decompile
+            let cache_key = harp_dsl::decompile(&graph);
+
+            // Check cache
+            if let Some(cached) = self.program_cache.get(&cache_key) {
+                return Ok(cached.clone());
+            }
+
+            // Compile and cache
+            let program = self
+                .pipeline
+                .compile_program(graph)
+                .map_err(|e| ArrayError::Compilation(e.to_string()))?;
+
+            self.program_cache.insert(cache_key, program.clone());
+            Ok(program)
+        }
+
+        /// Get cache statistics
+        pub fn cache_stats(&self) -> &crate::cache::CacheStats {
+            self.program_cache.stats()
+        }
+
+        /// Clear the program cache
+        pub fn clear_cache(&mut self) {
+            self.program_cache.clear();
         }
 
         /// バッファを確保

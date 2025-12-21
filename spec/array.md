@@ -1,4 +1,4 @@
-# harp-array: 配列計算クレート
+# harp-lazy-array: 配列計算クレート
 
 ndarray/PyTorchライクなAPIで配列計算を行うクレート。遅延評価による計算グラフの構築と、キャッシュ機構による効率的なカーネル再利用を提供する。
 
@@ -13,15 +13,14 @@ ndarray/PyTorchライクなAPIで配列計算を行うクレート。遅延評�
 ## モジュール構成
 
 ```
-crates/array/src/
+crates/lazy-array/src/
 ├── lib.rs              # モジュール定義、型エイリアス、prelude
 ├── dim.rs              # 次元トレイト (Dim0-Dim6, DimDyn)
-├── array.rs            # Array<T, D, ...> + ArrayState (遅延/評価済み)
-├── context.rs          # ExecutionContext
-├── cache.rs            # GraphSignature, KernelCache
-├── generators.rs       # zeros, ones, full, arange, rand
-└── ops/
-    └── elementwise.rs  # +, -, *, / 演算子
+├── dyn_backend.rs      # Array<T, D> + ArrayState (遅延/評価済み)
+├── device.rs           # Device抽象化
+├── cache.rs            # ProgramCache, CacheStats
+├── execution.rs        # OpenCL/Metal ExecutionContext
+└── generators.rs       # zeros, ones, full, arange, rand
 ```
 
 ## 主要な型
@@ -65,12 +64,13 @@ pub enum ArrayState<Buf> {
 - `KernelCache`でコンパイル済みカーネルを再利用
 - 設定は`ExecutionConfig`で管理
 
-### GraphSignature / KernelCache (`cache.rs`)
+### ProgramCache (`cache.rs`)
 
-計算グラフの構造をハッシュ化し、同じ計算パターンを再利用するための機構。
+コンパイル済みプログラムを再利用するためのキャッシュ機構。
 
-- `GraphSignature`: グラフ構造の一意識別子（構造ハッシュ + 形状 + データ型）
-- `KernelCache`: スレッドセーフなカーネルキャッシュ
+- **キャッシュキー**: `harp_dsl::decompile(&graph)` の出力文字列（決定論的）
+- **ヒット/ミス統計**: `CacheStats` で追跡
+- **ExecutionContext統合**: OpenCL/Metal実行コンテキスト内でキャッシュを管理
 
 ## 生成関数 (`generators.rs`)
 

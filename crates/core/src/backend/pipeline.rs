@@ -107,8 +107,6 @@ where
     config: PipelineConfig,
     /// Optimization histories
     pub histories: OptimizationHistories,
-    /// Compiled kernel cache
-    kernel_cache: HashMap<String, Comp::Kernel>,
 }
 
 impl<R, Dev, Comp, Buf> Pipeline<R, Dev, Comp>
@@ -127,7 +125,6 @@ where
             device,
             config: PipelineConfig::default(),
             histories: OptimizationHistories::default(),
-            kernel_cache: HashMap::new(),
         }
     }
 
@@ -196,27 +193,6 @@ where
             dispatch_config,
             _buffer: PhantomData,
         })
-    }
-
-    /// Compile and cache a kernel
-    pub fn compile_and_cache(
-        &mut self,
-        key: String,
-        graph: Graph,
-    ) -> Result<&Comp::Kernel, Comp::Error> {
-        let compiled = self.compile_graph(graph)?;
-        self.kernel_cache.insert(key.clone(), compiled.kernel);
-        Ok(self.kernel_cache.get(&key).unwrap())
-    }
-
-    /// Get a cached kernel
-    pub fn get_cached_kernel(&self, key: &str) -> Option<&Comp::Kernel> {
-        self.kernel_cache.get(key)
-    }
-
-    /// Clear the kernel cache
-    pub fn clear_cache(&mut self) {
-        self.kernel_cache.clear();
     }
 
     /// Allocate a buffer on the GPU
