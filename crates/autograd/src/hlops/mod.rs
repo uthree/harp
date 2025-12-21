@@ -2,11 +2,15 @@
 //!
 //! プリミティブ演算(primops)の組み合わせで実装される演算です。
 //! ブランケット実装によりprimopsにフォールバックします。
+//!
+//! ## モジュール構成
+//!
+//! - `elementwise`: 要素単位演算
+//!   - Sub, Div, Cos, Ln, Exp
+//! - `structural`: 構造変更演算
+//!   - Matmul (汎用フォールバック)
 
-pub mod arithmetic;
-pub mod linalg;
-pub mod transcendental;
+pub mod elementwise;
+pub mod structural;
 
-// 現在、hlopsは演算子トレイト実装として提供されるため、
-// 個別の型をエクスポートする必要はありません。
-// 将来的に独自の構造体が必要になった場合はここに追加します。
+pub use elementwise::One;

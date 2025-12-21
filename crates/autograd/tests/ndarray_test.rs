@@ -1,6 +1,6 @@
 #![cfg(feature = "ndarray")]
 
-use autograd::{Expand, Matmul, Max, Prod, Sum, Transpose, Variable};
+use autograd::{Expand, Matmul, Max, Permute, Prod, Reshape, Sum, Variable};
 use ndarray::{Array1, Array2, array};
 
 // ============================================================================
@@ -554,45 +554,91 @@ fn test_mul_then_sum() {
 }
 
 // ============================================================================
-// 転置（Transpose）のテスト
+// 軸順序変更（Permute）のテスト
 // ============================================================================
 
 #[test]
-fn test_transpose_trait() {
+fn test_permute_trait() {
     let arr: Array2<f64> = array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
-    let transposed = arr.transpose();
-    assert_eq!(transposed, array![[1.0, 4.0], [2.0, 5.0], [3.0, 6.0]]);
+    // permute([1, 0]) は転置と同等
+    let permuted = arr.permute(&[1, 0]);
+    assert_eq!(permuted, array![[1.0, 4.0], [2.0, 5.0], [3.0, 6.0]]);
 }
 
 #[test]
-fn test_variable_transpose_forward() {
+fn test_permute_identity() {
+    let arr: Array2<f64> = array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
+    // permute([0, 1]) は恒等変換
+    let permuted = arr.permute(&[0, 1]);
+    assert_eq!(permuted, array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
+}
+
+#[test]
+fn test_variable_permute_forward() {
     let x: Variable<Array2<f64>> = Variable::new(array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
-    let y = x.transpose();
+    let y = x.permute(&[1, 0]);
     assert_eq!(y.value(), array![[1.0, 4.0], [2.0, 5.0], [3.0, 6.0]]);
 }
 
 #[test]
-fn test_variable_transpose_backward() {
-    // Y = X^T
-    // ∂L/∂X = (∂L/∂Y)^T
+fn test_variable_permute_backward() {
+    // Y = permute(X, [1, 0])
+    // ∂L/∂X = permute(∂L/∂Y, inverse([1, 0])) = permute(∂L/∂Y, [1, 0])
     let x: Variable<Array2<f64>> = Variable::new(array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
-    let y = x.transpose(); // (3, 2)
+    let y = x.permute(&[1, 0]); // (3, 2)
 
     let grad = Variable::new(array![[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]);
     y.backward_with(grad);
 
-    // grad^T = [[1, 3, 5], [2, 4, 6]]
+    // permute(grad, [1, 0]) = [[1, 3, 5], [2, 4, 6]]
     assert_eq!(
         x.grad().unwrap().value(),
         array![[1.0, 3.0, 5.0], [2.0, 4.0, 6.0]]
     );
 }
 
+// ============================================================================
+// 形状変更（Reshape）のテスト
+// ============================================================================
+
 #[test]
-fn test_variable_t_alias() {
-    let x: Variable<Array2<f64>> = Variable::new(array![[1.0, 2.0], [3.0, 4.0]]);
-    let y = x.t();
-    assert_eq!(y.value(), array![[1.0, 3.0], [2.0, 4.0]]);
+fn test_reshape_trait() {
+    let arr: Array2<f64> = array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
+    // (2, 3) -> (3, 2) - Reshape トレイトを明示的に使用
+    let reshaped: Array2<f64> = Reshape::reshape(&arr, &[3, 2]);
+    assert_eq!(reshaped, array![[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]);
+}
+
+#[test]
+fn test_reshape_same_dims() {
+    let arr: Array2<f64> = array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
+    // (2, 3) -> (6, 1) - 同じ次元数を維持
+    let reshaped: Array2<f64> = Reshape::reshape(&arr, &[6, 1]);
+    assert_eq!(reshaped, array![[1.0], [2.0], [3.0], [4.0], [5.0], [6.0]]);
+}
+
+#[test]
+fn test_variable_reshape_forward() {
+    let x: Variable<Array2<f64>> = Variable::new(array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
+    let y: Variable<Array2<f64>> = x.reshape(&[3, 2]);
+    assert_eq!(y.value(), array![[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]);
+}
+
+#[test]
+fn test_variable_reshape_backward() {
+    // Y = reshape(X, new_shape)
+    // ∂L/∂X = reshape(∂L/∂Y, original_shape)
+    let x: Variable<Array2<f64>> = Variable::new(array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
+    let y: Variable<Array2<f64>> = x.reshape(&[3, 2]); // (2, 3) -> (3, 2)
+
+    let grad = Variable::new(array![[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]);
+    y.backward_with(grad);
+
+    // reshape(grad, [2, 3]) = [[1, 2, 3], [4, 5, 6]]
+    assert_eq!(
+        x.grad().unwrap().value(),
+        array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
+    );
 }
 
 // ============================================================================

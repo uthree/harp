@@ -1,49 +1,12 @@
-//! 線形代数のプリミティブ演算（Transpose, Matmul）
+//! 線形代数のプリミティブ演算（Matmul）
 //!
-//! Array2（2次元配列）に限定した型安全な実装を提供します。
+//! 行列積の型安全な実装を提供します。
 
 use std::ops;
 
+use super::permute::Permute;
 use crate::traits::GradFn;
 use crate::variable::Variable;
-
-// ============================================================================
-// Transpose トレイト
-// ============================================================================
-
-/// 転置を表すトレイト
-pub trait Transpose: Sized {
-    fn transpose(&self) -> Self;
-}
-
-// ============================================================================
-// TransposeBackward (転置の逆伝播)
-// ============================================================================
-
-/// 転置の勾配関数
-/// Y = X^T の場合、∂L/∂X = (∂L/∂Y)^T
-pub struct TransposeBackward<T: 'static> {
-    input: Variable<T>,
-}
-
-impl<T: 'static> TransposeBackward<T> {
-    pub fn new(input: Variable<T>) -> Self {
-        Self { input }
-    }
-}
-
-impl<T> GradFn<Variable<T>> for TransposeBackward<T>
-where
-    T: Clone + ops::Add<T, Output = T> + Transpose + 'static,
-{
-    fn backward(&mut self, grad_y: Variable<T>) {
-        // 転置の勾配: (∂L/∂Y)^T
-        let requires_grad = grad_y.requires_grad();
-        let grad_x = grad_y.value().transpose();
-        self.input
-            .backward_with(Variable::new_with_requires_grad(grad_x, requires_grad));
-    }
-}
 
 // ============================================================================
 // Matmul トレイト
@@ -64,6 +27,8 @@ pub trait Matmul<Rhs = Self>: Sized {
 /// C = A @ B の場合:
 /// - ∂L/∂A = ∂L/∂C @ B^T
 /// - ∂L/∂B = A^T @ ∂L/∂C
+///
+/// 転置は permute([1, 0]) で表現
 pub struct MatmulBackward<T: 'static> {
     lhs: Variable<T>,
     rhs: Variable<T>,
@@ -86,19 +51,19 @@ impl<T: Clone + 'static> MatmulBackward<T> {
 
 impl<T> GradFn<Variable<T>> for MatmulBackward<T>
 where
-    T: Clone + ops::Add<T, Output = T> + Transpose + Matmul<T, Output = T> + 'static,
+    T: Clone + ops::Add<T, Output = T> + Permute + Matmul<T, Output = T> + 'static,
 {
     fn backward(&mut self, grad_y: Variable<T>) {
         let requires_grad = grad_y.requires_grad();
 
-        // ∂L/∂A = ∂L/∂C @ B^T
-        let rhs_t = self.rhs_value.transpose();
+        // ∂L/∂A = ∂L/∂C @ B^T (B^T = permute(B, [1, 0]))
+        let rhs_t = self.rhs_value.permute(&[1, 0]);
         let grad_lhs = grad_y.value().matmul(&rhs_t);
         self.lhs
             .backward_with(Variable::new_with_requires_grad(grad_lhs, requires_grad));
 
-        // ∂L/∂B = A^T @ ∂L/∂C
-        let lhs_t = self.lhs_value.transpose();
+        // ∂L/∂B = A^T @ ∂L/∂C (A^T = permute(A, [1, 0]))
+        let lhs_t = self.lhs_value.permute(&[1, 0]);
         let grad_rhs = lhs_t.matmul(&grad_y.value());
         self.rhs
             .backward_with(Variable::new_with_requires_grad(grad_rhs, requires_grad));
@@ -111,27 +76,7 @@ where
 
 impl<T> Variable<T>
 where
-    T: Clone + ops::Add<T, Output = T> + Transpose + 'static,
-{
-    /// 転置を計算
-    pub fn transpose(&self) -> Variable<T> {
-        let output = self.value().transpose();
-        if self.requires_grad() {
-            Variable::with_grad_fn(output, Box::new(TransposeBackward::new(self.clone())))
-        } else {
-            Variable::new_no_grad(output)
-        }
-    }
-
-    /// 転置を計算（エイリアス）
-    pub fn t(&self) -> Variable<T> {
-        self.transpose()
-    }
-}
-
-impl<T> Variable<T>
-where
-    T: Clone + ops::Add<T, Output = T> + Transpose + Matmul<T, Output = T> + 'static,
+    T: Clone + ops::Add<T, Output = T> + Permute + Matmul<T, Output = T> + 'static,
 {
     /// 行列積を計算
     pub fn matmul(&self, other: &Variable<T>) -> Variable<T> {

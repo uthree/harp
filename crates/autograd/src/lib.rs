@@ -44,14 +44,20 @@ pub use primops::{
     MulLn2Backward,
     MulLog2E,
     MulLog2EBackward,
+    // 形状情報
     Ndim,
     NegBackward,
+    Permute,
+    PermuteBackward,
     PhaseShiftQuarter,
     PhaseShiftQuarterBackward,
     Prod,
     ProdBackward,
     RecipBackward,
     RemBackward,
+    // 形状変更
+    Reshape,
+    ReshapeBackward,
     Shape,
     Sin,
     SinBackward,
@@ -59,13 +65,13 @@ pub use primops::{
     SqrtBackward,
     Sum,
     SumBackward,
-    Transpose,
-    TransposeBackward,
     Two,
+    // 軸順序変更
+    inverse_permutation,
 };
 
 // hlops からのエクスポート
-pub use hlops::arithmetic::One;
+pub use hlops::One;
 
 // traits からのエクスポート
 pub use traits::{GradFn, GradNode, GradRoot};

@@ -1,8 +1,8 @@
-//! ndarray に対する Reduce/Expand/Linalg/Shape トレイトの実装
+//! ndarray に対する Reduce/Expand/Permute/Reshape/Linalg/Shape トレイトの実装
 
-use ndarray::{Array2, Axis, Dimension, concatenate};
+use ndarray::{Array2, Axis, Dimension, IxDyn, concatenate};
 
-use crate::primops::{Expand, Matmul, Max, Prod, Shape, Sum, Transpose};
+use crate::primops::{Expand, Matmul, Max, Permute, Prod, Reshape, Shape, Sum};
 
 // ============================================================================
 // Shape の実装
@@ -146,15 +146,45 @@ where
 }
 
 // ============================================================================
-// Transpose の実装 (Array2 専用)
+// Permute の実装 (Array2 専用)
 // ============================================================================
 
-impl<A> Transpose for Array2<A>
+impl<A> Permute for Array2<A>
 where
     A: Clone,
 {
-    fn transpose(&self) -> Self {
-        self.t().to_owned()
+    fn permute(&self, axes: &[usize]) -> Self {
+        assert_eq!(axes.len(), 2, "permute for Array2 requires exactly 2 axes");
+        // 2次元の場合、axes = [0, 1] なら恒等、axes = [1, 0] なら転置
+        if axes == [0, 1] {
+            self.clone()
+        } else if axes == [1, 0] {
+            self.t().to_owned()
+        } else {
+            panic!("Invalid axes for 2D permute: {:?}", axes);
+        }
+    }
+}
+
+// ============================================================================
+// Reshape の実装
+// ============================================================================
+
+impl<A, D> Reshape for ndarray::Array<A, D>
+where
+    A: Clone,
+    D: Dimension,
+{
+    fn reshape(&self, new_shape: &[usize]) -> Self {
+        // 動的次元に変換してから reshape し、元の次元型に戻す
+        let dyn_array = self.clone().into_dyn();
+        let new_dim = IxDyn(new_shape);
+        let reshaped = dyn_array
+            .into_shape_with_order(new_dim)
+            .expect("reshape: incompatible shapes");
+        reshaped
+            .into_dimensionality()
+            .expect("reshape: dimension mismatch")
     }
 }
 
