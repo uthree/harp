@@ -217,22 +217,66 @@ pub fn factor_right() -> Rc<AstRewriteRule> {
 
 /// 乗算と加算の融合（右加算）: a * b + c => fma(a, b, c)
 /// FMAは単一の丸め操作で実行され、中間結果の精度が保持される
+/// 注意: 浮動小数点型にのみ適用（整数型のFMAはGPUでサポートされないため）
 pub fn mul_add_to_fma() -> Rc<AstRewriteRule> {
+    use crate::ast::DType;
     use crate::ast::helper::fma;
-    astpat!(|a, b, c| {
-        a.clone() * b.clone() + c.clone()
-    } => {
-        fma(a, b, c)
-    })
+    use crate::ast::pat::AstRewriteRule;
+
+    // パターン: a * b + c
+    let a = AstNode::Wildcard("a".to_string());
+    let b = AstNode::Wildcard("b".to_string());
+    let c = AstNode::Wildcard("c".to_string());
+    let pattern = AstNode::Add(
+        Box::new(AstNode::Mul(Box::new(a), Box::new(b))),
+        Box::new(c),
+    );
+
+    AstRewriteRule::new(
+        pattern,
+        |bindings| {
+            let a = bindings.get("a").unwrap().clone();
+            let b = bindings.get("b").unwrap().clone();
+            let c = bindings.get("c").unwrap().clone();
+            fma(a, b, c)
+        },
+        |bindings| {
+            // 浮動小数点型の場合のみFMA化
+            let a = bindings.get("a").unwrap();
+            matches!(a.infer_type(), DType::F32)
+        },
+    )
 }
 
 /// 乗算と加算の融合（左加算）: c + a * b => fma(a, b, c)
 /// 加算の交換則を適用したパターン
+/// 注意: 浮動小数点型にのみ適用（整数型のFMAはGPUでサポートされないため）
 pub fn add_mul_to_fma() -> Rc<AstRewriteRule> {
+    use crate::ast::DType;
     use crate::ast::helper::fma;
-    astpat!(|a, b, c| {
-        c.clone() + a.clone() * b.clone()
-    } => {
-        fma(a, b, c)
-    })
+    use crate::ast::pat::AstRewriteRule;
+
+    // パターン: c + a * b
+    let a = AstNode::Wildcard("a".to_string());
+    let b = AstNode::Wildcard("b".to_string());
+    let c = AstNode::Wildcard("c".to_string());
+    let pattern = AstNode::Add(
+        Box::new(c),
+        Box::new(AstNode::Mul(Box::new(a), Box::new(b))),
+    );
+
+    AstRewriteRule::new(
+        pattern,
+        |bindings| {
+            let a = bindings.get("a").unwrap().clone();
+            let b = bindings.get("b").unwrap().clone();
+            let c = bindings.get("c").unwrap().clone();
+            fma(a, b, c)
+        },
+        |bindings| {
+            // 浮動小数点型の場合のみFMA化
+            let a = bindings.get("a").unwrap();
+            matches!(a.infer_type(), DType::F32)
+        },
+    )
 }

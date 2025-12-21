@@ -315,12 +315,6 @@ impl CLikeRenderer for OpenCLRenderer {
         }
     }
 
-    fn render_fma(&self, a: &str, b: &str, c: &str) -> String {
-        // OpenCLのfmaとmadは浮動小数点専用
-        // 整数インデックス計算にも使われるため、単純な展開形式を使用
-        format!("(({}) * ({}) + ({}))", a, b, c)
-    }
-
     fn render_vector_load(&self, ptr_expr: &str, offset_expr: &str, dtype: &str) -> String {
         // OpenCLのvload関数を使用
         let vec_size = dtype.chars().last().and_then(|c| c.to_digit(10));
