@@ -1,3 +1,5 @@
+//! 四則演算のプリミティブ演算（Add, Mul, Neg, Recip）
+
 use std::ops;
 
 use crate::traits::{GradFn, GradNode};
@@ -139,7 +141,7 @@ where
 }
 
 // ============================================================================
-// 2項演算子の4パターン生成マクロ
+// 2項演算子の生成マクロ（primops用）
 // ============================================================================
 
 /// 2項演算子の全組み合わせを生成するマクロ（単一型パラメータ版）
@@ -249,105 +251,6 @@ macro_rules! impl_binary_op {
             }
         }
     };
-
-    // Sub演算子
-    (Sub, $t:ident, $method:ident, [$($bounds:tt)*]) => {
-        // &Variable<T> - &Variable<T> -> Variable<T> (基本実装: Neg + Add)
-        impl<$t> ops::Sub<&Variable<$t>> for &Variable<$t>
-        where
-            $($bounds)*
-        {
-            type Output = Variable<$t>;
-
-            fn $method(self, rhs: &Variable<$t>) -> Variable<$t> {
-                let neg_rhs = -rhs;
-                self + &neg_rhs
-            }
-        }
-
-        // Variable<T> - Variable<T>
-        impl<$t> ops::Sub<Variable<$t>> for Variable<$t>
-        where
-            $($bounds)*
-        {
-            type Output = Variable<$t>;
-            fn $method(self, rhs: Variable<$t>) -> Variable<$t> {
-                &self - &rhs
-            }
-        }
-
-        // Variable<T> - &Variable<T>
-        impl<$t> ops::Sub<&Variable<$t>> for Variable<$t>
-        where
-            $($bounds)*
-        {
-            type Output = Variable<$t>;
-            fn $method(self, rhs: &Variable<$t>) -> Variable<$t> {
-                &self - rhs
-            }
-        }
-
-        // &Variable<T> - Variable<T>
-        impl<$t> ops::Sub<Variable<$t>> for &Variable<$t>
-        where
-            $($bounds)*
-        {
-            type Output = Variable<$t>;
-            fn $method(self, rhs: Variable<$t>) -> Variable<$t> {
-                self - &rhs
-            }
-        }
-    };
-
-    // Div演算子 (TODO: Mul + Recip を組み合わせた実装に変更する)
-    (Div, $t:ident, [$($bounds:tt)*]) => {
-        // &Variable<T> / &Variable<T> -> Variable<T> (基本実装)
-        impl<$t> ops::Div<&Variable<$t>> for &Variable<$t>
-        where
-            $($bounds)*
-        {
-            type Output = Variable<$t>;
-
-            fn div(self, rhs: &Variable<$t>) -> Variable<$t> {
-                let lhs_val = self.value();
-                let rhs_val = rhs.value();
-                Variable::new(lhs_val / rhs_val)
-            }
-        }
-
-        // Variable<T> / Variable<T>
-        impl<$t> ops::Div<Variable<$t>> for Variable<$t>
-        where
-            $($bounds)*
-        {
-            type Output = Variable<$t>;
-            fn div(self, rhs: Variable<$t>) -> Variable<$t> {
-                &self / &rhs
-            }
-        }
-
-        // Variable<T> / &Variable<T>
-        impl<$t> ops::Div<&Variable<$t>> for Variable<$t>
-        where
-            $($bounds)*
-        {
-            type Output = Variable<$t>;
-            fn div(self, rhs: &Variable<$t>) -> Variable<$t> {
-                &self / rhs
-            }
-        }
-
-        // &Variable<T> / Variable<T>
-        impl<$t> ops::Div<Variable<$t>> for &Variable<$t>
-        where
-            $($bounds)*
-        {
-            type Output = Variable<$t>;
-            fn div(self, rhs: Variable<$t>) -> Variable<$t> {
-                self / &rhs
-            }
-        }
-    };
 }
 
 /// 単項演算子の全組み合わせを生成するマクロ（単一型パラメータ版）
@@ -380,7 +283,7 @@ macro_rules! impl_unary_op {
 }
 
 // ============================================================================
-// 演算子の実装
+// 演算子の実装（primopsのみ）
 // ============================================================================
 
 // Add: T + T -> T
@@ -393,18 +296,114 @@ impl_binary_op!(Mul, T, mul, MulBackward, [
     T: GradNode + ops::Add<T, Output = T> + ops::Mul<T, Output = T> + 'static,
 ]);
 
-// Sub: T - T -> T (Neg + Add で実装)
-impl_binary_op!(Sub, T, sub, [
-    T: GradNode + ops::Add<T, Output = T> + ops::Neg<Output = T> + 'static,
-    for<'a> &'a Variable<T>: ops::Neg<Output = Variable<T>>,
-]);
-
-// Div: T / T -> T (TODO: Mul + Recip を組み合わせた実装に変更する)
-impl_binary_op!(Div, T, [
-    T: ops::Div<T, Output = T> + Clone + 'static,
-]);
-
 // Neg: -T -> T
 impl_unary_op!(Neg, T, neg, NegBackward, [
     T: GradNode + ops::Add<T, Output = T> + ops::Neg<Output = T> + 'static,
 ]);
+
+// ============================================================================
+// Rem (剰余演算) - fmod相当
+// ============================================================================
+
+/// 剰余演算を表すトレイト
+pub trait RemOp: Sized {
+    fn rem(&self, other: &Self) -> Self;
+}
+
+/// 床関数を表すトレイト（剰余の勾配計算に使用）
+pub trait Floor: Sized {
+    fn floor(&self) -> Self;
+}
+
+/// 剰余の勾配関数
+/// z = x % y の場合:
+/// - ∂L/∂x = ∂L/∂z（xの変化はそのまま出力に反映）
+/// - ∂L/∂y = -∂L/∂z * floor(x/y)
+pub struct RemBackward<T: 'static> {
+    lhs: Variable<T>,
+    rhs: Variable<T>,
+    lhs_value: T,
+    rhs_value: T,
+}
+
+impl<T: Clone + 'static> RemBackward<T> {
+    pub fn new(lhs: Variable<T>, rhs: Variable<T>) -> Self {
+        let lhs_value = lhs.value();
+        let rhs_value = rhs.value();
+        Self {
+            lhs,
+            rhs,
+            lhs_value,
+            rhs_value,
+        }
+    }
+}
+
+impl<T> GradFn<Variable<T>> for RemBackward<T>
+where
+    T: Clone
+        + ops::Add<T, Output = T>
+        + ops::Mul<T, Output = T>
+        + ops::Div<T, Output = T>
+        + ops::Neg<Output = T>
+        + Floor
+        + 'static,
+{
+    fn backward(&mut self, grad_y: Variable<T>) {
+        // ∂L/∂x = ∂L/∂z
+        self.lhs.backward_with(grad_y.clone());
+
+        // ∂L/∂y = -∂L/∂z * floor(x/y)
+        let quotient = self.lhs_value.clone() / self.rhs_value.clone();
+        let floor_quotient = quotient.floor();
+        let grad_rhs_val = -(grad_y.value() * floor_quotient);
+        self.rhs.backward_with(Variable::new(grad_rhs_val));
+    }
+}
+
+// Variable<T> への Rem 実装
+impl<T> Variable<T>
+where
+    T: Clone
+        + ops::Add<T, Output = T>
+        + ops::Mul<T, Output = T>
+        + ops::Div<T, Output = T>
+        + ops::Neg<Output = T>
+        + RemOp
+        + Floor
+        + 'static,
+{
+    /// 剰余を計算
+    pub fn rem(&self, other: &Variable<T>) -> Variable<T> {
+        let output = self.value().rem(&other.value());
+        Variable::with_grad_fn(
+            output,
+            Box::new(RemBackward::new(self.clone(), other.clone())),
+        )
+    }
+}
+
+// f32/f64 への RemOp と Floor 実装
+impl RemOp for f32 {
+    fn rem(&self, other: &Self) -> Self {
+        self % other
+    }
+}
+
+impl RemOp for f64 {
+    fn rem(&self, other: &Self) -> Self {
+        self % other
+    }
+}
+
+impl Floor for f32 {
+    fn floor(&self) -> Self {
+        f32::floor(*self)
+    }
+}
+
+impl Floor for f64 {
+    fn floor(&self) -> Self {
+        f64::floor(*self)
+    }
+}

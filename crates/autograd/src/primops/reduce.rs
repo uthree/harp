@@ -1,3 +1,5 @@
+//! 縮約・拡張演算（Sum, Prod, Max, Expand）のプリミティブ演算
+
 use std::ops;
 
 use crate::traits::GradFn;

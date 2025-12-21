@@ -2,7 +2,7 @@
 
 use ndarray::{Axis, Dimension, concatenate};
 
-use crate::reduce::{Expand, Max, Prod, Sum};
+use crate::primops::{Expand, Max, Prod, Sum};
 
 // ============================================================================
 // Sum の実装
