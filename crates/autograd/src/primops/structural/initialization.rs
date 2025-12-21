@@ -83,6 +83,7 @@ impl Ones for f64 {
 
 use crate::Variable;
 use crate::primops::Shape;
+use crate::shape::IntoShape;
 
 impl<T: Zeros + 'static> Variable<T> {
     /// 指定した形状のゼロ埋め変数を作成
@@ -100,6 +101,26 @@ impl<T: Zeros + 'static> Variable<T> {
     /// ```
     pub fn zeros(shape: &[usize]) -> Variable<T> {
         Variable::new_no_grad(T::zeros(shape))
+    }
+
+    /// 指定した形状のゼロ埋め変数を作成（IntoShape版）
+    ///
+    /// 配列、タプル、単一値など様々な形式で形状を指定できます。
+    ///
+    /// # 使用例
+    ///
+    /// ```
+    /// use autograd::Variable;
+    /// use ndarray::Array2;
+    ///
+    /// // 配列で指定
+    /// let zeros: Variable<Array2<f64>> = Variable::zeros_shape([3, 4]);
+    ///
+    /// // タプルで指定
+    /// let zeros: Variable<Array2<f64>> = Variable::zeros_shape((3, 4));
+    /// ```
+    pub fn zeros_shape<S: IntoShape>(shape: S) -> Variable<T> {
+        Variable::new_no_grad(T::zeros(&shape.into_shape()))
     }
 }
 
@@ -119,6 +140,26 @@ impl<T: Ones + 'static> Variable<T> {
     /// ```
     pub fn ones(shape: &[usize]) -> Variable<T> {
         Variable::new_no_grad(T::ones(shape))
+    }
+
+    /// 指定した形状の1埋め変数を作成（IntoShape版）
+    ///
+    /// 配列、タプル、単一値など様々な形式で形状を指定できます。
+    ///
+    /// # 使用例
+    ///
+    /// ```
+    /// use autograd::Variable;
+    /// use ndarray::Array2;
+    ///
+    /// // 配列で指定
+    /// let ones: Variable<Array2<f64>> = Variable::ones_shape([3, 4]);
+    ///
+    /// // タプルで指定
+    /// let ones: Variable<Array2<f64>> = Variable::ones_shape((3, 4));
+    /// ```
+    pub fn ones_shape<S: IntoShape>(shape: S) -> Variable<T> {
+        Variable::new_no_grad(T::ones(&shape.into_shape()))
     }
 }
 

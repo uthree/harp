@@ -22,6 +22,7 @@ pub mod hlops;
 mod ndarray_impl;
 pub mod prelude;
 pub mod primops;
+pub mod shape;
 pub mod traits;
 pub mod variable;
 
@@ -30,6 +31,7 @@ pub mod variable;
 // ============================================================================
 
 // Core
+pub use shape::IntoShape;
 pub use traits::{GradFn, GradNode, GradRoot};
 pub use variable::Variable;
 
