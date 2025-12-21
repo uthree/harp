@@ -30,8 +30,6 @@ pub enum Device {
     Metal,
     /// OpenCL (クロスプラットフォーム)
     OpenCL,
-    /// CPU (フォールバック)
-    Cpu,
 }
 
 impl Device {
@@ -44,13 +42,11 @@ impl Device {
     ///
     /// assert_eq!(Device::Metal.name(), "metal");
     /// assert_eq!(Device::OpenCL.name(), "opencl");
-    /// assert_eq!(Device::Cpu.name(), "cpu");
     /// ```
     pub fn name(&self) -> &'static str {
         match self {
             Device::Metal => "metal",
             Device::OpenCL => "opencl",
-            Device::Cpu => "cpu",
         }
     }
 
@@ -77,11 +73,6 @@ impl Device {
             }
             Device::OpenCL => {
                 #[cfg(feature = "opencl")]
-                return true;
-                false
-            }
-            Device::Cpu => {
-                #[cfg(feature = "cpu")]
                 return true;
                 false
             }
