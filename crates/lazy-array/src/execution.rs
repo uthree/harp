@@ -72,16 +72,18 @@ pub mod opencl {
         }
 
         /// グラフをコンパイル（複数カーネル対応、キャッシュ付き）
+        ///
+        /// 戻り値は`Arc`でラップされており、キャッシュと共有されます。
         pub fn compile_program(
             &mut self,
             graph: Graph,
-        ) -> Result<OpenCLCompiledProgram, ArrayError> {
+        ) -> Result<std::sync::Arc<OpenCLCompiledProgram>, ArrayError> {
             // Generate cache key using DSL decompile
             let cache_key = harp_dsl::decompile(&graph);
 
             // Check cache
             if let Some(cached) = self.program_cache.get(&cache_key) {
-                return Ok(cached.clone());
+                return Ok(cached);
             }
 
             // Compile and cache
@@ -90,8 +92,10 @@ pub mod opencl {
                 .compile_program(graph)
                 .map_err(|e| ArrayError::Compilation(e.to_string()))?;
 
-            self.program_cache.insert(cache_key, program.clone());
-            Ok(program)
+            self.program_cache.insert(cache_key.clone(), program);
+
+            // Return from cache to get Arc
+            Ok(self.program_cache.get(&cache_key).unwrap())
         }
 
         /// Get cache statistics
@@ -221,16 +225,18 @@ pub mod metal {
         }
 
         /// グラフをコンパイル（複数カーネル対応、キャッシュ付き）
+        ///
+        /// 戻り値は`Arc`でラップされており、キャッシュと共有されます。
         pub fn compile_program(
             &mut self,
             graph: Graph,
-        ) -> Result<MetalCompiledProgram, ArrayError> {
+        ) -> Result<std::sync::Arc<MetalCompiledProgram>, ArrayError> {
             // Generate cache key using DSL decompile
             let cache_key = harp_dsl::decompile(&graph);
 
             // Check cache
             if let Some(cached) = self.program_cache.get(&cache_key) {
-                return Ok(cached.clone());
+                return Ok(cached);
             }
 
             // Compile and cache
@@ -239,8 +245,10 @@ pub mod metal {
                 .compile_program(graph)
                 .map_err(|e| ArrayError::Compilation(e.to_string()))?;
 
-            self.program_cache.insert(cache_key, program.clone());
-            Ok(program)
+            self.program_cache.insert(cache_key.clone(), program);
+
+            // Return from cache to get Arc
+            Ok(self.program_cache.get(&cache_key).unwrap())
         }
 
         /// Get cache statistics

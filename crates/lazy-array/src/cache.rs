@@ -3,6 +3,7 @@
 //! Uses DSL decompile output as cache key for deterministic graph identification.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Cache statistics
 #[derive(Debug, Default, Clone)]
@@ -26,8 +27,10 @@ impl CacheStats {
 }
 
 /// Program cache using decompile output as key
+///
+/// Programs are stored as `Arc<P>` to allow sharing without cloning.
 pub struct ProgramCache<P> {
-    cache: HashMap<String, P>,
+    cache: HashMap<String, Arc<P>>,
     stats: CacheStats,
     enabled: bool,
 }
@@ -58,15 +61,15 @@ impl<P> ProgramCache<P> {
         self.enabled
     }
 
-    /// Get a cached program by key
-    pub fn get(&mut self, key: &str) -> Option<&P> {
+    /// Get a cached program by key (returns Arc for shared ownership)
+    pub fn get(&mut self, key: &str) -> Option<Arc<P>> {
         if !self.enabled {
             return None;
         }
 
         if let Some(program) = self.cache.get(key) {
             self.stats.hits += 1;
-            Some(program)
+            Some(Arc::clone(program))
         } else {
             self.stats.misses += 1;
             None
@@ -79,7 +82,7 @@ impl<P> ProgramCache<P> {
             return;
         }
 
-        self.cache.insert(key, program);
+        self.cache.insert(key, Arc::new(program));
     }
 
     /// Clear all cached programs
@@ -125,8 +128,10 @@ mod tests {
         cache.insert("key1".to_string(), "program1".to_string());
         assert_eq!(cache.len(), 1);
 
-        // Hit
-        assert_eq!(cache.get("key1"), Some(&"program1".to_string()));
+        // Hit - now returns Arc<String>
+        let cached = cache.get("key1");
+        assert!(cached.is_some());
+        assert_eq!(*cached.unwrap(), "program1".to_string());
         assert_eq!(cache.stats().hits, 1);
     }
 
