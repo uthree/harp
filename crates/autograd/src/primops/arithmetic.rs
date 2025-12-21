@@ -338,11 +338,6 @@ impl_unary_op!(Neg, T, neg, NegBackward, [
 // Rem (剰余演算) - fmod相当
 // ============================================================================
 
-/// 剰余演算を表すトレイト
-pub trait RemOp: Sized {
-    fn rem(&self, other: &Self) -> Self;
-}
-
 /// 床関数を表すトレイト（剰余の勾配計算に使用）
 pub trait Floor: Sized {
     fn floor(&self) -> Self;
@@ -407,13 +402,13 @@ where
         + ops::Mul<T, Output = T>
         + ops::Div<T, Output = T>
         + ops::Neg<Output = T>
-        + RemOp
+        + ops::Rem<T, Output = T>
         + Floor
         + 'static,
 {
     /// 剰余を計算
     pub fn rem(&self, other: &Variable<T>) -> Variable<T> {
-        let output = self.value().rem(&other.value());
+        let output = self.value() % other.value();
         if self.requires_grad() || other.requires_grad() {
             Variable::with_grad_fn(
                 output,
@@ -425,19 +420,7 @@ where
     }
 }
 
-// f32/f64 への RemOp と Floor 実装
-impl RemOp for f32 {
-    fn rem(&self, other: &Self) -> Self {
-        self % other
-    }
-}
-
-impl RemOp for f64 {
-    fn rem(&self, other: &Self) -> Self {
-        self % other
-    }
-}
-
+// f32/f64 への Floor 実装
 impl Floor for f32 {
     fn floor(&self) -> Self {
         f32::floor(*self)

@@ -12,7 +12,7 @@ pub mod transcendental;
 // 四則演算
 pub use arithmetic::{
     AddBackward, Floor, Maximum, MaximumBackward, MulBackward, NegBackward, RecipBackward,
-    RemBackward, RemOp,
+    RemBackward,
 };
 
 // 型変換
