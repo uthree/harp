@@ -34,8 +34,7 @@ fn target_function(x: f64, y: f64) -> f64 {
 
 /// ReLU: max(x, 0)
 fn relu(x: &Variable<Array2<f64>>) -> Variable<Array2<f64>> {
-    let zeros: Variable<Array2<f64>> = Variable::zeros(x.value().shape());
-    x.maximum(&zeros)
+    x.maximum(&x.zeros_like())
 }
 
 // ============================================================================

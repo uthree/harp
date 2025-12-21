@@ -82,6 +82,7 @@ impl Ones for f64 {
 // ============================================================================
 
 use crate::Variable;
+use crate::primops::Shape;
 
 impl<T: Zeros + 'static> Variable<T> {
     /// 指定した形状のゼロ埋め変数を作成
@@ -118,5 +119,65 @@ impl<T: Ones + 'static> Variable<T> {
     /// ```
     pub fn ones(shape: &[usize]) -> Variable<T> {
         Variable::new_no_grad(T::ones(shape))
+    }
+}
+
+// ============================================================================
+// zeros_like / ones_like
+// ============================================================================
+
+impl<T: Clone + Zeros + Shape + 'static> Variable<T> {
+    /// 自身と同じ形状のゼロ埋め変数を作成
+    ///
+    /// `torch.zeros_like()` に相当する機能。
+    /// 勾配追跡なしで作成される。
+    ///
+    /// # 使用例
+    ///
+    /// ```
+    /// use autograd::Variable;
+    /// use ndarray::array;
+    ///
+    /// let x = Variable::new(array![[1.0, 2.0], [3.0, 4.0]]);
+    /// let zeros = x.zeros_like();
+    /// assert_eq!(zeros.value(), array![[0.0, 0.0], [0.0, 0.0]]);
+    /// ```
+    #[cfg(feature = "ndarray")]
+    pub fn zeros_like(&self) -> Variable<T> {
+        Variable::new_no_grad(T::zeros(self.value().shape()))
+    }
+
+    /// 自身と同じ形状のゼロ埋め変数を作成（スカラー用）
+    #[cfg(not(feature = "ndarray"))]
+    pub fn zeros_like(&self) -> Variable<T> {
+        Variable::new_no_grad(T::zeros(&[]))
+    }
+}
+
+impl<T: Clone + Ones + Shape + 'static> Variable<T> {
+    /// 自身と同じ形状の1埋め変数を作成
+    ///
+    /// `torch.ones_like()` に相当する機能。
+    /// 勾配追跡なしで作成される。
+    ///
+    /// # 使用例
+    ///
+    /// ```
+    /// use autograd::Variable;
+    /// use ndarray::array;
+    ///
+    /// let x = Variable::new(array![[1.0, 2.0], [3.0, 4.0]]);
+    /// let ones = x.ones_like();
+    /// assert_eq!(ones.value(), array![[1.0, 1.0], [1.0, 1.0]]);
+    /// ```
+    #[cfg(feature = "ndarray")]
+    pub fn ones_like(&self) -> Variable<T> {
+        Variable::new_no_grad(T::ones(self.value().shape()))
+    }
+
+    /// 自身と同じ形状の1埋め変数を作成（スカラー用）
+    #[cfg(not(feature = "ndarray"))]
+    pub fn ones_like(&self) -> Variable<T> {
+        Variable::new_no_grad(T::ones(&[]))
     }
 }

@@ -993,6 +993,30 @@ fn test_variable_ones() {
     assert!(ones.value().iter().all(|&x| x == 1.0));
 }
 
+#[test]
+fn test_variable_zeros_like() {
+    let x: Variable<Array2<f64>> = Variable::new(array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
+    let zeros = x.zeros_like();
+    assert_eq!(zeros.value().shape(), &[2, 3]);
+    assert!(zeros.value().iter().all(|&v| v == 0.0));
+}
+
+#[test]
+fn test_variable_ones_like() {
+    let x: Variable<Array2<f64>> = Variable::new(array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
+    let ones = x.ones_like();
+    assert_eq!(ones.value().shape(), &[2, 3]);
+    assert!(ones.value().iter().all(|&v| v == 1.0));
+}
+
+#[test]
+fn test_relu_with_zeros_like() {
+    // ReLU using zeros_like
+    let x: Variable<Array2<f64>> = Variable::new(array![[-1.0, 2.0], [3.0, -4.0]]);
+    let relu = x.maximum(&x.zeros_like());
+    assert_eq!(relu.value(), array![[0.0, 2.0], [3.0, 0.0]]);
+}
+
 // ============================================================================
 // Maximum（要素ごとの最大値）のテスト
 // ============================================================================
