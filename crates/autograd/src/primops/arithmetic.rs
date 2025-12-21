@@ -449,3 +449,121 @@ impl Floor for f64 {
         f64::floor(*self)
     }
 }
+
+// ============================================================================
+// Maximum (二項max演算) - 2つの値のうち大きい方を返す
+// ============================================================================
+
+/// 二項max演算を表すトレイト
+/// reduce::Max（軸に沿った縮約）とは区別される
+pub trait Maximum<Rhs = Self>: Sized {
+    type Output;
+    /// 2つの値を比較して大きい方を返す
+    fn maximum(&self, other: &Rhs) -> Self::Output;
+    /// 左側オペランドに対する勾配を計算
+    /// lhs >= rhs なら grad、そうでなければ 0
+    fn maximum_grad_lhs(grad: &Self::Output, lhs: &Self, rhs: &Rhs) -> Self;
+    /// 右側オペランドに対する勾配を計算
+    /// rhs > lhs なら grad、そうでなければ 0
+    fn maximum_grad_rhs(grad: &Self::Output, lhs: &Self, rhs: &Rhs) -> Rhs;
+}
+
+/// 二項max演算の勾配関数
+/// z = maximum(x, y) の場合:
+/// - ∂L/∂x = ∂L/∂z if x >= y, else 0
+/// - ∂L/∂y = ∂L/∂z if y > x, else 0
+pub struct MaximumBackward<T: 'static> {
+    lhs: Variable<T>,
+    rhs: Variable<T>,
+    lhs_value: T,
+    rhs_value: T,
+}
+
+impl<T: Clone + 'static> MaximumBackward<T> {
+    pub fn new(lhs: Variable<T>, rhs: Variable<T>) -> Self {
+        let lhs_value = lhs.value();
+        let rhs_value = rhs.value();
+        Self {
+            lhs,
+            rhs,
+            lhs_value,
+            rhs_value,
+        }
+    }
+}
+
+impl<T> GradFn<Variable<T>> for MaximumBackward<T>
+where
+    T: Clone + ops::Add<T, Output = T> + Maximum<T, Output = T> + 'static,
+{
+    fn backward(&mut self, grad_y: Variable<T>) {
+        let requires_grad = grad_y.requires_grad();
+
+        // ∂L/∂lhs = grad if lhs >= rhs, else 0
+        let grad_lhs_val = T::maximum_grad_lhs(&grad_y.value(), &self.lhs_value, &self.rhs_value);
+        self.lhs.backward_with(Variable::new_with_requires_grad(
+            grad_lhs_val,
+            requires_grad,
+        ));
+
+        // ∂L/∂rhs = grad if rhs > lhs, else 0
+        let grad_rhs_val = T::maximum_grad_rhs(&grad_y.value(), &self.lhs_value, &self.rhs_value);
+        self.rhs.backward_with(Variable::new_with_requires_grad(
+            grad_rhs_val,
+            requires_grad,
+        ));
+    }
+}
+
+// Variable<T> への Maximum 実装
+impl<T> Variable<T>
+where
+    T: Clone + ops::Add<T, Output = T> + Maximum<T, Output = T> + 'static,
+{
+    /// 2つの変数のうち大きい方を返す
+    pub fn maximum(&self, other: &Variable<T>) -> Variable<T> {
+        let output = self.value().maximum(&other.value());
+        if self.requires_grad() || other.requires_grad() {
+            Variable::with_grad_fn(
+                output,
+                Box::new(MaximumBackward::new(self.clone(), other.clone())),
+            )
+        } else {
+            Variable::new_no_grad(output)
+        }
+    }
+}
+
+// f32 への Maximum 実装
+impl Maximum for f32 {
+    type Output = f32;
+
+    fn maximum(&self, other: &f32) -> f32 {
+        if *self >= *other { *self } else { *other }
+    }
+
+    fn maximum_grad_lhs(grad: &f32, lhs: &f32, rhs: &f32) -> f32 {
+        if *lhs >= *rhs { *grad } else { 0.0 }
+    }
+
+    fn maximum_grad_rhs(grad: &f32, lhs: &f32, rhs: &f32) -> f32 {
+        if *rhs > *lhs { *grad } else { 0.0 }
+    }
+}
+
+// f64 への Maximum 実装
+impl Maximum for f64 {
+    type Output = f64;
+
+    fn maximum(&self, other: &f64) -> f64 {
+        if *self >= *other { *self } else { *other }
+    }
+
+    fn maximum_grad_lhs(grad: &f64, lhs: &f64, rhs: &f64) -> f64 {
+        if *lhs >= *rhs { *grad } else { 0.0 }
+    }
+
+    fn maximum_grad_rhs(grad: &f64, lhs: &f64, rhs: &f64) -> f64 {
+        if *rhs > *lhs { *grad } else { 0.0 }
+    }
+}

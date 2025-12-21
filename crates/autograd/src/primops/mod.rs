@@ -11,7 +11,8 @@ pub mod transcendental;
 
 // 四則演算
 pub use arithmetic::{
-    AddBackward, Floor, MulBackward, NegBackward, RecipBackward, RemBackward, RemOp,
+    AddBackward, Floor, Maximum, MaximumBackward, MulBackward, NegBackward, RecipBackward,
+    RemBackward, RemOp,
 };
 
 // 型変換

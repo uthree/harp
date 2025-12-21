@@ -824,3 +824,115 @@ fn test_complex_no_grad_chain() {
     assert_eq!(result.value(), 18.0);
     assert!(!result.requires_grad());
 }
+
+// ============================================================================
+// Maximum (二項max演算) のテスト
+// ============================================================================
+
+#[test]
+fn test_maximum_forward() {
+    // 順伝播: 大きい方の値が返る
+    let x = Variable::new(3.0_f64);
+    let y = Variable::new(5.0_f64);
+    let z = x.maximum(&y);
+
+    assert_eq!(z.value(), 5.0);
+}
+
+#[test]
+fn test_maximum_forward_reversed() {
+    // 順伝播: 順序を入れ替えても正しく動作
+    let x = Variable::new(7.0_f64);
+    let y = Variable::new(2.0_f64);
+    let z = x.maximum(&y);
+
+    assert_eq!(z.value(), 7.0);
+}
+
+#[test]
+fn test_maximum_forward_equal() {
+    // 等しい場合も正しく動作
+    let x = Variable::new(4.0_f64);
+    let y = Variable::new(4.0_f64);
+    let z = x.maximum(&y);
+
+    assert_eq!(z.value(), 4.0);
+}
+
+#[test]
+fn test_maximum_backward_lhs_larger() {
+    // z = maximum(x, y) where x > y
+    // ∂z/∂x = 1, ∂z/∂y = 0
+    let x = Variable::new(5.0_f64);
+    let y = Variable::new(3.0_f64);
+    let z = x.maximum(&y);
+
+    z.backward();
+
+    let grad_x = x.grad().unwrap().value();
+    let grad_y = y.grad().unwrap().value();
+    assert!((grad_x - 1.0).abs() < 1e-10);
+    assert!((grad_y - 0.0).abs() < 1e-10);
+}
+
+#[test]
+fn test_maximum_backward_rhs_larger() {
+    // z = maximum(x, y) where x < y
+    // ∂z/∂x = 0, ∂z/∂y = 1
+    let x = Variable::new(2.0_f64);
+    let y = Variable::new(6.0_f64);
+    let z = x.maximum(&y);
+
+    z.backward();
+
+    let grad_x = x.grad().unwrap().value();
+    let grad_y = y.grad().unwrap().value();
+    assert!((grad_x - 0.0).abs() < 1e-10);
+    assert!((grad_y - 1.0).abs() < 1e-10);
+}
+
+#[test]
+fn test_maximum_backward_equal() {
+    // z = maximum(x, y) where x == y
+    // PyTorch方式: 等しい場合は左側(lhs)に勾配を流す
+    // ∂z/∂x = 1, ∂z/∂y = 0
+    let x = Variable::new(4.0_f64);
+    let y = Variable::new(4.0_f64);
+    let z = x.maximum(&y);
+
+    z.backward();
+
+    let grad_x = x.grad().unwrap().value();
+    let grad_y = y.grad().unwrap().value();
+    assert!((grad_x - 1.0).abs() < 1e-10);
+    assert!((grad_y - 0.0).abs() < 1e-10);
+}
+
+#[test]
+fn test_maximum_chain() {
+    // z = maximum(x, y) * 2
+    // ∂z/∂x = 2 if x >= y, else 0
+    let x = Variable::new(5.0_f64);
+    let y = Variable::new(3.0_f64);
+    let two = Variable::new(2.0_f64);
+    let max_xy = x.maximum(&y);
+    let z = max_xy * two;
+
+    assert_eq!(z.value(), 10.0);
+
+    z.backward();
+
+    let grad_x = x.grad().unwrap().value();
+    assert!((grad_x - 2.0).abs() < 1e-10);
+}
+
+#[test]
+fn test_maximum_no_grad() {
+    // requires_grad=false なら勾配追跡しない
+    let x = Variable::new_no_grad(5.0_f64);
+    let y = Variable::new_no_grad(3.0_f64);
+    let z = x.maximum(&y);
+
+    assert_eq!(z.value(), 5.0);
+    assert!(!z.requires_grad());
+}
