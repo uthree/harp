@@ -3,8 +3,14 @@ name = "autograd"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = []
+ndarray = ["dep:ndarray"]
+
 [dependencies]
 num-traits = "0.2"
+ndarray = { version = "0.16", optional = true }
 
 [dev-dependencies]
 ndarray = "0.16"
+num-traits = "0.2"

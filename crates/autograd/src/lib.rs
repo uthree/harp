@@ -1,4 +1,6 @@
 mod arithmetic;
+#[cfg(feature = "ndarray")]
+mod ndarray_impl;
 mod reduce;
 mod traits;
 pub mod variable;
