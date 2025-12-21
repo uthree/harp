@@ -650,6 +650,11 @@ fn replace_var_in_ast(ast: &AstNode, var_name: &str, replacement: &AstNode) -> A
             var: var.clone(),
             value: Box::new(replace_var_in_ast(value, var_name, replacement)),
         },
+        AstNode::Fma { a, b, c } => AstNode::Fma {
+            a: Box::new(replace_var_in_ast(a, var_name, replacement)),
+            b: Box::new(replace_var_in_ast(b, var_name, replacement)),
+            c: Box::new(replace_var_in_ast(c, var_name, replacement)),
+        },
         // その他のノードは再帰的に処理
         _ => ast.clone(),
     }

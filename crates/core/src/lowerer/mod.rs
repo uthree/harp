@@ -208,9 +208,22 @@ pub fn collect_kernels_as_program(graph: &Graph) -> Option<crate::ast::AstNode> 
                                     let (inputs, outputs) = extract_io_from_params(params);
                                     (gs, ls, inputs, outputs)
                                 }
-                                AstNode::Function { params, .. } => {
+                                AstNode::Function { params, body, .. } => {
                                     // Functionノードはdispatchサイズを持たない（デフォルト値を使用）
-                                    let (inputs, outputs) = extract_io_from_params(params);
+                                    let (inputs, outputs) = if params.is_empty() {
+                                        // paramsが空の場合、関数本体からプレースホルダーを抽出
+                                        use crate::backend::c_like::extract_buffer_placeholders;
+                                        let (input_names, has_output) =
+                                            extract_buffer_placeholders(body);
+                                        let output_names = if has_output {
+                                            vec!["output".to_string()]
+                                        } else {
+                                            vec![]
+                                        };
+                                        (input_names, output_names)
+                                    } else {
+                                        extract_io_from_params(params)
+                                    };
                                     (
                                         [Expr::Const(1), Expr::Const(1), Expr::Const(1)],
                                         [Expr::Const(1), Expr::Const(1), Expr::Const(1)],

@@ -303,7 +303,11 @@ impl GroupParallelizationSuggester {
     fn process_program(&self, program: &AstNode) -> Vec<AstSuggestResult> {
         let mut results = Vec::new();
 
-        let AstNode::Program { functions, .. } = program else {
+        let AstNode::Program {
+            functions,
+            execution_waves,
+        } = program
+        else {
             return results;
         };
 
@@ -319,7 +323,7 @@ impl GroupParallelizationSuggester {
                         results.push(AstSuggestResult::with_description(
                             AstNode::Program {
                                 functions: new_functions,
-                                execution_waves: vec![],
+                                execution_waves: execution_waves.clone(),
                             },
                             self.name(),
                             format!("Parallelize {} (Function→Kernel)", func_name),
@@ -336,7 +340,7 @@ impl GroupParallelizationSuggester {
                         results.push(AstSuggestResult::with_description(
                             AstNode::Program {
                                 functions: new_functions,
-                                execution_waves: vec![],
+                                execution_waves: execution_waves.clone(),
                             },
                             self.name(),
                             format!("Parallelize {} (add GroupId)", kernel_name),
@@ -589,7 +593,11 @@ impl LocalParallelizationSuggester {
     fn process_program(&self, program: &AstNode) -> Vec<AstSuggestResult> {
         let mut results = Vec::new();
 
-        let AstNode::Program { functions, .. } = program else {
+        let AstNode::Program {
+            functions,
+            execution_waves,
+        } = program
+        else {
             return results;
         };
 
@@ -605,7 +613,7 @@ impl LocalParallelizationSuggester {
                         results.push(AstSuggestResult::with_description(
                             AstNode::Program {
                                 functions: new_functions,
-                                execution_waves: vec![],
+                                execution_waves: execution_waves.clone(),
                             },
                             self.name(),
                             format!("Parallelize {} (Function→Kernel, LocalId)", func_name),
@@ -622,7 +630,7 @@ impl LocalParallelizationSuggester {
                         results.push(AstSuggestResult::with_description(
                             AstNode::Program {
                                 functions: new_functions,
-                                execution_waves: vec![],
+                                execution_waves: execution_waves.clone(),
                             },
                             self.name(),
                             format!("Parallelize {} (add LocalId)", kernel_name),

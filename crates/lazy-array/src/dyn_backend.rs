@@ -561,6 +561,7 @@ impl<D: Dimension> Array<i32, D> {
 
         // arangeで連番テンソルを作成し、0倍して定数を加算
         let arange_node = GraphNode::arange(total_size);
+        #[allow(clippy::erasing_op)]
         let zeros = arange_node * 0isize;
         let filled = zeros + (value as isize);
 

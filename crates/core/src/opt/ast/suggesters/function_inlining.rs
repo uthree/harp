@@ -527,7 +527,11 @@ impl FunctionInliningSuggester {
     fn collect_inlining_candidates(&self, ast: &AstNode) -> Vec<AstNode> {
         let mut candidates = Vec::new();
 
-        if let AstNode::Program { functions, .. } = ast {
+        if let AstNode::Program {
+            functions,
+            execution_waves,
+        } = ast
+        {
             // 関数名→関数定義のマップを作成
             let func_map: HashMap<String, &AstNode> = functions
                 .iter()
@@ -594,7 +598,7 @@ impl FunctionInliningSuggester {
 
                     candidates.push(AstNode::Program {
                         functions: new_functions,
-                        execution_waves: vec![],
+                        execution_waves: execution_waves.clone(),
                     });
                 }
             }
@@ -615,7 +619,11 @@ impl FunctionInliningSuggester {
     /// Kernelノードは全て保持される（それぞれがエントリポイント）
     /// 他から呼ばれていないFunctionもエントリポイントとして保持
     fn remove_dead_functions(&self, ast: &AstNode) -> Option<AstNode> {
-        if let AstNode::Program { functions, .. } = ast {
+        if let AstNode::Program {
+            functions,
+            execution_waves,
+        } = ast
+        {
             // 使われている関数名を収集
             let mut used_functions: HashSet<String> = HashSet::new();
             let mut called_functions: HashSet<String> = HashSet::new();
@@ -665,7 +673,7 @@ impl FunctionInliningSuggester {
                 );
                 Some(AstNode::Program {
                     functions: new_functions,
-                    execution_waves: vec![],
+                    execution_waves: execution_waves.clone(),
                 })
             } else {
                 None

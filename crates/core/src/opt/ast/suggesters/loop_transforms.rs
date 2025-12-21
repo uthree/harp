@@ -176,7 +176,10 @@ impl LoopTilingSuggester {
                     });
                 }
             }
-            AstNode::Program { functions, .. } => {
+            AstNode::Program {
+                functions,
+                execution_waves,
+            } => {
                 // 各関数を再帰的に探索
                 for (i, func) in functions.iter().enumerate() {
                     for tiled_func in self.collect_tiling_candidates(func) {
@@ -184,7 +187,7 @@ impl LoopTilingSuggester {
                         new_functions[i] = tiled_func;
                         candidates.push(AstNode::Program {
                             functions: new_functions,
-                            execution_waves: vec![],
+                            execution_waves: execution_waves.clone(),
                         });
                     }
                 }
@@ -372,7 +375,10 @@ impl LoopInliningSuggester {
                     });
                 }
             }
-            AstNode::Program { functions, .. } => {
+            AstNode::Program {
+                functions,
+                execution_waves,
+            } => {
                 // 各関数を再帰的に探索
                 for (i, func) in functions.iter().enumerate() {
                     for inlined_func in self.collect_inlining_candidates(func) {
@@ -380,7 +386,7 @@ impl LoopInliningSuggester {
                         new_functions[i] = inlined_func;
                         candidates.push(AstNode::Program {
                             functions: new_functions,
-                            execution_waves: vec![],
+                            execution_waves: execution_waves.clone(),
                         });
                     }
                 }
@@ -806,7 +812,10 @@ impl LoopInterchangeSuggester {
                     });
                 }
             }
-            AstNode::Program { functions, .. } => {
+            AstNode::Program {
+                functions,
+                execution_waves,
+            } => {
                 // 各関数を再帰的に探索
                 for (i, func) in functions.iter().enumerate() {
                     for interchanged_func in self.collect_interchange_candidates(func) {
@@ -814,7 +823,7 @@ impl LoopInterchangeSuggester {
                         new_functions[i] = interchanged_func;
                         candidates.push(AstNode::Program {
                             functions: new_functions,
-                            execution_waves: vec![],
+                            execution_waves: execution_waves.clone(),
                         });
                     }
                 }

@@ -550,14 +550,17 @@ impl VectorizationSuggester {
             }
 
             // Program内の各関数を探索
-            AstNode::Program { functions, .. } => {
+            AstNode::Program {
+                functions,
+                execution_waves,
+            } => {
                 for (i, func) in functions.iter().enumerate() {
                     for vectorized_func in self.collect_vectorization_candidates(func) {
                         let mut new_functions = functions.clone();
                         new_functions[i] = vectorized_func;
                         candidates.push(AstNode::Program {
                             functions: new_functions,
-                            execution_waves: vec![],
+                            execution_waves: execution_waves.clone(),
                         });
                     }
                 }

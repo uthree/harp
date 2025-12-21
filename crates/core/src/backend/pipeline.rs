@@ -534,8 +534,12 @@ where
 
                 // Determine input buffer names for this kernel
                 let inputs = if kernel_idx == 0 {
-                    // First kernel uses external inputs (or none if there are no external inputs)
-                    external_inputs.clone()
+                    // First kernel uses external inputs, but only as many as it needs
+                    if num_inputs > 0 && num_inputs < external_inputs.len() {
+                        external_inputs.iter().take(num_inputs).cloned().collect()
+                    } else {
+                        external_inputs.clone()
+                    }
                 } else if num_inputs == 0 {
                     // No inputs needed
                     vec![]

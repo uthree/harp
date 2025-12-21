@@ -574,10 +574,24 @@ impl KernelMergeSuggester {
                 );
                 vec![vec![call_info]]
             }
-            AstNode::Function { name, params, .. } => {
+            AstNode::Function {
+                name, params, body, ..
+            } => {
                 // FunctionはKernelに変換される前提（デフォルトdispatchサイズを使用）
                 let kernel_name = name.clone().unwrap_or_else(|| "unnamed_kernel".to_string());
-                let (inputs, outputs) = Self::extract_io_from_params(params);
+                // paramsが空の場合は関数本体からプレースホルダーを抽出
+                let (inputs, outputs) = if params.is_empty() {
+                    use crate::backend::c_like::extract_buffer_placeholders;
+                    let (input_names, has_output) = extract_buffer_placeholders(body);
+                    let output_names = if has_output {
+                        vec!["output".to_string()]
+                    } else {
+                        vec![]
+                    };
+                    (input_names, output_names)
+                } else {
+                    Self::extract_io_from_params(params)
+                };
                 let call_info =
                     AstKernelCallInfo::with_default_dispatch(kernel_name, inputs, outputs);
                 vec![vec![call_info]]
@@ -621,10 +635,25 @@ impl KernelMergeSuggester {
                                 );
                                 waves.push(vec![call_info]);
                             }
-                            AstNode::Function { name, params, .. } => {
+                            AstNode::Function {
+                                name, params, body, ..
+                            } => {
                                 let kernel_name =
                                     name.clone().unwrap_or_else(|| "unnamed_kernel".to_string());
-                                let (inputs, outputs) = Self::extract_io_from_params(params);
+                                // paramsが空の場合は関数本体からプレースホルダーを抽出
+                                let (inputs, outputs) = if params.is_empty() {
+                                    use crate::backend::c_like::extract_buffer_placeholders;
+                                    let (input_names, has_output) =
+                                        extract_buffer_placeholders(body);
+                                    let output_names = if has_output {
+                                        vec!["output".to_string()]
+                                    } else {
+                                        vec![]
+                                    };
+                                    (input_names, output_names)
+                                } else {
+                                    Self::extract_io_from_params(params)
+                                };
                                 let call_info = AstKernelCallInfo::with_default_dispatch(
                                     kernel_name,
                                     inputs,

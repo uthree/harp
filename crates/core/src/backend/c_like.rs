@@ -721,6 +721,11 @@ pub fn extract_buffer_placeholders(body: &AstNode) -> (Vec<String>, bool) {
             AstNode::Deallocate { ptr } => {
                 visit(ptr, inputs, has_output);
             }
+            AstNode::Fma { a, b, c } => {
+                visit(a, inputs, has_output);
+                visit(b, inputs, has_output);
+                visit(c, inputs, has_output);
+            }
             _ => {}
         }
     }

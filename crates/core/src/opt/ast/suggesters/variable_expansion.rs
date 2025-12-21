@@ -426,7 +426,10 @@ impl VariableExpansionSuggester {
                 }
             }
 
-            AstNode::Program { functions, .. } => {
+            AstNode::Program {
+                functions,
+                execution_waves,
+            } => {
                 for (i, func) in functions.iter().enumerate() {
                     let child_candidates = self.collect_expansion_candidates(func);
                     for child in child_candidates {
@@ -434,7 +437,7 @@ impl VariableExpansionSuggester {
                         new_functions[i] = child;
                         candidates.push(AstNode::Program {
                             functions: new_functions,
-                            execution_waves: vec![],
+                            execution_waves: execution_waves.clone(),
                         });
                     }
                 }
