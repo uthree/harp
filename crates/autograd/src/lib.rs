@@ -32,6 +32,9 @@ pub use primops::{
     Log2,
     Log2Backward,
     Log2E,
+    // 線形代数
+    Matmul,
+    MatmulBackward,
     Max,
     MaxBackward,
     MulBackward,
@@ -53,6 +56,8 @@ pub use primops::{
     SqrtBackward,
     Sum,
     SumBackward,
+    Transpose,
+    TransposeBackward,
     Two,
 };
 

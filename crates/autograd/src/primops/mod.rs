@@ -5,6 +5,7 @@
 
 pub mod arithmetic;
 pub mod cast;
+pub mod linalg;
 pub mod reduce;
 pub mod transcendental;
 
@@ -25,3 +26,6 @@ pub use transcendental::{
     MulLog2EBackward, PhaseShiftQuarter, PhaseShiftQuarterBackward, Sin, SinBackward, Sqrt,
     SqrtBackward, Two,
 };
+
+// 線形代数
+pub use linalg::{Matmul, MatmulBackward, Transpose, TransposeBackward};

@@ -1,6 +1,6 @@
 #![cfg(feature = "ndarray")]
 
-use autograd::{Expand, Max, Prod, Sum, Variable};
+use autograd::{Expand, Matmul, Max, Prod, Sum, Transpose, Variable};
 use ndarray::{Array1, Array2, array};
 
 // ============================================================================
@@ -546,4 +546,129 @@ fn test_mul_then_sum() {
     // ∂z/∂x = y * [[1, 1], [1, 1]] = y
     assert_eq!(x.grad().unwrap().value(), array![[2.0, 3.0], [4.0, 5.0]]);
     assert_eq!(y.grad().unwrap().value(), array![[1.0, 2.0], [3.0, 4.0]]);
+}
+
+// ============================================================================
+// 転置（Transpose）のテスト
+// ============================================================================
+
+#[test]
+fn test_transpose_trait() {
+    let arr: Array2<f64> = array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
+    let transposed = arr.transpose();
+    assert_eq!(transposed, array![[1.0, 4.0], [2.0, 5.0], [3.0, 6.0]]);
+}
+
+#[test]
+fn test_variable_transpose_forward() {
+    let x: Variable<Array2<f64>> = Variable::new(array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
+    let y = x.transpose();
+    assert_eq!(y.value(), array![[1.0, 4.0], [2.0, 5.0], [3.0, 6.0]]);
+}
+
+#[test]
+fn test_variable_transpose_backward() {
+    // Y = X^T
+    // ∂L/∂X = (∂L/∂Y)^T
+    let x: Variable<Array2<f64>> = Variable::new(array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
+    let y = x.transpose(); // (3, 2)
+
+    let grad = Variable::new(array![[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]);
+    y.backward_with(grad);
+
+    // grad^T = [[1, 3, 5], [2, 4, 6]]
+    assert_eq!(
+        x.grad().unwrap().value(),
+        array![[1.0, 3.0, 5.0], [2.0, 4.0, 6.0]]
+    );
+}
+
+#[test]
+fn test_variable_t_alias() {
+    let x: Variable<Array2<f64>> = Variable::new(array![[1.0, 2.0], [3.0, 4.0]]);
+    let y = x.t();
+    assert_eq!(y.value(), array![[1.0, 3.0], [2.0, 4.0]]);
+}
+
+// ============================================================================
+// 行列積（Matmul）のテスト
+// ============================================================================
+
+#[test]
+fn test_matmul_trait() {
+    // (2, 3) @ (3, 2) -> (2, 2)
+    let a: Array2<f64> = array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
+    let b: Array2<f64> = array![[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]];
+    let c = a.matmul(&b);
+    // [[1*1+2*3+3*5, 1*2+2*4+3*6], [4*1+5*3+6*5, 4*2+5*4+6*6]]
+    // [[1+6+15, 2+8+18], [4+15+30, 8+20+36]]
+    // [[22, 28], [49, 64]]
+    assert_eq!(c, array![[22.0, 28.0], [49.0, 64.0]]);
+}
+
+#[test]
+fn test_variable_matmul_forward() {
+    let a: Variable<Array2<f64>> = Variable::new(array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
+    let b: Variable<Array2<f64>> = Variable::new(array![[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]);
+    let c = a.matmul(&b);
+    assert_eq!(c.value(), array![[22.0, 28.0], [49.0, 64.0]]);
+}
+
+#[test]
+fn test_variable_matmul_backward() {
+    // C = A @ B
+    // ∂L/∂A = ∂L/∂C @ B^T
+    // ∂L/∂B = A^T @ ∂L/∂C
+
+    // A: (2, 3), B: (3, 2), C: (2, 2)
+    let a: Variable<Array2<f64>> = Variable::new(array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
+    let b: Variable<Array2<f64>> = Variable::new(array![[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]);
+    let c = a.matmul(&b);
+
+    // grad_C: (2, 2)
+    let grad_c = Variable::new(array![[1.0, 0.0], [0.0, 1.0]]);
+    c.backward_with(grad_c);
+
+    // B^T: (2, 3)
+    // [[1, 3, 5], [2, 4, 6]]
+    // grad_A = grad_C @ B^T = [[1, 0], [0, 1]] @ [[1, 3, 5], [2, 4, 6]]
+    //        = [[1, 3, 5], [2, 4, 6]]
+    assert_eq!(
+        a.grad().unwrap().value(),
+        array![[1.0, 3.0, 5.0], [2.0, 4.0, 6.0]]
+    );
+
+    // A^T: (3, 2)
+    // [[1, 4], [2, 5], [3, 6]]
+    // grad_B = A^T @ grad_C = [[1, 4], [2, 5], [3, 6]] @ [[1, 0], [0, 1]]
+    //        = [[1, 4], [2, 5], [3, 6]]
+    assert_eq!(
+        b.grad().unwrap().value(),
+        array![[1.0, 4.0], [2.0, 5.0], [3.0, 6.0]]
+    );
+}
+
+#[test]
+fn test_matmul_chain() {
+    // D = A @ B @ C
+    // A: (2, 2), B: (2, 2), C: (2, 2)
+    let a: Variable<Array2<f64>> = Variable::new(array![[1.0, 2.0], [3.0, 4.0]]);
+    let b: Variable<Array2<f64>> = Variable::new(array![[1.0, 0.0], [0.0, 1.0]]); // 単位行列
+    let c: Variable<Array2<f64>> = Variable::new(array![[2.0, 0.0], [0.0, 2.0]]); // 2倍
+
+    let ab = a.matmul(&b);
+    let abc = ab.matmul(&c);
+
+    // A @ I @ 2I = 2A
+    assert_eq!(abc.value(), array![[2.0, 4.0], [6.0, 8.0]]);
+
+    // 単位行列の勾配で逆伝播
+    let grad = Variable::new(array![[1.0, 0.0], [0.0, 1.0]]);
+    abc.backward_with(grad);
+
+    // 単位行列と2倍行列なので、勾配も相応にスケールされる
+    // grad_abc = I
+    // grad_ab = I @ C^T = I @ 2I = 2I
+    // grad_a = grad_ab @ B^T = 2I @ I = 2I
+    assert_eq!(a.grad().unwrap().value(), array![[2.0, 0.0], [0.0, 2.0]]);
 }

@@ -1,8 +1,8 @@
-//! ndarray に対する Reduce/Expand トレイトの実装
+//! ndarray に対する Reduce/Expand/Linalg トレイトの実装
 
-use ndarray::{Axis, Dimension, concatenate};
+use ndarray::{Array2, Axis, Dimension, concatenate};
 
-use crate::primops::{Expand, Max, Prod, Sum};
+use crate::primops::{Expand, Matmul, Max, Prod, Sum, Transpose};
 
 // ============================================================================
 // Sum の実装
@@ -126,5 +126,58 @@ where
         // 自身を size 回連結
         let views: Vec<_> = (0..size).map(|_| self.view()).collect();
         concatenate(Axis(axis), &views).expect("Failed to concatenate for expand")
+    }
+}
+
+// ============================================================================
+// Transpose の実装 (Array2 専用)
+// ============================================================================
+
+impl<A> Transpose for Array2<A>
+where
+    A: Clone,
+{
+    fn transpose(&self) -> Self {
+        self.t().to_owned()
+    }
+}
+
+// ============================================================================
+// Matmul の実装 (Array2 専用)
+// ============================================================================
+
+impl<A> Matmul for Array2<A>
+where
+    A: Clone + Default + std::ops::Add<Output = A> + std::ops::Mul<Output = A>,
+{
+    type Output = Array2<A>;
+
+    fn matmul(&self, rhs: &Self) -> Self::Output {
+        // (m, k) @ (k, n) -> (m, n)
+        let m = self.nrows();
+        let k = self.ncols();
+        let n = rhs.ncols();
+
+        assert_eq!(
+            k,
+            rhs.nrows(),
+            "matmul dimension mismatch: ({}, {}) @ ({}, {})",
+            m,
+            k,
+            rhs.nrows(),
+            n
+        );
+
+        let mut result = Array2::default((m, n));
+        for i in 0..m {
+            for j in 0..n {
+                let mut sum = A::default();
+                for l in 0..k {
+                    sum = sum + self[[i, l]].clone() * rhs[[l, j]].clone();
+                }
+                result[[i, j]] = sum;
+            }
+        }
+        result
     }
 }
