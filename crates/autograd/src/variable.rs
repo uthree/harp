@@ -12,6 +12,7 @@ struct VariableInner<T: 'static> {
     value: T,
     grad: Option<Variable<T>>,
     grad_fn: Option<Box<dyn GradFn<Variable<T>>>>,
+    requires_grad: bool,
 }
 
 /// 変数（リーフまたは計算結果）
@@ -24,22 +25,36 @@ impl<T: 'static> Clone for Variable<T> {
 }
 
 impl<T: 'static> Variable<T> {
-    /// 新しいリーフ変数を作成
+    /// 新しいリーフ変数を作成（requires_grad = true）
     pub fn new(value: T) -> Variable<T> {
         Variable(Arc::new(Mutex::new(VariableInner {
             value,
             grad: None,
             grad_fn: None,
+            requires_grad: true,
         })))
     }
 
-    /// 勾配関数付きの変数を作成（演算結果用）
+    /// 勾配関数付きの変数を作成（演算結果用、requires_grad = true）
     pub fn with_grad_fn(value: T, grad_fn: Box<dyn GradFn<Variable<T>>>) -> Variable<T> {
         Variable(Arc::new(Mutex::new(VariableInner {
             value,
             grad: None,
             grad_fn: Some(grad_fn),
+            requires_grad: true,
         })))
+    }
+
+    /// requires_grad の値を取得
+    pub fn requires_grad(&self) -> bool {
+        let inner = self.0.lock().unwrap();
+        inner.requires_grad
+    }
+
+    /// requires_grad の値を設定
+    pub fn set_requires_grad(&self, requires_grad: bool) {
+        let mut inner = self.0.lock().unwrap();
+        inner.requires_grad = requires_grad;
     }
 
     /// 値への参照を取得してクロージャを実行
@@ -90,14 +105,16 @@ where
     pub fn backward_with(&self, grad: Variable<T>) {
         let mut inner = self.0.lock().unwrap();
 
-        // 自身の勾配を累積する
-        inner.grad = Some(if let Some(existing) = inner.grad.take() {
-            let existing_val = existing.value();
-            let grad_val = grad.value();
-            Variable::new(existing_val + grad_val)
-        } else {
-            grad.clone()
-        });
+        // requires_grad が true の場合のみ自身の勾配を累積する
+        if inner.requires_grad {
+            inner.grad = Some(if let Some(existing) = inner.grad.take() {
+                let existing_val = existing.value();
+                let grad_val = grad.value();
+                Variable::new(existing_val + grad_val)
+            } else {
+                grad.clone()
+            });
+        }
 
         // 勾配を伝播する（grad_fn があれば）
         if let Some(mut grad_fn) = inner.grad_fn.take() {

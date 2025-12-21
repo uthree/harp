@@ -185,6 +185,61 @@ fn test_zero_grad() {
 }
 
 #[test]
+fn test_requires_grad_default() {
+    let x = Variable::new(2.0_f64);
+    // デフォルトで requires_grad = true
+    assert!(x.requires_grad());
+}
+
+#[test]
+fn test_requires_grad_false() {
+    // requires_grad = false の場合、勾配は累積されない
+    let x = Variable::new(2.0_f64);
+    let y = Variable::new(3.0_f64);
+
+    // x の勾配計算を無効化
+    x.set_requires_grad(false);
+    assert!(!x.requires_grad());
+
+    let z = &x + &y;
+    z.backward();
+
+    // x には勾配が累積されない
+    assert!(x.grad().is_none());
+    // y には勾配が累積される
+    assert!(y.grad().is_some());
+    assert_eq!(y.grad().unwrap().value(), 1.0);
+}
+
+#[test]
+fn test_requires_grad_chain() {
+    // チェーンの途中で requires_grad = false
+    let x = Variable::new(2.0_f64);
+    let y = Variable::new(3.0_f64);
+    let w = Variable::new(4.0_f64);
+
+    // y のみ勾配計算を無効化
+    y.set_requires_grad(false);
+
+    // z = (x + y) * w
+    let sum = &x + &y;
+    let z = &sum * &w;
+
+    z.backward();
+
+    // x には勾配が伝播する（w = 4）
+    assert!(x.grad().is_some());
+    assert_eq!(x.grad().unwrap().value(), 4.0);
+
+    // y には勾配が累積されない
+    assert!(y.grad().is_none());
+
+    // w には勾配が伝播する（x + y = 5）
+    assert!(w.grad().is_some());
+    assert_eq!(w.grad().unwrap().value(), 5.0);
+}
+
+#[test]
 fn test_detach() {
     // detach すると勾配の伝播が止まる
     let x = Variable::new(2.0_f64);
