@@ -17,10 +17,10 @@ jobs:
               uses: dtolnay/rust-toolchain@stable
 
             - name: Build
-              run: cargo build --workspace --verbose
+              run: cargo build --workspace --exclude harp-backend-opencl --verbose
 
             - name: Run tests
-              run: cargo test --workspace --verbose
+              run: cargo test --workspace --exclude harp-backend-opencl --verbose
 
     opencl_integration_test:
         name: OpenCL Integration Test
@@ -40,10 +40,10 @@ jobs:
               uses: dtolnay/rust-toolchain@stable
 
             - name: Build with OpenCL feature
-              run: cargo build --verbose --features opencl
+              run: cargo build --verbose --features opencl --workspace
 
             - name: Run OpenCL integration tests
-              run: cargo test --verbose --features opencl
+              run: cargo test --verbose --features opencl --workspace
 
     clippy:
         name: Clippy
@@ -58,7 +58,7 @@ jobs:
                   components: clippy
 
             - name: Run clippy
-              run: cargo clippy --all-targets -- -D warnings
+              run: cargo clippy --workspace --exclude harp-backend-opencl --all-targets -- -D warnings
 
     fmt:
         name: Rustfmt
