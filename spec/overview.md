@@ -11,6 +11,7 @@ harp/
 ├── tests/                # 統合テスト（バックエンド機能を使用）
 ├── crates/
 │   ├── core/             # harp-core（コア機能）
+│   ├── array/            # harp-array（ndarray風配列API）
 │   ├── backend-opencl/   # harp-backend-opencl
 │   ├── backend-metal/    # harp-backend-metal (macOS only)
 │   ├── dsl/              # harp-dsl
@@ -46,6 +47,7 @@ harp/
 |---------|--------|------|
 | `harp` | harp-core, harp-backend-* (optional) | re-exportクレート、後方互換性を維持 |
 | `harp-core` | - | コアクレート（Graph, AST, Backend共通, Lowerer, Optimizer） |
+| `harp-array` | harp-core | ndarray/PyTorchライクな配列API（遅延評価、キャッシュ） |
 | `harp-backend-opencl` | harp-core | OpenCLバックエンド実装 |
 | `harp-backend-metal` | harp-core | Metalバックエンド実装（macOSのみ） |
 | `harp-dsl` | harp-core | DSLパーサー・コンパイラ |
@@ -77,6 +79,18 @@ harp = { version = "0.1", features = ["opencl", "metal"] }
 - `opt`: 最適化パイプライン（graph最適化、ast最適化）
 
 **仕様書:** [graph.md](graph.md), [ast.md](ast.md), [backend.md](backend.md), [lowerer.md](lowerer.md), [opt.md](opt.md)
+
+### harp-array（配列API）
+
+ndarray/PyTorchライクなAPIで配列計算を行うクレート。
+
+**主要機能:**
+- 遅延評価による計算グラフの構築
+- コンパイル済みカーネルのキャッシュ
+- 型レベル次元管理（`Dim0`-`Dim6`, `DimDyn`）
+- バックエンド抽象化（ジェネリクスで注入）
+
+**仕様書:** [array.md](array.md)
 
 ### harp-backend-opencl
 

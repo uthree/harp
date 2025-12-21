@@ -1,6 +1,11 @@
 [package]
-name = "array"
+name = "harp-array"
 version = "0.1.0"
 edition = "2024"
+description = "ndarray/PyTorch-like array API for Harp"
 
 [dependencies]
+harp-core = { path = "../core" }
+thiserror = "1.0"
+
+[dev-dependencies]

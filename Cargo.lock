@@ -252,10 +252,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "array"
-version = "0.1.0"
-
-[[package]]
 name = "arrayref"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1785,6 +1781,14 @@ dependencies = [
  "harp-core",
  "rstest",
  "serial_test",
+]
+
+[[package]]
+name = "harp-array"
+version = "0.1.0"
+dependencies = [
+ "harp-core",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
