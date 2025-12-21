@@ -91,8 +91,10 @@ where
 {
     fn backward(&mut self, grad_y: Variable<T>) {
         // 総和の勾配: 出力の勾配を入力の形状に拡張
+        let requires_grad = grad_y.requires_grad();
         let expanded = grad_y.value().expand(self.axis, self.size);
-        self.input.backward_with(Variable::new(expanded));
+        self.input
+            .backward_with(Variable::new_with_requires_grad(expanded, requires_grad));
     }
 }
 
@@ -125,8 +127,10 @@ where
 {
     fn backward(&mut self, grad_y: Variable<T>) {
         // 拡張の勾配: 出力の勾配を縮約
+        let requires_grad = grad_y.requires_grad();
         let (reduced, _) = grad_y.value().sum(self.axis);
-        self.input.backward_with(Variable::new(reduced));
+        self.input
+            .backward_with(Variable::new_with_requires_grad(reduced, requires_grad));
     }
 }
 
@@ -187,10 +191,12 @@ where
     fn backward(&mut self, grad_y: Variable<T>) {
         // 総乗の勾配: ∂L/∂x_i = ∂L/∂y * y / x_i
         // grad_y を拡張し、output / input を掛ける
+        let requires_grad = grad_y.requires_grad();
         let expanded_grad = grad_y.value().expand(self.axis, self.size);
         let expanded_output = self.output_value.clone().expand(self.axis, self.size);
         let grad_val = expanded_grad * expanded_output / self.input_value.clone();
-        self.input.backward_with(Variable::new(grad_val));
+        self.input
+            .backward_with(Variable::new_with_requires_grad(grad_val, requires_grad));
     }
 }
 
@@ -246,6 +252,7 @@ where
 {
     fn backward(&mut self, grad_y: Variable<T>) {
         // 最大値の勾配: 最大値の位置にのみ勾配を伝播
+        let requires_grad = grad_y.requires_grad();
         let grad_val = T::max_grad(
             &grad_y.value(),
             &self.input_value,
@@ -253,7 +260,8 @@ where
             self.axis,
             self.size,
         );
-        self.input.backward_with(Variable::new(grad_val));
+        self.input
+            .backward_with(Variable::new_with_requires_grad(grad_val, requires_grad));
     }
 }
 
@@ -269,7 +277,11 @@ where
     /// 指定した軸で総和を計算
     pub fn sum(&self, axis: usize) -> Variable<T> {
         let (output, size) = self.value().sum(axis);
-        Variable::with_grad_fn(output, Box::new(SumBackward::new(self.clone(), axis, size)))
+        if self.requires_grad() {
+            Variable::with_grad_fn(output, Box::new(SumBackward::new(self.clone(), axis, size)))
+        } else {
+            Variable::new_no_grad(output)
+        }
     }
 }
 
@@ -287,10 +299,14 @@ where
     /// 指定した軸で総乗を計算
     pub fn prod(&self, axis: usize) -> Variable<T> {
         let (output, size) = self.value().prod(axis);
-        Variable::with_grad_fn(
-            output.clone(),
-            Box::new(ProdBackward::new(self.clone(), output, axis, size)),
-        )
+        if self.requires_grad() {
+            Variable::with_grad_fn(
+                output.clone(),
+                Box::new(ProdBackward::new(self.clone(), output, axis, size)),
+            )
+        } else {
+            Variable::new_no_grad(output)
+        }
     }
 }
 
@@ -302,10 +318,14 @@ where
     /// 指定した軸で最大値を計算
     pub fn max(&self, axis: usize) -> Variable<T> {
         let (output, size) = self.value().max(axis);
-        Variable::with_grad_fn(
-            output.clone(),
-            Box::new(MaxBackward::new(self.clone(), output, axis, size)),
-        )
+        if self.requires_grad() {
+            Variable::with_grad_fn(
+                output.clone(),
+                Box::new(MaxBackward::new(self.clone(), output, axis, size)),
+            )
+        } else {
+            Variable::new_no_grad(output)
+        }
     }
 }
 
@@ -317,6 +337,10 @@ where
     /// 指定した軸方向に拡張
     pub fn expand(&self, axis: usize, size: usize) -> Variable<T> {
         let output = self.value().expand(axis, size);
-        Variable::with_grad_fn(output, Box::new(ExpandBackward::new(self.clone(), axis)))
+        if self.requires_grad() {
+            Variable::with_grad_fn(output, Box::new(ExpandBackward::new(self.clone(), axis)))
+        } else {
+            Variable::new_no_grad(output)
+        }
     }
 }

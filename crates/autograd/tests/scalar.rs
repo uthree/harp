@@ -733,3 +733,94 @@ fn test_cast_chain() {
     let grad = x.grad().unwrap().value();
     assert!((grad.0 - 0.1).abs() < 1e-10);
 }
+
+// ============================================================================
+// requires_grad 最適化のテスト
+// ============================================================================
+
+#[test]
+fn test_no_grad_forward_only() {
+    // requires_grad=false 同士の演算では grad_fn が作成されない
+    let x = Variable::new_no_grad(2.0_f64);
+    let y = Variable::new_no_grad(3.0_f64);
+
+    assert!(!x.requires_grad());
+    assert!(!y.requires_grad());
+
+    let z = &x + &y;
+    assert_eq!(z.value(), 5.0);
+    assert!(!z.requires_grad());
+
+    let w = &x * &y;
+    assert_eq!(w.value(), 6.0);
+    assert!(!w.requires_grad());
+
+    let neg_x = -&x;
+    assert_eq!(neg_x.value(), -2.0);
+    assert!(!neg_x.requires_grad());
+}
+
+#[test]
+fn test_mixed_requires_grad() {
+    // requires_grad=true と false の混在
+    let x = Variable::new(2.0_f64); // requires_grad=true
+    let y = Variable::new_no_grad(3.0_f64); // requires_grad=false
+
+    assert!(x.requires_grad());
+    assert!(!y.requires_grad());
+
+    // どちらかが true なら結果も勾配追跡が必要
+    let z = &x + &y;
+    assert_eq!(z.value(), 5.0);
+    // backward しても y には勾配が蓄積されない（requires_grad=false なので）
+    z.backward();
+    assert!(x.grad().is_some());
+    assert!(y.grad().is_none()); // requires_grad=false なので勾配なし
+}
+
+#[test]
+fn test_transcendental_no_grad() {
+    // 超越関数でも requires_grad=false なら勾配追跡しない
+    let x = Variable::new_no_grad(1.0_f64);
+    let sin_x = x.sin();
+    assert!((sin_x.value() - 1.0_f64.sin()).abs() < 1e-10);
+    assert!(!sin_x.requires_grad());
+
+    let sqrt_x = x.sqrt();
+    assert!((sqrt_x.value() - 1.0).abs() < 1e-10);
+    assert!(!sqrt_x.requires_grad());
+
+    let exp2_x = x.exp2();
+    assert!((exp2_x.value() - 2.0).abs() < 1e-10);
+    assert!(!exp2_x.requires_grad());
+
+    let log2_x = x.log2();
+    assert!((log2_x.value() - 0.0).abs() < 1e-10);
+    assert!(!log2_x.requires_grad());
+}
+
+#[test]
+fn test_new_with_requires_grad() {
+    // new_with_requires_grad のテスト
+    let x_true = Variable::new_with_requires_grad(1.0_f64, true);
+    let x_false = Variable::new_with_requires_grad(1.0_f64, false);
+
+    assert!(x_true.requires_grad());
+    assert!(!x_false.requires_grad());
+}
+
+#[test]
+fn test_complex_no_grad_chain() {
+    // 複雑な計算でも requires_grad=false なら全体が勾配追跡なし
+    let a = Variable::new_no_grad(2.0_f64);
+    let b = Variable::new_no_grad(3.0_f64);
+    let c = Variable::new_no_grad(4.0_f64);
+
+    // (a + b) * c - a
+    let sum = &a + &b; // 5.0
+    let prod = &sum * &c; // 20.0
+    let result = &prod - &a; // 18.0
+
+    assert_eq!(result.value(), 18.0);
+    assert!(!result.requires_grad());
+}

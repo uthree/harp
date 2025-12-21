@@ -86,9 +86,11 @@ where
 {
     fn backward(&mut self, grad_y: Variable<T>) {
         // sin の勾配: ∂L/∂x = ∂L/∂y * cos(x)
+        let requires_grad = grad_y.requires_grad();
         let cos_x = self.input_value.cos();
         let grad_val = grad_y.value() * cos_x;
-        self.input.backward_with(Variable::new(grad_val));
+        self.input
+            .backward_with(Variable::new_with_requires_grad(grad_val, requires_grad));
     }
 }
 
@@ -140,8 +142,10 @@ where
 {
     fn backward(&mut self, grad_y: Variable<T>) {
         // ln(2)乗算の勾配: ∂L/∂x = ∂L/∂y * ln(2)
+        let requires_grad = grad_y.requires_grad();
         let grad_val = grad_y.value() * T::ln2();
-        self.input.backward_with(Variable::new(grad_val));
+        self.input
+            .backward_with(Variable::new_with_requires_grad(grad_val, requires_grad));
     }
 }
 
@@ -172,8 +176,10 @@ where
 {
     fn backward(&mut self, grad_y: Variable<T>) {
         // log2(e)乗算の勾配: ∂L/∂x = ∂L/∂y * log2(e)
+        let requires_grad = grad_y.requires_grad();
         let grad_val = grad_y.value() * T::log2e();
-        self.input.backward_with(Variable::new(grad_val));
+        self.input
+            .backward_with(Variable::new_with_requires_grad(grad_val, requires_grad));
     }
 }
 
@@ -206,9 +212,11 @@ where
 {
     fn backward(&mut self, grad_y: Variable<T>) {
         // log2 の勾配: ∂L/∂x = ∂L/∂y / (x * ln(2))
+        let requires_grad = grad_y.requires_grad();
         let x_ln2 = self.input_value.clone() * T::ln2();
         let grad_val = grad_y.value() / x_ln2;
-        self.input.backward_with(Variable::new(grad_val));
+        self.input
+            .backward_with(Variable::new_with_requires_grad(grad_val, requires_grad));
     }
 }
 
@@ -238,8 +246,10 @@ where
 {
     fn backward(&mut self, grad_y: Variable<T>) {
         // exp2 の勾配: ∂L/∂x = ∂L/∂y * y * ln(2)
+        let requires_grad = grad_y.requires_grad();
         let grad_val = grad_y.value() * self.output_value.clone() * T::ln2();
-        self.input.backward_with(Variable::new(grad_val));
+        self.input
+            .backward_with(Variable::new_with_requires_grad(grad_val, requires_grad));
     }
 }
 
@@ -274,9 +284,11 @@ where
 {
     fn backward(&mut self, grad_y: Variable<T>) {
         // sqrt の勾配: ∂L/∂x = ∂L/∂y / (2 * sqrt(x)) = ∂L/∂y / (2 * y)
+        let requires_grad = grad_y.requires_grad();
         let two_y = T::two() * self.output_value.clone();
         let grad_val = grad_y.value() / two_y;
-        self.input.backward_with(Variable::new(grad_val));
+        self.input
+            .backward_with(Variable::new_with_requires_grad(grad_val, requires_grad));
     }
 }
 
@@ -291,7 +303,11 @@ where
     /// 正弦関数を計算
     pub fn sin(&self) -> Variable<T> {
         let output = self.value().sin();
-        Variable::with_grad_fn(output, Box::new(SinBackward::new(self.clone())))
+        if self.requires_grad() {
+            Variable::with_grad_fn(output, Box::new(SinBackward::new(self.clone())))
+        } else {
+            Variable::new_no_grad(output)
+        }
     }
 }
 
@@ -302,10 +318,14 @@ where
     /// 位相を1/4周期シフト（π/2加算）
     pub fn phase_shift_quarter(&self) -> Variable<T> {
         let output = self.value().phase_shift_quarter();
-        Variable::with_grad_fn(
-            output,
-            Box::new(PhaseShiftQuarterBackward::new(self.clone())),
-        )
+        if self.requires_grad() {
+            Variable::with_grad_fn(
+                output,
+                Box::new(PhaseShiftQuarterBackward::new(self.clone())),
+            )
+        } else {
+            Variable::new_no_grad(output)
+        }
     }
 }
 
@@ -322,7 +342,11 @@ where
     /// 2を底とする対数を計算
     pub fn log2(&self) -> Variable<T> {
         let output = self.value().log2();
-        Variable::with_grad_fn(output, Box::new(Log2Backward::new(self.clone())))
+        if self.requires_grad() {
+            Variable::with_grad_fn(output, Box::new(Log2Backward::new(self.clone())))
+        } else {
+            Variable::new_no_grad(output)
+        }
     }
 }
 
@@ -333,10 +357,14 @@ where
     /// 2を底とする指数関数を計算
     pub fn exp2(&self) -> Variable<T> {
         let output = self.value().exp2();
-        Variable::with_grad_fn(
-            output.clone(),
-            Box::new(Exp2Backward::new(self.clone(), output)),
-        )
+        if self.requires_grad() {
+            Variable::with_grad_fn(
+                output.clone(),
+                Box::new(Exp2Backward::new(self.clone(), output)),
+            )
+        } else {
+            Variable::new_no_grad(output)
+        }
     }
 }
 
@@ -353,10 +381,14 @@ where
     /// 平方根を計算
     pub fn sqrt(&self) -> Variable<T> {
         let output = self.value().sqrt();
-        Variable::with_grad_fn(
-            output.clone(),
-            Box::new(SqrtBackward::new(self.clone(), output)),
-        )
+        if self.requires_grad() {
+            Variable::with_grad_fn(
+                output.clone(),
+                Box::new(SqrtBackward::new(self.clone(), output)),
+            )
+        } else {
+            Variable::new_no_grad(output)
+        }
     }
 }
 
@@ -367,7 +399,11 @@ where
     /// 自身に ln(2) を乗算
     pub fn mul_ln2(&self) -> Variable<T> {
         let output = self.value().mul_ln2();
-        Variable::with_grad_fn(output, Box::new(MulLn2Backward::new(self.clone())))
+        if self.requires_grad() {
+            Variable::with_grad_fn(output, Box::new(MulLn2Backward::new(self.clone())))
+        } else {
+            Variable::new_no_grad(output)
+        }
     }
 }
 
@@ -378,7 +414,11 @@ where
     /// 自身に log2(e) を乗算
     pub fn mul_log2e(&self) -> Variable<T> {
         let output = self.value().mul_log2e();
-        Variable::with_grad_fn(output, Box::new(MulLog2EBackward::new(self.clone())))
+        if self.requires_grad() {
+            Variable::with_grad_fn(output, Box::new(MulLog2EBackward::new(self.clone())))
+        } else {
+            Variable::new_no_grad(output)
+        }
     }
 }
 

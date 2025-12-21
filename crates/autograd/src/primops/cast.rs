@@ -45,8 +45,10 @@ where
 {
     fn backward(&mut self, grad_y: Variable<To>) {
         // 勾配も型変換して逆伝播
+        let requires_grad = grad_y.requires_grad();
         let grad_from: From = grad_y.value().into();
-        self.input.backward_with(Variable::new(grad_from));
+        self.input
+            .backward_with(Variable::new_with_requires_grad(grad_from, requires_grad));
     }
 }
 
@@ -66,10 +68,14 @@ where
         To: Clone + Into<From> + ops::Add<To, Output = To> + 'static,
     {
         let output: To = self.value().into();
-        Variable::with_grad_fn(
-            output,
-            Box::new(CastBackward::<From, To>::new(self.clone())),
-        )
+        if self.requires_grad() {
+            Variable::with_grad_fn(
+                output,
+                Box::new(CastBackward::<From, To>::new(self.clone())),
+            )
+        } else {
+            Variable::new_no_grad(output)
+        }
     }
 }
 

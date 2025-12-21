@@ -35,6 +35,27 @@ impl<T: 'static> Variable<T> {
         })))
     }
 
+    /// 新しいリーフ変数を作成（requires_grad = false）
+    /// 高階微分を行わない場合に使用
+    pub fn new_no_grad(value: T) -> Variable<T> {
+        Variable(Arc::new(Mutex::new(VariableInner {
+            value,
+            grad: None,
+            grad_fn: None,
+            requires_grad: false,
+        })))
+    }
+
+    /// 新しいリーフ変数を作成（requires_grad を指定）
+    pub fn new_with_requires_grad(value: T, requires_grad: bool) -> Variable<T> {
+        Variable(Arc::new(Mutex::new(VariableInner {
+            value,
+            grad: None,
+            grad_fn: None,
+            requires_grad,
+        })))
+    }
+
     /// 勾配関数付きの変数を作成（演算結果用、requires_grad = true）
     pub fn with_grad_fn(value: T, grad_fn: Box<dyn GradFn<Variable<T>>>) -> Variable<T> {
         Variable(Arc::new(Mutex::new(VariableInner {
@@ -130,8 +151,9 @@ impl<T> Variable<T>
 where
     T: GradRoot + ops::Add<T, Output = T> + 'static,
 {
-    /// 初期勾配 1 で逆伝播を開始
+    /// 初期勾配 1 で逆伝播を開始（高階微分なし）
     pub fn backward(&self) {
-        self.backward_with(Variable::new(T::unit_grad()));
+        // 高階微分を行わないため requires_grad = false で作成
+        self.backward_with(Variable::new_no_grad(T::unit_grad()));
     }
 }

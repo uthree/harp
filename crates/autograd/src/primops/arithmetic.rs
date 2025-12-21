@@ -67,11 +67,19 @@ where
 {
     fn backward(&mut self, grad_y: Variable<T>) {
         // 乗算の勾配: ∂L/∂lhs = ∂L/∂z * rhs, ∂L/∂rhs = ∂L/∂z * lhs
+        let requires_grad = grad_y.requires_grad();
+
         let grad_lhs_val = grad_y.value() * self.rhs_value.clone();
-        self.lhs.backward_with(Variable::new(grad_lhs_val));
+        self.lhs.backward_with(Variable::new_with_requires_grad(
+            grad_lhs_val,
+            requires_grad,
+        ));
 
         let grad_rhs_val = grad_y.value() * self.lhs_value.clone();
-        self.rhs.backward_with(Variable::new(grad_rhs_val));
+        self.rhs.backward_with(Variable::new_with_requires_grad(
+            grad_rhs_val,
+            requires_grad,
+        ));
     }
 }
 
@@ -97,8 +105,10 @@ where
 {
     fn backward(&mut self, grad_y: Variable<T>) {
         // 符号反転の勾配: ∂L/∂x = -∂L/∂z
+        let requires_grad = grad_y.requires_grad();
         let grad_val = -grad_y.value();
-        self.input.backward_with(Variable::new(grad_val));
+        self.input
+            .backward_with(Variable::new_with_requires_grad(grad_val, requires_grad));
     }
 }
 
@@ -133,10 +143,12 @@ where
 {
     fn backward(&mut self, grad_y: Variable<T>) {
         // 逆数の勾配: ∂L/∂x = -∂L/∂z / x²
+        let requires_grad = grad_y.requires_grad();
         let x = self.input_value.clone();
         let x_squared = x.clone() * x;
         let grad_val = -(grad_y.value() / x_squared);
-        self.input.backward_with(Variable::new(grad_val));
+        self.input
+            .backward_with(Variable::new_with_requires_grad(grad_val, requires_grad));
     }
 }
 
@@ -158,10 +170,17 @@ macro_rules! impl_binary_op {
             fn $method(self, rhs: &Variable<$t>) -> Self::Output {
                 let lhs_val = self.value();
                 let rhs_val = rhs.value();
-                Variable::with_grad_fn(
-                    lhs_val + rhs_val,
-                    Box::new($grad_fn::new(self.clone(), rhs.clone())),
-                )
+                let result_val = lhs_val + rhs_val;
+
+                // どちらかが requires_grad=true なら逆伝播パスを作成
+                if self.requires_grad() || rhs.requires_grad() {
+                    Variable::with_grad_fn(
+                        result_val,
+                        Box::new($grad_fn::new(self.clone(), rhs.clone())),
+                    )
+                } else {
+                    Variable::new_no_grad(result_val)
+                }
             }
         }
 
@@ -211,10 +230,17 @@ macro_rules! impl_binary_op {
             fn $method(self, rhs: &Variable<$t>) -> Self::Output {
                 let lhs_val = self.value();
                 let rhs_val = rhs.value();
-                Variable::with_grad_fn(
-                    lhs_val * rhs_val,
-                    Box::new($grad_fn::new(self.clone(), rhs.clone())),
-                )
+                let result_val = lhs_val * rhs_val;
+
+                // どちらかが requires_grad=true なら逆伝播パスを作成
+                if self.requires_grad() || rhs.requires_grad() {
+                    Variable::with_grad_fn(
+                        result_val,
+                        Box::new($grad_fn::new(self.clone(), rhs.clone())),
+                    )
+                } else {
+                    Variable::new_no_grad(result_val)
+                }
             }
         }
 
@@ -265,7 +291,14 @@ macro_rules! impl_unary_op {
 
             fn $method(self) -> Self::Output {
                 let val = self.value();
-                Variable::with_grad_fn(-val, Box::new($grad_fn::new(self.clone())))
+                let result_val = -val;
+
+                // requires_grad=true なら逆伝播パスを作成
+                if self.requires_grad() {
+                    Variable::with_grad_fn(result_val, Box::new($grad_fn::new(self.clone())))
+                } else {
+                    Variable::new_no_grad(result_val)
+                }
             }
         }
 
@@ -350,6 +383,8 @@ where
         + 'static,
 {
     fn backward(&mut self, grad_y: Variable<T>) {
+        let requires_grad = grad_y.requires_grad();
+
         // ∂L/∂x = ∂L/∂z
         self.lhs.backward_with(grad_y.clone());
 
@@ -357,7 +392,10 @@ where
         let quotient = self.lhs_value.clone() / self.rhs_value.clone();
         let floor_quotient = quotient.floor();
         let grad_rhs_val = -(grad_y.value() * floor_quotient);
-        self.rhs.backward_with(Variable::new(grad_rhs_val));
+        self.rhs.backward_with(Variable::new_with_requires_grad(
+            grad_rhs_val,
+            requires_grad,
+        ));
     }
 }
 
@@ -376,10 +414,14 @@ where
     /// 剰余を計算
     pub fn rem(&self, other: &Variable<T>) -> Variable<T> {
         let output = self.value().rem(&other.value());
-        Variable::with_grad_fn(
-            output,
-            Box::new(RemBackward::new(self.clone(), other.clone())),
-        )
+        if self.requires_grad() || other.requires_grad() {
+            Variable::with_grad_fn(
+                output,
+                Box::new(RemBackward::new(self.clone(), other.clone())),
+            )
+        } else {
+            Variable::new_no_grad(output)
+        }
     }
 }
 

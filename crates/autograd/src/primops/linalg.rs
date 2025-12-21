@@ -38,8 +38,10 @@ where
 {
     fn backward(&mut self, grad_y: Variable<T>) {
         // 転置の勾配: (∂L/∂Y)^T
+        let requires_grad = grad_y.requires_grad();
         let grad_x = grad_y.value().transpose();
-        self.input.backward_with(Variable::new(grad_x));
+        self.input
+            .backward_with(Variable::new_with_requires_grad(grad_x, requires_grad));
     }
 }
 
@@ -87,15 +89,19 @@ where
     T: Clone + ops::Add<T, Output = T> + Transpose + Matmul<T, Output = T> + 'static,
 {
     fn backward(&mut self, grad_y: Variable<T>) {
+        let requires_grad = grad_y.requires_grad();
+
         // ∂L/∂A = ∂L/∂C @ B^T
         let rhs_t = self.rhs_value.transpose();
         let grad_lhs = grad_y.value().matmul(&rhs_t);
-        self.lhs.backward_with(Variable::new(grad_lhs));
+        self.lhs
+            .backward_with(Variable::new_with_requires_grad(grad_lhs, requires_grad));
 
         // ∂L/∂B = A^T @ ∂L/∂C
         let lhs_t = self.lhs_value.transpose();
         let grad_rhs = lhs_t.matmul(&grad_y.value());
-        self.rhs.backward_with(Variable::new(grad_rhs));
+        self.rhs
+            .backward_with(Variable::new_with_requires_grad(grad_rhs, requires_grad));
     }
 }
 
@@ -110,7 +116,11 @@ where
     /// 転置を計算
     pub fn transpose(&self) -> Variable<T> {
         let output = self.value().transpose();
-        Variable::with_grad_fn(output, Box::new(TransposeBackward::new(self.clone())))
+        if self.requires_grad() {
+            Variable::with_grad_fn(output, Box::new(TransposeBackward::new(self.clone())))
+        } else {
+            Variable::new_no_grad(output)
+        }
     }
 
     /// 転置を計算（エイリアス）
@@ -126,9 +136,13 @@ where
     /// 行列積を計算
     pub fn matmul(&self, other: &Variable<T>) -> Variable<T> {
         let output = self.value().matmul(&other.value());
-        Variable::with_grad_fn(
-            output,
-            Box::new(MatmulBackward::new(self.clone(), other.clone())),
-        )
+        if self.requires_grad() || other.requires_grad() {
+            Variable::with_grad_fn(
+                output,
+                Box::new(MatmulBackward::new(self.clone(), other.clone())),
+            )
+        } else {
+            Variable::new_no_grad(output)
+        }
     }
 }
