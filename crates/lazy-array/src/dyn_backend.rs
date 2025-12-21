@@ -463,6 +463,11 @@ impl<D: Dimension> Array<f32, D> {
     }
 
     /// 指定デバイスで指定値配列を生成（遅延）
+    ///
+    /// # 実装について
+    /// 現在は `arange(N) * 0.0 + value` で実装しています。
+    /// 理想的には `constant(value).unsqueeze().broadcast_to().contiguous()` で実装すべきですが、
+    /// lowerer が Const ノードに対する Contiguous を正しく処理できないため、この回避策を使用しています。
     pub fn full_on<S: IntoShape>(shape: S, value: f32, device: Device) -> Self {
         use harp_core::graph::shape::Expr;
 
@@ -547,6 +552,11 @@ impl<D: Dimension> Array<i32, D> {
     }
 
     /// 指定デバイスで指定値配列を生成
+    ///
+    /// # 実装について
+    /// 現在は `arange(N) * 0 + value` で実装しています。
+    /// 理想的には `constant(value).unsqueeze().broadcast_to().contiguous()` で実装すべきですが、
+    /// lowerer が Const ノードに対する Contiguous を正しく処理できないため、この回避策を使用しています。
     pub fn full_on<S: IntoShape>(shape: S, value: i32, device: Device) -> Self {
         use harp_core::graph::shape::Expr;
 
@@ -922,6 +932,36 @@ mod opencl_tests {
     }
 
     #[test]
+    fn test_eval_div_scalar() {
+        // 定数 / スカラー: 16.0 / 2.0 = 8.0
+        let a: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 16.0);
+        let b = &a / 2.0f32;
+
+        b.eval().expect("eval failed");
+        let data = b.to_vec().expect("to_vec failed");
+        for v in data {
+            assert!((v - 8.0).abs() < 1e-5, "Expected 8.0, got {}", v);
+        }
+    }
+
+    #[test]
+    fn test_eval_mul_chain_three() {
+        // 3段階の乗算チェーン: a * 0.5 * 0.5 * 0.5
+        let a: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 16.0);
+        let b = &a * 0.5f32;
+        let c = &b * 0.5f32;
+        let result = &c * 0.5f32;
+
+        // 16 * 0.5 * 0.5 * 0.5 = 2
+        result.eval().expect("eval failed");
+        let data = result.to_vec().expect("to_vec failed");
+        assert_eq!(data.len(), 16);
+        for v in data {
+            assert!((v - 2.0).abs() < 1e-5, "Expected 2.0, got {}", v);
+        }
+    }
+
+    #[test]
     fn test_eval_chain() {
         // 連鎖演算: (a + 1) * 2（線形チェーン）
         let a: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 1.0);
@@ -944,5 +984,187 @@ mod opencl_tests {
         // 再度evalしてもエラーにならない
         arr.eval().expect("second eval failed");
         assert!(arr.is_materialized());
+    }
+
+    // ========================================================================
+    // 線形チェーン演算のテスト
+    // ========================================================================
+    // 注意: 現在のlazy-arrayは複数の独立したArray（zeros(), ones()等を別々に呼び出した場合）
+    // を組み合わせる複雑なグラフには対応していません。
+    // 単一のArrayから派生した線形チェーン演算のみサポートしています。
+
+    #[test]
+    fn test_eval_long_chain() {
+        // 長い線形チェーン: a + 1 + 2 + 3 + 4
+        let a: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 0.0);
+        let b = &a + 1.0f32;
+        let c = &b + 2.0f32;
+        let d = &c + 3.0f32;
+        let result = &d + 4.0f32;
+
+        result.eval().expect("eval failed");
+        let data = result.to_vec().expect("to_vec failed");
+        assert_eq!(data.len(), 16);
+        for v in data {
+            assert!((v - 10.0).abs() < 1e-5, "Expected 10.0, got {}", v);
+        }
+    }
+
+    #[test]
+    fn test_eval_alternating_ops() {
+        // 演算子を交互に使用: (a + 1) * 2 - 0.5
+        let a: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 3.0);
+        let b = &a + 1.0f32;
+        let c = &b * 2.0f32;
+        let result = &c - 0.5f32;
+
+        // (3 + 1) * 2 - 0.5 = 8 - 0.5 = 7.5
+        result.eval().expect("eval failed");
+        let data = result.to_vec().expect("to_vec failed");
+        assert_eq!(data.len(), 16);
+        for v in data {
+            assert!((v - 7.5).abs() < 1e-5, "Expected 7.5, got {}", v);
+        }
+    }
+
+    #[test]
+    fn test_eval_div_chain_two() {
+        // 2段階の除算チェーン: a / 2 / 2
+        use harp_core::graph::Graph;
+
+        let a: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 16.0);
+        let b = &a / 2.0f32;
+        let result = &b / 2.0f32;
+
+        // グラフ構造をダンプ
+        let node = result.graph_node();
+        let mut graph = Graph::new();
+        graph.output("result", node.clone());
+
+        with_opencl_context(|ctx| {
+            let compiled = ctx.compile_program(graph)?;
+            println!("=== [2-step] Kernel count: {} ===", compiled.kernel_count());
+            println!(
+                "=== [2-step] Execution waves: {:?} ===",
+                compiled.execution_waves
+            );
+            Ok(())
+        })
+        .expect("context failed");
+
+        // 16 / 2 / 2 = 4
+        result.eval().expect("eval failed");
+        let data = result.to_vec().expect("to_vec failed");
+        println!("=== [2-step] Result data: {:?} ===", data);
+
+        assert_eq!(data.len(), 16);
+        for v in data {
+            assert!((v - 4.0).abs() < 1e-5, "Expected 4.0, got {}", v);
+        }
+    }
+
+    // 注意: 3段階以上の除算チェーンは、グラフ最適化の問題により
+    // 正しく計算されない既知のバグがあります。
+    // 2段階までの除算チェーンは正常に動作します (test_eval_div_chain_two参照)。
+    // この問題は arange * 0 + value 形式のfull()実装と、
+    // 複数のrecip操作を含む複雑なグラフの相互作用に起因します。
+    #[test]
+    #[ignore = "Known issue: 3-step division chain fails due to graph optimization bug"]
+    fn test_eval_div_chain_debug() {
+        // デバッグ用: 3段階除算の結果を確認
+        use harp_core::graph::Graph;
+
+        let a: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 16.0);
+        let b = &a / 2.0f32;
+        let c = &b / 2.0f32;
+        let result = &c / 2.0f32;
+
+        // グラフ構造をダンプ
+        let node = result.graph_node();
+        let mut graph = Graph::new();
+        graph.output("result", node.clone());
+
+        // コンパイルして実行情報を確認
+        with_opencl_context(|ctx| {
+            let compiled = ctx.compile_program(graph)?;
+            println!("=== Kernel count: {} ===", compiled.kernel_count());
+            println!("=== Execution waves: {:?} ===", compiled.execution_waves);
+            Ok(())
+        })
+        .expect("context failed");
+
+        // 実際の実行
+        result.eval().expect("eval failed");
+        let data = result.to_vec().expect("to_vec failed");
+        println!("=== Result data: {:?} ===", data);
+
+        assert_eq!(data.len(), 16);
+        for v in data {
+            assert!((v - 2.0).abs() < 1e-5, "Expected 2.0, got {}", v);
+        }
+    }
+
+    #[test]
+    #[ignore = "Known issue: 3-step division chain fails due to graph optimization bug"]
+    fn test_eval_div_chain() {
+        // 除算チェーン: a / 2 / 2 / 2
+        let a: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 16.0);
+        let b = &a / 2.0f32;
+        let c = &b / 2.0f32;
+        let result = &c / 2.0f32;
+
+        // 16 / 2 / 2 / 2 = 2
+        result.eval().expect("eval failed");
+        let data = result.to_vec().expect("to_vec failed");
+        assert_eq!(data.len(), 16);
+        for v in data {
+            assert!((v - 2.0).abs() < 1e-5, "Expected 2.0, got {}", v);
+        }
+    }
+
+    #[test]
+    fn test_eval_negation() {
+        // 否定演算: -a
+        let a: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 5.0);
+        let result = -&a;
+
+        result.eval().expect("eval failed");
+        let data = result.to_vec().expect("to_vec failed");
+        assert_eq!(data.len(), 16);
+        for v in data {
+            assert!((v - (-5.0)).abs() < 1e-5, "Expected -5.0, got {}", v);
+        }
+    }
+
+    // 注意: i32配列は現在、バッファのDType::Int（isize=8バイト）と
+    // Rust側のi32（4バイト）の型の不一致により正しく動作しません。
+    // バッファが64ビットの整数として扱われるため、読み出し時に要素数が2倍になります。
+    #[test]
+    #[ignore = "Known issue: DType::Int uses isize (8 bytes) but i32 is 4 bytes"]
+    fn test_eval_i32_basic() {
+        // 整数型の基本テスト
+        let a: Array1<i32> = <Array<i32, Dim1>>::full([16], 42);
+
+        a.eval().expect("eval failed");
+        let data = a.to_vec().expect("to_vec failed");
+        assert_eq!(data.len(), 16);
+        for v in data {
+            assert_eq!(v, 42, "Expected 42, got {}", v);
+        }
+    }
+
+    #[test]
+    fn test_eval_large_array() {
+        // 大きな配列での演算
+        let a: Array1<f32> = <Array<f32, Dim1>>::full([1024], 2.0);
+        let result = &(&a + 1.0f32) * 3.0f32;
+
+        // (2 + 1) * 3 = 9
+        result.eval().expect("eval failed");
+        let data = result.to_vec().expect("to_vec failed");
+        assert_eq!(data.len(), 1024);
+        for v in data {
+            assert!((v - 9.0).abs() < 1e-5, "Expected 9.0, got {}", v);
+        }
     }
 }
