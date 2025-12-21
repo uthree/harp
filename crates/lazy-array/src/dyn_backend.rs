@@ -464,10 +464,8 @@ impl<D: Dimension> Array<f32, D> {
 
     /// 指定デバイスで指定値配列を生成（遅延）
     ///
-    /// # 実装について
-    /// 現在は `arange(N) * 0.0 + value` で実装しています。
-    /// 理想的には `constant(value).unsqueeze().broadcast_to().contiguous()` で実装すべきですが、
-    /// lowerer が Const ノードに対する Contiguous を正しく処理できないため、この回避策を使用しています。
+    /// constant(value) でスカラーを作成し、unsqueeze + broadcast_to + contiguous で
+    /// 指定形状の配列に展開します。
     pub fn full_on<S: IntoShape>(shape: S, value: f32, device: Device) -> Self {
         use harp_core::graph::shape::Expr;
 
@@ -478,22 +476,21 @@ impl<D: Dimension> Array<f32, D> {
             return Self::from_node(node, shape_vec, device);
         }
 
-        // 総要素数を計算
-        let total_size: usize = shape_vec.iter().product();
+        // constant(value) でスカラーを作成
+        let mut node = GraphNode::constant(value);
 
-        // arangeで連番テンソルを作成し、0倍して定数を加算
-        // arange(N) -> I32
-        // cast(F32)
-        // * 0.0 -> 全て0
-        // + value -> 全てvalue
-        let arange_node = GraphNode::arange(total_size);
-        let float_node = arange_node.cast(GraphDType::F32);
-        let zeros = float_node * 0.0f32;
-        let filled = zeros + value;
+        // 目標の次元数分 unsqueeze して [1, 1, ..., 1] の形状にする
+        for _ in 0..shape_vec.len() {
+            let new_view = node.view.clone().unsqueeze(0);
+            node = node.view(new_view);
+        }
 
-        // 目標の形状にreshape
+        // broadcast_to で目標形状に拡張
         let target_shape: Vec<Expr> = shape_vec.iter().map(|&s| Expr::from(s as isize)).collect();
-        let node = filled.reshape(target_shape);
+        node = node.broadcast_to(target_shape);
+
+        // contiguous でメモリレイアウトを実体化
+        node = node.contiguous();
 
         Self::from_node(node, shape_vec, device)
     }
@@ -553,10 +550,8 @@ impl<D: Dimension> Array<i32, D> {
 
     /// 指定デバイスで指定値配列を生成
     ///
-    /// # 実装について
-    /// 現在は `arange(N) * 0 + value` で実装しています。
-    /// 理想的には `constant(value).unsqueeze().broadcast_to().contiguous()` で実装すべきですが、
-    /// lowerer が Const ノードに対する Contiguous を正しく処理できないため、この回避策を使用しています。
+    /// constant(value) でスカラーを作成し、unsqueeze + broadcast_to + contiguous で
+    /// 指定形状の配列に展開します。
     pub fn full_on<S: IntoShape>(shape: S, value: i32, device: Device) -> Self {
         use harp_core::graph::shape::Expr;
 
@@ -566,18 +561,21 @@ impl<D: Dimension> Array<i32, D> {
             return Self::from_node(node, shape_vec, device);
         }
 
-        // 総要素数を計算
-        let total_size: usize = shape_vec.iter().product();
+        // constant(value) でスカラーを作成
+        let mut node = GraphNode::constant(value as isize);
 
-        // arangeで連番テンソルを作成し、0倍して定数を加算
-        let arange_node = GraphNode::arange(total_size);
-        #[allow(clippy::erasing_op)]
-        let zeros = arange_node * 0isize;
-        let filled = zeros + (value as isize);
+        // 目標の次元数分 unsqueeze して [1, 1, ..., 1] の形状にする
+        for _ in 0..shape_vec.len() {
+            let new_view = node.view.clone().unsqueeze(0);
+            node = node.view(new_view);
+        }
 
-        // 目標の形状にreshape
+        // broadcast_to で目標形状に拡張
         let target_shape: Vec<Expr> = shape_vec.iter().map(|&s| Expr::from(s as isize)).collect();
-        let node = filled.reshape(target_shape);
+        node = node.broadcast_to(target_shape);
+
+        // contiguous でメモリレイアウトを実体化
+        node = node.contiguous();
 
         Self::from_node(node, shape_vec, device)
     }
@@ -1063,15 +1061,9 @@ mod opencl_tests {
         }
     }
 
-    // 注意: 3段階以上の除算チェーンは、グラフ最適化の問題により
-    // 正しく計算されない既知のバグがあります。
-    // 2段階までの除算チェーンは正常に動作します (test_eval_div_chain_two参照)。
-    // この問題は arange * 0 + value 形式のfull()実装と、
-    // 複数のrecip操作を含む複雑なグラフの相互作用に起因します。
     #[test]
-    #[ignore = "Known issue: 3-step division chain fails due to graph optimization bug"]
     fn test_eval_div_chain_debug() {
-        // デバッグ用: 3段階除算の結果を確認
+        // 3段階除算の結果を確認（グラフ構造のデバッグ情報付き）
         use harp_core::graph::Graph;
 
         let a: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 16.0);
@@ -1105,7 +1097,6 @@ mod opencl_tests {
     }
 
     #[test]
-    #[ignore = "Known issue: 3-step division chain fails due to graph optimization bug"]
     fn test_eval_div_chain() {
         // 除算チェーン: a / 2 / 2 / 2
         let a: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 16.0);

@@ -3,8 +3,8 @@
 //! Contiguous、Slice、Cast、複素数演算、Rand、Arangeなどの
 //! AST関数生成を担当します。
 
-use crate::ast::{AstNode, DType as AstDType, helper::*};
-use crate::graph::ops::custom_placeholders as ph;
+use crate::ast::{AstNode, DType as AstDType, Literal, helper::*};
+use crate::graph::ops::{GraphOp, custom_placeholders as ph};
 use crate::graph::shape::Expr;
 use crate::graph::{DType as GraphDType, GraphNode};
 
@@ -16,10 +16,17 @@ use super::helpers::{
 /// Contiguous演算の関数を生成
 ///
 /// LoadIndexを含むView（Gather等）にも対応しています。
+/// また、入力がConstノードの場合は定数値を直接展開します。
 pub fn build_contiguous_function(node: &GraphNode, name: &str) -> Option<AstNode> {
     let input = node.src.first()?;
     let shape = node.view.shape();
     let ndim = shape.len();
+
+    // 入力がConstノードの場合は定数値を直接展開
+    if let GraphOp::Const(literal) = &input.op {
+        return build_contiguous_from_const(literal, shape, name);
+    }
+
     let load_dtype = graph_dtype_to_ast(&input.dtype);
 
     // 入力のオフセット計算（Viewを考慮）
@@ -38,6 +45,34 @@ pub fn build_contiguous_function(node: &GraphNode, name: &str) -> Option<AstNode
     let store_stmt = store(var(ph::OUTPUT), output_offset, load_expr);
 
     let body = wrap_with_loops(ndim, vec![store_stmt]);
+
+    Some(function(
+        Some(name.to_string()),
+        vec![],
+        AstDType::Tuple(vec![]),
+        body,
+    ))
+}
+
+/// Constノードからのcontiguous関数を生成
+///
+/// 定数値を全要素に展開します。
+/// shape を具体的に埋め込むため、プレースホルダー変数（shape0, shape1等）は使用しません。
+fn build_contiguous_from_const(literal: &Literal, shape: &[Expr], name: &str) -> Option<AstNode> {
+    use super::helpers::{build_contiguous_offset_with_shape, wrap_with_loops_with_shape};
+
+    let ndim = shape.len();
+
+    // 具体的な shape を使用してオフセットを計算
+    let output_offset = build_contiguous_offset_with_shape(ndim, Some(shape));
+
+    // リテラルをAstNodeに変換
+    let const_expr = AstNode::Const(literal.clone());
+
+    let store_stmt = store(var(ph::OUTPUT), output_offset, const_expr);
+
+    // 具体的な shape を使用してループを生成
+    let body = wrap_with_loops_with_shape(ndim, vec![store_stmt], Some(shape));
 
     Some(function(
         Some(name.to_string()),
