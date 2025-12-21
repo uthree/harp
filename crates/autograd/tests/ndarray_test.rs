@@ -1,3 +1,5 @@
+#![cfg(feature = "ndarray")]
+
 use autograd::{Expand, Max, Prod, Sum, Variable};
 use ndarray::{Array1, Array2, array};
 
