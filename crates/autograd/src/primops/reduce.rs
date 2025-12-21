@@ -12,21 +12,21 @@ use crate::variable::Variable;
 
 /// 総和演算を表すトレイト
 /// 指定した軸に沿って要素を合計する
-pub trait Sum: Sized {
+pub trait Sum {
     /// 指定した軸で総和を計算
     fn sum(&self, axis: usize) -> Self;
 }
 
 /// 総乗演算を表すトレイト
 /// 指定した軸に沿って要素を乗算する
-pub trait Prod: Sized {
+pub trait Prod {
     /// 指定した軸で総乗を計算
     fn prod(&self, axis: usize) -> Self;
 }
 
 /// 最大値演算を表すトレイト
 /// 指定した軸に沿って最大値を取得する
-pub trait Max: Sized {
+pub trait Max {
     /// 指定した軸で最大値を計算
     fn max(&self, axis: usize) -> Self;
 
