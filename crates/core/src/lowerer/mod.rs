@@ -160,10 +160,31 @@ pub fn collect_kernels_as_program(graph: &Graph) -> Option<crate::ast::AstNode> 
                         kernels.push(ast.clone());
                         // カーネル呼び出し情報を生成（各カーネルを別のwaveに配置）
                         if let Some(kernel_name) = name {
-                            // Kernelノードからdispatchサイズを取得（AstNodeからExprに変換）
+                            // Kernelノードからdispatchサイズと入出力を取得
                             use crate::graph::shape::Expr;
-                            let (grid_size, local_size) = match ast {
+                            // パラメータからinputs/outputsを抽出するヘルパー
+                            fn extract_io_from_params(
+                                params: &[crate::ast::VarDecl],
+                            ) -> (Vec<String>, Vec<String>) {
+                                use crate::ast::Mutability;
+                                let mut inputs = Vec::new();
+                                let mut outputs = Vec::new();
+                                for param in params {
+                                    if matches!(param.dtype, crate::ast::DType::Ptr(_)) {
+                                        match param.mutability {
+                                            Mutability::Immutable => {
+                                                inputs.push(param.name.clone())
+                                            }
+                                            Mutability::Mutable => outputs.push(param.name.clone()),
+                                        }
+                                    }
+                                }
+                                (inputs, outputs)
+                            }
+
+                            let (grid_size, local_size, inputs, outputs) = match ast {
                                 AstNode::Kernel {
+                                    params,
                                     default_grid_size,
                                     default_thread_group_size,
                                     ..
@@ -184,17 +205,30 @@ pub fn collect_kernels_as_program(graph: &Graph) -> Option<crate::ast::AstNode> 
                                         Expr::try_from(default_thread_group_size[2].as_ref())
                                             .unwrap_or(Expr::Const(1)),
                                     ];
-                                    (gs, ls)
+                                    let (inputs, outputs) = extract_io_from_params(params);
+                                    (gs, ls, inputs, outputs)
+                                }
+                                AstNode::Function { params, .. } => {
+                                    // Functionノードはdispatchサイズを持たない（デフォルト値を使用）
+                                    let (inputs, outputs) = extract_io_from_params(params);
+                                    (
+                                        [Expr::Const(1), Expr::Const(1), Expr::Const(1)],
+                                        [Expr::Const(1), Expr::Const(1), Expr::Const(1)],
+                                        inputs,
+                                        outputs,
+                                    )
                                 }
                                 _ => (
                                     [Expr::Const(1), Expr::Const(1), Expr::Const(1)],
                                     [Expr::Const(1), Expr::Const(1), Expr::Const(1)],
+                                    vec![],
+                                    vec![],
                                 ),
                             };
                             let call_info = AstKernelCallInfo::new(
                                 kernel_name,
-                                vec![], // TODO: 入出力情報を解析
-                                vec![],
+                                inputs,
+                                outputs,
                                 grid_size,
                                 local_size,
                             );

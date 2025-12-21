@@ -25,6 +25,7 @@
 pub mod device;
 pub mod dim;
 pub mod dyn_backend;
+pub mod execution;
 pub mod generators;
 
 // Re-exports

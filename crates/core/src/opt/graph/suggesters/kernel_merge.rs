@@ -206,18 +206,13 @@ impl KernelMergeSuggester {
         kernels.extend(consumer_kernels);
 
         // 実行波情報を生成
-        // Producer側のカーネルをまず追加
-        let mut execution_waves: Vec<Vec<AstKernelCallInfo>> =
-            Self::extract_execution_waves(producer_ast);
-
-        // Consumer側のカーネルを追加（新しいwaveとして）
-        let consumer_waves = Self::extract_execution_waves(consumer_ast);
-        execution_waves.extend(consumer_waves);
-
-        // カーネル名の重複を修正（used_namesに基づいて更新）
-        // 注意: extract_or_create_kernelsで名前が変更されている可能性があるため、
-        // 実際のカーネル名と一致させる
-        Self::update_execution_waves_names(&mut execution_waves, &kernels);
+        // 変換後のカーネルからexecution_wavesを抽出することで、
+        // 正しいinputs/outputs情報（params）を取得する
+        let mut execution_waves: Vec<Vec<AstKernelCallInfo>> = Vec::new();
+        for kernel in &kernels {
+            let waves = Self::extract_execution_waves(kernel);
+            execution_waves.extend(waves);
+        }
 
         // Programを作成（harp_mainは生成しない - 実行順序はCompiledProgramで管理）
         let program = AstNode::Program {
@@ -664,36 +659,6 @@ impl KernelMergeSuggester {
         }
 
         (inputs, outputs)
-    }
-
-    /// execution_wavesのカーネル名を実際のカーネル名と一致させる
-    ///
-    /// extract_or_create_kernelsで重複を避けるために名前が変更されている可能性があるため、
-    /// 実際のカーネル名と順番で対応付けて更新します。
-    fn update_execution_waves_names(
-        execution_waves: &mut [Vec<AstKernelCallInfo>],
-        kernels: &[AstNode],
-    ) {
-        // カーネルリストから名前を抽出
-        let kernel_names: Vec<String> = kernels
-            .iter()
-            .filter_map(|k| match k {
-                AstNode::Kernel { name, .. } => name.clone(),
-                AstNode::Function { name, .. } => name.clone(),
-                _ => None,
-            })
-            .collect();
-
-        // execution_waves内の名前を更新（フラット化して順番で対応付け）
-        let mut name_idx = 0;
-        for wave in execution_waves.iter_mut() {
-            for call in wave.iter_mut() {
-                if name_idx < kernel_names.len() {
-                    call.kernel_name = kernel_names[name_idx].clone();
-                    name_idx += 1;
-                }
-            }
-        }
     }
 
     /// グラフ内のKernelノードの統計を取得（テスト用）

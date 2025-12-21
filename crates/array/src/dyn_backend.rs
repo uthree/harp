@@ -5,11 +5,18 @@
 
 use crate::device::Device;
 use crate::dim::Dimension;
-use harp_core::graph::{DType, Graph, GraphNode};
+use harp_core::ast::DType;
+use harp_core::graph::{DType as GraphDType, Graph, GraphNode};
 use std::cell::RefCell;
 use std::marker::PhantomData;
 use std::rc::Rc;
 use thiserror::Error;
+
+#[cfg(feature = "opencl")]
+use crate::execution::opencl::with_opencl_context;
+
+#[cfg(feature = "metal")]
+use crate::execution::metal::with_metal_context;
 
 // ============================================================================
 // ArrayElement - 配列要素トレイト
@@ -26,8 +33,11 @@ pub trait ArrayElement: Clone + Copy + Default + 'static {
     /// データ型名
     fn dtype_name() -> &'static str;
 
-    /// GraphのDTypeに変換
-    fn graph_dtype() -> DType;
+    /// Graph用のDType（graph::DType）
+    fn graph_dtype() -> GraphDType;
+
+    /// バッファ用のDType（ast::DType）
+    fn buffer_dtype() -> DType;
 }
 
 impl ArrayElement for f32 {
@@ -40,7 +50,10 @@ impl ArrayElement for f32 {
     fn dtype_name() -> &'static str {
         "f32"
     }
-    fn graph_dtype() -> DType {
+    fn graph_dtype() -> GraphDType {
+        GraphDType::F32
+    }
+    fn buffer_dtype() -> DType {
         DType::F32
     }
 }
@@ -55,8 +68,11 @@ impl ArrayElement for i32 {
     fn dtype_name() -> &'static str {
         "i32"
     }
-    fn graph_dtype() -> DType {
-        DType::I32
+    fn graph_dtype() -> GraphDType {
+        GraphDType::I32
+    }
+    fn buffer_dtype() -> DType {
+        DType::Int
     }
 }
 
@@ -70,7 +86,10 @@ impl ArrayElement for bool {
     fn dtype_name() -> &'static str {
         "bool"
     }
-    fn graph_dtype() -> DType {
+    fn graph_dtype() -> GraphDType {
+        GraphDType::Bool
+    }
+    fn buffer_dtype() -> DType {
         DType::Bool
     }
 }
@@ -309,15 +328,93 @@ impl<T: ArrayElement, D: Dimension> Array<T, D> {
             return Ok(());
         }
 
-        // TODO: 実際の評価ロジックを実装
-        // 1. GraphをPipelineでコンパイル
-        // 2. バッファを確保
-        // 3. カーネルを実行
-        // 4. 結果をMaterialized状態に保存
+        // デバイスに応じて評価
+        match self.device {
+            #[cfg(feature = "opencl")]
+            Device::OpenCL => self.eval_opencl(),
+            #[cfg(feature = "metal")]
+            Device::Metal => self.eval_metal(),
+            #[allow(unreachable_patterns)]
+            _ => Err(ArrayError::NoBackend),
+        }
+    }
 
-        Err(ArrayError::Execution(
-            "Evaluation not yet implemented. Use to_vec_eager() for eager evaluation.".to_string(),
-        ))
+    /// OpenCLで評価を実行
+    #[cfg(feature = "opencl")]
+    fn eval_opencl(&self) -> Result<(), ArrayError> {
+        use std::collections::HashMap;
+
+        let node = self.graph_node();
+
+        // 1. Graphを構築
+        let mut graph = Graph::new();
+        graph.output("result", node.clone());
+
+        // 2. コンパイル & バッファ確保 & 実行
+        let buffer = with_opencl_context(|ctx| {
+            // コンパイル（複数カーネル対応）
+            let compiled = ctx.compile_program(graph)?;
+
+            // 出力バッファを確保
+            let mut output_buf = ctx.allocate_buffer(self.shape.clone(), T::buffer_dtype())?;
+
+            // 入力バッファのマップ（今回は外部入力なし）
+            let inputs: HashMap<String, &harp_backend_opencl::OpenCLBuffer> = HashMap::new();
+
+            // 出力バッファのマップ
+            let mut outputs: HashMap<String, &mut harp_backend_opencl::OpenCLBuffer> =
+                HashMap::new();
+            outputs.insert("result".to_string(), &mut output_buf);
+
+            // 実行
+            compiled
+                .execute(ctx.device(), &inputs, &mut outputs)
+                .map_err(|e| ArrayError::Execution(e.to_string()))?;
+
+            Ok(output_buf)
+        })?;
+
+        // 3. 状態をMaterializedに遷移
+        *self.state.borrow_mut() = ArrayState::Materialized {
+            node,
+            buffer: DynBuffer::OpenCL(buffer),
+        };
+
+        Ok(())
+    }
+
+    /// Metalで評価を実行
+    #[cfg(feature = "metal")]
+    fn eval_metal(&self) -> Result<(), ArrayError> {
+        let node = self.graph_node();
+
+        // 1. Graphを構築
+        let mut graph = Graph::new();
+        graph.output("result", node.clone());
+
+        // 2. コンパイル & バッファ確保 & 実行
+        let buffer = with_metal_context(|ctx| {
+            // コンパイル
+            let compiled = ctx.compile(graph)?;
+
+            // 出力バッファを確保
+            let mut output_buf = ctx.allocate_buffer(self.shape.clone(), T::buffer_dtype())?;
+
+            // 実行（入力なし、出力のみ）
+            compiled
+                .execute(&[], &mut [&mut output_buf])
+                .map_err(|e| ArrayError::Execution(e.to_string()))?;
+
+            Ok(output_buf)
+        })?;
+
+        // 3. 状態をMaterializedに遷移
+        *self.state.borrow_mut() = ArrayState::Materialized {
+            node,
+            buffer: DynBuffer::Metal(buffer),
+        };
+
+        Ok(())
     }
 
     /// データをベクタとして取得（遅延評価を実行）
@@ -367,13 +464,31 @@ impl<D: Dimension> Array<f32, D> {
 
     /// 指定デバイスで指定値配列を生成（遅延）
     pub fn full_on<S: IntoShape>(shape: S, value: f32, device: Device) -> Self {
+        use harp_core::graph::shape::Expr;
+
         let shape_vec = shape.into_shape();
+        if shape_vec.is_empty() {
+            // スカラーの場合
+            let node = GraphNode::constant(value);
+            return Self::from_node(node, shape_vec, device);
+        }
 
-        // 定数ノードを作成
-        let node = GraphNode::constant(value);
+        // 総要素数を計算
+        let total_size: usize = shape_vec.iter().product();
 
-        // TODO: 形状に合わせてブロードキャストするノードを作成
-        // 現時点では簡易実装
+        // arangeで連番テンソルを作成し、0倍して定数を加算
+        // arange(N) -> I32
+        // cast(F32)
+        // * 0.0 -> 全て0
+        // + value -> 全てvalue
+        let arange_node = GraphNode::arange(total_size);
+        let float_node = arange_node.cast(GraphDType::F32);
+        let zeros = float_node * 0.0f32;
+        let filled = zeros + value;
+
+        // 目標の形状にreshape
+        let target_shape: Vec<Expr> = shape_vec.iter().map(|&s| Expr::from(s as isize)).collect();
+        let node = filled.reshape(target_shape);
 
         Self::from_node(node, shape_vec, device)
     }
@@ -433,8 +548,26 @@ impl<D: Dimension> Array<i32, D> {
 
     /// 指定デバイスで指定値配列を生成
     pub fn full_on<S: IntoShape>(shape: S, value: i32, device: Device) -> Self {
+        use harp_core::graph::shape::Expr;
+
         let shape_vec = shape.into_shape();
-        let node = GraphNode::constant(value as isize);
+        if shape_vec.is_empty() {
+            let node = GraphNode::constant(value as isize);
+            return Self::from_node(node, shape_vec, device);
+        }
+
+        // 総要素数を計算
+        let total_size: usize = shape_vec.iter().product();
+
+        // arangeで連番テンソルを作成し、0倍して定数を加算
+        let arange_node = GraphNode::arange(total_size);
+        let zeros = arange_node * 0isize;
+        let filled = zeros + (value as isize);
+
+        // 目標の形状にreshape
+        let target_shape: Vec<Expr> = shape_vec.iter().map(|&s| Expr::from(s as isize)).collect();
+        let node = filled.reshape(target_shape);
+
         Self::from_node(node, shape_vec, device)
     }
 
@@ -704,5 +837,111 @@ mod tests {
         let a = <Array<f32, Dim2>>::zeros([2, 2]);
         let b = a.clone();
         assert_eq!(b.shape(), &[2, 2]);
+    }
+}
+
+// ============================================================================
+// OpenCL テスト
+// ============================================================================
+
+#[cfg(all(test, feature = "opencl"))]
+mod opencl_tests {
+    use super::*;
+    use crate::dim::{Dim1, Dim2};
+
+    #[test]
+    fn test_eval_constant_scalar() {
+        // スカラー定数のeval
+        let arr: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 2.5);
+        arr.eval().expect("eval failed");
+        assert!(arr.is_materialized());
+
+        let data = arr.to_vec().expect("to_vec failed");
+        assert_eq!(data.len(), 16);
+        for v in data {
+            assert!((v - 2.5).abs() < 1e-5, "Expected 2.5, got {}", v);
+        }
+    }
+
+    #[test]
+    fn test_eval_zeros() {
+        // zeros配列のeval
+        let arr: Array1<f32> = <Array<f32, Dim1>>::zeros([64]);
+        arr.eval().expect("eval failed");
+        assert!(arr.is_materialized());
+
+        let data = arr.to_vec().expect("to_vec failed");
+        assert_eq!(data.len(), 64);
+        for v in data {
+            assert!(v.abs() < 1e-5, "Expected 0.0, got {}", v);
+        }
+    }
+
+    #[test]
+    fn test_eval_ones() {
+        // ones配列のeval
+        let arr: Array2<f32> = <Array<f32, Dim2>>::ones([8, 8]);
+        arr.eval().expect("eval failed");
+        assert!(arr.is_materialized());
+
+        let data = arr.to_vec().expect("to_vec failed");
+        assert_eq!(data.len(), 64);
+        for v in data {
+            assert!((v - 1.0).abs() < 1e-5, "Expected 1.0, got {}", v);
+        }
+    }
+
+    #[test]
+    fn test_eval_add_scalar() {
+        // 定数 + スカラー（線形チェーン）
+        let a: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 1.0);
+        let c = &a + 2.0f32;
+
+        c.eval().expect("eval failed");
+        assert!(c.is_materialized());
+
+        let data = c.to_vec().expect("to_vec failed");
+        assert_eq!(data.len(), 16);
+        for v in data {
+            assert!((v - 3.0).abs() < 1e-5, "Expected 3.0, got {}", v);
+        }
+    }
+
+    #[test]
+    fn test_eval_mul_scalar() {
+        // 定数 * スカラー
+        let a: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 3.0);
+        let b = &a * 2.0f32;
+
+        b.eval().expect("eval failed");
+        let data = b.to_vec().expect("to_vec failed");
+        for v in data {
+            assert!((v - 6.0).abs() < 1e-5, "Expected 6.0, got {}", v);
+        }
+    }
+
+    #[test]
+    fn test_eval_chain() {
+        // 連鎖演算: (a + 1) * 2（線形チェーン）
+        let a: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 1.0);
+        let c = &(&a + 1.0f32) * 2.0f32;
+
+        c.eval().expect("eval failed");
+        let data = c.to_vec().expect("to_vec failed");
+        for v in data {
+            assert!((v - 4.0).abs() < 1e-5, "Expected 4.0, got {}", v);
+        }
+    }
+
+    #[test]
+    fn test_eval_already_materialized() {
+        // 既に評価済みの場合は何もしない
+        let arr: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 1.0);
+        arr.eval().expect("first eval failed");
+        assert!(arr.is_materialized());
+
+        // 再度evalしてもエラーにならない
+        arr.eval().expect("second eval failed");
+        assert!(arr.is_materialized());
     }
 }

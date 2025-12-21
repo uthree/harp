@@ -20,7 +20,7 @@ use crate::opt::ast::{
 };
 use crate::opt::context::DeviceCapabilities;
 use crate::opt::graph::{GraphOptimizer, OptimizationHistory as GraphOptimizationHistory};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::marker::PhantomData;
 
 /// Trait for renderers that can generate kernel-only source code
@@ -161,15 +161,29 @@ where
         // Render kernel source
         let kernel_source = self.renderer.render_kernel_source(&optimized_program);
 
+        // Debug: log the kernel source
+        log::debug!("Generated kernel source:\n{}", kernel_source);
+
         // Extract dispatch size config (for dynamic shape support)
         let dispatch_config = self.extract_dispatch_config(&optimized_program, &signature);
 
         // Extract the actual kernel/function name from the program
         let entry_point = self.extract_entry_point_name(&optimized_program);
         let base_config = self.extract_kernel_config(&optimized_program, &signature);
+
+        // Compute compatible local_work_size:
+        // local_work_size[i] must be <= global_work_size[i] and must divide evenly
+        let gws = base_config.global_work_size;
+        let lws_base = base_config.local_work_size.unwrap_or([1, 1, 1]);
+        let lws = [
+            Self::compute_compatible_local_size(gws[0], lws_base[0]),
+            Self::compute_compatible_local_size(gws[1], lws_base[1]),
+            Self::compute_compatible_local_size(gws[2], lws_base[2]),
+        ];
+
         let kernel_config = KernelConfig::new(entry_point)
-            .with_global_work_size(base_config.global_work_size)
-            .with_local_work_size(base_config.local_work_size.unwrap_or([1, 1, 1]));
+            .with_global_work_size(gws)
+            .with_local_work_size(lws);
 
         // Compile kernel
         let kernel = self
@@ -260,16 +274,6 @@ where
             vec![]
         };
 
-        // Collect all kernel/function names from the program
-        let kernel_names: Vec<String> = functions
-            .iter()
-            .filter_map(|f| match f {
-                AstNode::Kernel { name, .. } => name.clone(),
-                AstNode::Function { name, .. } => name.clone(),
-                _ => None,
-            })
-            .collect();
-
         // Compile each kernel/function with its specific config
         let shape_vars = Self::extract_shape_vars(&signature);
         let mut kernels: HashMap<String, Comp::Kernel> = HashMap::new();
@@ -284,7 +288,13 @@ where
                     ..
                 } => {
                     let grid = evaluate_dispatch_size(default_grid_size, &shape_vars);
-                    let tg = evaluate_dispatch_size(default_thread_group_size, &shape_vars);
+                    let tg_base = evaluate_dispatch_size(default_thread_group_size, &shape_vars);
+                    // Compute compatible local_work_size
+                    let tg = [
+                        Self::compute_compatible_local_size(grid[0], tg_base[0]),
+                        Self::compute_compatible_local_size(grid[1], tg_base[1]),
+                        Self::compute_compatible_local_size(grid[2], tg_base[2]),
+                    ];
 
                     let mut config = KernelConfig::new(name.clone())
                         .with_global_work_size(grid)
@@ -312,10 +322,18 @@ where
                     name: Some(name), ..
                 } => {
                     // Function nodes use default grid size based on output shape
-                    let config = self.extract_kernel_config(&optimized_program, &signature);
+                    let base_config = self.extract_kernel_config(&optimized_program, &signature);
+                    let gws = base_config.global_work_size;
+                    let lws_base = base_config.local_work_size.unwrap_or([1, 1, 1]);
+                    let lws = [
+                        Self::compute_compatible_local_size(gws[0], lws_base[0]),
+                        Self::compute_compatible_local_size(gws[1], lws_base[1]),
+                        Self::compute_compatible_local_size(gws[2], lws_base[2]),
+                    ];
+
                     let config = KernelConfig::new(name.clone())
-                        .with_global_work_size(config.global_work_size)
-                        .with_local_work_size(config.local_work_size.unwrap_or([1, 1, 1]));
+                        .with_global_work_size(gws)
+                        .with_local_work_size(lws);
 
                     let kernel =
                         self.compiler
@@ -326,8 +344,8 @@ where
                         name.clone(),
                         signature.inputs.iter().map(|i| i.name.clone()).collect(),
                         signature.outputs.iter().map(|o| o.name.clone()).collect(),
-                        config.global_work_size,
-                        config.local_work_size.unwrap_or([1, 1, 1]),
+                        gws,
+                        lws,
                     ));
                 }
                 _ => {}
@@ -336,35 +354,58 @@ where
 
         // If no kernels were found, try to compile a default kernel
         if kernels.is_empty() {
-            let config = self.extract_kernel_config(&optimized_program, &signature);
+            let base_config = self.extract_kernel_config(&optimized_program, &signature);
+            let gws = base_config.global_work_size;
+            let lws_base = base_config.local_work_size.unwrap_or([1, 1, 1]);
+            let lws = [
+                Self::compute_compatible_local_size(gws[0], lws_base[0]),
+                Self::compute_compatible_local_size(gws[1], lws_base[1]),
+                Self::compute_compatible_local_size(gws[2], lws_base[2]),
+            ];
+
+            let config = KernelConfig::new(base_config.entry_point.clone())
+                .with_global_work_size(gws)
+                .with_local_work_size(lws);
+
             let kernel = self
                 .compiler
-                .compile(&self.device, &kernel_source, config.clone())?;
-            let kernel_name = config.entry_point.clone();
+                .compile(&self.device, &kernel_source, config)?;
+            let kernel_name = base_config.entry_point.clone();
             kernels.insert(kernel_name.clone(), kernel);
 
             kernel_call_infos.push(KernelCallInfo::new(
                 kernel_name,
                 signature.inputs.iter().map(|i| i.name.clone()).collect(),
                 signature.outputs.iter().map(|o| o.name.clone()).collect(),
-                config.global_work_size,
-                config.local_work_size.unwrap_or([1, 1, 1]),
+                gws,
+                lws,
             ));
         }
 
         // Convert to execution_waves based on ast_execution_waves
-        let execution_waves: Vec<Vec<KernelCallInfo>> = if !ast_execution_waves.is_empty() {
+        let raw_execution_waves: Vec<Vec<KernelCallInfo>> = if !ast_execution_waves.is_empty() {
             // Use the wave structure from AST directly
+            // Important: Use inputs/outputs from ast_call, not from kernel_call_infos
             ast_execution_waves
                 .iter()
                 .map(|wave| {
                     wave.iter()
                         .filter_map(|ast_call| {
-                            // Find the compiled kernel info
+                            // Find the compiled kernel info for dispatch sizes
                             kernel_call_infos
                                 .iter()
                                 .find(|k| k.kernel_name == ast_call.kernel_name)
-                                .cloned()
+                                .map(|k| {
+                                    // Use inputs/outputs from ast_call (per-kernel info)
+                                    // instead of from kernel_call_infos (global signature)
+                                    KernelCallInfo::new(
+                                        ast_call.kernel_name.clone(),
+                                        ast_call.inputs.clone(),
+                                        ast_call.outputs.clone(),
+                                        k.grid_size,
+                                        k.local_size,
+                                    )
+                                })
                         })
                         .collect()
                 })
@@ -375,11 +416,9 @@ where
             kernel_call_infos.into_iter().map(|k| vec![k]).collect()
         };
 
-        // Analyze intermediate buffers (flatten waves for analysis)
-        let flat_call_infos: Vec<KernelCallInfo> =
-            execution_waves.iter().flatten().cloned().collect();
-        let intermediate_specs =
-            self.analyze_intermediate_buffers(&flat_call_infos, &signature, &kernel_names);
+        // Establish data flow: chain kernel outputs to inputs with proper buffer names
+        let (execution_waves, intermediate_specs) =
+            Self::establish_data_flow(raw_execution_waves, &signature);
 
         Ok(CompiledProgram::new(
             kernels,
@@ -411,70 +450,148 @@ where
         })
     }
 
-    // Internal: analyze and identify intermediate buffers
-    fn analyze_intermediate_buffers(
-        &self,
-        call_infos: &[KernelCallInfo],
+    /// Establish data flow between kernels in execution_waves.
+    ///
+    /// The kernel params use placeholder names ("input0", "output") that need to be
+    /// mapped to actual buffer names based on the data flow between kernels.
+    ///
+    /// This function:
+    /// 1. Chains kernel outputs to the next kernel's inputs
+    /// 2. Assigns the final kernel's output to the graph output name
+    /// 3. Creates intermediate buffer names for kernels in the middle of the chain
+    ///
+    /// For kernels with multiple inputs (like add, mul), it tries to map inputs
+    /// to the most recently produced buffers in order.
+    fn establish_data_flow(
+        raw_waves: Vec<Vec<KernelCallInfo>>,
         signature: &KernelSignature,
-        _kernel_names: &[String],
-    ) -> Vec<IntermediateBufferSpec> {
-        // Collect all external input/output names
-        let external_inputs: HashSet<_> = signature.inputs.iter().map(|i| i.name.clone()).collect();
-        let external_outputs: HashSet<_> =
-            signature.outputs.iter().map(|o| o.name.clone()).collect();
-
-        // Collect all buffers used in calls
-        let mut all_inputs: HashSet<String> = HashSet::new();
-        let mut all_outputs: HashSet<String> = HashSet::new();
-
-        for call in call_infos {
-            for input in &call.inputs {
-                all_inputs.insert(input.clone());
-            }
-            for output in &call.outputs {
-                all_outputs.insert(output.clone());
-            }
+    ) -> (Vec<Vec<KernelCallInfo>>, Vec<IntermediateBufferSpec>) {
+        if raw_waves.is_empty() {
+            return (raw_waves, vec![]);
         }
 
-        // Intermediate buffers are those that are produced (output) by one kernel
-        // and consumed (input) by another, but are not external inputs/outputs
-        let intermediate_names: HashSet<_> = all_outputs
-            .intersection(&all_inputs)
-            .filter(|name| !external_inputs.contains(*name) && !external_outputs.contains(*name))
-            .cloned()
-            .collect();
+        // Flatten waves to get kernels in execution order
+        let flat_kernels: Vec<&KernelCallInfo> = raw_waves.iter().flat_map(|w| w.iter()).collect();
+        let total_kernels = flat_kernels.len();
 
-        // Create specs for intermediate buffers
-        // For now, we try to infer shape from the signature or use a default
-        // Note: BufferSignature doesn't have dtype, so we default to F32
-        intermediate_names
-            .into_iter()
-            .map(|name| {
-                // Try to find buffer shape from signature
+        if total_kernels == 0 {
+            return (raw_waves, vec![]);
+        }
+
+        // Get external input and output names from signature
+        let external_inputs: Vec<String> =
+            signature.inputs.iter().map(|i| i.name.clone()).collect();
+        let external_output = signature
+            .outputs
+            .first()
+            .map(|o| o.name.clone())
+            .unwrap_or_else(|| "output".to_string());
+
+        // For each kernel, establish the data flow:
+        // - First kernel reads from external inputs (if any) or nothing
+        // - Each kernel writes to a buffer that later kernels may read
+        // - Last kernel writes to the external output
+        let mut intermediate_specs = Vec::new();
+        let mut output_buffer_map: HashMap<usize, String> = HashMap::new();
+
+        // Assign output buffer names
+        for (i, _) in flat_kernels.iter().enumerate() {
+            if i == total_kernels - 1 {
+                // Last kernel writes to the external output
+                output_buffer_map.insert(i, external_output.clone());
+            } else {
+                // Intermediate kernels write to temp buffers
+                let temp_name = format!("__temp_{}", i);
+                output_buffer_map.insert(i, temp_name.clone());
+
+                // Create intermediate buffer spec
+                // Use the output shape from signature as a reasonable default
                 let shape = signature
                     .outputs
-                    .iter()
-                    .find(|o| o.name == name)
+                    .first()
                     .map(|o| {
                         o.shape
                             .iter()
                             .map(|e| e.as_usize().unwrap_or(1))
                             .collect::<Vec<usize>>()
                     })
-                    .or_else(|| {
-                        signature.inputs.iter().find(|i| i.name == name).map(|i| {
-                            i.shape
-                                .iter()
-                                .map(|e| e.as_usize().unwrap_or(1))
-                                .collect::<Vec<usize>>()
-                        })
-                    })
                     .unwrap_or_else(|| vec![1]);
+                intermediate_specs.push(IntermediateBufferSpec::new(temp_name, shape, DType::F32));
+            }
+        }
 
-                // Default to F32 for intermediate buffers
-                IntermediateBufferSpec::new(name, shape, DType::F32)
-            })
-            .collect()
+        // Rebuild waves with proper buffer names
+        let mut rewritten_waves = Vec::new();
+        let mut kernel_idx = 0;
+        // Track available buffers from previous kernels' outputs
+        let mut available_buffers: Vec<String> = Vec::new();
+
+        for wave in &raw_waves {
+            let mut rewritten_wave = Vec::new();
+            for call in wave {
+                // Determine how many inputs this kernel expects
+                let num_inputs = call.inputs.len();
+
+                // Determine input buffer names for this kernel
+                let inputs = if kernel_idx == 0 {
+                    // First kernel uses external inputs (or none if there are no external inputs)
+                    external_inputs.clone()
+                } else if num_inputs == 0 {
+                    // No inputs needed
+                    vec![]
+                } else if num_inputs == 1 {
+                    // Single input: use the most recent buffer
+                    vec![available_buffers.last().cloned().unwrap_or_else(|| {
+                        output_buffer_map
+                            .get(&(kernel_idx - 1))
+                            .cloned()
+                            .unwrap_or_else(|| format!("__temp_{}", kernel_idx - 1))
+                    })]
+                } else {
+                    // Multiple inputs: use the N most recent buffers in reverse order
+                    // (most recent first for the first input, second most recent for second input, etc.)
+                    let mut multi_inputs = Vec::new();
+                    let available_len = available_buffers.len();
+                    for i in 0..num_inputs {
+                        if i < available_len {
+                            // Get from available buffers (most recent first)
+                            multi_inputs.push(available_buffers[available_len - 1 - i].clone());
+                        } else if !external_inputs.is_empty() && i < external_inputs.len() {
+                            multi_inputs.push(external_inputs[i].clone());
+                        } else {
+                            // Fallback: use temp buffer names
+                            multi_inputs
+                                .push(format!("__temp_{}", kernel_idx.saturating_sub(i + 1)));
+                        }
+                    }
+                    // Reverse to maintain correct order (first input should be earlier buffer)
+                    multi_inputs.reverse();
+                    multi_inputs
+                };
+
+                // Get output buffer name
+                let output_name = output_buffer_map
+                    .get(&kernel_idx)
+                    .cloned()
+                    .unwrap_or_else(|| external_output.clone());
+                let outputs = vec![output_name.clone()];
+
+                rewritten_wave.push(KernelCallInfo::new(
+                    call.kernel_name.clone(),
+                    inputs,
+                    outputs,
+                    call.grid_size,
+                    call.local_size,
+                ));
+
+                // Add this kernel's output to available buffers
+                available_buffers.push(output_name);
+                kernel_idx += 1;
+            }
+            rewritten_waves.push(rewritten_wave);
+        }
+
+        (rewritten_waves, intermediate_specs)
     }
 
     // Internal: optimize graph
@@ -661,6 +778,29 @@ where
     /// Extract shape variables from signature
     fn extract_shape_vars(signature: &KernelSignature) -> HashMap<String, isize> {
         signature.shape_vars.clone()
+    }
+
+    /// Compute a compatible local work size for OpenCL
+    ///
+    /// OpenCL requires:
+    /// 1. local_work_size[i] <= global_work_size[i]
+    /// 2. global_work_size[i] % local_work_size[i] == 0
+    ///
+    /// This function finds the largest value <= preferred that divides global evenly.
+    fn compute_compatible_local_size(global: usize, preferred: usize) -> usize {
+        if global == 0 {
+            return 1;
+        }
+
+        // Start from min(preferred, global) and find a divisor
+        let mut local = preferred.min(global);
+        while local > 1 {
+            if global.is_multiple_of(local) {
+                return local;
+            }
+            local -= 1;
+        }
+        1
     }
 }
 

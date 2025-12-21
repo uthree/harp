@@ -53,10 +53,10 @@ impl Device for OpenCLDevice {
     fn is_available() -> bool {
         // Check if there are any platforms with at least one device
         for platform in Platform::list() {
-            if let Ok(devices) = OclDevice::list_all(platform) {
-                if !devices.is_empty() {
-                    return true;
-                }
+            if let Ok(devices) = OclDevice::list_all(platform)
+                && !devices.is_empty()
+            {
+                return true;
             }
         }
         false
