@@ -28,7 +28,9 @@ where
     D::Smaller: Dimension,
     <D::Smaller as Dimension>::Larger: Dimension,
 {
-    fn sum(&self, axis: usize) -> Self {
+    type Output = Self;
+
+    fn sum(&self, axis: usize) -> Self::Output {
         // fold_axis で軸方向に合計 (次元が1つ減る)
         let summed = self.fold_axis(Axis(axis), A::default(), |acc, x| acc.clone() + x.clone());
         // insert_axis で次元を復元 (その軸のサイズは1になる)
@@ -51,7 +53,9 @@ where
     D::Smaller: Dimension,
     <D::Smaller as Dimension>::Larger: Dimension,
 {
-    fn prod(&self, axis: usize) -> Self {
+    type Output = Self;
+
+    fn prod(&self, axis: usize) -> Self::Output {
         let product = self.fold_axis(Axis(axis), A::one(), |acc, x| acc.clone() * x.clone());
         let result = product.insert_axis(Axis(axis));
         result
@@ -71,7 +75,9 @@ where
     D::Smaller: Dimension,
     <D::Smaller as Dimension>::Larger: Dimension,
 {
-    fn max(&self, axis: usize) -> Self {
+    type Output = Self;
+
+    fn max(&self, axis: usize) -> Self::Output {
         let max_val = self.fold_axis(Axis(axis), A::min_value(), |acc, x| {
             if x > acc { x.clone() } else { acc.clone() }
         });
@@ -117,7 +123,9 @@ where
     A: Clone,
     D: Dimension + ndarray::RemoveAxis,
 {
-    fn expand(&self, axis: usize, size: usize) -> Self {
+    type Output = Self;
+
+    fn expand(&self, axis: usize, size: usize) -> Self::Output {
         // 指定した軸がサイズ1であることを前提とし、size回繰り返す
         assert_eq!(
             self.shape()[axis],

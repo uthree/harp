@@ -13,22 +13,31 @@ use crate::variable::Variable;
 /// 総和演算を表すトレイト
 /// 指定した軸に沿って要素を合計する
 pub trait Sum {
+    /// 出力型（次元が減る場合は異なる型になる）
+    type Output;
+
     /// 指定した軸で総和を計算
-    fn sum(&self, axis: usize) -> Self;
+    fn sum(&self, axis: usize) -> Self::Output;
 }
 
 /// 総乗演算を表すトレイト
 /// 指定した軸に沿って要素を乗算する
 pub trait Prod {
+    /// 出力型（次元が減る場合は異なる型になる）
+    type Output;
+
     /// 指定した軸で総乗を計算
-    fn prod(&self, axis: usize) -> Self;
+    fn prod(&self, axis: usize) -> Self::Output;
 }
 
 /// 最大値演算を表すトレイト
 /// 指定した軸に沿って最大値を取得する
 pub trait Max {
+    /// 出力型（次元が減る場合は異なる型になる）
+    type Output;
+
     /// 指定した軸で最大値を計算
-    fn max(&self, axis: usize) -> Self;
+    fn max(&self, axis: usize) -> Self::Output;
 
     /// max の逆伝播を計算
     /// 最大値の位置にのみ勾配を伝播する
@@ -36,7 +45,12 @@ pub trait Max {
     /// - input: 順伝播時の入力値
     /// - output: 順伝播時の出力値（最大値）
     /// - axis: 縮約した軸
-    fn max_grad(grad_output: &Self, input: &Self, output: &Self, axis: usize) -> Self;
+    fn max_grad(
+        grad_output: &Self::Output,
+        input: &Self,
+        output: &Self::Output,
+        axis: usize,
+    ) -> Self;
 }
 
 // ============================================================================
@@ -46,9 +60,12 @@ pub trait Max {
 /// 軸方向の拡張演算を表すトレイト
 /// 縮約演算の逆操作として使用
 pub trait Expand {
+    /// 出力型（次元が増える場合は異なる型になる）
+    type Output;
+
     /// 指定した軸方向に拡張（ブロードキャスト）
     /// size: 拡張後のその軸のサイズ
-    fn expand(&self, axis: usize, size: usize) -> Self;
+    fn expand(&self, axis: usize, size: usize) -> Self::Output;
 }
 
 // ============================================================================
@@ -84,7 +101,7 @@ impl<T: 'static> SumBackward<T> {
 
 impl<T> GradFn<Variable<T>> for SumBackward<T>
 where
-    T: Clone + ops::Add<T, Output = T> + Expand + 'static,
+    T: Clone + ops::Add<T, Output = T> + Expand<Output = T> + 'static,
 {
     fn backward(&mut self, grad_y: Variable<T>) {
         // 総和の勾配: 出力の勾配を入力の形状に拡張
@@ -120,7 +137,7 @@ impl<T: 'static> ExpandBackward<T> {
 
 impl<T> GradFn<Variable<T>> for ExpandBackward<T>
 where
-    T: Clone + ops::Add<T, Output = T> + Sum + 'static,
+    T: Clone + ops::Add<T, Output = T> + Sum<Output = T> + 'static,
 {
     fn backward(&mut self, grad_y: Variable<T>) {
         // 拡張の勾配: 出力の勾配を縮約
@@ -182,7 +199,7 @@ where
         + ops::Add<T, Output = T>
         + ops::Mul<T, Output = T>
         + ops::Div<T, Output = T>
-        + Expand
+        + Expand<Output = T>
         + 'static,
 {
     fn backward(&mut self, grad_y: Variable<T>) {
@@ -243,7 +260,7 @@ impl<T: Clone + 'static> MaxBackward<T> {
 
 impl<T> GradFn<Variable<T>> for MaxBackward<T>
 where
-    T: Clone + ops::Add<T, Output = T> + Max + 'static,
+    T: Clone + ops::Add<T, Output = T> + Max<Output = T> + 'static,
 {
     fn backward(&mut self, grad_y: Variable<T>) {
         // 最大値の勾配: 最大値の位置にのみ勾配を伝播
@@ -266,7 +283,7 @@ where
 // T: Sum の場合の実装
 impl<T> Variable<T>
 where
-    T: Clone + ops::Add<T, Output = T> + Sum + Expand + Shape + 'static,
+    T: Clone + ops::Add<T, Output = T> + Sum<Output = T> + Expand<Output = T> + Shape + 'static,
 {
     /// 指定した軸で総和を計算
     pub fn sum(&self, axis: usize) -> Variable<T> {
@@ -288,8 +305,8 @@ where
         + ops::Add<T, Output = T>
         + ops::Mul<T, Output = T>
         + ops::Div<T, Output = T>
-        + Prod
-        + Expand
+        + Prod<Output = T>
+        + Expand<Output = T>
         + Shape
         + 'static,
 {
@@ -312,7 +329,7 @@ where
 // T: Max の場合の実装
 impl<T> Variable<T>
 where
-    T: Clone + ops::Add<T, Output = T> + Max + Shape + 'static,
+    T: Clone + ops::Add<T, Output = T> + Max<Output = T> + Shape + 'static,
 {
     /// 指定した軸で最大値を計算
     pub fn max(&self, axis: usize) -> Variable<T> {
@@ -332,7 +349,7 @@ where
 // T: Expand の場合の実装
 impl<T> Variable<T>
 where
-    T: Clone + ops::Add<T, Output = T> + Sum + Expand + 'static,
+    T: Clone + ops::Add<T, Output = T> + Sum<Output = T> + Expand<Output = T> + 'static,
 {
     /// 指定した軸方向に拡張
     pub fn expand(&self, axis: usize, size: usize) -> Variable<T> {
