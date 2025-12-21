@@ -1,8 +1,21 @@
-//! ndarray に対する Reduce/Expand/Linalg トレイトの実装
+//! ndarray に対する Reduce/Expand/Linalg/Shape トレイトの実装
 
 use ndarray::{Array2, Axis, Dimension, concatenate};
 
-use crate::primops::{Expand, Matmul, Max, Prod, Sum, Transpose};
+use crate::primops::{Expand, Matmul, Max, Prod, Shape, Sum, Transpose};
+
+// ============================================================================
+// Shape の実装
+// ============================================================================
+
+impl<A, D> Shape for ndarray::Array<A, D>
+where
+    D: Dimension,
+{
+    fn shape(&self) -> &[usize] {
+        self.shape()
+    }
+}
 
 // ============================================================================
 // Sum の実装
@@ -15,17 +28,15 @@ where
     D::Smaller: Dimension,
     <D::Smaller as Dimension>::Larger: Dimension,
 {
-    fn sum(&self, axis: usize) -> (Self, usize) {
-        let size = self.shape()[axis];
+    fn sum(&self, axis: usize) -> Self {
         // fold_axis で軸方向に合計 (次元が1つ減る)
         let summed = self.fold_axis(Axis(axis), A::default(), |acc, x| acc.clone() + x.clone());
         // insert_axis で次元を復元 (その軸のサイズは1になる)
         let result = summed.insert_axis(Axis(axis));
         // 型変換が必要な場合があるため、into_dimensionality で変換
-        let result: ndarray::Array<A, D> = result
+        result
             .into_dimensionality()
-            .expect("Dimension mismatch after sum");
-        (result, size)
+            .expect("Dimension mismatch after sum")
     }
 }
 
@@ -40,14 +51,12 @@ where
     D::Smaller: Dimension,
     <D::Smaller as Dimension>::Larger: Dimension,
 {
-    fn prod(&self, axis: usize) -> (Self, usize) {
-        let size = self.shape()[axis];
+    fn prod(&self, axis: usize) -> Self {
         let product = self.fold_axis(Axis(axis), A::one(), |acc, x| acc.clone() * x.clone());
         let result = product.insert_axis(Axis(axis));
-        let result: ndarray::Array<A, D> = result
+        result
             .into_dimensionality()
-            .expect("Dimension mismatch after prod");
-        (result, size)
+            .expect("Dimension mismatch after prod")
     }
 }
 
@@ -62,21 +71,20 @@ where
     D::Smaller: Dimension,
     <D::Smaller as Dimension>::Larger: Dimension,
 {
-    fn max(&self, axis: usize) -> (Self, usize) {
-        let size = self.shape()[axis];
+    fn max(&self, axis: usize) -> Self {
         let max_val = self.fold_axis(Axis(axis), A::min_value(), |acc, x| {
             if x > acc { x.clone() } else { acc.clone() }
         });
         let result = max_val.insert_axis(Axis(axis));
-        let result: ndarray::Array<A, D> = result
+        result
             .into_dimensionality()
-            .expect("Dimension mismatch after max");
-        (result, size)
+            .expect("Dimension mismatch after max")
     }
 
-    fn max_grad(grad_output: &Self, input: &Self, output: &Self, axis: usize, size: usize) -> Self {
+    fn max_grad(grad_output: &Self, input: &Self, output: &Self, axis: usize) -> Self {
         // 最大値の位置にのみ勾配を伝播するマスクを作成
         // output を expand して input と比較
+        let size = input.shape()[axis];
         let expanded_output = output.expand(axis, size);
         let expanded_grad = grad_output.expand(axis, size);
 

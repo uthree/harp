@@ -311,7 +311,8 @@ fn test_sum_trait_array2_axis0() {
     // 2x3 の配列を axis=0 で sum
     // [[1, 2, 3], [4, 5, 6]] -> [[5, 7, 9]]
     let arr = array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
-    let (result, size) = Sum::sum(&arr, 0);
+    let size = arr.shape()[0];
+    let result = Sum::sum(&arr, 0);
 
     assert_eq!(size, 2);
     assert_eq!(result.shape(), &[1, 3]);
@@ -323,7 +324,8 @@ fn test_sum_trait_array2_axis1() {
     // 2x3 の配列を axis=1 で sum
     // [[1, 2, 3], [4, 5, 6]] -> [[6], [15]]
     let arr = array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
-    let (result, size) = Sum::sum(&arr, 1);
+    let size = arr.shape()[1];
+    let result = Sum::sum(&arr, 1);
 
     assert_eq!(size, 3);
     assert_eq!(result.shape(), &[2, 1]);
@@ -335,7 +337,8 @@ fn test_prod_trait_array2_axis0() {
     // 2x3 の配列を axis=0 で prod
     // [[1, 2, 3], [4, 5, 6]] -> [[4, 10, 18]]
     let arr = array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
-    let (result, size) = Prod::prod(&arr, 0);
+    let size = arr.shape()[0];
+    let result = Prod::prod(&arr, 0);
 
     assert_eq!(size, 2);
     assert_eq!(result.shape(), &[1, 3]);
@@ -347,7 +350,8 @@ fn test_max_trait_array2_axis0() {
     // 2x3 の配列を axis=0 で max
     // [[1, 5, 3], [4, 2, 6]] -> [[4, 5, 6]]
     let arr = array![[1.0, 5.0, 3.0], [4.0, 2.0, 6.0]];
-    let (result, size) = Max::max(&arr, 0);
+    let size = arr.shape()[0];
+    let result = Max::max(&arr, 0);
 
     assert_eq!(size, 2);
     assert_eq!(result.shape(), &[1, 3]);
@@ -369,8 +373,9 @@ fn test_expand_trait_array2() {
 fn test_sum_expand_roundtrip() {
     // sum して expand すると値は保持されるが、形状は元に戻る
     let arr = array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
-    let (summed, size) = Sum::sum(&arr, 0);
-    let expanded = Expand::expand(&summed, 0, size);
+    let size = arr.shape()[0];
+    let summed = Sum::sum(&arr, 0);
+    let expanded: ndarray::Array2<f64> = Expand::expand(&summed, 0, size);
 
     assert_eq!(expanded.shape(), arr.shape());
     // 合計値が各行にコピーされる

@@ -2,6 +2,7 @@
 
 use std::ops;
 
+use super::shape::Shape;
 use crate::traits::GradFn;
 use crate::variable::Variable;
 
@@ -13,24 +14,21 @@ use crate::variable::Variable;
 /// 指定した軸に沿って要素を合計する
 pub trait Sum: Sized {
     /// 指定した軸で総和を計算
-    /// 戻り値: (結果, 縮約前の軸のサイズ)
-    fn sum(&self, axis: usize) -> (Self, usize);
+    fn sum(&self, axis: usize) -> Self;
 }
 
 /// 総乗演算を表すトレイト
 /// 指定した軸に沿って要素を乗算する
 pub trait Prod: Sized {
     /// 指定した軸で総乗を計算
-    /// 戻り値: (結果, 縮約前の軸のサイズ)
-    fn prod(&self, axis: usize) -> (Self, usize);
+    fn prod(&self, axis: usize) -> Self;
 }
 
 /// 最大値演算を表すトレイト
 /// 指定した軸に沿って最大値を取得する
 pub trait Max: Sized {
     /// 指定した軸で最大値を計算
-    /// 戻り値: (結果, 縮約前の軸のサイズ)
-    fn max(&self, axis: usize) -> (Self, usize);
+    fn max(&self, axis: usize) -> Self;
 
     /// max の逆伝播を計算
     /// 最大値の位置にのみ勾配を伝播する
@@ -38,8 +36,7 @@ pub trait Max: Sized {
     /// - input: 順伝播時の入力値
     /// - output: 順伝播時の出力値（最大値）
     /// - axis: 縮約した軸
-    /// - size: 縮約前の軸のサイズ
-    fn max_grad(grad_output: &Self, input: &Self, output: &Self, axis: usize, size: usize) -> Self;
+    fn max_grad(grad_output: &Self, input: &Self, output: &Self, axis: usize) -> Self;
 }
 
 // ============================================================================
@@ -128,7 +125,7 @@ where
     fn backward(&mut self, grad_y: Variable<T>) {
         // 拡張の勾配: 出力の勾配を縮約
         let requires_grad = grad_y.requires_grad();
-        let (reduced, _) = grad_y.value().sum(self.axis);
+        let reduced = grad_y.value().sum(self.axis);
         self.input
             .backward_with(Variable::new_with_requires_grad(reduced, requires_grad));
     }
@@ -214,19 +211,17 @@ pub struct MaxBackward<T: 'static> {
     input_value: T,
     output_value: T,
     axis: usize,
-    size: usize,
 }
 
 impl<T: Clone + 'static> MaxBackward<T> {
     /// 指定した軸で最大値を取る勾配関数を作成
-    pub fn new(input: Variable<T>, output_value: T, axis: usize, size: usize) -> Self {
+    pub fn new(input: Variable<T>, output_value: T, axis: usize) -> Self {
         let input_value = input.value();
         Self {
             input,
             input_value,
             output_value,
             axis,
-            size,
         }
     }
 
@@ -258,7 +253,6 @@ where
             &self.input_value,
             &self.output_value,
             self.axis,
-            self.size,
         );
         self.input
             .backward_with(Variable::new_with_requires_grad(grad_val, requires_grad));
@@ -272,11 +266,13 @@ where
 // T: Sum の場合の実装
 impl<T> Variable<T>
 where
-    T: Clone + ops::Add<T, Output = T> + Sum + Expand + 'static,
+    T: Clone + ops::Add<T, Output = T> + Sum + Expand + Shape + 'static,
 {
     /// 指定した軸で総和を計算
     pub fn sum(&self, axis: usize) -> Variable<T> {
-        let (output, size) = self.value().sum(axis);
+        let input_val = self.value();
+        let size = input_val.shape()[axis];
+        let output = input_val.sum(axis);
         if self.requires_grad() {
             Variable::with_grad_fn(output, Box::new(SumBackward::new(self.clone(), axis, size)))
         } else {
@@ -294,11 +290,14 @@ where
         + ops::Div<T, Output = T>
         + Prod
         + Expand
+        + Shape
         + 'static,
 {
     /// 指定した軸で総乗を計算
     pub fn prod(&self, axis: usize) -> Variable<T> {
-        let (output, size) = self.value().prod(axis);
+        let input_val = self.value();
+        let size = input_val.shape()[axis];
+        let output = input_val.prod(axis);
         if self.requires_grad() {
             Variable::with_grad_fn(
                 output.clone(),
@@ -313,15 +312,16 @@ where
 // T: Max の場合の実装
 impl<T> Variable<T>
 where
-    T: Clone + ops::Add<T, Output = T> + Max + 'static,
+    T: Clone + ops::Add<T, Output = T> + Max + Shape + 'static,
 {
     /// 指定した軸で最大値を計算
     pub fn max(&self, axis: usize) -> Variable<T> {
-        let (output, size) = self.value().max(axis);
+        let input_val = self.value();
+        let output = input_val.max(axis);
         if self.requires_grad() {
             Variable::with_grad_fn(
                 output.clone(),
-                Box::new(MaxBackward::new(self.clone(), output, axis, size)),
+                Box::new(MaxBackward::new(self.clone(), output, axis)),
             )
         } else {
             Variable::new_no_grad(output)
