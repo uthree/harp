@@ -20,6 +20,13 @@ pub trait Ndim {
     fn ndim(&self) -> usize;
 }
 
+/// Shape を実装している型に対して自動的に Ndim を実装
+impl<T: Shape> Ndim for T {
+    fn ndim(&self) -> usize {
+        self.shape().len()
+    }
+}
+
 // ============================================================================
 // スカラー型への実装
 // ============================================================================
@@ -33,17 +40,5 @@ impl Shape for f32 {
 impl Shape for f64 {
     fn shape(&self) -> &[usize] {
         &[] // 0次元（スカラー）
-    }
-}
-
-impl Ndim for f32 {
-    fn ndim(&self) -> usize {
-        0 // スカラーは0次元
-    }
-}
-
-impl Ndim for f64 {
-    fn ndim(&self) -> usize {
-        0 // スカラーは0次元
     }
 }
