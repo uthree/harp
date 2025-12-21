@@ -169,6 +169,7 @@ impl CLikeRenderer for OpenCLRenderer {
             DType::Bool => "uchar".to_string(), // OpenCLではucharを使用
             DType::F32 => "float".to_string(),
             DType::Int => "int".to_string(),
+            DType::I32 => "int".to_string(), // 32-bit signed integer
             DType::Ptr(inner) => {
                 let base = self.render_dtype_backend(inner);
                 format!("__global {}*", base)

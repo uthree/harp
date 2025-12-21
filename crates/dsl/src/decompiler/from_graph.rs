@@ -268,6 +268,7 @@ impl<'a> Decompiler<'a> {
                 let code = match lit {
                     harp::ast::Literal::F32(v) => format!("{}", v),
                     harp::ast::Literal::Int(v) => format!("{}", v),
+                    harp::ast::Literal::I32(v) => format!("{}", v),
                     harp::ast::Literal::Bool(v) => format!("{}", v),
                 };
                 (name, Some(code))
@@ -627,6 +628,7 @@ fn ast_expr_to_dsl(expr: &harp::ast::AstNode, inputs: &[String]) -> String {
         AstNode::Const(lit) => match lit {
             Literal::F32(v) => format!("{}", v),
             Literal::Int(v) => format!("{}", v),
+            Literal::I32(v) => format!("{}", v),
             Literal::Bool(v) => format!("{}", v),
         },
         AstNode::Add(a, b) => {

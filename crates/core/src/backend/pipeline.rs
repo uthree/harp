@@ -825,6 +825,7 @@ fn evaluate_ast_expr(ast: &AstNode, shape_vars: &HashMap<String, isize>) -> isiz
     match ast {
         AstNode::Const(lit) => match lit {
             Literal::Int(n) => *n,
+            Literal::I32(n) => *n as isize,
             Literal::F32(f) => *f as isize,
             Literal::Bool(b) => {
                 if *b {
@@ -917,6 +918,7 @@ impl DispatchSizeExpr {
         match ast {
             AstNode::Const(lit) => match lit {
                 Literal::Int(n) => Self::Const(*n),
+                Literal::I32(n) => Self::Const(*n as isize),
                 Literal::F32(f) => Self::Const(*f as isize),
                 Literal::Bool(b) => Self::Const(if *b { 1 } else { 0 }),
             },

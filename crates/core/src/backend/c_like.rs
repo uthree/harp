@@ -120,6 +120,7 @@ pub trait CLikeRenderer: Renderer {
                 }
             }
             Literal::Int(v) => format!("{}", v),
+            Literal::I32(v) => format!("{}", v),
         }
     }
 
@@ -794,6 +795,7 @@ impl CLikeRenderer for GenericRenderer {
             DType::F32 => "float".to_string(),
             DType::Bool => "unsigned char".to_string(),
             DType::Int => "int".to_string(),
+            DType::I32 => "int".to_string(), // 32-bit signed integer
             DType::Ptr(inner) => format!("{}*", self.render_dtype_backend(inner)),
             DType::Vec(inner, size) => format!("{}[{}]", self.render_dtype_backend(inner), size),
             DType::Tuple(_) => "/* tuple */".to_string(),

@@ -72,7 +72,7 @@ impl ArrayElement for i32 {
         GraphDType::I32
     }
     fn buffer_dtype() -> DType {
-        DType::Int
+        DType::I32
     }
 }
 
@@ -557,12 +557,12 @@ impl<D: Dimension> Array<i32, D> {
 
         let shape_vec = shape.into_shape();
         if shape_vec.is_empty() {
-            let node = GraphNode::constant(value as isize);
+            let node = GraphNode::constant(value);
             return Self::from_node(node, shape_vec, device);
         }
 
         // constant(value) でスカラーを作成
-        let mut node = GraphNode::constant(value as isize);
+        let mut node = GraphNode::constant(value);
 
         // 目標の次元数分 unsqueeze して [1, 1, ..., 1] の形状にする
         for _ in 0..shape_vec.len() {
@@ -587,7 +587,7 @@ impl<D: Dimension> Array<i32, D> {
 
     /// 指定デバイスで連番配列を生成
     pub fn arange_on(size: usize, device: Device) -> Self {
-        let node = GraphNode::constant(0isize);
+        let node = GraphNode::constant(0i32);
         Self::from_node(node, vec![size], device)
     }
 
@@ -1127,11 +1127,7 @@ mod opencl_tests {
         }
     }
 
-    // 注意: i32配列は現在、バッファのDType::Int（isize=8バイト）と
-    // Rust側のi32（4バイト）の型の不一致により正しく動作しません。
-    // バッファが64ビットの整数として扱われるため、読み出し時に要素数が2倍になります。
     #[test]
-    #[ignore = "Known issue: DType::Int uses isize (8 bytes) but i32 is 4 bytes"]
     fn test_eval_i32_basic() {
         // 整数型の基本テスト
         let a: Array1<i32> = <Array<i32, Dim1>>::full([16], 42);

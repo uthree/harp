@@ -612,11 +612,8 @@ impl AstCostEstimator for SimpleCostEstimator {
                 // - 両方使用: すべてのスレッドが有効、両方のオーバーヘッドが発生
                 let (effective_threads, parallelization_overhead) =
                     if has_local_id && has_global_parallel {
-                        // 両方使用: 階層的並列化のオーバーヘッドは加算
-                        (
-                            grid_elements * thread_elements,
-                            self.local_parallel_overhead + self.global_parallel_overhead,
-                        )
+                        // 両方使用: とりあえずグローバルと同じ挙動（暫定処置）
+                        (grid_elements, self.global_parallel_overhead)
                     } else if has_local_id {
                         // LocalIdのみ: thread_group_sizeのスレッドが有効
                         (thread_elements, self.local_parallel_overhead)
@@ -630,10 +627,9 @@ impl AstCostEstimator for SimpleCostEstimator {
                     };
 
                 // シンプルなコスト計算:
-                // コスト = body_cost - 並列化ボーナス + オーバーヘッド + カーネル起動コスト
-                body_cost - effective_threads.ln()
-                    + parallelization_overhead.ln()
-                    + self.kernel_launch_overhead.ln()
+                // コスト = body_cost - 並列化ボーナス + オーバーヘッド
+                body_cost - effective_threads.ln() + parallelization_overhead.ln()
+                //+ self.kernel_launch_overhead.ln()
             }
             AstNode::Program { functions, .. } => {
                 // 空のプログラムの場合は最小コストを返す

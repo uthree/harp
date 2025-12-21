@@ -532,7 +532,7 @@ impl KernelMergeSuggester {
     fn graph_dtype_to_ast(dtype: &GraphDType) -> AstDType {
         match dtype {
             GraphDType::Bool => AstDType::Bool,
-            GraphDType::I32 => AstDType::Int,
+            GraphDType::I32 => AstDType::I32, // 32-bit signed integer
             GraphDType::F32 => AstDType::F32,
             GraphDType::Unknown => AstDType::F32,
         }

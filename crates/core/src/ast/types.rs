@@ -4,7 +4,8 @@
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DType {
     Bool,            // boolean (internally represented as u8 or i8: 0 = false, non-zero = true)
-    Int,             // integer (for array indexing and general computation)
+    Int,             // integer (isize, for array indexing and loop counters)
+    I32,             // 32-bit signed integer (for data arrays)
     F32,             // float
     Ptr(Box<DType>), // pointer for memory buffer, 値を渡す時は参照を渡す。
     Vec(Box<DType>, usize), // fixed size vector for SIMD, 値は渡す時にコピーされる
@@ -18,6 +19,7 @@ pub enum DType {
 pub enum Literal {
     Bool(bool),
     Int(isize),
+    I32(i32),
     F32(f32),
 }
 
@@ -40,6 +42,12 @@ impl From<isize> for Literal {
     }
 }
 
+impl From<i32> for Literal {
+    fn from(value: i32) -> Self {
+        Literal::I32(value)
+    }
+}
+
 impl From<usize> for Literal {
     fn from(value: usize) -> Self {
         Literal::Int(value as isize)
@@ -53,6 +61,7 @@ impl Literal {
             Literal::Bool(_) => DType::Bool,
             Literal::F32(_) => DType::F32,
             Literal::Int(_) => DType::Int,
+            Literal::I32(_) => DType::I32,
         }
     }
 
@@ -69,22 +78,24 @@ impl Literal {
 
     /// 整数リテラルを isize として取得
     ///
-    /// Int を isize に変換して返します。
+    /// Int または I32 を isize に変換して返します。
     /// Bool, F32 の場合は None を返します。
     pub fn as_isize(&self) -> Option<isize> {
         match self {
             Literal::Int(v) => Some(*v),
+            Literal::I32(v) => Some(*v as isize),
             Literal::Bool(_) | Literal::F32(_) => None,
         }
     }
 
     /// 整数リテラルを usize として取得
     ///
-    /// Int を usize に変換して返します。
-    /// Bool, F32 または負の Int の場合は None を返します。
+    /// Int または I32 を usize に変換して返します。
+    /// Bool, F32 または負の値の場合は None を返します。
     pub fn as_usize(&self) -> Option<usize> {
         match self {
             Literal::Int(v) => (*v).try_into().ok(),
+            Literal::I32(v) => (*v).try_into().ok(),
             Literal::Bool(_) | Literal::F32(_) => None,
         }
     }
@@ -96,6 +107,7 @@ impl DType {
         match self {
             DType::Bool => 1, // u8として表現
             DType::Int => std::mem::size_of::<isize>(),
+            DType::I32 => std::mem::size_of::<i32>(), // 4 bytes
             DType::F32 => std::mem::size_of::<f32>(),
             DType::Ptr(_) => std::mem::size_of::<usize>(), // ポインタはusizeと同じサイズ
             DType::Vec(elem_type, size) => elem_type.size_in_bytes() * size,

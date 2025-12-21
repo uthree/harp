@@ -203,6 +203,7 @@ impl VectorizationSuggester {
                 let scalar_type = match lit {
                     Literal::F32(_) => DType::F32,
                     Literal::Int(_) => DType::Int,
+                    Literal::I32(_) => DType::I32,
                     Literal::Bool(_) => DType::Bool,
                 };
                 let vec_type = scalar_type.to_vec(width);

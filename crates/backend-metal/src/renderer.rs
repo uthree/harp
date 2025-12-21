@@ -14,6 +14,7 @@ fn render_dtype_metal(dtype: &DType) -> String {
         DType::Bool => "uchar".to_string(),
         DType::F32 => "float".to_string(),
         DType::Int => "int".to_string(),
+        DType::I32 => "int".to_string(),
         DType::Ptr(inner) => format!("device {}*", render_dtype_metal(inner)),
         DType::Vec(inner, size) => {
             let base = render_dtype_metal(inner);

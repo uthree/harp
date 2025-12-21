@@ -252,12 +252,14 @@ impl IntermediateBufferSpec {
         let element_size = match &self.dtype {
             DType::Bool => 1,
             DType::Int => std::mem::size_of::<isize>(),
+            DType::I32 => 4, // 32-bit signed integer
             DType::F32 => 4,
             DType::Ptr(_) => std::mem::size_of::<*const ()>(),
             DType::Vec(inner, size) => {
                 let inner_size = match inner.as_ref() {
                     DType::F32 => 4,
                     DType::Int => std::mem::size_of::<isize>(),
+                    DType::I32 => 4,
                     _ => 4,
                 };
                 inner_size * size

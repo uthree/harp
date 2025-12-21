@@ -331,7 +331,8 @@ impl GraphNode {
         let dtype = match &literal {
             crate::ast::Literal::Bool(_) => DType::Bool,
             crate::ast::Literal::F32(_) => DType::F32,
-            crate::ast::Literal::Int(_) => DType::Unknown, // Intは将来的に追加
+            crate::ast::Literal::Int(_) => DType::I32, // isize リテラルは I32 として扱う
+            crate::ast::Literal::I32(_) => DType::I32,
         };
         // 定数はスカラー（shape=[]）
         let view = View::contiguous(Vec::<isize>::new());

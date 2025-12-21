@@ -22,9 +22,10 @@ pub fn build_contiguous_function(node: &GraphNode, name: &str) -> Option<AstNode
     let shape = node.view.shape();
     let ndim = shape.len();
 
-    // 入力がConstノードの場合は定数値を直接展開
-    if let GraphOp::Const(literal) = &input.op {
-        return build_contiguous_from_const(literal, shape, name);
+    // 入力がConstノードの場合、またはViewチェーンを辿ってConstが見つかる場合は定数値を直接展開
+    if let Some(literal) = find_const_in_view_chain(input) {
+        let output_dtype = graph_dtype_to_ast(&node.dtype);
+        return build_contiguous_from_const(&literal, shape, name, output_dtype);
     }
 
     let load_dtype = graph_dtype_to_ast(&input.dtype);
@@ -54,12 +55,33 @@ pub fn build_contiguous_function(node: &GraphNode, name: &str) -> Option<AstNode
     ))
 }
 
+/// Viewチェーンを辿ってConstノードを探す
+///
+/// View操作（unsqueeze, broadcast_to等）を通じてConstノードに行き着く場合、
+/// そのリテラル値を返します。それ以外の場合はNoneを返します。
+fn find_const_in_view_chain(node: &GraphNode) -> Option<Literal> {
+    match &node.op {
+        GraphOp::Const(literal) => Some(literal.clone()),
+        GraphOp::View(_) => {
+            // View操作は入力ノードを1つ持つ
+            node.src.first().and_then(find_const_in_view_chain)
+        }
+        _ => None,
+    }
+}
+
 /// Constノードからのcontiguous関数を生成
 ///
 /// 定数値を全要素に展開します。
 /// shape を具体的に埋め込むため、プレースホルダー変数（shape0, shape1等）は使用しません。
-fn build_contiguous_from_const(literal: &Literal, shape: &[Expr], name: &str) -> Option<AstNode> {
+fn build_contiguous_from_const(
+    literal: &Literal,
+    shape: &[Expr],
+    name: &str,
+    output_dtype: AstDType,
+) -> Option<AstNode> {
     use super::helpers::{build_contiguous_offset_with_shape, wrap_with_loops_with_shape};
+    use crate::ast::{Mutability, VarDecl, VarKind};
 
     let ndim = shape.len();
 
@@ -74,9 +96,17 @@ fn build_contiguous_from_const(literal: &Literal, shape: &[Expr], name: &str) ->
     // 具体的な shape を使用してループを生成
     let body = wrap_with_loops_with_shape(ndim, vec![store_stmt], Some(shape));
 
+    // 出力バッファパラメータを正しい型で追加
+    let output_param = VarDecl {
+        name: ph::OUTPUT.to_string(),
+        dtype: AstDType::Ptr(Box::new(output_dtype)),
+        mutability: Mutability::Mutable,
+        kind: VarKind::Normal,
+    };
+
     Some(function(
         Some(name.to_string()),
-        vec![],
+        vec![output_param],
         AstDType::Tuple(vec![]),
         body,
     ))

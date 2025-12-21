@@ -505,12 +505,13 @@ mod tests {
 
     #[test]
     fn test_mul_add_to_fma() {
+        use crate::ast::Literal;
         use crate::ast::helper::fma;
         let rule = mul_add_to_fma();
-        // a * b + c => fma(a, b, c)
-        let a = var("a");
-        let b = var("b");
-        let c = var("c");
+        // a * b + c => fma(a, b, c) （F32型のみ適用）
+        let a = AstNode::Const(Literal::F32(1.0));
+        let b = AstNode::Const(Literal::F32(2.0));
+        let c = AstNode::Const(Literal::F32(3.0));
         let input = a.clone() * b.clone() + c.clone();
         let result = rule.apply(&input);
         assert_eq!(result, fma(a, b, c));
@@ -518,12 +519,13 @@ mod tests {
 
     #[test]
     fn test_add_mul_to_fma() {
+        use crate::ast::Literal;
         use crate::ast::helper::fma;
         let rule = add_mul_to_fma();
-        // c + a * b => fma(a, b, c)
-        let a = var("a");
-        let b = var("b");
-        let c = var("c");
+        // c + a * b => fma(a, b, c) （F32型のみ適用）
+        let a = AstNode::Const(Literal::F32(1.0));
+        let b = AstNode::Const(Literal::F32(2.0));
+        let c = AstNode::Const(Literal::F32(3.0));
         let input = c.clone() + a.clone() * b.clone();
         let result = rule.apply(&input);
         assert_eq!(result, fma(a, b, c));
