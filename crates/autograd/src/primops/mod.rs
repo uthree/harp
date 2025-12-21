@@ -13,7 +13,7 @@
 pub mod elementwise;
 pub mod structural;
 
-// 要素単位演算の再エクスポート
+// 要素単位演算の再エクスポート（公開API）
 pub use elementwise::{
     // 四則演算
     AddBackward,
@@ -24,28 +24,22 @@ pub use elementwise::{
     Exp2,
     Exp2Backward,
     Floor,
-    Ln2,
     Log2,
     Log2Backward,
-    Log2E,
     Maximum,
     MaximumBackward,
     MulBackward,
-    MulLn2,
-    MulLn2Backward,
-    MulLog2E,
-    MulLog2EBackward,
     NegBackward,
-    PhaseShiftQuarter,
-    PhaseShiftQuarterBackward,
     RecipBackward,
     RemBackward,
     Sin,
     SinBackward,
     Sqrt,
     SqrtBackward,
-    Two,
 };
+
+// 要素単位演算の再エクスポート（内部実装詳細、hlops で使用）
+pub(crate) use elementwise::{Ln2, Log2E, MulLn2, MulLog2E, PhaseShiftQuarter};
 
 // 構造変更演算の再エクスポート
 pub use structural::{

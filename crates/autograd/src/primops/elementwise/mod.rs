@@ -18,9 +18,10 @@ pub use arithmetic::{
 // 型変換
 pub use cast::CastBackward;
 
-// 超越関数
+// 超越関数（公開API）
 pub use transcendental::{
-    Cos, Exp2, Exp2Backward, Ln2, Log2, Log2Backward, Log2E, MulLn2, MulLn2Backward, MulLog2E,
-    MulLog2EBackward, PhaseShiftQuarter, PhaseShiftQuarterBackward, Sin, SinBackward, Sqrt,
-    SqrtBackward, Two,
+    Cos, Exp2, Exp2Backward, Log2, Log2Backward, Sin, SinBackward, Sqrt, SqrtBackward,
 };
+
+// 超越関数（内部実装詳細、hlops で使用）
+pub(crate) use transcendental::{Ln2, Log2E, MulLn2, MulLog2E, PhaseShiftQuarter};

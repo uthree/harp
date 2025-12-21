@@ -2,6 +2,16 @@
 //!
 //! このクレートは計算グラフベースの自動微分を提供します。
 //!
+//! ## 使用方法
+//!
+//! ```rust
+//! use autograd::prelude::*;
+//!
+//! let x = Variable::new(1.0_f32);
+//! let y = x.sin();
+//! y.backward();
+//! ```
+//!
 //! ## アーキテクチャ
 //!
 //! - **primops**: プリミティブ演算（直接実装、独自の逆伝播を持つ）
@@ -10,76 +20,57 @@
 pub mod hlops;
 #[cfg(feature = "ndarray")]
 mod ndarray_impl;
+pub mod prelude;
 pub mod primops;
-mod traits;
+pub mod traits;
 pub mod variable;
 
-// primops からのエクスポート
+// ============================================================================
+// 主要な型・トレイト（トップレベルからもアクセス可能）
+// ============================================================================
+
+// Core
+pub use traits::{GradFn, GradNode, GradRoot};
+pub use variable::Variable;
+
+// 演算トレイト
 pub use primops::{
-    // 四則演算
-    AddBackward,
-    // 型変換
-    CastBackward,
-    // 超越関数
+    // 要素単位
     Cos,
     Exp2,
-    Exp2Backward,
-    // 縮約・拡張演算
+    // 構造変更
     Expand,
-    ExpandBackward,
     Floor,
-    Ln2,
     Log2,
-    Log2Backward,
-    Log2E,
-    // 線形代数
     Matmul,
-    MatmulBackward,
     Max,
-    MaxBackward,
     Maximum,
-    MaximumBackward,
-    MulBackward,
-    MulLn2,
-    MulLn2Backward,
-    MulLog2E,
-    MulLog2EBackward,
-    // 形状情報
     Ndim,
-    NegBackward,
-    // 軸順序変更
     Permute,
-    PermuteBackward,
-    PhaseShiftQuarter,
-    PhaseShiftQuarterBackward,
     Prod,
-    ProdBackward,
-    RecipBackward,
-    RemBackward,
-    // 形状変更
     Reshape,
-    ReshapeBackward,
     Shape,
     Sin,
-    SinBackward,
     Sqrt,
-    SqrtBackward,
-    // 次元操作
     Squeeze,
-    SqueezeBackward,
     Sum,
-    SumBackward,
-    Two,
     Unsqueeze,
-    UnsqueezeBackward,
-    inverse_permutation,
 };
 
-// hlops からのエクスポート
+// 定数
 pub use hlops::One;
 
-// traits からのエクスポート
-pub use traits::{GradFn, GradNode, GradRoot};
+// ユーティリティ
+pub use primops::inverse_permutation;
 
-// variable からのエクスポート
-pub use variable::Variable;
+// ============================================================================
+// Backward 構造体（内部実装詳細、ドキュメントから隠す）
+// ============================================================================
+
+#[doc(hidden)]
+pub use primops::{
+    AddBackward, CastBackward, Exp2Backward, ExpandBackward, Log2Backward, MatmulBackward,
+    MaxBackward, MaximumBackward, MulBackward, NegBackward, PermuteBackward, ProdBackward,
+    RecipBackward, RemBackward, ReshapeBackward, SinBackward, SqrtBackward, SqueezeBackward,
+    SumBackward, UnsqueezeBackward,
+};
