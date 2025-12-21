@@ -287,6 +287,12 @@ impl CLikeRenderer for MetalKernelRenderer {
         render_math_func_metal(name, args)
     }
 
+    fn render_fma(&self, a: &str, b: &str, c: &str) -> String {
+        // Metalのfmaはhalfとfloatのみ対応
+        // 整数インデックス計算にも使われるため、単純な展開形式を使用
+        format!("(({}) * ({}) + ({}))", a, b, c)
+    }
+
     fn render_vector_load(&self, ptr_expr: &str, offset_expr: &str, _dtype: &str) -> String {
         format!("{}[{}]", ptr_expr, offset_expr)
     }
@@ -371,6 +377,12 @@ impl CLikeRenderer for MetalRenderer {
 
     fn render_math_func(&self, name: &str, args: &[String]) -> String {
         render_math_func_metal(name, args)
+    }
+
+    fn render_fma(&self, a: &str, b: &str, c: &str) -> String {
+        // Metalのfmaはhalfとfloatのみ対応
+        // 整数インデックス計算にも使われるため、単純な展開形式を使用
+        format!("(({}) * ({}) + ({}))", a, b, c)
     }
 
     fn render_vector_load(&self, ptr_expr: &str, offset_expr: &str, _dtype: &str) -> String {
