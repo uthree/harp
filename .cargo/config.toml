@@ -1,5 +1,0 @@
-[alias]
-# ワークスペース全体のテストを実行
-t = "test --workspace"
-# ワークスペース全体のclippyを実行
-c = "clippy --workspace"

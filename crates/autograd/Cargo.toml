@@ -17,3 +17,7 @@ num-traits = "0.2"
 indicatif = "0.17"
 textplots = "0.8"
 rand = "0.8"
+
+[[example]]
+name = "mlp_fitting"
+required-features = ["ndarray"]

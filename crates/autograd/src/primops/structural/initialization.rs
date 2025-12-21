@@ -111,13 +111,17 @@ impl<T: Zeros + 'static> Variable<T> {
     ///
     /// ```
     /// use autograd::Variable;
+    ///
+    /// // スカラーの場合（空配列で形状を指定）
+    /// let zeros: Variable<f64> = Variable::zeros_shape([]);
+    /// assert_eq!(zeros.value(), 0.0);
+    /// ```
+    ///
+    /// ndarray featureを有効にした場合は多次元配列も使用可能：
+    /// ```ignore
+    /// use autograd::Variable;
     /// use ndarray::Array2;
-    ///
-    /// // 配列で指定
     /// let zeros: Variable<Array2<f64>> = Variable::zeros_shape([3, 4]);
-    ///
-    /// // タプルで指定
-    /// let zeros: Variable<Array2<f64>> = Variable::zeros_shape((3, 4));
     /// ```
     pub fn zeros_shape<S: IntoShape>(shape: S) -> Variable<T> {
         Variable::new_no_grad(T::zeros(&shape.into_shape()))
@@ -150,13 +154,17 @@ impl<T: Ones + 'static> Variable<T> {
     ///
     /// ```
     /// use autograd::Variable;
+    ///
+    /// // スカラーの場合（空配列で形状を指定）
+    /// let ones: Variable<f64> = Variable::ones_shape([]);
+    /// assert_eq!(ones.value(), 1.0);
+    /// ```
+    ///
+    /// ndarray featureを有効にした場合は多次元配列も使用可能：
+    /// ```ignore
+    /// use autograd::Variable;
     /// use ndarray::Array2;
-    ///
-    /// // 配列で指定
     /// let ones: Variable<Array2<f64>> = Variable::ones_shape([3, 4]);
-    ///
-    /// // タプルで指定
-    /// let ones: Variable<Array2<f64>> = Variable::ones_shape((3, 4));
     /// ```
     pub fn ones_shape<S: IntoShape>(shape: S) -> Variable<T> {
         Variable::new_no_grad(T::ones(&shape.into_shape()))

@@ -1784,16 +1784,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "harp-array"
-version = "0.1.0"
-dependencies = [
- "harp-backend-metal",
- "harp-backend-opencl",
- "harp-core",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "harp-backend-metal"
 version = "0.1.0"
 dependencies = [
@@ -1848,6 +1838,16 @@ dependencies = [
  "pest",
  "pest_derive",
  "thiserror 2.0.17",
+]
+
+[[package]]
+name = "harp-lazy-array"
+version = "0.1.0"
+dependencies = [
+ "harp-backend-metal",
+ "harp-backend-opencl",
+ "harp-core",
+ "thiserror 1.0.69",
 ]
 
 [[package]]

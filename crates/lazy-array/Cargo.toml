@@ -1,5 +1,5 @@
 [package]
-name = "harp-array"
+name = "harp-lazy-array"
 version = "0.1.0"
 edition = "2024"
 description = "ndarray/PyTorch-like array API for Harp with lazy evaluation"
