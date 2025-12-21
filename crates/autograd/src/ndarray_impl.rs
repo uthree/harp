@@ -197,7 +197,7 @@ where
     A: Clone,
     D: Dimension + ndarray::RemoveAxis,
 {
-    type Output = Self;
+    type Output = ndarray::Array<A, D::Smaller>;
 
     fn squeeze(&self, axis: usize) -> Self::Output {
         assert_eq!(
@@ -207,13 +207,8 @@ where
             axis,
             self.shape()[axis]
         );
-        // index_axis で軸を削除後、into_dimensionality で型変換
-        let removed = self.index_axis(Axis(axis), 0).to_owned();
-        removed
-            .insert_axis(Axis(0))
-            .remove_axis(Axis(0))
-            .into_dimensionality()
-            .expect("dimension mismatch after squeeze")
+        // index_axis で軸を削除（次元が1つ減る）
+        self.index_axis(Axis(axis), 0).to_owned()
     }
 }
 
@@ -225,15 +220,13 @@ impl<A, D> Unsqueeze for ndarray::Array<A, D>
 where
     A: Clone,
     D: Dimension,
+    D::Larger: ndarray::RemoveAxis,
 {
-    type Output = Self;
+    type Output = ndarray::Array<A, D::Larger>;
 
     fn unsqueeze(&self, axis: usize) -> Self::Output {
-        // insert_axis で軸を追加後、into_dimensionality で型変換
-        let inserted = self.clone().insert_axis(Axis(axis));
-        inserted
-            .into_dimensionality()
-            .expect("dimension mismatch after unsqueeze")
+        // insert_axis で軸を追加（次元が1つ増える）
+        self.clone().insert_axis(Axis(axis))
     }
 }
 

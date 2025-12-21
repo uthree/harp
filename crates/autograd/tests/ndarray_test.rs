@@ -814,3 +814,46 @@ fn test_variable_unsqueeze_backward() {
     let x_grad = x.grad().unwrap().value();
     assert_eq!(x_grad.shape(), &[2, 3]);
 }
+
+// ============================================================================
+// 静的次元配列での Squeeze/Unsqueeze テスト
+// ============================================================================
+
+#[test]
+fn test_squeeze_static_dimension() {
+    use ndarray::{Array2, Array3};
+
+    // Array3 [2, 1, 3] -> Array2 [2, 3]
+    let arr: Array3<f64> =
+        Array3::from_shape_vec((2, 1, 3), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+    let squeezed: Array2<f64> = Squeeze::squeeze(&arr, 1);
+    assert_eq!(squeezed.shape(), &[2, 3]);
+    assert_eq!(squeezed[[0, 0]], 1.0);
+    assert_eq!(squeezed[[1, 2]], 6.0);
+}
+
+#[test]
+fn test_unsqueeze_static_dimension() {
+    use ndarray::{Array2, Array3};
+
+    // Array2 [2, 3] -> Array3 [2, 1, 3]
+    let arr: Array2<f64> =
+        Array2::from_shape_vec((2, 3), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+    let unsqueezed: Array3<f64> = Unsqueeze::unsqueeze(&arr, 1);
+    assert_eq!(unsqueezed.shape(), &[2, 1, 3]);
+    assert_eq!(unsqueezed[[0, 0, 0]], 1.0);
+    assert_eq!(unsqueezed[[1, 0, 2]], 6.0);
+}
+
+#[test]
+fn test_squeeze_unsqueeze_static_roundtrip() {
+    use ndarray::{Array2, Array3};
+
+    // Array2 -> Array3 -> Array2 で元に戻る
+    let arr: Array2<f64> =
+        Array2::from_shape_vec((2, 3), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+    let unsqueezed: Array3<f64> = Unsqueeze::unsqueeze(&arr, 0);
+    let squeezed: Array2<f64> = Squeeze::squeeze(&unsqueezed, 0);
+    assert_eq!(squeezed.shape(), arr.shape());
+    assert_eq!(squeezed, arr);
+}
