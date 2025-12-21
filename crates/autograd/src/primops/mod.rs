@@ -21,6 +21,7 @@ pub use reduce::{Expand, ExpandBackward, Max, MaxBackward, Prod, ProdBackward, S
 
 // 超越関数
 pub use transcendental::{
-    Cos, Exp2, Exp2Backward, Ln2, Log2, Log2Backward, PhaseShiftQuarter, PhaseShiftQuarterBackward,
-    Sin, SinBackward, Sqrt, SqrtBackward, Two,
+    Cos, Exp2, Exp2Backward, Ln2, Log2, Log2Backward, Log2E, MulLn2, MulLn2Backward, MulLog2E,
+    MulLog2EBackward, PhaseShiftQuarter, PhaseShiftQuarterBackward, Sin, SinBackward, Sqrt,
+    SqrtBackward, Two,
 };

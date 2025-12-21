@@ -13,9 +13,9 @@ pub trait GradRoot: GradNode {
 
 /// 勾配関数を表すトレイト (計算グラフのエッジ)
 /// 逆伝播時に勾配を入力変数に伝播する
-pub trait GradFn<GradType> {
+pub trait GradFn<T> {
     /// 出力側から受け取った勾配を入力側に伝播する
-    fn backward(&mut self, grad_y: GradType);
+    fn backward(&mut self, grad_y: T);
 }
 
 // ============================================================================

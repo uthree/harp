@@ -1,3 +1,3 @@
 # harp-autograd
 harpのための自動微分を提供するライブラリ。  
-`Variable`構造体でラップすることでPyTorchのような自動微分機能が利用可能になります。
+[micrograd](https://github.com/karpathy/micrograd) のように、最小限の機能で動作します。

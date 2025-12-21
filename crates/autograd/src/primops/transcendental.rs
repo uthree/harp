@@ -50,6 +50,18 @@ pub trait PhaseShiftQuarter {
     fn phase_shift_quarter(&self) -> Self;
 }
 
+/// 自身に ln(2) を乗算するトレイト
+/// ln(x) = log2(x) * ln(2) を実現するための基本演算
+pub trait MulLn2 {
+    fn mul_ln2(&self) -> Self;
+}
+
+/// 自身に log2(e) = 1/ln(2) を乗算するトレイト
+/// exp(x) = exp2(x * log2(e)) を実現するための基本演算
+pub trait MulLog2E {
+    fn mul_log2e(&self) -> Self;
+}
+
 // ============================================================================
 // SinBackward (正弦の逆伝播)
 // ============================================================================
@@ -103,6 +115,65 @@ where
     fn backward(&mut self, grad_y: Variable<T>) {
         // 定数加算の勾配: そのまま通過
         self.input.backward_with(grad_y);
+    }
+}
+
+// ============================================================================
+// MulLn2Backward (ln(2)乗算の逆伝播)
+// ============================================================================
+
+/// ln(2)乗算の勾配関数
+/// y = x * ln(2) の場合、∂L/∂x = ∂L/∂y * ln(2)
+pub struct MulLn2Backward<T: 'static> {
+    input: Variable<T>,
+}
+
+impl<T: 'static> MulLn2Backward<T> {
+    pub fn new(input: Variable<T>) -> Self {
+        Self { input }
+    }
+}
+
+impl<T> GradFn<Variable<T>> for MulLn2Backward<T>
+where
+    T: Clone + ops::Add<T, Output = T> + ops::Mul<T, Output = T> + Ln2 + 'static,
+{
+    fn backward(&mut self, grad_y: Variable<T>) {
+        // ln(2)乗算の勾配: ∂L/∂x = ∂L/∂y * ln(2)
+        let grad_val = grad_y.value() * T::ln2();
+        self.input.backward_with(Variable::new(grad_val));
+    }
+}
+
+// ============================================================================
+// MulLog2EBackward (log2(e)乗算の逆伝播)
+// ============================================================================
+
+/// log2(e) を取得するトレイト
+pub trait Log2E {
+    fn log2e() -> Self;
+}
+
+/// log2(e)乗算の勾配関数
+/// y = x * log2(e) の場合、∂L/∂x = ∂L/∂y * log2(e)
+pub struct MulLog2EBackward<T: 'static> {
+    input: Variable<T>,
+}
+
+impl<T: 'static> MulLog2EBackward<T> {
+    pub fn new(input: Variable<T>) -> Self {
+        Self { input }
+    }
+}
+
+impl<T> GradFn<Variable<T>> for MulLog2EBackward<T>
+where
+    T: Clone + ops::Add<T, Output = T> + ops::Mul<T, Output = T> + Log2E + 'static,
+{
+    fn backward(&mut self, grad_y: Variable<T>) {
+        // log2(e)乗算の勾配: ∂L/∂x = ∂L/∂y * log2(e)
+        let grad_val = grad_y.value() * T::log2e();
+        self.input.backward_with(Variable::new(grad_val));
     }
 }
 
@@ -289,6 +360,28 @@ where
     }
 }
 
+impl<T> Variable<T>
+where
+    T: Clone + ops::Add<T, Output = T> + ops::Mul<T, Output = T> + MulLn2 + Ln2 + 'static,
+{
+    /// 自身に ln(2) を乗算
+    pub fn mul_ln2(&self) -> Variable<T> {
+        let output = self.value().mul_ln2();
+        Variable::with_grad_fn(output, Box::new(MulLn2Backward::new(self.clone())))
+    }
+}
+
+impl<T> Variable<T>
+where
+    T: Clone + ops::Add<T, Output = T> + ops::Mul<T, Output = T> + MulLog2E + Log2E + 'static,
+{
+    /// 自身に log2(e) を乗算
+    pub fn mul_log2e(&self) -> Variable<T> {
+        let output = self.value().mul_log2e();
+        Variable::with_grad_fn(output, Box::new(MulLog2EBackward::new(self.clone())))
+    }
+}
+
 // ============================================================================
 // f32 / f64 へのトレイト実装
 // ============================================================================
@@ -340,6 +433,24 @@ macro_rules! impl_transcendental_for_float {
         impl PhaseShiftQuarter for $t {
             fn phase_shift_quarter(&self) -> Self {
                 self + std::f64::consts::FRAC_PI_2 as $t
+            }
+        }
+
+        impl MulLn2 for $t {
+            fn mul_ln2(&self) -> Self {
+                self * std::f64::consts::LN_2 as $t
+            }
+        }
+
+        impl MulLog2E for $t {
+            fn mul_log2e(&self) -> Self {
+                self * std::f64::consts::LOG2_E as $t
+            }
+        }
+
+        impl Log2E for $t {
+            fn log2e() -> Self {
+                std::f64::consts::LOG2_E as $t
             }
         }
     };

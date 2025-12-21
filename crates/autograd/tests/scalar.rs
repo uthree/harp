@@ -1,5 +1,5 @@
 use autograd::{RecipBackward, Variable};
-use std::f64::consts::{FRAC_1_SQRT_2, LN_2, PI, SQRT_2};
+use std::f64::consts::{E, FRAC_1_SQRT_2, LN_2, PI, SQRT_2};
 
 // ============================================================================
 // 順伝播のテスト
@@ -429,6 +429,116 @@ fn test_exp2_log2_inverse() {
 
     y.backward();
     // chain rule: exp2(log2(x)) の微分は 1
+    assert!((x.grad().unwrap().value() - 1.0).abs() < 1e-10);
+}
+
+// ============================================================================
+// 自然対数・自然指数関数（Ln, Exp）のテスト
+// ============================================================================
+
+#[test]
+fn test_ln_forward() {
+    // ln(1) = 0
+    let x = Variable::new(1.0_f64);
+    let y = x.ln();
+    assert!((y.value() - 0.0).abs() < 1e-10);
+
+    // ln(e) = 1
+    let x = Variable::new(E);
+    let y = x.ln();
+    assert!((y.value() - 1.0).abs() < 1e-10);
+
+    // ln(e^2) = 2
+    let x = Variable::new(E * E);
+    let y = x.ln();
+    assert!((y.value() - 2.0).abs() < 1e-10);
+}
+
+#[test]
+fn test_exp_forward() {
+    // exp(0) = 1
+    let x = Variable::new(0.0_f64);
+    let y = x.exp();
+    assert!((y.value() - 1.0).abs() < 1e-10);
+
+    // exp(1) = e
+    let x = Variable::new(1.0_f64);
+    let y = x.exp();
+    assert!((y.value() - E).abs() < 1e-10);
+
+    // exp(2) = e^2
+    let x = Variable::new(2.0_f64);
+    let y = x.exp();
+    assert!((y.value() - E * E).abs() < 1e-10);
+}
+
+#[test]
+fn test_ln_backward() {
+    // y = ln(x)
+    // ∂y/∂x = 1/x
+    let x = Variable::new(2.0_f64);
+    let y = x.ln();
+    y.backward();
+    // 1/2 = 0.5
+    assert!((x.grad().unwrap().value() - 0.5).abs() < 1e-10);
+
+    let x = Variable::new(E);
+    let y = x.ln();
+    y.backward();
+    // 1/e
+    assert!((x.grad().unwrap().value() - 1.0 / E).abs() < 1e-10);
+}
+
+#[test]
+fn test_exp_backward() {
+    // y = exp(x)
+    // ∂y/∂x = exp(x)
+    let x = Variable::new(0.0_f64);
+    let y = x.exp();
+    y.backward();
+    // exp(0) = 1
+    assert!((x.grad().unwrap().value() - 1.0).abs() < 1e-10);
+
+    let x = Variable::new(1.0_f64);
+    let y = x.exp();
+    y.backward();
+    // exp(1) = e
+    assert!((x.grad().unwrap().value() - E).abs() < 1e-10);
+
+    let x = Variable::new(2.0_f64);
+    let y = x.exp();
+    y.backward();
+    // exp(2) = e^2
+    assert!((x.grad().unwrap().value() - E * E).abs() < 1e-10);
+}
+
+#[test]
+fn test_exp_ln_inverse() {
+    // y = exp(ln(x)) = x
+    // ∂y/∂x = 1
+    let x = Variable::new(5.0_f64);
+    let ln_x = x.ln();
+    let y = ln_x.exp();
+
+    assert!((y.value() - 5.0).abs() < 1e-10);
+
+    y.backward();
+    // chain rule: exp(ln(x)) の微分は 1
+    assert!((x.grad().unwrap().value() - 1.0).abs() < 1e-10);
+}
+
+#[test]
+fn test_ln_exp_inverse() {
+    // y = ln(exp(x)) = x
+    // ∂y/∂x = 1
+    let x = Variable::new(3.0_f64);
+    let exp_x = x.exp();
+    let y = exp_x.ln();
+
+    assert!((y.value() - 3.0).abs() < 1e-10);
+
+    y.backward();
+    // chain rule: ln(exp(x)) の微分は 1
     assert!((x.grad().unwrap().value() - 1.0).abs() < 1e-10);
 }
 
