@@ -121,8 +121,7 @@ impl ConvParams {
             .zip(eff_kernel.iter())
             .zip(self.stride.iter())
             .map(|((input, &eff_k), &s)| {
-                (input.clone() - Expr::from(eff_k as i64)) / Expr::from(s as i64)
-                    + Expr::from(1)
+                (input.clone() - Expr::from(eff_k as i64)) / Expr::from(s as i64) + Expr::from(1)
             })
             .collect()
     }

@@ -13,10 +13,10 @@ use crate::backend::traits::{Buffer, Compiler, Device, Kernel, KernelConfig};
 use crate::graph::Graph;
 use crate::opt::ast::rules::rules_for_capabilities;
 use crate::opt::ast::{
-    AstOptimizer, BeamSearchOptimizer as AstBeamSearchOptimizer,
+    AstSuggester, BeamSearchOptimizer as AstBeamSearchOptimizer,
     CompositeSuggester as AstCompositeSuggester, FunctionInliningSuggester, LoopFusionSuggester,
     LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester,
-    OptimizationHistory as AstOptimizationHistory, RuleBaseOptimizer,
+    OptimizationHistory as AstOptimizationHistory, RuleBaseSuggester, VectorizationSuggester,
 };
 use crate::opt::context::DeviceCapabilities;
 use crate::opt::graph::{GraphOptimizer, OptimizationHistory as GraphOptimizationHistory};
@@ -624,27 +624,38 @@ where
 
     // Internal: optimize AST
     fn optimize_ast(&mut self, program: AstNode) -> AstNode {
-        // Phase 1: Rule-based optimization (with device-aware rules)
         let opt_context = DeviceCapabilities::from_device(&self.device);
-        let rules = rules_for_capabilities(&opt_context);
-        let rule_optimizer = RuleBaseOptimizer::new(rules);
-        let rule_optimized = rule_optimizer.optimize(program);
 
-        // Phase 2: Loop optimization with beam search
-        let loop_suggester = AstCompositeSuggester::new(vec![
+        // デバイス能力に基づいてルールを取得（代数簡約、定数畳み込み、FMA化等）
+        let rules = rules_for_capabilities(&opt_context);
+
+        // 利用可能なSIMD幅を取得
+        let simd_widths = opt_context.all_simd_widths();
+
+        // 全てのSuggesterを統合してビームサーチで探索
+        let mut suggesters: Vec<Box<dyn AstSuggester>> = vec![
+            // ルールベース（代数変換、定数畳み込み、FMA化）
+            Box::new(RuleBaseSuggester::new(rules)),
+            // ループ変換
             Box::new(LoopTilingSuggester::new()),
             Box::new(LoopInliningSuggester::new()),
             Box::new(LoopInterchangeSuggester::new()),
             Box::new(LoopFusionSuggester::new()),
             Box::new(FunctionInliningSuggester::with_default_limit()),
-        ]);
+        ];
 
-        let loop_optimizer = AstBeamSearchOptimizer::new(loop_suggester)
+        // デバイスがSIMD対応していれば追加
+        if !simd_widths.is_empty() {
+            suggesters.push(Box::new(VectorizationSuggester::with_widths(simd_widths)));
+        }
+
+        let suggester = AstCompositeSuggester::new(suggesters);
+        let optimizer = AstBeamSearchOptimizer::new(suggester)
             .with_beam_width(self.config.ast_beam_width)
             .with_max_steps(self.config.max_steps)
             .with_progress(self.config.show_progress);
 
-        let (optimized, history) = loop_optimizer.optimize_with_history(rule_optimized);
+        let (optimized, history) = optimizer.optimize_with_history(program);
 
         if self.config.collect_history {
             self.histories.ast = Some(history);

@@ -454,11 +454,9 @@ impl AstCostEstimator for SimpleCostEstimator {
                         AstNode::Const(step_lit),
                     ) => {
                         // 整数リテラル（Isize または Usize）から値を取得
-                        if let (Some(start_val), Some(stop_val), Some(step_val)) = (
-                            start_lit.as_i64(),
-                            stop_lit.as_i64(),
-                            step_lit.as_i64(),
-                        ) {
+                        if let (Some(start_val), Some(stop_val), Some(step_val)) =
+                            (start_lit.as_i64(), stop_lit.as_i64(), step_lit.as_i64())
+                        {
                             if step_val > 0 {
                                 // 正の方向のループ
                                 let iterations = (stop_val - start_val + step_val - 1) / step_val;

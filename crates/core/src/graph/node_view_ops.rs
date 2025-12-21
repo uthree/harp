@@ -424,10 +424,7 @@ impl GraphNode {
     ///
     /// conv_transpose_ndなど内部実装で使用。
     pub(crate) fn fold_nd(&self, output_size: Vec<usize>, params: &ConvParams) -> Self {
-        let new_shape: Vec<Expr> = output_size
-            .iter()
-            .map(|&s| Expr::from(s as i64))
-            .collect();
+        let new_shape: Vec<Expr> = output_size.iter().map(|&s| Expr::from(s as i64)).collect();
         let new_view = View::contiguous(new_shape);
 
         Self::new(

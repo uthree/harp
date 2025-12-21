@@ -77,8 +77,7 @@ impl View {
                     for i in 0..spatial_dims {
                         new_shape.push(Expr::from(params.kernel_size[i] as i64));
                         new_strides.push(
-                            (Expr::from(params.dilation[i] as i64) * strides[i].clone())
-                                .simplify(),
+                            (Expr::from(params.dilation[i] as i64) * strides[i].clone()).simplify(),
                         );
                     }
                     // 出力サイズ次元

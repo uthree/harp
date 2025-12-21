@@ -255,10 +255,7 @@ fn build_fold_inner_body(
         };
 
         // 条件3: l < L'
-        conditions.push(lt(
-            patch_idx.clone(),
-            const_int(patch_sizes[s_axis] as i64),
-        ));
+        conditions.push(lt(patch_idx.clone(), const_int(patch_sizes[s_axis] as i64)));
 
         patch_indices.push(patch_idx);
     }

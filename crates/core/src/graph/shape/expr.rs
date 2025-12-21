@@ -217,10 +217,7 @@ impl Expr {
     /// vars.insert("N".to_string(), 32);
     /// assert_eq!(expr.evaluate(&vars), Ok(128));
     /// ```
-    pub fn evaluate(
-        &self,
-        vars: &std::collections::HashMap<String, i64>,
-    ) -> Result<i64, String> {
+    pub fn evaluate(&self, vars: &std::collections::HashMap<String, i64>) -> Result<i64, String> {
         match self {
             Expr::Const(v) => Ok(*v),
             Expr::Var(name) => vars

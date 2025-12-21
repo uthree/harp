@@ -455,10 +455,8 @@ impl GraphNode {
             vec![self.clone()],
             input_contiguous_view,
         );
-        let mut input_reshape_shape = vec![
-            Expr::from(groups as i64),
-            Expr::from(c_in_per_group as i64),
-        ];
+        let mut input_reshape_shape =
+            vec![Expr::from(groups as i64), Expr::from(c_in_per_group as i64)];
         for &is in input_sizes {
             input_reshape_shape.push(Expr::from(is as i64));
         }

@@ -37,11 +37,11 @@ pub struct OutputMeta {
 
 #[derive(Debug, Clone)]
 pub struct Graph {
-    input_metas: Vec<InputMeta>,                // 入力バッファのメタデータ
-    output_metas: Vec<OutputMeta>,              // 出力バッファのメタデータ
-    output_nodes: BTreeMap<String, GraphNode>,  // 出力ノード（名前→ノード）
-    shape_var_defaults: HashMap<String, i64>, // 動的shape変数のデフォルト値（必須）
-    subgraphs: HashMap<String, Graph>,          // サブグラフ定義（DSLのgraph main以外）
+    input_metas: Vec<InputMeta>,               // 入力バッファのメタデータ
+    output_metas: Vec<OutputMeta>,             // 出力バッファのメタデータ
+    output_nodes: BTreeMap<String, GraphNode>, // 出力ノード（名前→ノード）
+    shape_var_defaults: HashMap<String, i64>,  // 動的shape変数のデフォルト値（必須）
+    subgraphs: HashMap<String, Graph>,         // サブグラフ定義（DSLのgraph main以外）
 }
 
 #[derive(Debug, Clone)]
