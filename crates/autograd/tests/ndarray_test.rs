@@ -897,3 +897,49 @@ fn test_array0_grad_root() {
     let unit_f32: Array0<f32> = Array0::<f32>::unit_grad();
     assert_eq!(unit_f32[()], 1.0);
 }
+
+// ============================================================================
+// matmul_fallback のテスト（hlops）
+// ============================================================================
+
+#[test]
+fn test_matmul_fallback() {
+    use autograd::hlops::matmul_fallback;
+
+    // [2, 3] @ [3, 2] = [2, 2]
+    let a: ArrayD<f64> =
+        ArrayD::from_shape_vec(IxDyn(&[2, 3]), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+    let b: ArrayD<f64> =
+        ArrayD::from_shape_vec(IxDyn(&[3, 2]), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+
+    let c: ArrayD<f64> = matmul_fallback(&a, &b);
+
+    assert_eq!(c.shape(), &[2, 2]);
+
+    // 手計算:
+    // c[0,0] = 1*1 + 2*3 + 3*5 = 1 + 6 + 15 = 22
+    // c[0,1] = 1*2 + 2*4 + 3*6 = 2 + 8 + 18 = 28
+    // c[1,0] = 4*1 + 5*3 + 6*5 = 4 + 15 + 30 = 49
+    // c[1,1] = 4*2 + 5*4 + 6*6 = 8 + 20 + 36 = 64
+    assert_eq!(c[[0, 0]], 22.0);
+    assert_eq!(c[[0, 1]], 28.0);
+    assert_eq!(c[[1, 0]], 49.0);
+    assert_eq!(c[[1, 1]], 64.0);
+}
+
+#[test]
+fn test_matmul_fallback_identity() {
+    use autograd::hlops::matmul_fallback;
+
+    // 単位行列との積
+    let a: ArrayD<f64> = ArrayD::from_shape_vec(IxDyn(&[2, 2]), vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+    let i: ArrayD<f64> = ArrayD::from_shape_vec(IxDyn(&[2, 2]), vec![1.0, 0.0, 0.0, 1.0]).unwrap();
+
+    let c: ArrayD<f64> = matmul_fallback(&a, &i);
+
+    assert_eq!(c.shape(), &[2, 2]);
+    assert_eq!(c[[0, 0]], 1.0);
+    assert_eq!(c[[0, 1]], 2.0);
+    assert_eq!(c[[1, 0]], 3.0);
+    assert_eq!(c[[1, 1]], 4.0);
+}
