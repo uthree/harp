@@ -35,22 +35,33 @@ pub mod array;
 pub mod backend;
 pub mod cache;
 pub mod context;
+pub mod device;
 pub mod dim;
+pub mod dyn_backend;
 pub mod generators;
 pub mod ops;
 
 // Re-exports
-pub use array::{Array, ArrayElement, ArrayError, ArrayState};
-pub use backend::Backend;
+pub use array::{ArrayElement, ArrayError};
 pub use cache::{GraphSignature, KernelCache};
 pub use context::{ContextError, ExecutionConfig, ExecutionContext};
+pub use device::Device;
 pub use dim::{Dim0, Dim1, Dim2, Dim3, Dim4, Dim5, Dim6, DimDyn, Dimension};
+pub use dyn_backend::{Array, Array0, Array1, Array2, Array3, Array4, Array5, Array6, ArrayD};
 pub use generators::IntoShape;
 
 /// Prelude module - 主要な型をまとめてインポート
 pub mod prelude {
-    pub use crate::array::{Array, ArrayElement, ArrayError};
-    pub use crate::backend::Backend;
+    // 配列型
+    pub use crate::dyn_backend::{
+        Array, Array0, Array1, Array2, Array3, Array4, Array5, Array6, ArrayD,
+    };
+
+    // デバイス
+    pub use crate::device::Device;
+
+    // 共通型
+    pub use crate::array::{ArrayElement, ArrayError};
     pub use crate::dim::{Dim0, Dim1, Dim2, Dim3, Dim4, Dim5, Dim6, DimDyn, Dimension};
     pub use crate::dim::{DimensionMismatch, IntoDimensionality, IntoDyn};
     pub use crate::generators::IntoShape;

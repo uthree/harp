@@ -4,6 +4,12 @@ version = "0.1.0"
 edition = "2024"
 description = "ndarray/PyTorch-like array API for Harp"
 
+[features]
+default = []
+metal = []
+opencl = []
+cpu = []
+
 [dependencies]
 harp-core = { path = "../core" }
 thiserror = "1.0"
