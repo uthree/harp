@@ -2,15 +2,17 @@
 name = "harp-array"
 version = "0.1.0"
 edition = "2024"
-description = "ndarray/PyTorch-like array API for Harp"
+description = "ndarray/PyTorch-like array API for Harp with lazy evaluation"
 
 [features]
 default = []
-metal = []
-opencl = []
+metal = ["harp-backend-metal"]
+opencl = ["harp-backend-opencl"]
 
 [dependencies]
 harp-core = { path = "../core" }
+harp-backend-opencl = { path = "../backend-opencl", optional = true }
+harp-backend-metal = { path = "../backend-metal", optional = true }
 thiserror = "1.0"
 
 [dev-dependencies]

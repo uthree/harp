@@ -1787,6 +1787,8 @@ dependencies = [
 name = "harp-array"
 version = "0.1.0"
 dependencies = [
+ "harp-backend-metal",
+ "harp-backend-opencl",
  "harp-core",
  "thiserror 1.0.69",
 ]

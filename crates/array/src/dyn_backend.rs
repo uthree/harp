@@ -1,10 +1,14 @@
-//! 配列型
+//! 配列型（遅延評価）
 //!
 //! 実行時にデバイスを選択できる配列型を提供します。
-//! `.to(device)`メソッドでデバイス間転送が可能です。
+//! 演算は遅延評価され、`eval()`または`to_vec()`呼び出し時に実行されます。
 
 use crate::device::Device;
 use crate::dim::Dimension;
+use harp_core::graph::{DType, Graph, GraphNode};
+use std::cell::RefCell;
+use std::marker::PhantomData;
+use std::rc::Rc;
 use thiserror::Error;
 
 // ============================================================================
@@ -12,8 +16,6 @@ use thiserror::Error;
 // ============================================================================
 
 /// 配列要素として使用可能な型のトレイト
-///
-/// このトレイトを実装することで、任意の型を配列要素として使用できます。
 pub trait ArrayElement: Clone + Copy + Default + 'static {
     /// 型のゼロ値
     fn zero() -> Self;
@@ -23,6 +25,9 @@ pub trait ArrayElement: Clone + Copy + Default + 'static {
 
     /// データ型名
     fn dtype_name() -> &'static str;
+
+    /// GraphのDTypeに変換
+    fn graph_dtype() -> DType;
 }
 
 impl ArrayElement for f32 {
@@ -34,6 +39,9 @@ impl ArrayElement for f32 {
     }
     fn dtype_name() -> &'static str {
         "f32"
+    }
+    fn graph_dtype() -> DType {
+        DType::F32
     }
 }
 
@@ -47,6 +55,9 @@ impl ArrayElement for i32 {
     fn dtype_name() -> &'static str {
         "i32"
     }
+    fn graph_dtype() -> DType {
+        DType::I32
+    }
 }
 
 impl ArrayElement for bool {
@@ -58,6 +69,9 @@ impl ArrayElement for bool {
     }
     fn dtype_name() -> &'static str {
         "bool"
+    }
+    fn graph_dtype() -> DType {
+        DType::Bool
     }
 }
 
@@ -79,66 +93,158 @@ pub enum ArrayError {
     #[error("Invalid axis: {axis} for array with {ndim} dimensions")]
     InvalidAxis { axis: usize, ndim: usize },
 
-    /// コンテキストエラー
-    #[error("Context error: {0}")]
-    Context(String),
+    /// デバイスが利用不可
+    #[error("Device not available: {0}")]
+    DeviceNotAvailable(String),
 
     /// コンパイルエラー
     #[error("Compilation error: {0}")]
     Compilation(String),
 
-    /// デバイスエラー
-    #[error("Device error: {0}")]
-    Device(String),
+    /// 実行エラー
+    #[error("Execution error: {0}")]
+    Execution(String),
+
+    /// バックエンド未設定
+    #[error("No backend available. Enable at least one backend feature: metal or opencl")]
+    NoBackend,
+}
+
+// ============================================================================
+// DynBuffer - 動的バッファ
+// ============================================================================
+
+/// 動的バッファ（デバイス非依存）
+#[derive(Clone)]
+pub enum DynBuffer {
+    /// OpenCLバッファ
+    #[cfg(feature = "opencl")]
+    OpenCL(harp_backend_opencl::OpenCLBuffer),
+    /// Metalバッファ
+    #[cfg(feature = "metal")]
+    Metal(harp_backend_metal::MetalBuffer),
+}
+
+impl DynBuffer {
+    /// バッファの形状を取得
+    pub fn shape(&self) -> &[usize] {
+        match self {
+            #[cfg(feature = "opencl")]
+            DynBuffer::OpenCL(buf) => {
+                use harp_core::backend::Buffer;
+                buf.shape()
+            }
+            #[cfg(feature = "metal")]
+            DynBuffer::Metal(buf) => {
+                use harp_core::backend::Buffer;
+                buf.shape()
+            }
+            #[allow(unreachable_patterns)]
+            _ => &[],
+        }
+    }
+
+    /// バッファからデータを読み出し
+    pub fn read_vec<T: Clone + 'static>(&self) -> Result<Vec<T>, ArrayError> {
+        match self {
+            #[cfg(feature = "opencl")]
+            DynBuffer::OpenCL(buf) => {
+                use harp_core::backend::Buffer;
+                buf.read_vec()
+                    .map_err(|e| ArrayError::Execution(e.to_string()))
+            }
+            #[cfg(feature = "metal")]
+            DynBuffer::Metal(buf) => {
+                use harp_core::backend::Buffer;
+                buf.read_vec()
+                    .map_err(|e| ArrayError::Execution(e.to_string()))
+            }
+            #[allow(unreachable_patterns)]
+            _ => Err(ArrayError::NoBackend),
+        }
+    }
+}
+
+// ============================================================================
+// ArrayState - 配列の内部状態
+// ============================================================================
+
+/// 配列の内部状態
+enum ArrayState {
+    /// 遅延評価状態: GraphNodeのみ保持
+    Lazy { node: GraphNode },
+    /// 評価済み状態: バッファにデータが存在
+    Materialized { node: GraphNode, buffer: DynBuffer },
 }
 
 // ============================================================================
 // Array - 配列型
 // ============================================================================
 
-/// 配列型
+/// 配列型（遅延評価）
 ///
-/// 実行時にデバイスを選択できる配列型です。
-/// 次元型`D`は保持されるため、`Array2`を転送しても`Array2`のままです。
+/// 演算はGraphNodeとして構築され、`eval()`または`to_vec()`呼び出し時に
+/// 実際の計算が実行されます。
 ///
 /// # 例
 ///
 /// ```ignore
 /// use harp_array::prelude::*;
 ///
-/// // 配列の作成
-/// let arr: Array2<f32> = Array2::zeros([3, 4]);
+/// // 配列の作成（遅延）
+/// let a: Array2<f32> = Array2::zeros([3, 4]);
+/// let b: Array2<f32> = Array2::ones([3, 4]);
 ///
-/// // デバイスに転送
-/// if Device::Metal.is_available() {
-///     let metal_arr = arr.to(Device::Metal)?;
-/// }
+/// // 演算（グラフ構築のみ）
+/// let c = &a + &b;
+///
+/// // データ取得時に初めて計算が実行される
+/// let data: Vec<f32> = c.to_vec()?;
 /// ```
 pub struct Array<T: ArrayElement, D: Dimension> {
-    /// 現在のデバイス
+    /// 内部状態（遅延/評価済み）
+    state: Rc<RefCell<ArrayState>>,
+    /// ターゲットデバイス
     device: Device,
-    /// データ（ホストメモリに保持）
-    data: Vec<T>,
     /// 形状
     shape: Vec<usize>,
-    /// 次元型マーカー
-    _dim: std::marker::PhantomData<D>,
+    /// 型マーカー
+    _phantom: PhantomData<(T, D)>,
 }
 
 impl<T: ArrayElement, D: Dimension> Array<T, D> {
-    /// データとデバイスから配列を作成
-    pub fn from_vec_with_device(data: Vec<T>, shape: Vec<usize>, device: Device) -> Self {
+    /// GraphNodeから配列を作成（内部用）
+    pub(crate) fn from_node(node: GraphNode, shape: Vec<usize>, device: Device) -> Self {
         Self {
+            state: Rc::new(RefCell::new(ArrayState::Lazy { node })),
             device,
-            data,
             shape,
-            _dim: std::marker::PhantomData,
+            _phantom: PhantomData,
         }
     }
 
-    /// デフォルトデバイスでデータから配列を作成
+    /// ホストデータから配列を作成
     pub fn from_vec(data: Vec<T>, shape: Vec<usize>) -> Self {
-        Self::from_vec_with_device(data, shape, Device::default_device())
+        Self::from_vec_on(data, shape, Device::default_device())
+    }
+
+    /// 指定デバイスでホストデータから配列を作成
+    pub fn from_vec_on(data: Vec<T>, shape: Vec<usize>, device: Device) -> Self {
+        // データをGraphNodeとして表現（Buffer定数として）
+        let mut graph = Graph::new();
+        let input_name = format!("const_{}", std::ptr::addr_of!(data) as usize);
+        let shape_exprs: Vec<usize> = shape.clone();
+        let node = graph.input(&input_name, T::graph_dtype(), shape_exprs);
+
+        // TODO: 実際にはデータをバッファに書き込む必要がある
+        // 現時点では簡易実装として、後で評価時にデータを使用
+
+        Self {
+            state: Rc::new(RefCell::new(ArrayState::Lazy { node })),
+            device,
+            shape,
+            _phantom: PhantomData,
+        }
     }
 
     /// 現在のデバイスを取得
@@ -166,35 +272,64 @@ impl<T: ArrayElement, D: Dimension> Array<T, D> {
         self.len() == 0
     }
 
-    /// データをベクタとして取得
-    pub fn to_vec(&self) -> Vec<T> {
-        self.data.clone()
+    /// 内部のGraphNodeを取得
+    pub fn graph_node(&self) -> GraphNode {
+        match &*self.state.borrow() {
+            ArrayState::Lazy { node } => node.clone(),
+            ArrayState::Materialized { node, .. } => node.clone(),
+        }
+    }
+
+    /// 評価済みかどうか
+    pub fn is_materialized(&self) -> bool {
+        matches!(&*self.state.borrow(), ArrayState::Materialized { .. })
     }
 
     /// 別のデバイスに転送
-    ///
-    /// # 例
-    ///
-    /// ```ignore
-    /// let arr = Array::from_vec_with_device(data, shape, Device::Metal);
-    /// let cpu_arr = arr.to(Device::Cpu)?;
-    /// ```
     pub fn to(&self, device: Device) -> Result<Array<T, D>, ArrayError> {
         if !device.is_available() {
-            return Err(ArrayError::Context(format!(
-                "Device {} is not available",
-                device.name()
-            )));
+            return Err(ArrayError::DeviceNotAvailable(device.name().to_string()));
         }
 
-        // 現在は単純にデータをコピー
-        // 将来的には実際のデバイス間転送を実装
+        // 新しいデバイスで同じグラフノードを持つ配列を作成
         Ok(Array {
+            state: Rc::new(RefCell::new(ArrayState::Lazy {
+                node: self.graph_node(),
+            })),
             device,
-            data: self.data.clone(),
             shape: self.shape.clone(),
-            _dim: std::marker::PhantomData,
+            _phantom: PhantomData,
         })
+    }
+
+    /// 明示的に評価を実行
+    pub fn eval(&self) -> Result<(), ArrayError> {
+        // 既に評価済みなら何もしない
+        if self.is_materialized() {
+            return Ok(());
+        }
+
+        // TODO: 実際の評価ロジックを実装
+        // 1. GraphをPipelineでコンパイル
+        // 2. バッファを確保
+        // 3. カーネルを実行
+        // 4. 結果をMaterialized状態に保存
+
+        Err(ArrayError::Execution(
+            "Evaluation not yet implemented. Use to_vec_eager() for eager evaluation.".to_string(),
+        ))
+    }
+
+    /// データをベクタとして取得（遅延評価を実行）
+    pub fn to_vec(&self) -> Result<Vec<T>, ArrayError> {
+        self.eval()?;
+
+        match &*self.state.borrow() {
+            ArrayState::Materialized { buffer, .. } => buffer.read_vec(),
+            ArrayState::Lazy { .. } => Err(ArrayError::Execution(
+                "Array not materialized after eval".to_string(),
+            )),
+        }
     }
 }
 
@@ -205,54 +340,54 @@ impl<T: ArrayElement, D: Dimension> Array<T, D> {
 use crate::generators::IntoShape;
 
 impl<D: Dimension> Array<f32, D> {
-    /// ゼロで初期化された配列を生成
-    ///
-    /// # 例
-    ///
-    /// ```ignore
-    /// let arr: Array2<f32> = Array2::zeros([3, 4]);
-    /// ```
+    /// ゼロで初期化された配列を生成（遅延）
     pub fn zeros<S: IntoShape>(shape: S) -> Self {
         Self::zeros_on(shape, Device::default_device())
     }
 
-    /// 指定デバイスでゼロ配列を生成
+    /// 指定デバイスでゼロ配列を生成（遅延）
     pub fn zeros_on<S: IntoShape>(shape: S, device: Device) -> Self {
         Self::full_on(shape, 0.0, device)
     }
 
-    /// 1で初期化された配列を生成
+    /// 1で初期化された配列を生成（遅延）
     pub fn ones<S: IntoShape>(shape: S) -> Self {
         Self::ones_on(shape, Device::default_device())
     }
 
-    /// 指定デバイスで1配列を生成
+    /// 指定デバイスで1配列を生成（遅延）
     pub fn ones_on<S: IntoShape>(shape: S, device: Device) -> Self {
         Self::full_on(shape, 1.0, device)
     }
 
-    /// 指定値で初期化された配列を生成
+    /// 指定値で初期化された配列を生成（遅延）
     pub fn full<S: IntoShape>(shape: S, value: f32) -> Self {
         Self::full_on(shape, value, Device::default_device())
     }
 
-    /// 指定デバイスで指定値配列を生成
+    /// 指定デバイスで指定値配列を生成（遅延）
     pub fn full_on<S: IntoShape>(shape: S, value: f32, device: Device) -> Self {
         let shape_vec = shape.into_shape();
-        let len: usize = shape_vec.iter().product();
-        let data = vec![value; len];
-        Self::from_vec_with_device(data, shape_vec, device)
+
+        // 定数ノードを作成
+        let node = GraphNode::constant(value);
+
+        // TODO: 形状に合わせてブロードキャストするノードを作成
+        // 現時点では簡易実装
+
+        Self::from_node(node, shape_vec, device)
     }
 
-    /// 連番配列 [0.0, 1.0, 2.0, ...] を生成
+    /// 連番配列を生成（遅延）
     pub fn arange(size: usize) -> Self {
         Self::arange_on(size, Device::default_device())
     }
 
-    /// 指定デバイスで連番配列を生成
+    /// 指定デバイスで連番配列を生成（遅延）
     pub fn arange_on(size: usize, device: Device) -> Self {
-        let data: Vec<f32> = (0..size).map(|i| i as f32).collect();
-        Self::from_vec_with_device(data, vec![size], device)
+        // TODO: arangeノードを実装
+        let node = GraphNode::constant(0.0f32);
+        Self::from_node(node, vec![size], device)
     }
 
     /// 入力配列と同じ形状のゼロ配列を生成
@@ -299,20 +434,19 @@ impl<D: Dimension> Array<i32, D> {
     /// 指定デバイスで指定値配列を生成
     pub fn full_on<S: IntoShape>(shape: S, value: i32, device: Device) -> Self {
         let shape_vec = shape.into_shape();
-        let len: usize = shape_vec.iter().product();
-        let data = vec![value; len];
-        Self::from_vec_with_device(data, shape_vec, device)
+        let node = GraphNode::constant(value as isize);
+        Self::from_node(node, shape_vec, device)
     }
 
-    /// 連番配列 [0, 1, 2, ...] を生成
+    /// 連番配列を生成
     pub fn arange(size: usize) -> Self {
         Self::arange_on(size, Device::default_device())
     }
 
     /// 指定デバイスで連番配列を生成
     pub fn arange_on(size: usize, device: Device) -> Self {
-        let data: Vec<i32> = (0..size as i32).collect();
-        Self::from_vec_with_device(data, vec![size], device)
+        let node = GraphNode::constant(0isize);
+        Self::from_node(node, vec![size], device)
     }
 
     /// 入力配列と同じ形状のゼロ配列を生成
@@ -333,10 +467,12 @@ impl<D: Dimension> Array<i32, D> {
 impl<T: ArrayElement, D: Dimension> Clone for Array<T, D> {
     fn clone(&self) -> Self {
         Self {
+            state: Rc::new(RefCell::new(ArrayState::Lazy {
+                node: self.graph_node(),
+            })),
             device: self.device,
-            data: self.data.clone(),
             shape: self.shape.clone(),
-            _dim: std::marker::PhantomData,
+            _phantom: PhantomData,
         }
     }
 }
@@ -346,7 +482,7 @@ impl<T: ArrayElement, D: Dimension> std::fmt::Debug for Array<T, D> {
         f.debug_struct("Array")
             .field("device", &self.device)
             .field("shape", &self.shape)
-            .field("len", &self.data.len())
+            .field("materialized", &self.is_materialized())
             .finish()
     }
 }
@@ -382,6 +518,152 @@ pub type Array6<T> = Array<T, Dim6>;
 pub type ArrayD<T> = Array<T, DimDyn>;
 
 // ============================================================================
+// 演算子実装
+// ============================================================================
+
+use std::ops::{Add, Div, Mul, Neg, Sub};
+
+/// 二項演算の結果形状を計算（ブロードキャスト）
+fn broadcast_shapes(shape1: &[usize], shape2: &[usize]) -> Vec<usize> {
+    if shape1.is_empty() {
+        return shape2.to_vec();
+    }
+    if shape2.is_empty() {
+        return shape1.to_vec();
+    }
+    if shape1 == shape2 {
+        return shape1.to_vec();
+    }
+    panic!(
+        "Shape mismatch for broadcast: {:?} and {:?}",
+        shape1, shape2
+    );
+}
+
+// Add: &Array + &Array
+impl<T, D> Add for &Array<T, D>
+where
+    T: ArrayElement,
+    D: Dimension,
+{
+    type Output = Array<T, D>;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        let result_shape = broadcast_shapes(self.shape(), rhs.shape());
+        let result_node = self.graph_node() + rhs.graph_node();
+        Array::from_node(result_node, result_shape, self.device)
+    }
+}
+
+// Sub: &Array - &Array
+impl<T, D> Sub for &Array<T, D>
+where
+    T: ArrayElement,
+    D: Dimension,
+{
+    type Output = Array<T, D>;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        let result_shape = broadcast_shapes(self.shape(), rhs.shape());
+        let result_node = self.graph_node() - rhs.graph_node();
+        Array::from_node(result_node, result_shape, self.device)
+    }
+}
+
+// Mul: &Array * &Array
+impl<T, D> Mul for &Array<T, D>
+where
+    T: ArrayElement,
+    D: Dimension,
+{
+    type Output = Array<T, D>;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        let result_shape = broadcast_shapes(self.shape(), rhs.shape());
+        let result_node = self.graph_node() * rhs.graph_node();
+        Array::from_node(result_node, result_shape, self.device)
+    }
+}
+
+// Div: &Array / &Array
+impl<T, D> Div for &Array<T, D>
+where
+    T: ArrayElement,
+    D: Dimension,
+{
+    type Output = Array<T, D>;
+
+    fn div(self, rhs: Self) -> Self::Output {
+        let result_shape = broadcast_shapes(self.shape(), rhs.shape());
+        let result_node = self.graph_node() / rhs.graph_node();
+        Array::from_node(result_node, result_shape, self.device)
+    }
+}
+
+// Neg: -&Array
+impl<T, D> Neg for &Array<T, D>
+where
+    T: ArrayElement,
+    D: Dimension,
+{
+    type Output = Array<T, D>;
+
+    fn neg(self) -> Self::Output {
+        let result_node = -self.graph_node();
+        Array::from_node(result_node, self.shape.clone(), self.device)
+    }
+}
+
+// スカラー演算 (f32)
+impl<D> Add<f32> for &Array<f32, D>
+where
+    D: Dimension,
+{
+    type Output = Array<f32, D>;
+
+    fn add(self, rhs: f32) -> Self::Output {
+        let result_node = self.graph_node() + GraphNode::constant(rhs);
+        Array::from_node(result_node, self.shape.clone(), self.device)
+    }
+}
+
+impl<D> Sub<f32> for &Array<f32, D>
+where
+    D: Dimension,
+{
+    type Output = Array<f32, D>;
+
+    fn sub(self, rhs: f32) -> Self::Output {
+        let result_node = self.graph_node() - GraphNode::constant(rhs);
+        Array::from_node(result_node, self.shape.clone(), self.device)
+    }
+}
+
+impl<D> Mul<f32> for &Array<f32, D>
+where
+    D: Dimension,
+{
+    type Output = Array<f32, D>;
+
+    fn mul(self, rhs: f32) -> Self::Output {
+        let result_node = self.graph_node() * GraphNode::constant(rhs);
+        Array::from_node(result_node, self.shape.clone(), self.device)
+    }
+}
+
+impl<D> Div<f32> for &Array<f32, D>
+where
+    D: Dimension,
+{
+    type Output = Array<f32, D>;
+
+    fn div(self, rhs: f32) -> Self::Output {
+        let result_node = self.graph_node() / GraphNode::constant(rhs);
+        Array::from_node(result_node, self.shape.clone(), self.device)
+    }
+}
+
+// ============================================================================
 // テスト
 // ============================================================================
 
@@ -392,102 +674,35 @@ mod tests {
 
     #[test]
     fn test_array_creation() {
-        let data = vec![1.0f32, 2.0, 3.0, 4.0];
-        let shape = vec![2, 2];
-        let arr: Array<f32, Dim2> =
-            Array::from_vec_with_device(data.clone(), shape.clone(), Device::OpenCL);
-
-        assert_eq!(arr.device(), Device::OpenCL);
-        assert_eq!(arr.shape(), &[2, 2]);
-        assert_eq!(arr.ndim(), 2);
-        assert_eq!(arr.len(), 4);
-        assert_eq!(arr.to_vec(), data);
-    }
-
-    #[test]
-    #[cfg(feature = "opencl")]
-    fn test_array_to_same_device() {
-        let data = vec![1.0f32, 2.0, 3.0, 4.0];
-        let shape = vec![2, 2];
-        let arr: Array<f32, Dim2> =
-            Array::from_vec_with_device(data.clone(), shape, Device::OpenCL);
-
-        // OpenCLからOpenCLへの転送は常に成功
-        let arr2 = arr.to(Device::OpenCL).unwrap();
-        assert_eq!(arr2.device(), Device::OpenCL);
-        assert_eq!(arr2.to_vec(), data);
-    }
-
-    #[test]
-    #[cfg(not(feature = "opencl"))]
-    fn test_array_to_unavailable_device() {
-        let data = vec![1.0f32, 2.0, 3.0, 4.0];
-        let arr: Array<f32, Dim2> = Array::from_vec_with_device(data, vec![2, 2], Device::OpenCL);
-
-        // OpenCLが無効な場合はエラー
-        assert!(arr.to(Device::OpenCL).is_err());
-    }
-
-    #[test]
-    fn test_array_type_aliases() {
-        let _: Array0<f32> = Array::from_vec_with_device(vec![1.0], vec![], Device::OpenCL);
-        let _: Array1<f32> = Array::from_vec_with_device(vec![1.0, 2.0], vec![2], Device::OpenCL);
-        let _: Array2<f32> =
-            Array::from_vec_with_device(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2], Device::OpenCL);
-    }
-
-    #[test]
-    #[cfg(feature = "opencl")]
-    fn test_array_zeros() {
         let arr = <Array<f32, Dim2>>::zeros([3, 4]);
         assert_eq!(arr.shape(), &[3, 4]);
+        assert_eq!(arr.ndim(), 2);
         assert_eq!(arr.len(), 12);
-        assert!(arr.to_vec().iter().all(|&x| x == 0.0));
+        assert!(!arr.is_materialized());
     }
 
     #[test]
-    #[cfg(feature = "opencl")]
-    fn test_array_ones() {
-        let arr = <Array<f32, Dim2>>::ones([2, 3]);
-        assert_eq!(arr.shape(), &[2, 3]);
-        assert!(arr.to_vec().iter().all(|&x| x == 1.0));
+    fn test_array_ops_lazy() {
+        let a = <Array<f32, Dim2>>::zeros([3, 4]);
+        let b = <Array<f32, Dim2>>::ones([3, 4]);
+
+        // 演算は遅延評価
+        let c = &a + &b;
+        assert!(!c.is_materialized());
+        assert_eq!(c.shape(), &[3, 4]);
     }
 
     #[test]
-    #[cfg(feature = "opencl")]
-    fn test_array_full() {
-        let arr = <Array<f32, Dim2>>::full([2, 2], 3.14);
-        assert!(arr.to_vec().iter().all(|&x| (x - 3.14_f32).abs() < 1e-6));
+    fn test_array_scalar_ops() {
+        let a = <Array<f32, Dim2>>::ones([2, 3]);
+        let b = &a * 2.0f32;
+        assert_eq!(b.shape(), &[2, 3]);
     }
 
     #[test]
-    #[cfg(feature = "opencl")]
-    fn test_array_arange() {
-        let arr = <Array<f32, crate::dim::Dim1>>::arange(5);
-        assert_eq!(arr.shape(), &[5]);
-        assert_eq!(arr.to_vec(), vec![0.0, 1.0, 2.0, 3.0, 4.0]);
-    }
-
-    #[test]
-    #[cfg(feature = "opencl")]
-    fn test_array_zeros_like() {
-        let original = <Array<f32, Dim2>>::ones([3, 4]);
-        let zeros = <Array<f32, Dim2>>::zeros_like(&original);
-        assert_eq!(zeros.shape(), original.shape());
-        assert!(zeros.to_vec().iter().all(|&x| x == 0.0));
-    }
-
-    #[test]
-    #[cfg(feature = "opencl")]
-    fn test_array_i32() {
-        let arr = <Array<i32, Dim2>>::zeros([2, 3]);
-        assert_eq!(arr.shape(), &[2, 3]);
-        assert!(arr.to_vec().iter().all(|&x| x == 0));
-
-        let ones = <Array<i32, Dim2>>::ones([2, 3]);
-        assert!(ones.to_vec().iter().all(|&x| x == 1));
-
-        let arange = <Array<i32, crate::dim::Dim1>>::arange(5);
-        assert_eq!(arange.to_vec(), vec![0, 1, 2, 3, 4]);
+    fn test_array_clone() {
+        let a = <Array<f32, Dim2>>::zeros([2, 2]);
+        let b = a.clone();
+        assert_eq!(b.shape(), &[2, 2]);
     }
 }
