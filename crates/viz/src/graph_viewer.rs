@@ -931,7 +931,7 @@ impl GraphViewerApp {
                             if !snapshot.path.is_empty() {
                                 ui.horizontal(|ui| {
                                     ui.label("Applied:");
-                                    const MAX_DISPLAY: usize = 3;
+                                    const MAX_DISPLAY: usize = 4;
                                     let path_len = snapshot.path.len();
                                     let display_path: Vec<&str> = if path_len > MAX_DISPLAY {
                                         // 省略記号 + 直近N件
