@@ -800,7 +800,7 @@ where
 // テスト
 // ============================================================================
 
-#[cfg(test)]
+#[cfg(all(test, feature = "opencl"))]
 mod tests {
     use super::*;
     use crate::dim::Dim2;

@@ -13,7 +13,7 @@ use std::fmt;
 /// # 例
 ///
 /// ```ignore
-/// use harp_array::Device;
+/// use harp_lazy_array::Device;
 ///
 /// // デバイスの利用可否チェック
 /// if Device::Metal.is_available() {
@@ -38,7 +38,7 @@ impl Device {
     /// # 例
     ///
     /// ```
-    /// use harp_array::Device;
+    /// use harp_lazy_array::Device;
     ///
     /// assert_eq!(Device::Metal.name(), "metal");
     /// assert_eq!(Device::OpenCL.name(), "opencl");
@@ -57,7 +57,7 @@ impl Device {
     /// # 例
     ///
     /// ```ignore
-    /// use harp_array::Device;
+    /// use harp_lazy_array::Device;
     ///
     /// if Device::Metal.is_available() {
     ///     let arr = Array2::zeros([3, 4]).to(Device::Metal)?;
@@ -84,7 +84,7 @@ impl Device {
     /// # 例
     ///
     /// ```ignore
-    /// use harp_array::Device;
+    /// use harp_lazy_array::Device;
     ///
     /// for device in Device::available() {
     ///     println!("{} is available", device.name());

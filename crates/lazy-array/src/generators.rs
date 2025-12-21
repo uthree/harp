@@ -16,7 +16,7 @@ use harp_core::graph::shape::Expr;
 /// # 使用例
 ///
 /// ```
-/// use harp_array::generators::IntoShape;
+/// use harp_lazy_array::generators::IntoShape;
 ///
 /// // 配列から
 /// let shape: Vec<usize> = [3, 4].into_shape();
