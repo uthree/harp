@@ -3,9 +3,11 @@
 //! バックエンドを抽象化し、計算グラフのコンパイルと実行を管理します。
 
 use crate::cache::{GraphSignature, KernelCache};
-use harp_core::backend::pipeline::KernelSourceRenderer;
+use harp_core::ast::DType;
+use harp_core::backend::pipeline::{CompiledKernel, KernelSourceRenderer};
 use harp_core::backend::{Buffer, Compiler, Device, Kernel, Pipeline};
 use harp_core::graph::{Graph, GraphNode};
+use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::{Arc, RwLock};
 use thiserror::Error;
@@ -16,19 +18,25 @@ use thiserror::Error;
 
 /// 実行コンテキストのエラー
 #[derive(Debug, Error)]
-pub enum ContextError<E: std::error::Error> {
+pub enum ContextError<CE: std::error::Error, BE: std::error::Error> {
     /// コンパイルエラー
     #[error("compilation error: {0}")]
-    Compilation(E),
-    /// 実行エラー
-    #[error("execution error: {0}")]
-    Execution(String),
+    Compilation(CE),
+    /// カーネル実行エラー
+    #[error("kernel execution error: {0}")]
+    KernelExecution(String),
+    /// バッファエラー
+    #[error("buffer error: {0}")]
+    Buffer(BE),
     /// 形状不一致エラー
     #[error("shape mismatch: expected {expected:?}, got {actual:?}")]
     ShapeMismatch {
         expected: Vec<usize>,
         actual: Vec<usize>,
     },
+    /// 入力バッファが見つからない
+    #[error("input buffer not found: {0}")]
+    InputNotFound(String),
 }
 
 // ============================================================================
@@ -63,22 +71,6 @@ impl Default for ExecutionConfig {
 }
 
 // ============================================================================
-// コンパイル済みカーネル情報
-// ============================================================================
-
-/// コンパイル済みカーネル情報
-///
-/// Pipelineがコンパイルした結果をラップし、実行に必要な情報を保持します。
-pub struct CompiledInfo<K> {
-    /// カーネル
-    pub kernel: K,
-    /// 入力バッファ名のリスト
-    pub input_names: Vec<String>,
-    /// 出力バッファ名
-    pub output_name: String,
-}
-
-// ============================================================================
 // ExecutionContext - 実行コンテキスト
 // ============================================================================
 
@@ -102,8 +94,8 @@ where
 {
     /// パイプライン
     pipeline: RwLock<Pipeline<R, Dev, Comp>>,
-    /// カーネルキャッシュ（シグネチャ → コンパイル済みカーネル）
-    kernel_cache: KernelCache<Comp::Kernel>,
+    /// カーネルキャッシュ（シグネチャ → コンパイル済みカーネル情報）
+    kernel_cache: KernelCache<CompiledKernel<Comp::Kernel, Buf>>,
     /// 実行設定
     config: ExecutionConfig,
     /// 型マーカー
@@ -176,15 +168,15 @@ where
     pub fn compile(
         &self,
         output_node: &GraphNode,
-    ) -> Result<Arc<Comp::Kernel>, ContextError<Comp::Error>> {
+    ) -> Result<Arc<CompiledKernel<Comp::Kernel, Buf>>, ContextError<Comp::Error, Buf::Error>> {
         // シグネチャを計算
         let sig = GraphSignature::from_output(output_node);
 
         // キャッシュを確認
         if self.config.enable_cache
-            && let Some(kernel) = self.kernel_cache.get(&sig)
+            && let Some(compiled) = self.kernel_cache.get(&sig)
         {
-            return Ok(kernel);
+            return Ok(compiled);
         }
 
         // グラフを構築
@@ -204,10 +196,49 @@ where
 
         // キャッシュに挿入
         if self.config.enable_cache {
-            Ok(self.kernel_cache.insert(sig, compiled.kernel))
+            Ok(self.kernel_cache.insert(sig, compiled))
         } else {
-            Ok(Arc::new(compiled.kernel))
+            Ok(Arc::new(compiled))
         }
+    }
+
+    /// コンパイル済みカーネルを実行
+    ///
+    /// 入力バッファマップを受け取り、出力バッファを返す
+    ///
+    /// # 引数
+    /// - `compiled`: コンパイル済みカーネル
+    /// - `inputs`: 入力バッファマップ（名前 → バッファ）
+    /// - `output_shape`: 出力バッファの形状
+    /// - `output_dtype`: 出力バッファのデータ型
+    pub fn execute(
+        &self,
+        compiled: &CompiledKernel<Comp::Kernel, Buf>,
+        inputs: HashMap<String, Buf>,
+        output_shape: Vec<usize>,
+        output_dtype: DType,
+    ) -> Result<Buf, ContextError<Comp::Error, Buf::Error>> {
+        // 出力バッファを割り当て
+        let mut output_buffer = self
+            .with_pipeline(|p| Buf::allocate(p.device(), output_shape, output_dtype))
+            .map_err(ContextError::Buffer)?;
+
+        // 入力バッファを順序付きで収集（参照のベクタ）
+        let mut input_buffers = Vec::new();
+        for input_sig in &compiled.signature.inputs {
+            let buffer = inputs
+                .get(&input_sig.name)
+                .ok_or_else(|| ContextError::InputNotFound(input_sig.name.clone()))?;
+            input_buffers.push(buffer);
+        }
+
+        // カーネルを実行
+        compiled
+            .kernel
+            .execute(&input_buffers, &mut [&mut output_buffer])
+            .map_err(|e| ContextError::KernelExecution(e.to_string()))?;
+
+        Ok(output_buffer)
     }
 
     /// 入力ノードをグラフに登録

@@ -5,10 +5,12 @@
 
 use crate::context::ExecutionContext;
 use crate::dim::{DimDyn, Dimension, IntoDyn};
+use harp_core::ast::DType as AstDType;
 use harp_core::backend::pipeline::KernelSourceRenderer;
 use harp_core::backend::{Buffer, Compiler, Device, Kernel};
 use harp_core::graph::{DType, GraphNode};
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::fmt;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -247,6 +249,89 @@ where
     /// 実行コンテキストへの参照を取得
     pub fn context(&self) -> &Arc<ExecutionContext<R, Dev, Comp, Buf>> {
         &self.ctx
+    }
+
+    /// 明示的に評価を実行
+    ///
+    /// 計算グラフをコンパイル・実行し、結果をバッファに保存します。
+    /// 既に評価済みの場合は何もしません。
+    ///
+    /// # エラー
+    ///
+    /// コンパイルまたは実行に失敗した場合はエラーを返します。
+    pub fn eval(&self) -> Result<(), ArrayError> {
+        // 既に評価済みならスキップ
+        if self.is_materialized() {
+            return Ok(());
+        }
+
+        // グラフノードを取得
+        let graph_node = match &*self.state.borrow() {
+            ArrayState::Lazy { graph_node } => graph_node.clone(),
+            ArrayState::Materialized { .. } => return Ok(()),
+        };
+
+        // コンパイル
+        let compiled = self
+            .ctx
+            .compile(&graph_node)
+            .map_err(|e| ArrayError::Context(e.to_string()))?;
+
+        // グラフのDTypeをASTのDTypeに変換
+        let ast_dtype = graph_dtype_to_ast(&T::dtype());
+
+        // 実行（入力なし - 定数のみのグラフを想定）
+        // TODO: 入力バッファを持つグラフのサポート
+        let output_buffer = self
+            .ctx
+            .execute(&compiled, HashMap::new(), self.shape.clone(), ast_dtype)
+            .map_err(|e| ArrayError::Context(e.to_string()))?;
+
+        // 状態を更新
+        *self.state.borrow_mut() = ArrayState::Materialized {
+            buffer: Arc::new(output_buffer),
+            graph_node: Some(graph_node),
+        };
+
+        Ok(())
+    }
+
+    /// データをホストメモリに読み出す
+    ///
+    /// 評価されていない場合は自動的に評価を実行します。
+    ///
+    /// # 例
+    ///
+    /// ```ignore
+    /// let arr = zeros(ctx, [3, 4]);
+    /// let data: Vec<f32> = arr.to_vec()?;
+    /// assert_eq!(data.len(), 12);
+    /// ```
+    pub fn to_vec(&self) -> Result<Vec<T>, ArrayError> {
+        // 必要なら評価
+        self.eval()?;
+
+        // バッファからデータを読み出し
+        let state = self.state.borrow();
+        match &*state {
+            ArrayState::Materialized { buffer, .. } => buffer
+                .read_vec::<T>()
+                .map_err(|e| ArrayError::Buffer(e.to_string())),
+            ArrayState::Lazy { .. } => {
+                // evalが成功したはずなのにLazyのままは起こり得ない
+                unreachable!("Array should be materialized after eval()")
+            }
+        }
+    }
+}
+
+/// GraphのDTypeをASTのDTypeに変換
+fn graph_dtype_to_ast(dtype: &DType) -> AstDType {
+    match dtype {
+        DType::F32 => AstDType::F32,
+        DType::I32 => AstDType::Int,
+        DType::Bool => AstDType::Bool,
+        DType::Unknown => AstDType::F32, // フォールバック
     }
 }
 
