@@ -4,7 +4,7 @@
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DType {
     Bool,            // boolean (internally represented as u8 or i8: 0 = false, non-zero = true)
-    Int,             // integer (isize, for array indexing and loop counters)
+    I64,             // 64-bit signed integer (for array indexing and loop counters)
     I32,             // 32-bit signed integer (for data arrays)
     F32,             // float
     Ptr(Box<DType>), // pointer for memory buffer, 値を渡す時は参照を渡す。
@@ -18,7 +18,7 @@ pub enum DType {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
     Bool(bool),
-    Int(isize),
+    I64(i64),
     I32(i32),
     F32(f32),
 }
@@ -36,9 +36,9 @@ impl From<f32> for Literal {
     }
 }
 
-impl From<isize> for Literal {
-    fn from(value: isize) -> Self {
-        Literal::Int(value)
+impl From<i64> for Literal {
+    fn from(value: i64) -> Self {
+        Literal::I64(value)
     }
 }
 
@@ -50,7 +50,7 @@ impl From<i32> for Literal {
 
 impl From<usize> for Literal {
     fn from(value: usize) -> Self {
-        Literal::Int(value as isize)
+        Literal::I64(value as i64)
     }
 }
 
@@ -60,7 +60,7 @@ impl Literal {
         match self {
             Literal::Bool(_) => DType::Bool,
             Literal::F32(_) => DType::F32,
-            Literal::Int(_) => DType::Int,
+            Literal::I64(_) => DType::I64,
             Literal::I32(_) => DType::I32,
         }
     }
@@ -76,25 +76,25 @@ impl Literal {
         }
     }
 
-    /// 整数リテラルを isize として取得
+    /// 整数リテラルを i64 として取得
     ///
-    /// Int または I32 を isize に変換して返します。
+    /// I64 または I32 を i64 に変換して返します。
     /// Bool, F32 の場合は None を返します。
-    pub fn as_isize(&self) -> Option<isize> {
+    pub fn as_i64(&self) -> Option<i64> {
         match self {
-            Literal::Int(v) => Some(*v),
-            Literal::I32(v) => Some(*v as isize),
+            Literal::I64(v) => Some(*v),
+            Literal::I32(v) => Some(*v as i64),
             Literal::Bool(_) | Literal::F32(_) => None,
         }
     }
 
     /// 整数リテラルを usize として取得
     ///
-    /// Int または I32 を usize に変換して返します。
+    /// I64 または I32 を usize に変換して返します。
     /// Bool, F32 または負の値の場合は None を返します。
     pub fn as_usize(&self) -> Option<usize> {
         match self {
-            Literal::Int(v) => (*v).try_into().ok(),
+            Literal::I64(v) => (*v).try_into().ok(),
             Literal::I32(v) => (*v).try_into().ok(),
             Literal::Bool(_) | Literal::F32(_) => None,
         }
@@ -106,7 +106,7 @@ impl DType {
     pub fn size_in_bytes(&self) -> usize {
         match self {
             DType::Bool => 1, // u8として表現
-            DType::Int => std::mem::size_of::<isize>(),
+            DType::I64 => std::mem::size_of::<i64>(),
             DType::I32 => std::mem::size_of::<i32>(), // 4 bytes
             DType::F32 => std::mem::size_of::<f32>(),
             DType::Ptr(_) => std::mem::size_of::<usize>(), // ポインタはusizeと同じサイズ
@@ -209,7 +209,7 @@ mod tests {
     fn test_bool_dtype_is_bool() {
         assert!(DType::Bool.is_bool());
         assert!(!DType::F32.is_bool());
-        assert!(!DType::Int.is_bool());
+        assert!(!DType::I64.is_bool());
     }
 
     #[test]
@@ -224,9 +224,9 @@ mod tests {
     }
 
     #[test]
-    fn test_literal_as_isize_with_bool() {
+    fn test_literal_as_i64_with_bool() {
         let bool_lit = Literal::Bool(true);
-        assert_eq!(bool_lit.as_isize(), None);
+        assert_eq!(bool_lit.as_i64(), None);
         assert_eq!(bool_lit.as_usize(), None);
     }
 }

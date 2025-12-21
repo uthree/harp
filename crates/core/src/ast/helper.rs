@@ -369,8 +369,8 @@ pub fn empty_block() -> AstNode {
 }
 
 /// Create an integer constant node
-pub fn const_int(value: isize) -> AstNode {
-    AstNode::Const(Literal::Int(value))
+pub fn const_int(value: i64) -> AstNode {
+    AstNode::Const(Literal::I64(value))
 }
 
 /// Create a float constant node (f32)
@@ -393,15 +393,15 @@ mod tests {
             _ => panic!("Expected F32 constant"),
         }
 
-        let isize_node = AstNode::Const(42isize.into());
+        let isize_node = AstNode::Const(42i64.into());
         match isize_node {
-            AstNode::Const(Literal::Int(v)) => assert_eq!(v, 42),
+            AstNode::Const(Literal::I64(v)) => assert_eq!(v, 42),
             _ => panic!("Expected Isize constant"),
         }
 
         let usize_node = AstNode::Const(100usize.into());
         match usize_node {
-            AstNode::Const(Literal::Int(v)) => assert_eq!(v, 100),
+            AstNode::Const(Literal::I64(v)) => assert_eq!(v, 100),
             _ => panic!("Expected Usize constant"),
         }
     }
@@ -489,10 +489,10 @@ mod tests {
     #[allow(clippy::approx_constant)]
     fn test_cast() {
         let a = AstNode::Const(3.14f32.into());
-        let cast_node = cast(a, DType::Int);
+        let cast_node = cast(a, DType::I64);
         match cast_node {
             AstNode::Cast(_, dtype) => match dtype {
-                DType::Int => {}
+                DType::I64 => {}
                 _ => panic!("Expected Int dtype"),
             },
             _ => panic!("Expected Cast node"),
@@ -554,7 +554,7 @@ mod tests {
                     _ => panic!("Expected Var node for ptr"),
                 }
                 match *offset {
-                    AstNode::Const(Literal::Int(v)) => assert_eq!(v, 0),
+                    AstNode::Const(Literal::I64(v)) => assert_eq!(v, 0),
                     _ => panic!("Expected Usize constant for offset"),
                 }
             }
@@ -595,7 +595,7 @@ mod tests {
                     _ => panic!("Expected Var node for ptr"),
                 }
                 match *offset {
-                    AstNode::Const(Literal::Int(v)) => assert_eq!(v, 0),
+                    AstNode::Const(Literal::I64(v)) => assert_eq!(v, 0),
                     _ => panic!("Expected Usize constant for offset"),
                 }
                 match *value {
@@ -609,14 +609,14 @@ mod tests {
 
     #[test]
     fn test_assign_helper() {
-        let value = AstNode::Const(42isize.into());
+        let value = AstNode::Const(42i64.into());
         let assign_node = assign("alu0", value);
 
         match assign_node {
             AstNode::Assign { var, value } => {
                 assert_eq!(var, "alu0");
                 match *value {
-                    AstNode::Const(Literal::Int(v)) => assert_eq!(v, 42),
+                    AstNode::Const(Literal::I64(v)) => assert_eq!(v, 42),
                     _ => panic!("Expected Isize constant for value"),
                 }
             }
@@ -624,7 +624,7 @@ mod tests {
         }
 
         // Test with String
-        let assign_node2 = assign("temp".to_string(), AstNode::Const(10isize.into()));
+        let assign_node2 = assign("temp".to_string(), AstNode::Const(10i64.into()));
         match assign_node2 {
             AstNode::Assign { var, .. } => assert_eq!(var, "temp"),
             _ => panic!("Expected Assign node"),
@@ -728,12 +728,12 @@ mod tests {
                 assert_eq!(return_type, DType::Tuple(vec![]));
                 // Check grid size
                 match default_grid_size[0].as_ref() {
-                    AstNode::Const(Literal::Int(v)) => assert_eq!(*v, 16),
+                    AstNode::Const(Literal::I64(v)) => assert_eq!(*v, 16),
                     _ => panic!("Expected Int constant for grid_size[0]"),
                 }
                 // Check thread group size
                 match default_thread_group_size[0].as_ref() {
-                    AstNode::Const(Literal::Int(v)) => assert_eq!(*v, 64),
+                    AstNode::Const(Literal::I64(v)) => assert_eq!(*v, 64),
                     _ => panic!("Expected Int constant for thread_group_size[0]"),
                 }
             }
@@ -758,11 +758,11 @@ mod tests {
             } => {
                 // Y and Z should be 1
                 match default_grid_size[1].as_ref() {
-                    AstNode::Const(Literal::Int(v)) => assert_eq!(*v, 1),
+                    AstNode::Const(Literal::I64(v)) => assert_eq!(*v, 1),
                     _ => panic!("Expected Int constant 1 for grid_size[1]"),
                 }
                 match default_thread_group_size[1].as_ref() {
-                    AstNode::Const(Literal::Int(v)) => assert_eq!(*v, 1),
+                    AstNode::Const(Literal::I64(v)) => assert_eq!(*v, 1),
                     _ => panic!("Expected Int constant 1 for thread_group_size[1]"),
                 }
             }
@@ -792,11 +792,11 @@ mod tests {
                 assert_eq!(name, "my_kernel");
                 assert_eq!(args.len(), 2);
                 match grid_size[0].as_ref() {
-                    AstNode::Const(Literal::Int(v)) => assert_eq!(*v, 8),
+                    AstNode::Const(Literal::I64(v)) => assert_eq!(*v, 8),
                     _ => panic!("Expected Int constant for grid_size[0]"),
                 }
                 match thread_group_size[0].as_ref() {
-                    AstNode::Const(Literal::Int(v)) => assert_eq!(*v, 32),
+                    AstNode::Const(Literal::I64(v)) => assert_eq!(*v, 32),
                     _ => panic!("Expected Int constant for thread_group_size[0]"),
                 }
             }
@@ -814,11 +814,11 @@ mod tests {
             } => {
                 // Y and Z should be 1
                 match grid_size[1].as_ref() {
-                    AstNode::Const(Literal::Int(v)) => assert_eq!(*v, 1),
+                    AstNode::Const(Literal::I64(v)) => assert_eq!(*v, 1),
                     _ => panic!("Expected Int constant 1 for grid_size[1]"),
                 }
                 match thread_group_size[2].as_ref() {
-                    AstNode::Const(Literal::Int(v)) => assert_eq!(*v, 1),
+                    AstNode::Const(Literal::I64(v)) => assert_eq!(*v, 1),
                     _ => panic!("Expected Int constant 1 for thread_group_size[2]"),
                 }
             }

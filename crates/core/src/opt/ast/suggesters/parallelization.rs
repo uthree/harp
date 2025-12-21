@@ -29,7 +29,7 @@ const DEFAULT_THREAD_GROUP_SIZE: usize = 256;
 
 /// ループの総イテレーション数を計算
 fn compute_total_iterations(start: &AstNode, stop: &AstNode) -> AstNode {
-    if matches!(start, AstNode::Const(Literal::Int(0))) {
+    if matches!(start, AstNode::Const(Literal::I64(0))) {
         stop.clone()
     } else {
         AstNode::Add(
@@ -231,7 +231,7 @@ impl GroupParallelizationSuggester {
                 Box::new(const_int(1)),
             ],
             default_thread_group_size: [
-                Box::new(const_int(self.thread_group_size as isize)),
+                Box::new(const_int(self.thread_group_size as i64)),
                 Box::new(const_int(1)),
                 Box::new(const_int(1)),
             ],
@@ -730,7 +730,7 @@ mod tests {
                 },
                 VarDecl {
                     name: "N".to_string(),
-                    dtype: DType::Int,
+                    dtype: DType::I64,
                     mutability: Mutability::Immutable,
                     kind: VarKind::Normal,
                 },
@@ -794,7 +794,7 @@ mod tests {
             params: vec![
                 VarDecl {
                     name: "gidx0".to_string(),
-                    dtype: DType::Int,
+                    dtype: DType::I64,
                     mutability: Mutability::Immutable,
                     kind: VarKind::GroupId(0),
                 },
@@ -856,7 +856,7 @@ mod tests {
             name: Some("branching_kernel".to_string()),
             params: vec![VarDecl {
                 name: "gidx0".to_string(),
-                dtype: DType::Int,
+                dtype: DType::I64,
                 mutability: Mutability::Immutable,
                 kind: VarKind::GroupId(0),
             }],
@@ -1066,7 +1066,7 @@ mod tests {
             params: vec![
                 VarDecl {
                     name: "lidx0".to_string(),
-                    dtype: DType::Int,
+                    dtype: DType::I64,
                     mutability: Mutability::Immutable,
                     kind: VarKind::LocalId(0), // LocalId(0)がaxis=0を使用
                 },
@@ -1128,7 +1128,7 @@ mod tests {
             // thread_group_size[0]がLocalId用の256のまま保持されていることを確認
             assert!(matches!(
                 default_thread_group_size[0].as_ref(),
-                AstNode::Const(Literal::Int(256))
+                AstNode::Const(Literal::I64(256))
             ));
         } else {
             panic!("Expected Kernel");
@@ -1160,7 +1160,7 @@ mod tests {
             params: vec![
                 VarDecl {
                     name: "gidx0".to_string(),
-                    dtype: DType::Int,
+                    dtype: DType::I64,
                     mutability: Mutability::Immutable,
                     kind: VarKind::GroupId(0), // GroupId(0)がaxis=0を使用
                 },
@@ -1222,7 +1222,7 @@ mod tests {
             // grid_size[0]がGroupId用の1024のまま保持されていることを確認
             assert!(matches!(
                 default_grid_size[0].as_ref(),
-                AstNode::Const(Literal::Int(1024))
+                AstNode::Const(Literal::I64(1024))
             ));
         } else {
             panic!("Expected Kernel");

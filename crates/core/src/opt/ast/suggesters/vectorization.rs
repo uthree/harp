@@ -9,7 +9,7 @@ use log::{debug, trace};
 use std::collections::HashMap;
 
 /// Store文グループの内部表現: (インデックス, オフセット, 型, 値式)
-type StoreGroupData = (Vec<usize>, Vec<isize>, DType, AstNode);
+type StoreGroupData = (Vec<usize>, Vec<i64>, DType, AstNode);
 
 /// 連続アクセスグループ
 ///
@@ -22,7 +22,7 @@ struct ContiguousAccessGroup {
     /// ベースオフセット式（定数オフセット部分を除いた式）
     base_offset: AstNode,
     /// 連続する定数オフセット [0, 1, 2, 3] など
-    const_offsets: Vec<isize>,
+    const_offsets: Vec<i64>,
     /// 対応する文のインデックス
     statement_indices: Vec<usize>,
     /// アクセスの型
@@ -75,7 +75,7 @@ impl VectorizationSuggester {
     }
 
     /// 定数オフセットが連続しているかチェック
-    fn are_offsets_contiguous(offsets: &[isize]) -> bool {
+    fn are_offsets_contiguous(offsets: &[i64]) -> bool {
         if offsets.len() < 2 {
             return false;
         }
@@ -92,16 +92,16 @@ impl VectorizationSuggester {
     /// オフセット式を「ベース式 + 定数」の形式に分解
     ///
     /// 成功した場合は (ベース式, 定数オフセット) を返す
-    fn decompose_offset(offset: &AstNode) -> Option<(AstNode, isize)> {
+    fn decompose_offset(offset: &AstNode) -> Option<(AstNode, i64)> {
         match offset {
             // 単純な定数
-            AstNode::Const(Literal::Int(n)) => Some((AstNode::Const(Literal::Int(0)), *n)),
+            AstNode::Const(Literal::I64(n)) => Some((AstNode::Const(Literal::I64(0)), *n)),
 
             // base + const
             AstNode::Add(a, b) => {
-                if let AstNode::Const(Literal::Int(n)) = b.as_ref() {
+                if let AstNode::Const(Literal::I64(n)) = b.as_ref() {
                     Some((a.as_ref().clone(), *n))
-                } else if let AstNode::Const(Literal::Int(n)) = a.as_ref() {
+                } else if let AstNode::Const(Literal::I64(n)) = a.as_ref() {
                     Some((b.as_ref().clone(), *n))
                 } else {
                     // 両方とも定数でない場合、全体をベースとして定数0を返す
@@ -112,15 +112,15 @@ impl VectorizationSuggester {
             // base - const (base + (-const)として扱う)
             AstNode::Mul(a, b) => {
                 // -1 * x または x * -1 のパターンをチェック
-                if let AstNode::Const(Literal::Int(-1)) = a.as_ref()
-                    && let AstNode::Const(Literal::Int(n)) = b.as_ref()
+                if let AstNode::Const(Literal::I64(-1)) = a.as_ref()
+                    && let AstNode::Const(Literal::I64(n)) = b.as_ref()
                 {
-                    return Some((AstNode::Const(Literal::Int(0)), -(*n)));
+                    return Some((AstNode::Const(Literal::I64(0)), -(*n)));
                 }
-                if let AstNode::Const(Literal::Int(-1)) = b.as_ref()
-                    && let AstNode::Const(Literal::Int(n)) = a.as_ref()
+                if let AstNode::Const(Literal::I64(-1)) = b.as_ref()
+                    && let AstNode::Const(Literal::I64(n)) = a.as_ref()
                 {
-                    return Some((AstNode::Const(Literal::Int(0)), -(*n)));
+                    return Some((AstNode::Const(Literal::I64(0)), -(*n)));
                 }
                 // その他の乗算はベースとして扱う
                 Some((offset.clone(), 0))
@@ -202,7 +202,7 @@ impl VectorizationSuggester {
             AstNode::Const(lit) => {
                 let scalar_type = match lit {
                     Literal::F32(_) => DType::F32,
-                    Literal::Int(_) => DType::Int,
+                    Literal::I64(_) => DType::I64,
                     Literal::I32(_) => DType::I32,
                     Literal::Bool(_) => DType::Bool,
                 };
@@ -622,7 +622,7 @@ mod tests {
         // 単純な定数
         let offset = const_int(5);
         let (base, c) = VectorizationSuggester::decompose_offset(&offset).unwrap();
-        assert!(matches!(base, AstNode::Const(Literal::Int(0))));
+        assert!(matches!(base, AstNode::Const(Literal::I64(0))));
         assert_eq!(c, 5);
 
         // base + const

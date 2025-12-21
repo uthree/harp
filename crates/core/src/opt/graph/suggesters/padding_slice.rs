@@ -178,7 +178,7 @@ impl PaddingSliceSuggester {
             .enumerate()
             .map(|(i, s)| {
                 if i == target_axis {
-                    Expr::from((target_size + padding_amount) as isize)
+                    Expr::from((target_size + padding_amount) as i64)
                 } else {
                     s.clone()
                 }
@@ -274,7 +274,7 @@ impl PaddingSliceSuggester {
                 .enumerate()
                 .map(|(i, s)| {
                     if i == output_axis {
-                        Expr::from((target_size + padding_amount) as isize)
+                        Expr::from((target_size + padding_amount) as i64)
                     } else {
                         s.clone()
                     }

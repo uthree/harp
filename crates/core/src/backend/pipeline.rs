@@ -780,7 +780,7 @@ where
     }
 
     /// Extract shape variables from signature
-    fn extract_shape_vars(signature: &KernelSignature) -> HashMap<String, isize> {
+    fn extract_shape_vars(signature: &KernelSignature) -> HashMap<String, i64> {
         signature.shape_vars.clone()
     }
 
@@ -811,7 +811,7 @@ where
 /// Evaluate dispatch size from AST expressions
 fn evaluate_dispatch_size(
     size: &[Box<AstNode>; 3],
-    shape_vars: &HashMap<String, isize>,
+    shape_vars: &HashMap<String, i64>,
 ) -> [usize; 3] {
     [
         evaluate_ast_expr(&size[0], shape_vars).max(1) as usize,
@@ -821,12 +821,12 @@ fn evaluate_dispatch_size(
 }
 
 /// Evaluate an AST expression to a numeric value
-fn evaluate_ast_expr(ast: &AstNode, shape_vars: &HashMap<String, isize>) -> isize {
+fn evaluate_ast_expr(ast: &AstNode, shape_vars: &HashMap<String, i64>) -> i64 {
     match ast {
         AstNode::Const(lit) => match lit {
-            Literal::Int(n) => *n,
-            Literal::I32(n) => *n as isize,
-            Literal::F32(f) => *f as isize,
+            Literal::I64(n) => *n,
+            Literal::I32(n) => *n as i64,
+            Literal::F32(f) => *f as i64,
             Literal::Bool(b) => {
                 if *b {
                     1
@@ -870,7 +870,7 @@ fn evaluate_ast_expr(ast: &AstNode, shape_vars: &HashMap<String, isize>) -> isiz
 #[derive(Debug, Clone)]
 pub enum DispatchSizeExpr {
     /// Constant value
-    Const(isize),
+    Const(i64),
     /// Variable reference
     Var(String),
     /// Addition
@@ -887,7 +887,7 @@ pub enum DispatchSizeExpr {
 
 impl DispatchSizeExpr {
     /// Evaluate the expression with the given shape variables
-    pub fn evaluate(&self, shape_vars: &HashMap<String, isize>) -> isize {
+    pub fn evaluate(&self, shape_vars: &HashMap<String, i64>) -> i64 {
         match self {
             Self::Const(n) => *n,
             Self::Var(name) => shape_vars.get(name).copied().unwrap_or(1),
@@ -917,9 +917,9 @@ impl DispatchSizeExpr {
     pub fn from_ast(ast: &AstNode) -> Self {
         match ast {
             AstNode::Const(lit) => match lit {
-                Literal::Int(n) => Self::Const(*n),
-                Literal::I32(n) => Self::Const(*n as isize),
-                Literal::F32(f) => Self::Const(*f as isize),
+                Literal::I64(n) => Self::Const(*n),
+                Literal::I32(n) => Self::Const(*n as i64),
+                Literal::F32(f) => Self::Const(*f as i64),
                 Literal::Bool(b) => Self::Const(if *b { 1 } else { 0 }),
             },
             AstNode::Var(name) => Self::Var(name.clone()),
@@ -957,14 +957,14 @@ impl DispatchSizeConfig {
     pub fn from_const(grid: [usize; 3], local: [usize; 3]) -> Self {
         Self {
             grid_size: [
-                DispatchSizeExpr::Const(grid[0] as isize),
-                DispatchSizeExpr::Const(grid[1] as isize),
-                DispatchSizeExpr::Const(grid[2] as isize),
+                DispatchSizeExpr::Const(grid[0] as i64),
+                DispatchSizeExpr::Const(grid[1] as i64),
+                DispatchSizeExpr::Const(grid[2] as i64),
             ],
             local_size: [
-                DispatchSizeExpr::Const(local[0] as isize),
-                DispatchSizeExpr::Const(local[1] as isize),
-                DispatchSizeExpr::Const(local[2] as isize),
+                DispatchSizeExpr::Const(local[0] as i64),
+                DispatchSizeExpr::Const(local[1] as i64),
+                DispatchSizeExpr::Const(local[2] as i64),
             ],
         }
     }
@@ -986,7 +986,7 @@ impl DispatchSizeConfig {
     }
 
     /// Evaluate grid size with shape variables
-    pub fn evaluate_grid_size(&self, shape_vars: &HashMap<String, isize>) -> [usize; 3] {
+    pub fn evaluate_grid_size(&self, shape_vars: &HashMap<String, i64>) -> [usize; 3] {
         [
             self.grid_size[0].evaluate(shape_vars).max(1) as usize,
             self.grid_size[1].evaluate(shape_vars).max(1) as usize,
@@ -995,7 +995,7 @@ impl DispatchSizeConfig {
     }
 
     /// Evaluate local size with shape variables
-    pub fn evaluate_local_size(&self, shape_vars: &HashMap<String, isize>) -> [usize; 3] {
+    pub fn evaluate_local_size(&self, shape_vars: &HashMap<String, i64>) -> [usize; 3] {
         [
             self.local_size[0].evaluate(shape_vars).max(1) as usize,
             self.local_size[1].evaluate(shape_vars).max(1) as usize,
@@ -1294,13 +1294,13 @@ where
     /// Set or override a shape variable
     ///
     /// If not called, the default value from the kernel signature is used.
-    pub fn shape_var(mut self, name: impl Into<String>, value: isize) -> Self {
+    pub fn shape_var(mut self, name: impl Into<String>, value: i64) -> Self {
         self.query = self.query.shape_var(name, value);
         self
     }
 
     /// Set or override multiple shape variables at once
-    pub fn shape_vars(mut self, vars: impl IntoIterator<Item = (String, isize)>) -> Self {
+    pub fn shape_vars(mut self, vars: impl IntoIterator<Item = (String, i64)>) -> Self {
         self.query = self.query.shape_vars(vars);
         self
     }

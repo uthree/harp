@@ -36,7 +36,7 @@ pub fn expr_to_ast_with_sources(expr: &Expr, src_vars: &[String], dtype: AstDTyp
 
     let expr = expr.clone().simplify();
     match expr {
-        Expr::Const(c) => AstNode::Const(Literal::Int(c)),
+        Expr::Const(c) => AstNode::Const(Literal::I64(c)),
         Expr::Var(s) => AstNode::Var(s),
         Expr::Idx(i) => AstNode::Var(ph::ridx(i)),
         Expr::Add(l, r) => {
@@ -70,11 +70,11 @@ pub fn expr_to_ast_with_sources(expr: &Expr, src_vars: &[String], dtype: AstDTyp
         } => {
             // offset_exprを再帰的に変換
             // LoadIndexの読み込み型はI32（インデックス値）
-            let offset_ast = expr_to_ast_with_sources(&offset_expr, src_vars, AstDType::Int);
+            let offset_ast = expr_to_ast_with_sources(&offset_expr, src_vars, AstDType::I64);
             // src_varsからバッファ名を取得
             let buffer_name = &src_vars[src_index];
-            // Load ASTノードを生成（インデックスはI32として読み込み）
-            load(var(buffer_name.clone()), offset_ast, AstDType::Int)
+            // Load ASTノードを生成（インデックスはI64として読み込み）
+            load(var(buffer_name.clone()), offset_ast, AstDType::I64)
         }
     }
 }
@@ -97,6 +97,7 @@ pub fn shape_dim_to_ast(shape: Option<&[Expr]>, axis: usize) -> AstNode {
 pub fn graph_dtype_to_ast(dtype: &GraphDType) -> AstDType {
     match dtype {
         GraphDType::Bool => AstDType::Bool,
+        GraphDType::I64 => AstDType::I64, // 64-bit signed integer (for indexing)
         GraphDType::I32 => AstDType::I32, // 32-bit signed integer
         GraphDType::F32 => AstDType::F32,
         GraphDType::Unknown => AstDType::F32,
@@ -118,7 +119,7 @@ pub fn get_reduce_init(dtype: &GraphDType, op: &ReduceOp) -> AstNode {
         },
         ReduceOp::Max => match dtype {
             GraphDType::Bool => AstNode::Const(false.into()),
-            GraphDType::I32 => const_int(i32::MIN as isize),
+            GraphDType::I32 => const_int(i32::MIN as i64),
             _ => const_f32(f32::NEG_INFINITY),
         },
     }

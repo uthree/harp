@@ -603,7 +603,7 @@ impl SimpleCostEstimator {
     /// ASTノードから定数値を抽出
     fn extract_const_from_ast(ast: &AstNode) -> Option<usize> {
         match ast {
-            AstNode::Const(crate::ast::Literal::Int(val)) => Some(*val as usize),
+            AstNode::Const(crate::ast::Literal::I64(val)) => Some(*val as usize),
             _ => None,
         }
     }
@@ -1276,7 +1276,7 @@ mod tests {
             Some("E_100_100".to_string()),
             vec![VarDecl {
                 name: "gidx".to_string(),
-                dtype: AstDType::Int,
+                dtype: AstDType::I64,
                 mutability: Mutability::Immutable,
                 kind: VarKind::GroupId(0),
             }],
@@ -1400,12 +1400,12 @@ mod tests {
         let estimator = SimpleCostEstimator::new();
 
         // 異なるスレッドグループサイズのカーネルを作成
-        let create_kernel = |tg_size: isize| {
+        let create_kernel = |tg_size: i64| {
             kernel_1d(
                 Some("E_test".to_string()),
                 vec![VarDecl {
                     name: "gidx".to_string(),
-                    dtype: AstDType::Int,
+                    dtype: AstDType::I64,
                     mutability: Mutability::Immutable,
                     kind: VarKind::GroupId(0),
                 }],
@@ -1474,7 +1474,7 @@ mod tests {
             Some("E_scalar".to_string()),
             vec![VarDecl {
                 name: "gidx".to_string(),
-                dtype: AstDType::Int,
+                dtype: AstDType::I64,
                 mutability: Mutability::Immutable,
                 kind: VarKind::GroupId(0),
             }],
@@ -1497,7 +1497,7 @@ mod tests {
             Some("E_vec4".to_string()),
             vec![VarDecl {
                 name: "gidx".to_string(),
-                dtype: AstDType::Int,
+                dtype: AstDType::I64,
                 mutability: Mutability::Immutable,
                 kind: VarKind::GroupId(0),
             }],
@@ -1563,7 +1563,7 @@ mod tests {
             name: Some("E_1d".to_string()),
             params: vec![VarDecl {
                 name: "gidx".to_string(),
-                dtype: AstDType::Int,
+                dtype: AstDType::I64,
                 mutability: Mutability::Immutable,
                 kind: VarKind::GroupId(0),
             }],
@@ -1595,13 +1595,13 @@ mod tests {
             params: vec![
                 VarDecl {
                     name: "grp_0".to_string(),
-                    dtype: AstDType::Int,
+                    dtype: AstDType::I64,
                     mutability: Mutability::Immutable,
                     kind: VarKind::GroupId(0),
                 },
                 VarDecl {
                     name: "grp_1".to_string(),
-                    dtype: AstDType::Int,
+                    dtype: AstDType::I64,
                     mutability: Mutability::Immutable,
                     kind: VarKind::GroupId(1),
                 },
@@ -1702,7 +1702,7 @@ mod tests {
             name: Some("E_with_check".to_string()),
             params: vec![VarDecl {
                 name: "gidx".to_string(),
-                dtype: AstDType::Int,
+                dtype: AstDType::I64,
                 mutability: Mutability::Immutable,
                 kind: VarKind::GroupId(0),
             }],
@@ -1812,7 +1812,7 @@ mod tests {
             name: Some("E_large_1d".to_string()),
             params: vec![VarDecl {
                 name: "gidx".to_string(),
-                dtype: AstDType::Int,
+                dtype: AstDType::I64,
                 mutability: Mutability::Immutable,
                 kind: VarKind::GroupId(0),
             }],
@@ -1844,13 +1844,13 @@ mod tests {
             params: vec![
                 VarDecl {
                     name: "grp_0".to_string(),
-                    dtype: AstDType::Int,
+                    dtype: AstDType::I64,
                     mutability: Mutability::Immutable,
                     kind: VarKind::GroupId(0),
                 },
                 VarDecl {
                     name: "grp_1".to_string(),
-                    dtype: AstDType::Int,
+                    dtype: AstDType::I64,
                     mutability: Mutability::Immutable,
                     kind: VarKind::GroupId(1),
                 },

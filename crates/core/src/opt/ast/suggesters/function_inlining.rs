@@ -743,11 +743,11 @@ mod tests {
             name: Some("add_one".to_string()),
             params: vec![VarDecl {
                 name: "x".to_string(),
-                dtype: DType::Int,
+                dtype: DType::I64,
                 mutability: Mutability::Immutable,
                 kind: VarKind::Normal,
             }],
-            return_type: DType::Int,
+            return_type: DType::I64,
             body: Box::new(add_one_body),
         };
 
@@ -762,7 +762,7 @@ mod tests {
         let main_func = AstNode::Function {
             name: Some("main".to_string()),
             params: vec![],
-            return_type: DType::Int,
+            return_type: DType::I64,
             body: Box::new(main_body),
         };
 
@@ -816,11 +816,11 @@ mod tests {
             name: Some("identity".to_string()),
             params: vec![VarDecl {
                 name: "x".to_string(),
-                dtype: DType::Int,
+                dtype: DType::I64,
                 mutability: Mutability::Immutable,
                 kind: VarKind::Normal,
             }],
-            return_type: DType::Int,
+            return_type: DType::I64,
             body: Box::new(identity_body),
         };
 
@@ -835,7 +835,7 @@ mod tests {
         let main_func = AstNode::Function {
             name: Some("main".to_string()),
             params: vec![],
-            return_type: DType::Int,
+            return_type: DType::I64,
             body: Box::new(main_body),
         };
 
@@ -906,13 +906,13 @@ mod tests {
             params: vec![
                 VarDecl {
                     name: "input".to_string(),
-                    dtype: DType::Ptr(Box::new(DType::Int)),
+                    dtype: DType::Ptr(Box::new(DType::I64)),
                     mutability: Mutability::Immutable,
                     kind: VarKind::Normal,
                 },
                 VarDecl {
                     name: "output".to_string(),
-                    dtype: DType::Ptr(Box::new(DType::Int)),
+                    dtype: DType::Ptr(Box::new(DType::I64)),
                     mutability: Mutability::Mutable,
                     kind: VarKind::Normal,
                 },
@@ -935,13 +935,13 @@ mod tests {
             params: vec![
                 VarDecl {
                     name: "a".to_string(),
-                    dtype: DType::Ptr(Box::new(DType::Int)),
+                    dtype: DType::Ptr(Box::new(DType::I64)),
                     mutability: Mutability::Immutable,
                     kind: VarKind::Normal,
                 },
                 VarDecl {
                     name: "b".to_string(),
-                    dtype: DType::Ptr(Box::new(DType::Int)),
+                    dtype: DType::Ptr(Box::new(DType::I64)),
                     mutability: Mutability::Mutable,
                     kind: VarKind::Normal,
                 },
@@ -1010,19 +1010,19 @@ mod tests {
             params: vec![
                 VarDecl {
                     name: "ptr".to_string(),
-                    dtype: DType::Ptr(Box::new(DType::Int)),
+                    dtype: DType::Ptr(Box::new(DType::I64)),
                     mutability: Mutability::Immutable,
                     kind: VarKind::Normal,
                 },
                 VarDecl {
                     name: "offset".to_string(),
-                    dtype: DType::Int,
+                    dtype: DType::I64,
                     mutability: Mutability::Immutable,
                     kind: VarKind::Normal,
                 },
                 VarDecl {
                     name: "value".to_string(),
-                    dtype: DType::Int,
+                    dtype: DType::I64,
                     mutability: Mutability::Immutable,
                     kind: VarKind::Normal,
                 },

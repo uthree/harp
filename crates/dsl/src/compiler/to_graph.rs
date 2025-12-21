@@ -836,7 +836,7 @@ fn build_fused_ast_expr(expr: &DslExpr, inputs: &[String]) -> Result<AstNode, Ds
                 )))
             }
         }
-        DslExpr::IntLit(v) => Ok(AstNode::Const(harp::ast::Literal::Int(*v as isize))),
+        DslExpr::IntLit(v) => Ok(AstNode::Const(harp::ast::Literal::I64(*v))),
         DslExpr::FloatLit(v) => Ok(AstNode::Const(harp::ast::Literal::F32(*v as f32))),
         DslExpr::BinOp { op, lhs, rhs } => {
             let l = build_fused_ast_expr(lhs, inputs)?;
@@ -918,7 +918,7 @@ fn get_axes_arg(args: &[DslArg]) -> Result<Vec<usize>, DslError> {
 fn get_expr_arg(arg: &DslArg) -> Result<harp::graph::shape::Expr, DslError> {
     match arg {
         DslArg::Positional(expr) => match expr {
-            DslExpr::IntLit(v) => Ok(harp::graph::shape::Expr::Const(*v as isize)),
+            DslExpr::IntLit(v) => Ok(harp::graph::shape::Expr::Const(*v)),
             DslExpr::Var(name) => Ok(harp::graph::shape::Expr::Var(name.clone())),
             _ => Err(DslError::InvalidArgument(
                 "Expected integer or var for times argument".to_string(),
@@ -942,7 +942,7 @@ fn get_shape_arg(
         DslArg::Array(exprs) => exprs
             .iter()
             .map(|e| match e {
-                DslExpr::IntLit(v) => Ok(harp::graph::shape::Expr::Const(*v as isize)),
+                DslExpr::IntLit(v) => Ok(harp::graph::shape::Expr::Const(*v)),
                 DslExpr::Var(name) => Ok(harp::graph::shape::Expr::Var(name.clone())),
                 _ => Err(DslError::InvalidArgument(
                     "Expected integer or var in shape".to_string(),
@@ -971,7 +971,7 @@ fn dsl_expr_to_index_expr(expr: &DslExpr) -> Result<harp::graph::shape::Expr, Ds
     use harp::graph::shape::Expr;
 
     match expr {
-        DslExpr::IntLit(v) => Ok(Expr::Const(*v as isize)),
+        DslExpr::IntLit(v) => Ok(Expr::Const(*v)),
         DslExpr::Var(name) => {
             // Check if the name matches idx0, idx1, idx2, etc.
             if let Some(suffix) = name.strip_prefix("idx")
@@ -1109,7 +1109,7 @@ fn expr_to_shape_expr(
     env: &HashMap<String, GraphNode>,
 ) -> Result<harp::graph::shape::Expr, DslError> {
     match expr {
-        DslExpr::IntLit(v) => Ok(harp::graph::shape::Expr::Const(*v as isize)),
+        DslExpr::IntLit(v) => Ok(harp::graph::shape::Expr::Const(*v)),
         DslExpr::Var(name) => {
             // Check if it's a shape variable or a tensor
             if env.contains_key(name) {

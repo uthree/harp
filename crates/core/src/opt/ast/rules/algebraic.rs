@@ -17,7 +17,7 @@ identity_rules!(
     add_zero_right,
     add_zero_left,
     Add,
-    Literal::Int(0),
+    Literal::I64(0),
     "加算の右単位元: a + 0 = a",
     "加算の左単位元: 0 + a = a"
 );
@@ -26,7 +26,7 @@ identity_rules!(
     mul_one_right,
     mul_one_left,
     Mul,
-    Literal::Int(1),
+    Literal::I64(1),
     "乗算の右単位元: a * 1 = a",
     "乗算の左単位元: 1 * a = a"
 );
@@ -39,7 +39,7 @@ zero_rules!(
     mul_zero_right,
     mul_zero_left,
     Mul,
-    Literal::Int(0),
+    Literal::I64(0),
     "乗算の右零元: a * 0 = 0",
     "乗算の左零元: 0 * a = 0"
 );

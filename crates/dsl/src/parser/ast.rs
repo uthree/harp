@@ -15,7 +15,7 @@ pub struct DslGraph {
     pub name: String,
     /// Shape variables with default values: (name, default_value)
     /// All shape variables must have default values
-    pub shape_vars: Vec<(String, isize)>,
+    pub shape_vars: Vec<(String, i64)>,
     /// Input parameters
     pub inputs: Vec<DslParam>,
     /// Output parameters
@@ -39,7 +39,7 @@ pub struct DslParam {
 #[derive(Debug, Clone)]
 pub enum ShapeExpr {
     /// Constant integer
-    Const(isize),
+    Const(i64),
     /// Variable reference
     Var(String),
     /// Binary operation

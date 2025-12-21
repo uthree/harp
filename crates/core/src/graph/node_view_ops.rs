@@ -345,7 +345,7 @@ impl GraphNode {
         // スライス後のshapeを計算
         let new_shape: Vec<Expr> = ranges
             .iter()
-            .map(|(start, end)| Expr::from((end - start) as isize))
+            .map(|(start, end)| Expr::from((end - start) as i64))
             .collect();
 
         let new_view = View::contiguous(new_shape);
@@ -426,7 +426,7 @@ impl GraphNode {
     pub(crate) fn fold_nd(&self, output_size: Vec<usize>, params: &ConvParams) -> Self {
         let new_shape: Vec<Expr> = output_size
             .iter()
-            .map(|&s| Expr::from(s as isize))
+            .map(|&s| Expr::from(s as i64))
             .collect();
         let new_view = View::contiguous(new_shape);
 

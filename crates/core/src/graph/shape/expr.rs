@@ -6,7 +6,7 @@ use std::ops::{
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Expr {
     // 定数と変数
-    Const(isize),
+    Const(i64),
     Var(String),
 
     // ループインデックス変数 (IndexExpr View用)
@@ -48,7 +48,7 @@ impl From<Expr> for crate::ast::AstNode {
         // 変換前にsimplifyして可読性を向上
         let expr = expr.simplify();
         match expr {
-            Expr::Const(c) => AstNode::Const(Literal::Int(c)),
+            Expr::Const(c) => AstNode::Const(Literal::I64(c)),
             Expr::Var(s) => {
                 // 変数を直接ASTのVarに変換
                 AstNode::Var(s)
@@ -90,8 +90,9 @@ impl TryFrom<&crate::ast::AstNode> for Expr {
         use crate::ast::{AstNode, Literal};
 
         match node {
-            AstNode::Const(Literal::Int(v)) => Ok(Expr::Const(*v)),
-            AstNode::Const(Literal::F32(v)) => Ok(Expr::Const(*v as isize)),
+            AstNode::Const(Literal::I64(v)) => Ok(Expr::Const(*v)),
+            AstNode::Const(Literal::I32(v)) => Ok(Expr::Const(*v as i64)),
+            AstNode::Const(Literal::F32(v)) => Ok(Expr::Const(*v as i64)),
             AstNode::Var(name) => Ok(Expr::Var(name.clone())),
             AstNode::Add(l, r) => {
                 let left = Expr::try_from(l.as_ref())?;
@@ -140,7 +141,7 @@ impl Expr {
     /// let var = Expr::Var("x".to_string());
     /// assert_eq!(var.as_const(), None);
     /// ```
-    pub fn as_const(&self) -> Option<isize> {
+    pub fn as_const(&self) -> Option<i64> {
         match self {
             Expr::Const(v) => Some(*v),
             _ => None,
@@ -181,7 +182,7 @@ impl Expr {
     /// let var = Expr::Var("x".to_string());
     /// var.expect_const("variable not allowed"); // パニック
     /// ```
-    pub fn expect_const(&self, msg: &str) -> isize {
+    pub fn expect_const(&self, msg: &str) -> i64 {
         self.as_const()
             .unwrap_or_else(|| panic!("Expected constant expression: {}", msg))
     }
@@ -202,7 +203,7 @@ impl Expr {
     /// * `vars` - 変数名と値のマッピング
     ///
     /// # Returns
-    /// * `Ok(isize)` - 評価結果
+    /// * `Ok(i64)` - 評価結果
     /// * `Err(String)` - 未定義の変数があった場合
     ///
     /// # Examples
@@ -218,8 +219,8 @@ impl Expr {
     /// ```
     pub fn evaluate(
         &self,
-        vars: &std::collections::HashMap<String, isize>,
-    ) -> Result<isize, String> {
+        vars: &std::collections::HashMap<String, i64>,
+    ) -> Result<i64, String> {
         match self {
             Expr::Const(v) => Ok(*v),
             Expr::Var(name) => vars
@@ -263,7 +264,7 @@ impl Expr {
     /// * `Err(String)` - 未定義の変数があった場合、または結果が負の場合
     pub fn evaluate_usize(
         &self,
-        vars: &std::collections::HashMap<String, isize>,
+        vars: &std::collections::HashMap<String, i64>,
     ) -> Result<usize, String> {
         let result = self.evaluate(vars)?;
         if result < 0 {
@@ -606,7 +607,7 @@ macro_rules! impl_from_integer_for_expr {
         $(
             impl From<$t> for Expr {
                 fn from(n: $t) -> Self {
-                    Expr::Const(n as isize)
+                    Expr::Const(n as i64)
                 }
             }
         )*

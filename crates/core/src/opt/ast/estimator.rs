@@ -455,9 +455,9 @@ impl AstCostEstimator for SimpleCostEstimator {
                     ) => {
                         // 整数リテラル（Isize または Usize）から値を取得
                         if let (Some(start_val), Some(stop_val), Some(step_val)) = (
-                            start_lit.as_isize(),
-                            stop_lit.as_isize(),
-                            step_lit.as_isize(),
+                            start_lit.as_i64(),
+                            stop_lit.as_i64(),
+                            step_lit.as_i64(),
                         ) {
                             if step_val > 0 {
                                 // 正の方向のループ
@@ -698,15 +698,15 @@ mod tests {
             name: Some("add_one".to_string()),
             params: vec![VarDecl {
                 name: "x".to_string(),
-                dtype: DType::Int,
+                dtype: DType::I64,
                 mutability: Mutability::Immutable,
                 kind: VarKind::Normal,
             }],
-            return_type: DType::Int,
+            return_type: DType::I64,
             body: Box::new(AstNode::Return {
                 value: Box::new(AstNode::Add(
                     Box::new(AstNode::Var("x".to_string())),
-                    Box::new(AstNode::Const(Literal::Int(1))),
+                    Box::new(AstNode::Const(Literal::I64(1))),
                 )),
             }),
         };
@@ -714,11 +714,11 @@ mod tests {
         let main_with_call = AstNode::Function {
             name: Some("main".to_string()),
             params: vec![],
-            return_type: DType::Int,
+            return_type: DType::I64,
             body: Box::new(AstNode::Return {
                 value: Box::new(AstNode::Call {
                     name: "add_one".to_string(),
-                    args: vec![AstNode::Const(Literal::Int(5))],
+                    args: vec![AstNode::Const(Literal::I64(5))],
                 }),
             }),
         };
@@ -733,11 +733,11 @@ mod tests {
         let main_inlined = AstNode::Function {
             name: Some("main".to_string()),
             params: vec![],
-            return_type: DType::Int,
+            return_type: DType::I64,
             body: Box::new(AstNode::Return {
                 value: Box::new(AstNode::Add(
-                    Box::new(AstNode::Const(Literal::Int(5))),
-                    Box::new(AstNode::Const(Literal::Int(1))),
+                    Box::new(AstNode::Const(Literal::I64(5))),
+                    Box::new(AstNode::Const(Literal::I64(1))),
                 )),
             }),
         };
@@ -769,9 +769,9 @@ mod tests {
             functions: vec![AstNode::Function {
                 name: Some("main".to_string()),
                 params: vec![],
-                return_type: DType::Int,
+                return_type: DType::I64,
                 body: Box::new(AstNode::Return {
-                    value: Box::new(AstNode::Const(Literal::Int(1))),
+                    value: Box::new(AstNode::Const(Literal::I64(1))),
                 }),
             }],
             execution_waves: vec![],
@@ -783,17 +783,17 @@ mod tests {
                 AstNode::Function {
                     name: Some("helper".to_string()),
                     params: vec![],
-                    return_type: DType::Int,
+                    return_type: DType::I64,
                     body: Box::new(AstNode::Return {
-                        value: Box::new(AstNode::Const(Literal::Int(1))),
+                        value: Box::new(AstNode::Const(Literal::I64(1))),
                     }),
                 },
                 AstNode::Function {
                     name: Some("main".to_string()),
                     params: vec![],
-                    return_type: DType::Int,
+                    return_type: DType::I64,
                     body: Box::new(AstNode::Return {
-                        value: Box::new(AstNode::Const(Literal::Int(1))),
+                        value: Box::new(AstNode::Const(Literal::I64(1))),
                     }),
                 },
             ],
@@ -818,14 +818,14 @@ mod tests {
 
         // 直接計算: 5 + 1
         let direct = AstNode::Add(
-            Box::new(AstNode::Const(Literal::Int(5))),
-            Box::new(AstNode::Const(Literal::Int(1))),
+            Box::new(AstNode::Const(Literal::I64(5))),
+            Box::new(AstNode::Const(Literal::I64(1))),
         );
 
         // 関数呼び出し経由: call add_one(5)
         let via_call = AstNode::Call {
             name: "add_one".to_string(),
-            args: vec![AstNode::Const(Literal::Int(5))],
+            args: vec![AstNode::Const(Literal::I64(5))],
         };
 
         let cost_direct = estimator.estimate(&direct);
@@ -850,13 +850,13 @@ mod tests {
             params: vec![
                 VarDecl {
                     name: "ptr".to_string(),
-                    dtype: DType::Ptr(Box::new(DType::Int)),
+                    dtype: DType::Ptr(Box::new(DType::I64)),
                     mutability: Mutability::Immutable,
                     kind: VarKind::Normal,
                 },
                 VarDecl {
                     name: "value".to_string(),
-                    dtype: DType::Int,
+                    dtype: DType::I64,
                     mutability: Mutability::Immutable,
                     kind: VarKind::Normal,
                 },
@@ -865,7 +865,7 @@ mod tests {
             body: Box::new(AstNode::Block {
                 statements: vec![AstNode::Store {
                     ptr: Box::new(AstNode::Var("ptr".to_string())),
-                    offset: Box::new(AstNode::Const(Literal::Int(0))),
+                    offset: Box::new(AstNode::Const(Literal::I64(0))),
                     value: Box::new(AstNode::Var("value".to_string())),
                 }],
                 scope: Box::new(Scope::new()),
@@ -881,7 +881,7 @@ mod tests {
                     name: "write_value".to_string(),
                     args: vec![
                         AstNode::Var("buffer".to_string()),
-                        AstNode::Const(Literal::Int(42)),
+                        AstNode::Const(Literal::I64(42)),
                     ],
                 }],
                 scope: Box::new(Scope::new()),
@@ -901,8 +901,8 @@ mod tests {
             body: Box::new(AstNode::Block {
                 statements: vec![AstNode::Store {
                     ptr: Box::new(AstNode::Var("buffer".to_string())),
-                    offset: Box::new(AstNode::Const(Literal::Int(0))),
-                    value: Box::new(AstNode::Const(Literal::Int(42))),
+                    offset: Box::new(AstNode::Const(Literal::I64(0))),
+                    value: Box::new(AstNode::Const(Literal::I64(42))),
                 }],
                 scope: Box::new(Scope::new()),
             }),
@@ -928,23 +928,23 @@ mod tests {
     #[test]
     fn test_node_count() {
         // 単純なノード
-        let const_node = AstNode::Const(Literal::Int(42));
+        let const_node = AstNode::Const(Literal::I64(42));
         assert_eq!(SimpleCostEstimator::get_node_count(&const_node), 1);
 
         // 二項演算（3ノード: Add + 2つの定数）
         let add_node = AstNode::Add(
-            Box::new(AstNode::Const(Literal::Int(1))),
-            Box::new(AstNode::Const(Literal::Int(2))),
+            Box::new(AstNode::Const(Literal::I64(1))),
+            Box::new(AstNode::Const(Literal::I64(2))),
         );
         assert_eq!(SimpleCostEstimator::get_node_count(&add_node), 3);
 
         // ネストした演算（5ノード: Add + Mul + 3つの定数）
         let nested = AstNode::Add(
             Box::new(AstNode::Mul(
-                Box::new(AstNode::Const(Literal::Int(2))),
-                Box::new(AstNode::Const(Literal::Int(3))),
+                Box::new(AstNode::Const(Literal::I64(2))),
+                Box::new(AstNode::Const(Literal::I64(3))),
             )),
-            Box::new(AstNode::Const(Literal::Int(1))),
+            Box::new(AstNode::Const(Literal::I64(1))),
         );
         assert_eq!(SimpleCostEstimator::get_node_count(&nested), 5);
     }
@@ -958,9 +958,9 @@ mod tests {
             functions: vec![AstNode::Function {
                 name: Some("main".to_string()),
                 params: vec![],
-                return_type: DType::Int,
+                return_type: DType::I64,
                 body: Box::new(AstNode::Return {
-                    value: Box::new(AstNode::Const(Literal::Int(1))),
+                    value: Box::new(AstNode::Const(Literal::I64(1))),
                 }),
             }],
             execution_waves: vec![],
@@ -975,8 +975,8 @@ mod tests {
             statements.push(AstNode::Assign {
                 var: format!("var_{}", i),
                 value: Box::new(AstNode::Add(
-                    Box::new(AstNode::Const(Literal::Int(i as isize))),
-                    Box::new(AstNode::Const(Literal::Int(1))),
+                    Box::new(AstNode::Const(Literal::I64(i as i64))),
+                    Box::new(AstNode::Const(Literal::I64(1))),
                 )),
             });
         }
@@ -1017,7 +1017,7 @@ mod tests {
         let if_node = AstNode::If {
             condition: Box::new(AstNode::Lt(
                 Box::new(AstNode::Var("x".to_string())),
-                Box::new(AstNode::Const(Literal::Int(10))),
+                Box::new(AstNode::Const(Literal::I64(10))),
             )),
             then_body: Box::new(AstNode::Var("y".to_string())),
             else_body: None,
@@ -1034,7 +1034,7 @@ mod tests {
         // 条件式だけのコストと比較（Ifはオーバーヘッドがある）
         let condition_only = AstNode::Lt(
             Box::new(AstNode::Var("x".to_string())),
-            Box::new(AstNode::Const(Literal::Int(10))),
+            Box::new(AstNode::Const(Literal::I64(10))),
         );
         let condition_cost = estimator.estimate(&condition_only);
 
@@ -1144,7 +1144,7 @@ mod tests {
         let if_node = AstNode::If {
             condition: Box::new(AstNode::Lt(
                 Box::new(AstNode::Var("x".to_string())),
-                Box::new(AstNode::Const(Literal::Int(10))),
+                Box::new(AstNode::Const(Literal::I64(10))),
             )),
             then_body: Box::new(AstNode::Var("y".to_string())),
             else_body: None,
@@ -1166,11 +1166,11 @@ mod tests {
             functions: vec![AstNode::Function {
                 name: Some("main".to_string()),
                 params: vec![],
-                return_type: DType::Int,
+                return_type: DType::I64,
                 body: Box::new(AstNode::Return {
                     value: Box::new(AstNode::Add(
-                        Box::new(AstNode::Const(Literal::Int(1))),
-                        Box::new(AstNode::Const(Literal::Int(2))),
+                        Box::new(AstNode::Const(Literal::I64(1))),
+                        Box::new(AstNode::Const(Literal::I64(2))),
                     )),
                 }),
             }],
@@ -1193,8 +1193,8 @@ mod tests {
     fn test_local_parallel_more_efficient_than_global() {
         let estimator = SimpleCostEstimator::new();
 
-        let one = Box::new(AstNode::Const(Literal::Int(1)));
-        let thread_count = Box::new(AstNode::Const(Literal::Int(64)));
+        let one = Box::new(AstNode::Const(Literal::I64(1)));
+        let thread_count = Box::new(AstNode::Const(Literal::I64(64)));
 
         // 同じ本体を持つ2つのカーネル
         let kernel_body = AstNode::Store {
@@ -1209,7 +1209,7 @@ mod tests {
             params: vec![
                 VarDecl {
                     name: "lidx0".to_string(),
-                    dtype: DType::Int,
+                    dtype: DType::I64,
                     mutability: Mutability::Immutable,
                     kind: VarKind::LocalId(0),
                 },
@@ -1232,7 +1232,7 @@ mod tests {
             params: vec![
                 VarDecl {
                     name: "gidx0".to_string(),
-                    dtype: DType::Int,
+                    dtype: DType::I64,
                     mutability: Mutability::Immutable,
                     kind: VarKind::GroupId(0),
                 },
@@ -1267,7 +1267,7 @@ mod tests {
     fn test_local_parallel_with_variable_size_more_efficient_than_global() {
         let estimator = SimpleCostEstimator::new();
 
-        let one = Box::new(AstNode::Const(Literal::Int(1)));
+        let one = Box::new(AstNode::Const(Literal::I64(1)));
         let n = Box::new(AstNode::Var("N".to_string())); // 変数サイズ
 
         let kernel_body = AstNode::Store {
@@ -1283,7 +1283,7 @@ mod tests {
             params: vec![
                 VarDecl {
                     name: "lidx0".to_string(),
-                    dtype: DType::Int,
+                    dtype: DType::I64,
                     mutability: Mutability::Immutable,
                     kind: VarKind::LocalId(0),
                 },
@@ -1302,13 +1302,13 @@ mod tests {
 
         // GroupId並列化: grid_size = [N,1,1], thread_group_size = [256,1,1]
         // GroupParallelizationSuggesterが生成する形式
-        let thread_group_size = Box::new(AstNode::Const(Literal::Int(256)));
+        let thread_group_size = Box::new(AstNode::Const(Literal::I64(256)));
         let kernel_global = AstNode::Kernel {
             name: Some("global_parallel".to_string()),
             params: vec![
                 VarDecl {
                     name: "gidx0".to_string(),
-                    dtype: DType::Int,
+                    dtype: DType::I64,
                     mutability: Mutability::Immutable,
                     kind: VarKind::GroupId(0),
                 },

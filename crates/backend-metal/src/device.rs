@@ -117,9 +117,9 @@ impl MetalDevice {
 
         // Int: width 4 for basic ops
         for op in [Add, Mul, Compare, Load, Store] {
-            caps.push(SimdCapability::new(DType::Int, op, 4));
+            caps.push(SimdCapability::new(DType::I64, op, 4));
         }
-        caps.push(SimdCapability::new(DType::Int, Div, 2));
+        caps.push(SimdCapability::new(DType::I64, Div, 2));
 
         caps
     }

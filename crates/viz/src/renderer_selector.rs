@@ -28,6 +28,7 @@ pub enum RendererType {
 impl RendererType {
     /// すべてのレンダラータイプを取得
     pub fn all() -> Vec<RendererType> {
+        #[allow(unused_mut)]
         let mut types = vec![RendererType::CLike];
 
         #[cfg(feature = "opencl")]

@@ -31,7 +31,7 @@ use std::marker::PhantomData;
 pub struct ExecutionQuery<'a, B: Buffer> {
     inputs: HashMap<String, &'a B>,
     outputs: HashMap<String, *mut B>,
-    shape_vars: HashMap<String, isize>,
+    shape_vars: HashMap<String, i64>,
     _marker: PhantomData<&'a mut B>,
 }
 
@@ -62,13 +62,13 @@ impl<'a, B: Buffer> ExecutionQuery<'a, B> {
     ///
     /// Shape variables are used to compute grid sizes and other
     /// dimension-dependent values at runtime.
-    pub fn shape_var(mut self, name: impl Into<String>, value: isize) -> Self {
+    pub fn shape_var(mut self, name: impl Into<String>, value: i64) -> Self {
         self.shape_vars.insert(name.into(), value);
         self
     }
 
     /// Add multiple shape variables at once
-    pub fn shape_vars(mut self, vars: impl IntoIterator<Item = (String, isize)>) -> Self {
+    pub fn shape_vars(mut self, vars: impl IntoIterator<Item = (String, i64)>) -> Self {
         self.shape_vars.extend(vars);
         self
     }
@@ -89,7 +89,7 @@ impl<'a, B: Buffer> ExecutionQuery<'a, B> {
     }
 
     /// Get the shape variables map
-    pub fn get_shape_vars(&self) -> &HashMap<String, isize> {
+    pub fn get_shape_vars(&self) -> &HashMap<String, i64> {
         &self.shape_vars
     }
 
@@ -251,14 +251,14 @@ impl IntermediateBufferSpec {
         let element_count: usize = self.shape.iter().product();
         let element_size = match &self.dtype {
             DType::Bool => 1,
-            DType::Int => std::mem::size_of::<isize>(),
+            DType::I64 => std::mem::size_of::<i64>(),
             DType::I32 => 4, // 32-bit signed integer
             DType::F32 => 4,
             DType::Ptr(_) => std::mem::size_of::<*const ()>(),
             DType::Vec(inner, size) => {
                 let inner_size = match inner.as_ref() {
                     DType::F32 => 4,
-                    DType::Int => std::mem::size_of::<isize>(),
+                    DType::I64 => std::mem::size_of::<i64>(),
                     DType::I32 => 4,
                     _ => 4,
                 };

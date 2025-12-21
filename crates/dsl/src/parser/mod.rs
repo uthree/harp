@@ -97,7 +97,7 @@ fn parse_graph_def(pair: pest::iterators::Pair<Rule>) -> Result<DslGraph, DslErr
                         let var_name = ident.as_str();
                         check_reserved_keyword(var_name, &ident)?;
 
-                        let default_value: isize =
+                        let default_value: i64 =
                             parts.next().unwrap().as_str().parse().map_err(|_| {
                                 DslError::ParseError {
                                     line: 0,
@@ -260,7 +260,7 @@ fn parse_shape_factor(pair: pest::iterators::Pair<Rule>) -> Result<ShapeExpr, Ds
     let inner = pair.into_inner().next().unwrap();
     match inner.as_rule() {
         Rule::integer => {
-            let val: isize = inner.as_str().parse().map_err(|_| DslError::ParseError {
+            let val: i64 = inner.as_str().parse().map_err(|_| DslError::ParseError {
                 line: 0,
                 column: 0,
                 message: format!("Invalid integer: {}", inner.as_str()),

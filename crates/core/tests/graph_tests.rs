@@ -599,16 +599,16 @@ fn test_constant_f32() {
 }
 
 #[test]
-fn test_constant_isize() {
-    // isize定数ノードを作成
-    let const_node = GraphNode::constant(42isize);
+fn test_constant_i64() {
+    // i64定数ノードを作成
+    let const_node = GraphNode::constant(42i64);
 
     // スカラーであることを確認
     assert_eq!(const_node.view.ndim(), 0);
 
     // GraphOp::Constであることを確認
     match &const_node.op {
-        GraphOp::Const(Literal::Int(v)) => {
+        GraphOp::Const(Literal::I64(v)) => {
             assert_eq!(*v, 42);
         }
         _ => panic!("Expected GraphOp::Const with Int literal"),
@@ -625,7 +625,7 @@ fn test_constant_usize() {
 
     // GraphOp::Constであることを確認
     match &const_node.op {
-        GraphOp::Const(Literal::Int(v)) => {
+        GraphOp::Const(Literal::I64(v)) => {
             assert_eq!(*v, 100);
         }
         _ => panic!("Expected GraphOp::Const with Int literal"),

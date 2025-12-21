@@ -612,7 +612,7 @@ mod tests {
             {
                 // ステップが4であることを確認（タイル化の結果）
                 assert!(
-                    matches!(step.as_ref(), AstNode::Const(crate::ast::Literal::Int(4))),
+                    matches!(step.as_ref(), AstNode::Const(crate::ast::Literal::I64(4))),
                     "Outer loop step should be 4"
                 );
 
@@ -877,17 +877,17 @@ mod interchange_tests {
 
         let inner_loop = AstNode::Range {
             var: "j".to_string(),
-            start: Box::new(AstNode::Const(Literal::Int(0))),
-            step: Box::new(AstNode::Const(Literal::Int(1))),
-            stop: Box::new(AstNode::Const(Literal::Int(10))),
+            start: Box::new(AstNode::Const(Literal::I64(0))),
+            step: Box::new(AstNode::Const(Literal::I64(1))),
+            stop: Box::new(AstNode::Const(Literal::I64(10))),
             body: inner_body.clone(),
         };
 
         let outer_loop = AstNode::Range {
             var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Int(0))),
-            step: Box::new(AstNode::Const(Literal::Int(1))),
-            stop: Box::new(AstNode::Const(Literal::Int(20))),
+            start: Box::new(AstNode::Const(Literal::I64(0))),
+            step: Box::new(AstNode::Const(Literal::I64(1))),
+            stop: Box::new(AstNode::Const(Literal::I64(20))),
             body: Box::new(inner_loop),
         };
 
@@ -931,9 +931,9 @@ mod interchange_tests {
         // 単一のループ（ネストしていない）
         let single_loop = AstNode::Range {
             var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Int(0))),
-            step: Box::new(AstNode::Const(Literal::Int(1))),
-            stop: Box::new(AstNode::Const(Literal::Int(10))),
+            start: Box::new(AstNode::Const(Literal::I64(0))),
+            step: Box::new(AstNode::Const(Literal::I64(1))),
+            stop: Box::new(AstNode::Const(Literal::I64(10))),
             body: Box::new(AstNode::Var("x".to_string())),
         };
 
@@ -952,25 +952,25 @@ mod interchange_tests {
 
         let k_loop = AstNode::Range {
             var: "k".to_string(),
-            start: Box::new(AstNode::Const(Literal::Int(0))),
-            step: Box::new(AstNode::Const(Literal::Int(1))),
-            stop: Box::new(AstNode::Const(Literal::Int(5))),
+            start: Box::new(AstNode::Const(Literal::I64(0))),
+            step: Box::new(AstNode::Const(Literal::I64(1))),
+            stop: Box::new(AstNode::Const(Literal::I64(5))),
             body: innermost_body,
         };
 
         let j_loop = AstNode::Range {
             var: "j".to_string(),
-            start: Box::new(AstNode::Const(Literal::Int(0))),
-            step: Box::new(AstNode::Const(Literal::Int(1))),
-            stop: Box::new(AstNode::Const(Literal::Int(10))),
+            start: Box::new(AstNode::Const(Literal::I64(0))),
+            step: Box::new(AstNode::Const(Literal::I64(1))),
+            stop: Box::new(AstNode::Const(Literal::I64(10))),
             body: Box::new(k_loop),
         };
 
         let i_loop = AstNode::Range {
             var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Int(0))),
-            step: Box::new(AstNode::Const(Literal::Int(1))),
-            stop: Box::new(AstNode::Const(Literal::Int(20))),
+            start: Box::new(AstNode::Const(Literal::I64(0))),
+            step: Box::new(AstNode::Const(Literal::I64(1))),
+            stop: Box::new(AstNode::Const(Literal::I64(20))),
             body: Box::new(j_loop),
         };
 

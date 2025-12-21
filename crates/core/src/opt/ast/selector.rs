@@ -261,7 +261,7 @@ mod tests {
         let selector = AstCostSelector::new();
 
         // シンプルなASTノードを作成
-        let ast1 = AstNode::Const(Literal::Int(42));
+        let ast1 = AstNode::Const(Literal::I64(42));
         let ast2 = AstNode::Const(Literal::F32(2.5));
 
         let candidates = vec![ast1, ast2];
@@ -284,11 +284,11 @@ mod tests {
         let selector = AstCostSelector::new();
 
         let candidates = vec![
-            AstNode::Const(Literal::Int(1)),
-            AstNode::Const(Literal::Int(2)),
-            AstNode::Const(Literal::Int(3)),
-            AstNode::Const(Literal::Int(4)),
-            AstNode::Const(Literal::Int(5)),
+            AstNode::Const(Literal::I64(1)),
+            AstNode::Const(Literal::I64(2)),
+            AstNode::Const(Literal::I64(3)),
+            AstNode::Const(Literal::I64(4)),
+            AstNode::Const(Literal::I64(5)),
         ];
 
         let selected = selector.select(candidates, 3);
@@ -300,11 +300,11 @@ mod tests {
         let selector = AstMultiStageSelector::new().then(SimpleCostEstimator::new(), 3);
 
         let candidates = vec![
-            AstNode::Const(Literal::Int(1)),
-            AstNode::Const(Literal::Int(2)),
-            AstNode::Const(Literal::Int(3)),
-            AstNode::Const(Literal::Int(4)),
-            AstNode::Const(Literal::Int(5)),
+            AstNode::Const(Literal::I64(1)),
+            AstNode::Const(Literal::I64(2)),
+            AstNode::Const(Literal::I64(3)),
+            AstNode::Const(Literal::I64(4)),
+            AstNode::Const(Literal::I64(5)),
         ];
 
         let selected = selector.select(candidates, 3);
@@ -318,11 +318,11 @@ mod tests {
             .then(SimpleCostEstimator::new().with_node_count_penalty(0.1), 2);
 
         let candidates = vec![
-            AstNode::Const(Literal::Int(1)),
-            AstNode::Const(Literal::Int(2)),
-            AstNode::Const(Literal::Int(3)),
-            AstNode::Const(Literal::Int(4)),
-            AstNode::Const(Literal::Int(5)),
+            AstNode::Const(Literal::I64(1)),
+            AstNode::Const(Literal::I64(2)),
+            AstNode::Const(Literal::I64(3)),
+            AstNode::Const(Literal::I64(4)),
+            AstNode::Const(Literal::I64(5)),
         ];
 
         let selected = selector.select(candidates, 2);
@@ -336,9 +336,9 @@ mod tests {
             .then(SimpleCostEstimator::new(), 10);
 
         let candidates = vec![
-            AstNode::Const(Literal::Int(1)),
-            AstNode::Const(Literal::Int(2)),
-            AstNode::Const(Literal::Int(3)),
+            AstNode::Const(Literal::I64(1)),
+            AstNode::Const(Literal::I64(2)),
+            AstNode::Const(Literal::I64(3)),
         ];
 
         // kが3より小さい場合

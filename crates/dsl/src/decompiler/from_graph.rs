@@ -267,7 +267,7 @@ impl<'a> Decompiler<'a> {
                 let name = self.get_or_create_name(node);
                 let code = match lit {
                     harp::ast::Literal::F32(v) => format!("{}", v),
-                    harp::ast::Literal::Int(v) => format!("{}", v),
+                    harp::ast::Literal::I64(v) => format!("{}", v),
                     harp::ast::Literal::I32(v) => format!("{}", v),
                     harp::ast::Literal::Bool(v) => format!("{}", v),
                 };
@@ -553,6 +553,7 @@ impl<'a> Decompiler<'a> {
 fn dtype_to_dsl(dtype: &DType) -> &'static str {
     match dtype {
         DType::F32 => "f32",
+        DType::I64 => "i64",
         DType::I32 => "i32",
         DType::Bool => "bool",
         DType::Unknown => "unknown",
@@ -627,7 +628,7 @@ fn ast_expr_to_dsl(expr: &harp::ast::AstNode, inputs: &[String]) -> String {
         }
         AstNode::Const(lit) => match lit {
             Literal::F32(v) => format!("{}", v),
-            Literal::Int(v) => format!("{}", v),
+            Literal::I64(v) => format!("{}", v),
             Literal::I32(v) => format!("{}", v),
             Literal::Bool(v) => format!("{}", v),
         },

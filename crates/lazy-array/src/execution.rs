@@ -2,12 +2,6 @@
 //!
 //! 遅延評価されたArrayをGPU上で実行するためのコンテキストを提供します。
 
-use std::cell::RefCell;
-
-use crate::ArrayError;
-use harp_core::ast::DType;
-use harp_core::backend::Pipeline;
-use harp_core::graph::Graph;
 
 // ============================================================================
 // OpenCL ExecutionContext

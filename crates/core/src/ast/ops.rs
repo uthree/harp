@@ -115,25 +115,25 @@ impl From<f32> for AstNode {
 
 impl From<isize> for AstNode {
     fn from(value: isize) -> Self {
-        AstNode::Const(Literal::Int(value))
+        AstNode::Const(Literal::I64(value as i64))
     }
 }
 
 impl From<usize> for AstNode {
     fn from(value: usize) -> Self {
-        AstNode::Const(Literal::Int(value as isize))
+        AstNode::Const(Literal::I64(value as i64))
     }
 }
 
 impl From<i32> for AstNode {
     fn from(value: i32) -> Self {
-        AstNode::Const(Literal::Int(value as isize))
+        AstNode::Const(Literal::I64(value as i64))
     }
 }
 
 impl From<i64> for AstNode {
     fn from(value: i64) -> Self {
-        AstNode::Const(Literal::Int(value as isize))
+        AstNode::Const(Literal::I64(value))
     }
 }
 
@@ -379,13 +379,13 @@ mod tests {
 
         let isize_node = AstNode::from(42isize);
         match isize_node {
-            AstNode::Const(Literal::Int(v)) => assert_eq!(v, 42),
+            AstNode::Const(Literal::I64(v)) => assert_eq!(v, 42),
             _ => panic!("Expected Int constant"),
         }
 
         let usize_node = AstNode::from(100usize);
         match usize_node {
-            AstNode::Const(Literal::Int(v)) => assert_eq!(v, 100),
+            AstNode::Const(Literal::I64(v)) => assert_eq!(v, 100),
             _ => panic!("Expected Int constant"),
         }
     }
@@ -398,7 +398,7 @@ mod tests {
 
         match result {
             AstNode::BitwiseAnd(left, right) => match (*left, *right) {
-                (AstNode::Const(Literal::Int(l)), AstNode::Const(Literal::Int(r))) => {
+                (AstNode::Const(Literal::I64(l)), AstNode::Const(Literal::I64(r))) => {
                     assert_eq!(l, 5);
                     assert_eq!(r, 3);
                 }
@@ -439,7 +439,7 @@ mod tests {
 
         match result {
             AstNode::BitwiseNot(inner) => match *inner {
-                AstNode::Const(Literal::Int(v)) => assert_eq!(v, 5),
+                AstNode::Const(Literal::I64(v)) => assert_eq!(v, 5),
                 _ => panic!("Expected Int constant"),
             },
             _ => panic!("Expected BitwiseNot node"),
@@ -454,7 +454,7 @@ mod tests {
 
         match result {
             AstNode::LeftShift(left, right) => match (*left, *right) {
-                (AstNode::Const(Literal::Int(l)), AstNode::Const(Literal::Int(r))) => {
+                (AstNode::Const(Literal::I64(l)), AstNode::Const(Literal::I64(r))) => {
                     assert_eq!(l, 4);
                     assert_eq!(r, 2);
                 }
@@ -498,7 +498,7 @@ mod tests {
 
         match result {
             AstNode::BitwiseOr(left, right) => match (*left, *right) {
-                (AstNode::BitwiseAnd(_, _), AstNode::Const(Literal::Int(v))) => {
+                (AstNode::BitwiseAnd(_, _), AstNode::Const(Literal::I64(v))) => {
                     assert_eq!(v, 2);
                 }
                 _ => panic!("Expected BitwiseAnd node and Int constant"),
@@ -527,7 +527,7 @@ mod tests {
         let result = 3isize + var("y");
         match result {
             AstNode::Add(left, right) => match (*left, *right) {
-                (AstNode::Const(Literal::Int(v)), AstNode::Var(name)) => {
+                (AstNode::Const(Literal::I64(v)), AstNode::Var(name)) => {
                     assert_eq!(v, 3);
                     assert_eq!(name, "y");
                 }
@@ -596,13 +596,13 @@ mod tests {
     fn test_from_i32_and_i64() {
         let i32_node = AstNode::from(42i32);
         match i32_node {
-            AstNode::Const(Literal::Int(v)) => assert_eq!(v, 42),
+            AstNode::Const(Literal::I64(v)) => assert_eq!(v, 42),
             _ => panic!("Expected Int constant"),
         }
 
         let i64_node = AstNode::from(100i64);
         match i64_node {
-            AstNode::Const(Literal::Int(v)) => assert_eq!(v, 100),
+            AstNode::Const(Literal::I64(v)) => assert_eq!(v, 100),
             _ => panic!("Expected Int constant"),
         }
     }

@@ -23,7 +23,7 @@ fn test_call_map_children() {
     };
 
     let mapped = call.map_children(&|node| match node {
-        AstNode::Const(Literal::Int(n)) => const_int(n * 2),
+        AstNode::Const(Literal::I64(n)) => const_int(n * 2),
         _ => node.clone(),
     });
 
@@ -79,7 +79,7 @@ fn test_return_infer_type() {
 fn test_return_check_scope() {
     let mut scope = Scope::new();
     scope
-        .declare("result".to_string(), DType::Int, Mutability::Immutable)
+        .declare("result".to_string(), DType::I64, Mutability::Immutable)
         .unwrap();
 
     let ret = AstNode::Return {

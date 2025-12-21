@@ -347,7 +347,7 @@ fn test_to_astnode_const() {
     let ast: AstNode = expr.into();
 
     match ast {
-        AstNode::Const(Literal::Int(v)) => assert_eq!(v, 42),
+        AstNode::Const(Literal::I64(v)) => assert_eq!(v, 42),
         _ => panic!("Expected Const node with Int(42)"),
     }
 }
@@ -362,7 +362,7 @@ fn test_to_astnode_add() {
 
     // After simplify, this becomes Const(5)
     match ast {
-        AstNode::Const(Literal::Int(v)) => assert_eq!(v, 5),
+        AstNode::Const(Literal::I64(v)) => assert_eq!(v, 5),
         _ => panic!("Expected Const(5) after simplification"),
     }
 
@@ -394,7 +394,7 @@ fn test_to_astnode_sub() {
     let ast: AstNode = expr.into();
 
     match ast {
-        AstNode::Const(Literal::Int(v)) => assert_eq!(v, 2),
+        AstNode::Const(Literal::I64(v)) => assert_eq!(v, 2),
         _ => panic!("Expected Const(2) after simplification"),
     }
 }
@@ -408,7 +408,7 @@ fn test_to_astnode_mul() {
     let ast: AstNode = expr.into();
 
     match ast {
-        AstNode::Const(Literal::Int(v)) => assert_eq!(v, 20),
+        AstNode::Const(Literal::I64(v)) => assert_eq!(v, 20),
         _ => panic!("Expected Const(20) after simplification"),
     }
 }
@@ -422,7 +422,7 @@ fn test_to_astnode_div() {
     let ast: AstNode = expr.into();
 
     match ast {
-        AstNode::Const(Literal::Int(v)) => assert_eq!(v, 5),
+        AstNode::Const(Literal::I64(v)) => assert_eq!(v, 5),
         _ => panic!("Expected Const(5) after simplification"),
     }
 }
@@ -436,7 +436,7 @@ fn test_to_astnode_rem() {
     let ast: AstNode = expr.into();
 
     match ast {
-        AstNode::Const(Literal::Int(v)) => assert_eq!(v, 1),
+        AstNode::Const(Literal::I64(v)) => assert_eq!(v, 1),
         _ => panic!("Expected Const(1) after simplification"),
     }
 }
@@ -450,7 +450,7 @@ fn test_to_astnode_complex() {
     let ast: AstNode = expr.into();
 
     match ast {
-        AstNode::Const(Literal::Int(v)) => assert_eq!(v, 20),
+        AstNode::Const(Literal::I64(v)) => assert_eq!(v, 20),
         _ => panic!("Expected Const(20) after simplification"),
     }
 }
@@ -464,7 +464,7 @@ fn test_to_astnode_with_simplify() {
     let ast: AstNode = expr.into();
 
     match ast {
-        AstNode::Const(Literal::Int(v)) => assert_eq!(v, 5),
+        AstNode::Const(Literal::I64(v)) => assert_eq!(v, 5),
         _ => panic!("Expected simplified Const(5)"),
     }
 }

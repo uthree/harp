@@ -312,7 +312,7 @@ impl KernelPartitionSuggester {
                 for dim in 0..parallel_dims {
                     new_params.push(VarDecl {
                         name: format!("gidx{}", dim),
-                        dtype: DType::Int,
+                        dtype: DType::I64,
                         mutability: Mutability::Immutable,
                         kind: VarKind::GroupId(dim),
                     });
@@ -334,9 +334,9 @@ impl KernelPartitionSuggester {
 
         // 新しいスレッドグループサイズ
         let new_tg_size = [
-            Box::new(const_int(tg_dist[0] as isize)),
-            Box::new(const_int(tg_dist[1] as isize)),
-            Box::new(const_int(tg_dist[2] as isize)),
+            Box::new(const_int(tg_dist[0] as i64)),
+            Box::new(const_int(tg_dist[1] as i64)),
+            Box::new(const_int(tg_dist[2] as i64)),
         ];
 
         let new_ast = AstNode::Kernel {
@@ -599,7 +599,7 @@ impl KernelPartitionSuggester {
 
         for dim in 0..parallel_dims {
             let shape_var = var(format!("shape_{}", dim));
-            let tg = const_int(tg_size[dim] as isize);
+            let tg = const_int(tg_size[dim] as i64);
             let num_groups = ceil_div(shape_var, tg.clone());
             *grid[dim] = num_groups * tg;
         }
@@ -772,7 +772,7 @@ mod tests {
             params: vec![
                 VarDecl {
                     name: "gidx".to_string(),
-                    dtype: DType::Int,
+                    dtype: DType::I64,
                     mutability: Mutability::Immutable,
                     kind: VarKind::GroupId(0),
                 },
@@ -876,7 +876,7 @@ mod tests {
             params: vec![
                 VarDecl {
                     name: "gidx".to_string(),
-                    dtype: DType::Int,
+                    dtype: DType::I64,
                     mutability: Mutability::Immutable,
                     kind: VarKind::GroupId(0),
                 },

@@ -521,7 +521,7 @@ pub fn ceil_div(a: AstNode, b: AstNode) -> AstNode {
     // (a + b - 1) / b
     let b_minus_1 = AstNode::Add(
         Box::new(b.clone()),
-        Box::new(AstNode::Const(Literal::Int(-1))),
+        Box::new(AstNode::Const(Literal::I64(-1))),
     );
     let numerator = AstNode::Add(Box::new(a), Box::new(b_minus_1));
     AstNode::Idiv(Box::new(numerator), Box::new(b))
@@ -531,7 +531,7 @@ pub fn ceil_div(a: AstNode, b: AstNode) -> AstNode {
 pub fn group_id_param(name: impl Into<String>, axis: usize) -> VarDecl {
     VarDecl {
         name: name.into(),
-        dtype: DType::Int,
+        dtype: DType::I64,
         mutability: Mutability::Immutable,
         kind: VarKind::GroupId(axis),
     }
@@ -541,15 +541,15 @@ pub fn group_id_param(name: impl Into<String>, axis: usize) -> VarDecl {
 pub fn local_id_param(name: impl Into<String>, axis: usize) -> VarDecl {
     VarDecl {
         name: name.into(),
-        dtype: DType::Int,
+        dtype: DType::I64,
         mutability: Mutability::Immutable,
         kind: VarKind::LocalId(axis),
     }
 }
 
 /// 定数整数を生成
-pub fn const_int(value: isize) -> AstNode {
-    AstNode::Const(Literal::Int(value))
+pub fn const_int(value: i64) -> AstNode {
+    AstNode::Const(Literal::I64(value))
 }
 
 /// すべてのID系パラメータ（LocalId, GroupId）が使用している軸を収集
@@ -622,7 +622,7 @@ pub fn infer_params_from_placeholders(free_vars: &[String]) -> Vec<VarDecl> {
         } else if var_name.starts_with("shape") {
             VarDecl {
                 name: var_name.clone(),
-                dtype: DType::Int,
+                dtype: DType::I64,
                 mutability: Mutability::Immutable,
                 kind: VarKind::Normal,
             }
@@ -630,7 +630,7 @@ pub fn infer_params_from_placeholders(free_vars: &[String]) -> Vec<VarDecl> {
             // その他の変数はInt型として扱う
             VarDecl {
                 name: var_name.clone(),
-                dtype: DType::Int,
+                dtype: DType::I64,
                 mutability: Mutability::Immutable,
                 kind: VarKind::Normal,
             }

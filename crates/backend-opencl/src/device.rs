@@ -219,9 +219,9 @@ impl OpenCLDevice {
 
         // Int: same width as F32 for basic ops
         for op in [Add, Mul, Compare, Load, Store] {
-            caps.push(SimdCapability::new(DType::Int, op, f32_width));
+            caps.push(SimdCapability::new(DType::I64, op, f32_width));
         }
-        caps.push(SimdCapability::new(DType::Int, Div, f32_slow_width));
+        caps.push(SimdCapability::new(DType::I64, Div, f32_slow_width));
 
         caps
     }

@@ -163,7 +163,7 @@ pub fn evaluate_pure_const(node: &GraphNode) -> Option<Literal> {
                     let val = evaluate_pure_const(&node.src[0])?;
                     match (op, val) {
                         (ElementwiseOp::Neg, Literal::F32(v)) => Some(Literal::F32(-v)),
-                        (ElementwiseOp::Neg, Literal::Int(v)) => Some(Literal::Int(-v)),
+                        (ElementwiseOp::Neg, Literal::I64(v)) => Some(Literal::I64(-v)),
                         (ElementwiseOp::Recip, Literal::F32(v)) => Some(Literal::F32(1.0 / v)),
                         (ElementwiseOp::Sqrt, Literal::F32(v)) => Some(Literal::F32(v.sqrt())),
                         (ElementwiseOp::Exp2, Literal::F32(v)) => Some(Literal::F32(v.exp2())),
@@ -180,26 +180,26 @@ pub fn evaluate_pure_const(node: &GraphNode) -> Option<Literal> {
                         (ElementwiseOp::Add, Literal::F32(l), Literal::F32(r)) => {
                             Some(Literal::F32(l + r))
                         }
-                        (ElementwiseOp::Add, Literal::Int(l), Literal::Int(r)) => {
-                            Some(Literal::Int(l + r))
+                        (ElementwiseOp::Add, Literal::I64(l), Literal::I64(r)) => {
+                            Some(Literal::I64(l + r))
                         }
                         (ElementwiseOp::Mul, Literal::F32(l), Literal::F32(r)) => {
                             Some(Literal::F32(l * r))
                         }
-                        (ElementwiseOp::Mul, Literal::Int(l), Literal::Int(r)) => {
-                            Some(Literal::Int(l * r))
+                        (ElementwiseOp::Mul, Literal::I64(l), Literal::I64(r)) => {
+                            Some(Literal::I64(l * r))
                         }
-                        (ElementwiseOp::Idiv, Literal::Int(l), Literal::Int(r)) => {
-                            Some(Literal::Int(l / r))
+                        (ElementwiseOp::Idiv, Literal::I64(l), Literal::I64(r)) => {
+                            Some(Literal::I64(l / r))
                         }
-                        (ElementwiseOp::Rem, Literal::Int(l), Literal::Int(r)) => {
-                            Some(Literal::Int(l % r))
+                        (ElementwiseOp::Rem, Literal::I64(l), Literal::I64(r)) => {
+                            Some(Literal::I64(l % r))
                         }
                         (ElementwiseOp::Max, Literal::F32(l), Literal::F32(r)) => {
                             Some(Literal::F32(l.max(r)))
                         }
-                        (ElementwiseOp::Max, Literal::Int(l), Literal::Int(r)) => {
-                            Some(Literal::Int(l.max(r)))
+                        (ElementwiseOp::Max, Literal::I64(l), Literal::I64(r)) => {
+                            Some(Literal::I64(l.max(r)))
                         }
                         _ => None,
                     }

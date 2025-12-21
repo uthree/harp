@@ -63,7 +63,7 @@ pub trait Renderer {
 pub struct KernelSignature {
     pub inputs: Vec<BufferSignature>,
     pub outputs: Vec<BufferSignature>,
-    pub shape_vars: HashMap<String, isize>,
+    pub shape_vars: HashMap<String, i64>,
 }
 
 impl KernelSignature {
@@ -71,7 +71,7 @@ impl KernelSignature {
     pub fn new(
         inputs: Vec<BufferSignature>,
         outputs: Vec<BufferSignature>,
-        shape_vars: HashMap<String, isize>,
+        shape_vars: HashMap<String, i64>,
     ) -> Self {
         Self {
             inputs,

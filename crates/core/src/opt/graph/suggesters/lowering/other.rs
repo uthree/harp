@@ -234,7 +234,7 @@ pub fn build_slice_function(
     // 入力のオフセット（スライス開始位置を考慮）
     let mut input_offset_parts = Vec::new();
     for (axis, &(start, _)) in ranges.iter().enumerate().take(ndim) {
-        let idx = var(ph::ridx(axis)) + const_int(start as isize);
+        let idx = var(ph::ridx(axis)) + const_int(start as i64);
         input_offset_parts.push(idx);
     }
 

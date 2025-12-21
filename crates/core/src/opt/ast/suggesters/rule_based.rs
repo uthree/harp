@@ -341,8 +341,8 @@ mod tests {
         let suggester = RuleBaseSuggester::new(vec![rule]);
 
         let input = AstNode::Add(
-            Box::new(AstNode::Const(Literal::Int(1))),
-            Box::new(AstNode::Const(Literal::Int(2))),
+            Box::new(AstNode::Const(Literal::I64(1))),
+            Box::new(AstNode::Const(Literal::I64(2))),
         );
 
         let suggestions = suggester.suggest(&input);
@@ -352,8 +352,8 @@ mod tests {
         assert_eq!(
             suggestions[0].ast,
             AstNode::Add(
-                Box::new(AstNode::Const(Literal::Int(2))),
-                Box::new(AstNode::Const(Literal::Int(1))),
+                Box::new(AstNode::Const(Literal::I64(2))),
+                Box::new(AstNode::Const(Literal::I64(1))),
             )
         );
     }
@@ -362,14 +362,14 @@ mod tests {
     fn test_suggester_multiple_rules() {
         // ルール1: Add(a, 0) -> a
         let rule1 = astpat!(|a| {
-            AstNode::Add(Box::new(a), Box::new(AstNode::Const(Literal::Int(0))))
+            AstNode::Add(Box::new(a), Box::new(AstNode::Const(Literal::I64(0))))
         } => {
             a
         });
 
         // ルール2: Mul(a, 1) -> a
         let rule2 = astpat!(|a| {
-            AstNode::Mul(Box::new(a), Box::new(AstNode::Const(Literal::Int(1))))
+            AstNode::Mul(Box::new(a), Box::new(AstNode::Const(Literal::I64(1))))
         } => {
             a
         });
@@ -379,10 +379,10 @@ mod tests {
         // Mul(Add(x, 0), 1)
         let input = AstNode::Mul(
             Box::new(AstNode::Add(
-                Box::new(AstNode::Const(Literal::Int(42))),
-                Box::new(AstNode::Const(Literal::Int(0))),
+                Box::new(AstNode::Const(Literal::I64(42))),
+                Box::new(AstNode::Const(Literal::I64(0))),
             )),
-            Box::new(AstNode::Const(Literal::Int(1))),
+            Box::new(AstNode::Const(Literal::I64(1))),
         );
 
         let suggestions = suggester.suggest(&input);

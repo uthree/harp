@@ -61,8 +61,8 @@ impl View {
                 let output_sizes: Vec<Expr> = (0..spatial_dims)
                     .map(|i| {
                         let input_size = &shape[spatial_start + i];
-                        (input_size.clone() - Expr::from(eff_kernel[i] as isize))
-                            / Expr::from(params.stride[i] as isize)
+                        (input_size.clone() - Expr::from(eff_kernel[i] as i64))
+                            / Expr::from(params.stride[i] as i64)
                             + Expr::from(1)
                     })
                     .map(|e| e.simplify())
@@ -75,9 +75,9 @@ impl View {
 
                     // カーネルサイズ次元
                     for i in 0..spatial_dims {
-                        new_shape.push(Expr::from(params.kernel_size[i] as isize));
+                        new_shape.push(Expr::from(params.kernel_size[i] as i64));
                         new_strides.push(
-                            (Expr::from(params.dilation[i] as isize) * strides[i].clone())
+                            (Expr::from(params.dilation[i] as i64) * strides[i].clone())
                                 .simplify(),
                         );
                     }
@@ -85,7 +85,7 @@ impl View {
                     for i in 0..spatial_dims {
                         new_shape.push(output_sizes[i].clone());
                         new_strides.push(
-                            (Expr::from(params.stride[i] as isize) * strides[i].clone()).simplify(),
+                            (Expr::from(params.stride[i] as i64) * strides[i].clone()).simplify(),
                         );
                     }
 
@@ -101,9 +101,9 @@ impl View {
 
                     // カーネルサイズ次元
                     for i in 0..spatial_dims {
-                        new_shape.push(Expr::from(params.kernel_size[i] as isize));
+                        new_shape.push(Expr::from(params.kernel_size[i] as i64));
                         new_strides.push(
-                            (Expr::from(params.dilation[i] as isize) * strides[1 + i].clone())
+                            (Expr::from(params.dilation[i] as i64) * strides[1 + i].clone())
                                 .simplify(),
                         );
                     }
@@ -111,7 +111,7 @@ impl View {
                     for i in 0..spatial_dims {
                         new_shape.push(output_sizes[i].clone());
                         new_strides.push(
-                            (Expr::from(params.stride[i] as isize) * strides[1 + i].clone())
+                            (Expr::from(params.stride[i] as i64) * strides[1 + i].clone())
                                 .simplify(),
                         );
                     }
@@ -124,19 +124,19 @@ impl View {
                     // 定数の場合のみ検証
                     if let Expr::Const(c) = c_expr {
                         assert!(
-                            *c % params.groups as isize == 0,
+                            *c % params.groups as i64 == 0,
                             "Number of channels must be divisible by groups"
                         );
                     }
 
                     let c_per_group =
-                        (shape[0].clone() / Expr::from(params.groups as isize)).simplify();
+                        (shape[0].clone() / Expr::from(params.groups as i64)).simplify();
 
                     let mut new_shape = Vec::with_capacity(2 + spatial_dims * 2);
                     let mut new_strides = Vec::with_capacity(2 + spatial_dims * 2);
 
                     // グループ次元
-                    new_shape.push(Expr::from(params.groups as isize));
+                    new_shape.push(Expr::from(params.groups as i64));
                     new_strides.push((c_per_group.clone() * strides[0].clone()).simplify());
 
                     // グループ内チャネル次元
@@ -145,9 +145,9 @@ impl View {
 
                     // カーネルサイズ次元
                     for i in 0..spatial_dims {
-                        new_shape.push(Expr::from(params.kernel_size[i] as isize));
+                        new_shape.push(Expr::from(params.kernel_size[i] as i64));
                         new_strides.push(
-                            (Expr::from(params.dilation[i] as isize) * strides[1 + i].clone())
+                            (Expr::from(params.dilation[i] as i64) * strides[1 + i].clone())
                                 .simplify(),
                         );
                     }
@@ -155,7 +155,7 @@ impl View {
                     for i in 0..spatial_dims {
                         new_shape.push(output_sizes[i].clone());
                         new_strides.push(
-                            (Expr::from(params.stride[i] as isize) * strides[1 + i].clone())
+                            (Expr::from(params.stride[i] as i64) * strides[1 + i].clone())
                                 .simplify(),
                         );
                     }

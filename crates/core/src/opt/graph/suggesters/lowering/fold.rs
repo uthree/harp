@@ -149,7 +149,7 @@ fn build_output_offset(output_size: &[usize]) -> AstNode {
     let mut offset = var(ph::ridx(ndim - 1));
     for axis in (0..ndim - 1).rev() {
         let stride: usize = output_size[(axis + 1)..].iter().product();
-        offset = var(ph::ridx(axis)) * const_int(stride as isize) + offset;
+        offset = var(ph::ridx(axis)) * const_int(stride as i64) + offset;
     }
     offset
 }
@@ -192,7 +192,7 @@ fn build_fold_kernel_loops(
             k_var,
             const_int(0),
             const_int(1),
-            const_int(kernel_size[k_axis] as isize),
+            const_int(kernel_size[k_axis] as i64),
             body,
         );
     }
@@ -234,7 +234,7 @@ fn build_fold_inner_body(
 
         // h_offset = h - k * dilation
         let offset_expr =
-            spatial_coord.clone() - k_var.clone() * const_int(dilation[s_axis] as isize);
+            spatial_coord.clone() - k_var.clone() * const_int(dilation[s_axis] as i64);
 
         // 条件1: h_offset >= 0
         conditions.push(ge(offset_expr.clone(), const_int(0)));
@@ -242,14 +242,14 @@ fn build_fold_inner_body(
         // 条件2: h_offset % stride == 0
         if stride[s_axis] > 1 {
             conditions.push(eq(
-                rem(offset_expr.clone(), const_int(stride[s_axis] as isize)),
+                rem(offset_expr.clone(), const_int(stride[s_axis] as i64)),
                 const_int(0),
             ));
         }
 
         // パッチ位置: l = h_offset / stride
         let patch_idx = if stride[s_axis] > 1 {
-            idiv(offset_expr, const_int(stride[s_axis] as isize))
+            idiv(offset_expr, const_int(stride[s_axis] as i64))
         } else {
             offset_expr
         };
@@ -257,7 +257,7 @@ fn build_fold_inner_body(
         // 条件3: l < L'
         conditions.push(lt(
             patch_idx.clone(),
-            const_int(patch_sizes[s_axis] as isize),
+            const_int(patch_sizes[s_axis] as i64),
         ));
 
         patch_indices.push(patch_idx);
@@ -325,48 +325,48 @@ fn build_input_index(
     if has_groups {
         // groups > 1: 入力形状は (groups, C/groups, k1, k2, ..., L1', L2', ...)
         // 出力チャネル c から g と c_local を計算
-        let group_idx = idiv(channel_coord.clone(), const_int(c_per_group as isize));
-        let c_local = rem(channel_coord, const_int(c_per_group as isize));
+        let group_idx = idiv(channel_coord.clone(), const_int(c_per_group as i64));
+        let c_local = rem(channel_coord, const_int(c_per_group as i64));
 
         // グループ内の要素数
         let per_group_size = c_per_group * kernel_total * patch_total;
 
         // インデックス計算
-        let mut idx = group_idx * const_int(per_group_size as isize)
-            + c_local * const_int((kernel_total * patch_total) as isize);
+        let mut idx = group_idx * const_int(per_group_size as i64)
+            + c_local * const_int((kernel_total * patch_total) as i64);
 
         // カーネル次元部分
         for (k_axis, _k_size) in kernel_size.iter().enumerate() {
             let k_var = var(format!("k{}", k_axis));
             let k_stride: usize =
                 kernel_size[(k_axis + 1)..].iter().product::<usize>() * patch_total;
-            idx = idx + k_var * const_int(k_stride as isize);
+            idx = idx + k_var * const_int(k_stride as i64);
         }
 
         // パッチ位置部分
         for (p_axis, patch_idx) in patch_indices.iter().enumerate() {
             let p_stride: usize = patch_sizes[(p_axis + 1)..].iter().product();
-            idx = idx + patch_idx.clone() * const_int(p_stride as isize);
+            idx = idx + patch_idx.clone() * const_int(p_stride as i64);
         }
 
         idx
     } else {
         // groups = 1: 入力形状は (C, k1, k2, ..., L1', L2', ...)
         // チャネル部分
-        let mut idx = channel_coord * const_int((kernel_total * patch_total) as isize);
+        let mut idx = channel_coord * const_int((kernel_total * patch_total) as i64);
 
         // カーネル次元部分
         for (k_axis, _k_size) in kernel_size.iter().enumerate() {
             let k_var = var(format!("k{}", k_axis));
             let k_stride: usize =
                 kernel_size[(k_axis + 1)..].iter().product::<usize>() * patch_total;
-            idx = idx + k_var * const_int(k_stride as isize);
+            idx = idx + k_var * const_int(k_stride as i64);
         }
 
         // パッチ位置部分
         for (p_axis, patch_idx) in patch_indices.iter().enumerate() {
             let p_stride: usize = patch_sizes[(p_axis + 1)..].iter().product();
-            idx = idx + patch_idx.clone() * const_int(p_stride as isize);
+            idx = idx + patch_idx.clone() * const_int(p_stride as i64);
         }
 
         idx

@@ -146,11 +146,11 @@ impl DeviceProfile {
             caps.push(SimdCapability::new(DType::F32, op, 2));
         }
 
-        // Int: width 4 for most operations
+        // I64: width 4 for most operations
         for op in [Add, Mul, Compare, Load, Store] {
-            caps.push(SimdCapability::new(DType::Int, op, 4));
+            caps.push(SimdCapability::new(DType::I64, op, 4));
         }
-        caps.push(SimdCapability::new(DType::Int, Div, 2));
+        caps.push(SimdCapability::new(DType::I64, Div, 2));
 
         caps
     }
@@ -313,7 +313,7 @@ pub struct KernelConfig {
     /// Local work size (threadgroup dimensions)
     pub local_work_size: Option<[usize; 3]>,
     /// Shape variables for dynamic shapes
-    pub shape_vars: HashMap<String, isize>,
+    pub shape_vars: HashMap<String, i64>,
 }
 
 impl KernelConfig {
@@ -340,7 +340,7 @@ impl KernelConfig {
     }
 
     /// Add a shape variable
-    pub fn with_shape_var(mut self, name: impl Into<String>, value: isize) -> Self {
+    pub fn with_shape_var(mut self, name: impl Into<String>, value: i64) -> Self {
         self.shape_vars.insert(name.into(), value);
         self
     }

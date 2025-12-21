@@ -67,14 +67,14 @@ mod tests {
         // for i in 0..4 step 1 { body }
         let body = Box::new(AstNode::Add(
             Box::new(AstNode::Var("x".to_string())),
-            Box::new(AstNode::Const(Literal::Int(0))),
+            Box::new(AstNode::Const(Literal::I64(0))),
         ));
 
         let loop_node = AstNode::Range {
             var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Int(0))),
-            step: Box::new(AstNode::Const(Literal::Int(1))),
-            stop: Box::new(AstNode::Const(Literal::Int(4))),
+            start: Box::new(AstNode::Const(Literal::I64(0))),
+            step: Box::new(AstNode::Const(Literal::I64(1))),
+            stop: Box::new(AstNode::Const(Literal::I64(4))),
             body,
         };
 
@@ -95,7 +95,7 @@ mod tests {
         // x + 0
         let input = AstNode::Add(
             Box::new(AstNode::Var("x".to_string())),
-            Box::new(AstNode::Const(Literal::Int(0))),
+            Box::new(AstNode::Const(Literal::I64(0))),
         );
 
         let suggestions = suggester.suggest(&input);
@@ -117,9 +117,9 @@ mod tests {
 
         let loop_node = AstNode::Range {
             var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Int(0))),
-            step: Box::new(AstNode::Const(Literal::Int(1))),
-            stop: Box::new(AstNode::Const(Literal::Int(4))),
+            start: Box::new(AstNode::Const(Literal::I64(0))),
+            step: Box::new(AstNode::Const(Literal::I64(1))),
+            stop: Box::new(AstNode::Const(Literal::I64(4))),
             body,
         };
 
@@ -141,9 +141,9 @@ mod tests {
 
         let loop_node = AstNode::Range {
             var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Int(0))),
-            step: Box::new(AstNode::Const(Literal::Int(1))),
-            stop: Box::new(AstNode::Const(Literal::Int(4))),
+            start: Box::new(AstNode::Const(Literal::I64(0))),
+            step: Box::new(AstNode::Const(Literal::I64(1))),
+            stop: Box::new(AstNode::Const(Literal::I64(4))),
             body,
         };
 
@@ -166,15 +166,15 @@ mod tests {
             name: Some("add_one".to_string()),
             params: vec![VarDecl {
                 name: "x".to_string(),
-                dtype: DType::Int,
+                dtype: DType::I64,
                 mutability: Mutability::Immutable,
                 kind: VarKind::Normal,
             }],
-            return_type: DType::Int,
+            return_type: DType::I64,
             body: Box::new(AstNode::Return {
                 value: Box::new(AstNode::Add(
                     Box::new(AstNode::Var("x".to_string())),
-                    Box::new(AstNode::Const(Literal::Int(1))),
+                    Box::new(AstNode::Const(Literal::I64(1))),
                 )),
             }),
         };
@@ -183,11 +183,11 @@ mod tests {
         let main_func = AstNode::Function {
             name: Some("main".to_string()),
             params: vec![],
-            return_type: DType::Int,
+            return_type: DType::I64,
             body: Box::new(AstNode::Return {
                 value: Box::new(AstNode::Call {
                     name: "add_one".to_string(),
-                    args: vec![AstNode::Const(Literal::Int(5))],
+                    args: vec![AstNode::Const(Literal::I64(5))],
                 }),
             }),
         };

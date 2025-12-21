@@ -23,17 +23,17 @@ fn test_literal_from_f32() {
 }
 
 #[test]
-fn test_literal_from_isize() {
-    let lit: Literal = 42isize.into();
+fn test_literal_from_i64() {
+    let lit: Literal = 42i64.into();
     match lit {
-        Literal::Int(v) => assert_eq!(v, 42),
-        _ => panic!("Expected Int literal"),
+        Literal::I64(v) => assert_eq!(v, 42),
+        _ => panic!("Expected I64 literal"),
     }
 
-    let lit = Literal::from(-10isize);
+    let lit = Literal::from(-10i64);
     match lit {
-        Literal::Int(v) => assert_eq!(v, -10),
-        _ => panic!("Expected Int literal"),
+        Literal::I64(v) => assert_eq!(v, -10),
+        _ => panic!("Expected I64 literal"),
     }
 }
 
@@ -41,13 +41,13 @@ fn test_literal_from_isize() {
 fn test_literal_from_usize() {
     let lit: Literal = 100usize.into();
     match lit {
-        Literal::Int(v) => assert_eq!(v, 100),
+        Literal::I64(v) => assert_eq!(v, 100),
         _ => panic!("Expected Int literal"),
     }
 
     let lit = Literal::from(256usize);
     match lit {
-        Literal::Int(v) => assert_eq!(v, 256),
+        Literal::I64(v) => assert_eq!(v, 256),
         _ => panic!("Expected Int literal"),
     }
 }
@@ -57,11 +57,11 @@ fn test_literal_dtype() {
     let f32_lit = Literal::F32(3.14);
     assert_eq!(f32_lit.dtype(), DType::F32);
 
-    let int_lit = Literal::Int(42);
-    assert_eq!(int_lit.dtype(), DType::Int);
+    let int_lit = Literal::I64(42);
+    assert_eq!(int_lit.dtype(), DType::I64);
 
-    let int_lit = Literal::Int(100);
-    assert_eq!(int_lit.dtype(), DType::Int);
+    let int_lit = Literal::I64(100);
+    assert_eq!(int_lit.dtype(), DType::I64);
 }
 
 #[test]
@@ -101,7 +101,7 @@ fn test_children_unary_ops() {
 
 #[test]
 fn test_children_cast() {
-    let node = cast(const_f32(3.14), DType::Int);
+    let node = cast(const_f32(3.14), DType::I64);
     let children = node.children();
     assert_eq!(children.len(), 1);
 }
@@ -128,10 +128,10 @@ fn test_infer_type_const() {
     assert_eq!(node.infer_type(), DType::F32);
 
     let node = const_int(42);
-    assert_eq!(node.infer_type(), DType::Int);
+    assert_eq!(node.infer_type(), DType::I64);
 
     let node = const_int(100);
-    assert_eq!(node.infer_type(), DType::Int);
+    assert_eq!(node.infer_type(), DType::I64);
 }
 
 #[test]
@@ -141,7 +141,7 @@ fn test_infer_type_binary_ops() {
     assert_eq!(node.infer_type(), DType::F32);
 
     let node = const_int(3) * const_int(4);
-    assert_eq!(node.infer_type(), DType::Int);
+    assert_eq!(node.infer_type(), DType::I64);
 
     // Mixed types should return Unknown
     let node = const_f32(1.0) + const_int(2);
@@ -170,8 +170,8 @@ fn test_infer_type_unary_ops() {
 
 #[test]
 fn test_infer_type_cast() {
-    let node = cast(const_f32(3.14), DType::Int);
-    assert_eq!(node.infer_type(), DType::Int);
+    let node = cast(const_f32(3.14), DType::I64);
+    assert_eq!(node.infer_type(), DType::I64);
 
     let node = cast(const_int(42), DType::F32);
     assert_eq!(node.infer_type(), DType::F32);
@@ -263,8 +263,8 @@ fn test_dtype_element_type() {
     assert_eq!(vec_type.element_type(), &DType::F32);
 
     // Non-vec should return self
-    let scalar = DType::Int;
-    assert_eq!(scalar.element_type(), &DType::Int);
+    let scalar = DType::I64;
+    assert_eq!(scalar.element_type(), &DType::I64);
 }
 
 #[test]
@@ -274,8 +274,8 @@ fn test_dtype_deref_type() {
     assert_eq!(ptr_type.deref_type(), &DType::F32);
 
     // Non-ptr should return self
-    let scalar = DType::Int;
-    assert_eq!(scalar.deref_type(), &DType::Int);
+    let scalar = DType::I64;
+    assert_eq!(scalar.deref_type(), &DType::I64);
 }
 
 #[test]
@@ -375,7 +375,7 @@ fn test_assign() {
 
     // Assign returns the type of the value
     let inferred = assign_node.infer_type();
-    assert_eq!(inferred, DType::Int);
+    assert_eq!(inferred, DType::I64);
 }
 
 #[test]
@@ -384,7 +384,7 @@ fn test_load_store_map_children() {
 
     // Map children: multiply each constant by 2
     let mapped = load_node.map_children(&|node| match node {
-        AstNode::Const(Literal::Int(n)) => const_int(n * 2),
+        AstNode::Const(Literal::I64(n)) => const_int(n * 2),
         _ => node.clone(),
     });
 
@@ -409,7 +409,7 @@ fn test_assign_map_children() {
 
     // Map children: increment constant
     let mapped = assign_node.map_children(&|node| match node {
-        AstNode::Const(Literal::Int(n)) => const_int(n + 1),
+        AstNode::Const(Literal::I64(n)) => const_int(n + 1),
         _ => node.clone(),
     });
 
@@ -446,7 +446,7 @@ fn test_scope_duplicate_declare() {
         .declare("x".to_string(), DType::F32, Mutability::Immutable)
         .unwrap();
 
-    let result = scope.declare("x".to_string(), DType::Int, Mutability::Mutable);
+    let result = scope.declare("x".to_string(), DType::I64, Mutability::Mutable);
 
     assert!(result.is_err());
 }
@@ -499,7 +499,7 @@ fn test_scope_check_write_type_mismatch() {
         .declare("x".to_string(), DType::F32, Mutability::Mutable)
         .unwrap();
 
-    let result = scope.check_write("x", &DType::Int);
+    let result = scope.check_write("x", &DType::I64);
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("Type mismatch"));
 }
@@ -581,7 +581,7 @@ fn test_check_scope_complex_expression() {
         .unwrap();
 
     scope
-        .declare("i".to_string(), DType::Int, Mutability::Immutable)
+        .declare("i".to_string(), DType::I64, Mutability::Immutable)
         .unwrap();
 
     // output[i] = input[i] * 2.0

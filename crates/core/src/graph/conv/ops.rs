@@ -133,7 +133,7 @@ impl GraphNode {
         let groups = params.groups;
 
         let c_in_per_group =
-            match (self.view.shape()[0].clone() / Expr::from(groups as isize)).simplify() {
+            match (self.view.shape()[0].clone() / Expr::from(groups as i64)).simplify() {
                 Expr::Const(c) => c as usize,
                 _ => panic!("C_in/groups must be constant"),
             };
@@ -146,7 +146,7 @@ impl GraphNode {
 
         // kernel: (C_out, C_in/g, k1, ...) を (groups, C_out/g, C_in/g, k1, ...) にreshape
         let c_out = kernel.view.shape()[0].clone();
-        let c_out_per_group = (c_out.clone() / Expr::from(groups as isize)).simplify();
+        let c_out_per_group = (c_out.clone() / Expr::from(groups as i64)).simplify();
 
         // contiguous化
         let kernel_contiguous_view = View::contiguous(kernel.view.shape().to_vec());
@@ -159,12 +159,12 @@ impl GraphNode {
 
         // reshape: (C_out, C_in/g, k1, ...) -> (groups, C_out/g, C_in/g, k1, ...)
         let mut reshape_shape = vec![
-            Expr::from(groups as isize),
+            Expr::from(groups as i64),
             c_out_per_group.clone(),
-            Expr::from(c_in_per_group as isize),
+            Expr::from(c_in_per_group as i64),
         ];
         for &ks in &params.kernel_size {
-            reshape_shape.push(Expr::from(ks as isize));
+            reshape_shape.push(Expr::from(ks as i64));
         }
         let kernel_reshaped = kernel_contiguous.reshape(reshape_shape);
 
@@ -178,12 +178,12 @@ impl GraphNode {
 
         // 共通シェイプ: (groups, C_out/g, C_in/g, k1, ..., L1', ...)
         let mut common_shape = vec![
-            Expr::from(groups as isize),
+            Expr::from(groups as i64),
             c_out_per_group.clone(),
-            Expr::from(c_in_per_group as isize),
+            Expr::from(c_in_per_group as i64),
         ];
         for &ks in &params.kernel_size {
-            common_shape.push(Expr::from(ks as isize));
+            common_shape.push(Expr::from(ks as i64));
         }
         // 出力サイズ (unfoldedのshape: groups, C_in/g, k1, ..., L1', ...)
         for i in 0..spatial_dims {
@@ -389,12 +389,12 @@ impl GraphNode {
         let kernel_expanded = kernel.view(kernel_view);
 
         // 共通シェイプに展開: (C_in, C_out, k1, ..., L1_in, ...)
-        let mut common_shape = vec![Expr::from(c_in as isize), Expr::from(c_out as isize)];
+        let mut common_shape = vec![Expr::from(c_in as i64), Expr::from(c_out as i64)];
         for &ks in &params.kernel_size {
-            common_shape.push(Expr::from(ks as isize));
+            common_shape.push(Expr::from(ks as i64));
         }
         for &is in input_sizes {
-            common_shape.push(Expr::from(is as isize));
+            common_shape.push(Expr::from(is as i64));
         }
 
         let input_bc = input_expanded.broadcast_to(common_shape.clone());
@@ -420,8 +420,8 @@ impl GraphNode {
         );
         let reshaped = reduced_cont.reshape(vec![
             Expr::from(1),
-            Expr::from((c_out * kernel_product) as isize),
-            Expr::from(input_product as isize),
+            Expr::from((c_out * kernel_product) as i64),
+            Expr::from(input_product as i64),
         ]);
 
         // fold: 出力形状に畳み込む
@@ -456,11 +456,11 @@ impl GraphNode {
             input_contiguous_view,
         );
         let mut input_reshape_shape = vec![
-            Expr::from(groups as isize),
-            Expr::from(c_in_per_group as isize),
+            Expr::from(groups as i64),
+            Expr::from(c_in_per_group as i64),
         ];
         for &is in input_sizes {
-            input_reshape_shape.push(Expr::from(is as isize));
+            input_reshape_shape.push(Expr::from(is as i64));
         }
         let input_reshaped = input_contiguous.reshape(input_reshape_shape);
 
@@ -481,12 +481,12 @@ impl GraphNode {
             kernel_contiguous_view,
         );
         let mut kernel_reshape_shape = vec![
-            Expr::from(groups as isize),
-            Expr::from(c_in_per_group as isize),
-            Expr::from(c_out_per_group as isize),
+            Expr::from(groups as i64),
+            Expr::from(c_in_per_group as i64),
+            Expr::from(c_out_per_group as i64),
         ];
         for &ks in &params.kernel_size {
-            kernel_reshape_shape.push(Expr::from(ks as isize));
+            kernel_reshape_shape.push(Expr::from(ks as i64));
         }
         let kernel_reshaped = kernel_contiguous.reshape(kernel_reshape_shape);
 
@@ -500,15 +500,15 @@ impl GraphNode {
 
         // 共通シェイプに展開: (groups, C_in/groups, C_out/groups, k1, ..., L1_in, ...)
         let mut common_shape = vec![
-            Expr::from(groups as isize),
-            Expr::from(c_in_per_group as isize),
-            Expr::from(c_out_per_group as isize),
+            Expr::from(groups as i64),
+            Expr::from(c_in_per_group as i64),
+            Expr::from(c_out_per_group as i64),
         ];
         for &ks in &params.kernel_size {
-            common_shape.push(Expr::from(ks as isize));
+            common_shape.push(Expr::from(ks as i64));
         }
         for &is in input_sizes {
-            common_shape.push(Expr::from(is as isize));
+            common_shape.push(Expr::from(is as i64));
         }
 
         let input_bc = input_expanded.broadcast_to(common_shape.clone());

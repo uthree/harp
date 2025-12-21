@@ -5,7 +5,7 @@ use super::*;
 fn test_range_basic() {
     let mut scope = Scope::new();
     scope
-        .declare("i".to_string(), DType::Int, Mutability::Immutable)
+        .declare("i".to_string(), DType::I64, Mutability::Immutable)
         .unwrap();
 
     let range_node = range(
@@ -24,7 +24,7 @@ fn test_range_basic() {
 fn test_range_children() {
     let mut scope = Scope::new();
     scope
-        .declare("i".to_string(), DType::Int, Mutability::Immutable)
+        .declare("i".to_string(), DType::I64, Mutability::Immutable)
         .unwrap();
 
     let range_node = range(
@@ -44,7 +44,7 @@ fn test_range_children() {
 fn test_range_with_scope() {
     let mut outer_scope = Scope::new();
     outer_scope
-        .declare("N".to_string(), DType::Int, Mutability::Immutable)
+        .declare("N".to_string(), DType::I64, Mutability::Immutable)
         .unwrap();
 
     outer_scope
@@ -66,7 +66,7 @@ fn test_range_with_scope() {
     // ループ内のスコープ
     let mut loop_scope = Scope::with_parent(outer_scope.clone());
     loop_scope
-        .declare("i".to_string(), DType::Int, Mutability::Immutable)
+        .declare("i".to_string(), DType::I64, Mutability::Immutable)
         .unwrap();
 
     // for i in 0..N: output[i] = input[i] * 2
@@ -93,7 +93,7 @@ fn test_range_with_scope() {
 fn test_range_scope_check_undefined_loop_var() {
     let mut outer_scope = Scope::new();
     outer_scope
-        .declare("N".to_string(), DType::Int, Mutability::Immutable)
+        .declare("N".to_string(), DType::I64, Mutability::Immutable)
         .unwrap();
 
     // ループスコープにループ変数を宣言しない
@@ -116,19 +116,19 @@ fn test_range_scope_check_undefined_loop_var() {
 fn test_range_nested() {
     let mut outer_scope = Scope::new();
     outer_scope
-        .declare("N".to_string(), DType::Int, Mutability::Immutable)
+        .declare("N".to_string(), DType::I64, Mutability::Immutable)
         .unwrap();
 
     // 外側のループスコープ
     let mut outer_loop_scope = Scope::with_parent(outer_scope.clone());
     outer_loop_scope
-        .declare("i".to_string(), DType::Int, Mutability::Immutable)
+        .declare("i".to_string(), DType::I64, Mutability::Immutable)
         .unwrap();
 
     // 内側のループスコープ
     let mut inner_loop_scope = Scope::with_parent(outer_loop_scope.clone());
     inner_loop_scope
-        .declare("j".to_string(), DType::Int, Mutability::Immutable)
+        .declare("j".to_string(), DType::I64, Mutability::Immutable)
         .unwrap();
 
     // for j in 0..N: use i and j
@@ -158,13 +158,13 @@ fn test_range_nested() {
 fn test_block_basic() {
     let mut scope = Scope::new();
     scope
-        .declare("x".to_string(), DType::Int, Mutability::Immutable)
+        .declare("x".to_string(), DType::I64, Mutability::Immutable)
         .unwrap();
 
     let block_node = block(vec![var("x"), const_int(42)], scope);
 
     // Blockは最後の文の型を返す
-    assert_eq!(block_node.infer_type(), DType::Int);
+    assert_eq!(block_node.infer_type(), DType::I64);
 }
 
 #[test]

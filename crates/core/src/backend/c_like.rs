@@ -119,7 +119,7 @@ pub trait CLikeRenderer: Renderer {
                     format!("{}f", s)
                 }
             }
-            Literal::Int(v) => format!("{}", v),
+            Literal::I64(v) => format!("{}", v),
             Literal::I32(v) => format!("{}", v),
         }
     }
@@ -409,7 +409,7 @@ pub trait CLikeRenderer: Renderer {
         body: &AstNode,
     ) -> String {
         let mut result = String::new();
-        let loop_var_type = self.render_dtype_backend(&DType::Int);
+        let loop_var_type = self.render_dtype_backend(&DType::I64);
         result.push_str(&format!(
             "{}for ({} {} = {}; {} < {}; {} += {}) {{",
             self.indent(),
@@ -794,7 +794,7 @@ impl CLikeRenderer for GenericRenderer {
         match dtype {
             DType::F32 => "float".to_string(),
             DType::Bool => "unsigned char".to_string(),
-            DType::Int => "int".to_string(),
+            DType::I64 => "long".to_string(),
             DType::I32 => "int".to_string(), // 32-bit signed integer
             DType::Ptr(inner) => format!("{}*", self.render_dtype_backend(inner)),
             DType::Vec(inner, size) => format!("{}[{}]", self.render_dtype_backend(inner), size),

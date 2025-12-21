@@ -40,7 +40,7 @@ pub struct Graph {
     input_metas: Vec<InputMeta>,                // 入力バッファのメタデータ
     output_metas: Vec<OutputMeta>,              // 出力バッファのメタデータ
     output_nodes: BTreeMap<String, GraphNode>,  // 出力ノード（名前→ノード）
-    shape_var_defaults: HashMap<String, isize>, // 動的shape変数のデフォルト値（必須）
+    shape_var_defaults: HashMap<String, i64>, // 動的shape変数のデフォルト値（必須）
     subgraphs: HashMap<String, Graph>,          // サブグラフ定義（DSLのgraph main以外）
 }
 
@@ -61,6 +61,7 @@ pub struct GraphNode(Rc<GraphNodeData>);
 pub enum DType {
     Unknown, // 未定または未知, プレースホルダー
     Bool,    // boolean (internally u8: 0 = false, non-zero = true)
+    I64,     // 64-bit signed integer (for indexing/counters)
     I32,     // 32-bit signed integer
     F32,     // 32-bit floating point
 }
@@ -215,12 +216,12 @@ impl Graph {
     }
 
     // shape変数のデフォルト値を設定
-    pub fn set_shape_var_default(&mut self, name: impl Into<String>, default_value: isize) {
+    pub fn set_shape_var_default(&mut self, name: impl Into<String>, default_value: i64) {
         self.shape_var_defaults.insert(name.into(), default_value);
     }
 
     // shape変数のデフォルト値を取得
-    pub fn shape_var_defaults(&self) -> &HashMap<String, isize> {
+    pub fn shape_var_defaults(&self) -> &HashMap<String, i64> {
         &self.shape_var_defaults
     }
 
@@ -331,7 +332,7 @@ impl GraphNode {
         let dtype = match &literal {
             crate::ast::Literal::Bool(_) => DType::Bool,
             crate::ast::Literal::F32(_) => DType::F32,
-            crate::ast::Literal::Int(_) => DType::I32, // isize リテラルは I32 として扱う
+            crate::ast::Literal::I64(_) => DType::I64, // i64 リテラルは I64 として扱う
             crate::ast::Literal::I32(_) => DType::I32,
         };
         // 定数はスカラー（shape=[]）

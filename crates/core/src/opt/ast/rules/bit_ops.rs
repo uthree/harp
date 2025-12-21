@@ -7,13 +7,13 @@ use crate::ast::{AstNode, Literal};
 use std::rc::Rc;
 
 /// 値が2の累乗かどうかをチェックするヘルパー関数
-fn is_power_of_two(n: isize) -> bool {
+fn is_power_of_two(n: i64) -> bool {
     n > 0 && (n & (n - 1)) == 0
 }
 
 /// 2の累乗の値からlog2を計算するヘルパー関数
-fn log2_of_power_of_two(n: isize) -> isize {
-    n.trailing_zeros() as isize
+fn log2_of_power_of_two(n: i64) -> i64 {
+    n.trailing_zeros() as i64
 }
 
 /// 乗算を左シフトに変換: x * 2^n = x << n
@@ -27,12 +27,12 @@ pub fn mul_power_of_two_to_shift_right() -> Rc<AstRewriteRule> {
             let a = bindings.get("a").unwrap();
             let b = bindings.get("b").unwrap();
 
-            if let AstNode::Const(Literal::Int(n)) = b
+            if let AstNode::Const(Literal::I64(n)) = b
                 && is_power_of_two(*n)
             {
                 return AstNode::LeftShift(
                     Box::new(a.clone()),
-                    Box::new(AstNode::Const(Literal::Int(log2_of_power_of_two(*n)))),
+                    Box::new(AstNode::Const(Literal::I64(log2_of_power_of_two(*n)))),
                 );
             }
 
@@ -41,7 +41,7 @@ pub fn mul_power_of_two_to_shift_right() -> Rc<AstRewriteRule> {
         },
         |bindings| {
             // 条件：bが2の累乗の定数
-            if let Some(AstNode::Const(Literal::Int(n))) = bindings.get("b") {
+            if let Some(AstNode::Const(Literal::I64(n))) = bindings.get("b") {
                 is_power_of_two(*n)
             } else {
                 false
@@ -61,12 +61,12 @@ pub fn mul_power_of_two_to_shift_left() -> Rc<AstRewriteRule> {
             let a = bindings.get("a").unwrap();
             let b = bindings.get("b").unwrap();
 
-            if let AstNode::Const(Literal::Int(n)) = a
+            if let AstNode::Const(Literal::I64(n)) = a
                 && is_power_of_two(*n)
             {
                 return AstNode::LeftShift(
                     Box::new(b.clone()),
-                    Box::new(AstNode::Const(Literal::Int(log2_of_power_of_two(*n)))),
+                    Box::new(AstNode::Const(Literal::I64(log2_of_power_of_two(*n)))),
                 );
             }
 
@@ -75,7 +75,7 @@ pub fn mul_power_of_two_to_shift_left() -> Rc<AstRewriteRule> {
         },
         |bindings| {
             // 条件：aが2の累乗の定数
-            if let Some(AstNode::Const(Literal::Int(n))) = bindings.get("a") {
+            if let Some(AstNode::Const(Literal::I64(n))) = bindings.get("a") {
                 is_power_of_two(*n)
             } else {
                 false

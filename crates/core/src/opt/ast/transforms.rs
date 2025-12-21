@@ -199,17 +199,17 @@ pub fn inline_small_loop(loop_node: &AstNode, max_iterations: usize) -> Option<A
 
             // start, step, stopが全て定数の場合のみ展開可能
             let start_val = match start.as_ref() {
-                AstNode::Const(Literal::Int(v)) => *v as usize,
+                AstNode::Const(Literal::I64(v)) => *v as usize,
                 _ => return None,
             };
 
             let step_val = match step.as_ref() {
-                AstNode::Const(Literal::Int(v)) if *v > 0 => *v as usize,
+                AstNode::Const(Literal::I64(v)) if *v > 0 => *v as usize,
                 _ => return None, // ステップが定数でないか、0以下の場合は展開不可
             };
 
             let stop_val = match stop.as_ref() {
-                AstNode::Const(Literal::Int(v)) => *v as usize,
+                AstNode::Const(Literal::I64(v)) => *v as usize,
                 _ => return None,
             };
 
@@ -231,7 +231,7 @@ pub fn inline_small_loop(loop_node: &AstNode, max_iterations: usize) -> Option<A
             let mut current = start_val;
 
             while current < stop_val {
-                let var_value = const_int(current as isize);
+                let var_value = const_int(current as i64);
                 let replaced_body = replace_var_in_ast(body, var, &var_value);
 
                 // Blockの場合、その中身を直接追加（フラット化）
@@ -306,7 +306,7 @@ pub fn tile_loop(loop_node: &AstNode, tile_size: usize) -> Option<AstNode> {
             body,
         } => {
             // ステップが1の場合のみタイル化可能（簡易実装）
-            let is_step_one = matches!(step.as_ref(), AstNode::Const(Literal::Int(1)));
+            let is_step_one = matches!(step.as_ref(), AstNode::Const(Literal::I64(1)));
             if !is_step_one {
                 log::trace!("Skipping tiling for loop with step != 1: {}", var);
                 return None;
@@ -329,7 +329,7 @@ pub fn tile_loop(loop_node: &AstNode, tile_size: usize) -> Option<AstNode> {
             // 元のループ変数をスコープに宣言（ローカル変数として生成されるように）
             let mut inner_scope = Scope::new();
             inner_scope
-                .declare(var.clone(), DType::Int, Mutability::Mutable)
+                .declare(var.clone(), DType::I64, Mutability::Mutable)
                 .expect("Failed to declare loop variable in inner scope");
 
             let inner_body = AstNode::Block {
@@ -342,20 +342,20 @@ pub fn tile_loop(loop_node: &AstNode, tile_size: usize) -> Option<AstNode> {
                 inner_var.clone(),
                 const_int(0),
                 const_int(1),
-                const_int(tile_size as isize),
+                const_int(tile_size as i64),
                 inner_body,
             );
 
             // メインループの終了値: (stop / tile_size) * tile_size
             // 計算式ノードとして生成（最適化で定数畳み込みされる可能性あり）
-            let tile_size_node = const_int(tile_size as isize);
+            let tile_size_node = const_int(tile_size as i64);
             let aligned_stop = idiv(stop.as_ref().clone(), tile_size_node.clone()) * tile_size_node;
 
             // 外側ループ: for outer_var in start..aligned_stop step tile_size
             let outer_loop = range(
                 outer_var.clone(),
                 start.as_ref().clone(),
-                const_int(tile_size as isize),
+                const_int(tile_size as i64),
                 aligned_stop.clone(),
                 inner_loop,
             );
@@ -367,7 +367,7 @@ pub fn tile_loop(loop_node: &AstNode, tile_size: usize) -> Option<AstNode> {
             // 端数ループでも元のループ変数をスコープに宣言
             let mut remainder_scope = Scope::new();
             remainder_scope
-                .declare(var.clone(), DType::Int, Mutability::Mutable)
+                .declare(var.clone(), DType::I64, Mutability::Mutable)
                 .expect("Failed to declare loop variable in remainder scope");
 
             let remainder_body = AstNode::Block {
@@ -432,7 +432,7 @@ pub fn tile_loop_with_guard(loop_node: &AstNode, tile_size: usize) -> Option<Ast
             body,
         } => {
             // ステップが1の場合のみタイル化可能（簡易実装）
-            let is_step_one = matches!(step.as_ref(), AstNode::Const(Literal::Int(1)));
+            let is_step_one = matches!(step.as_ref(), AstNode::Const(Literal::I64(1)));
             if !is_step_one {
                 log::trace!(
                     "Skipping tiling with guard for loop with step != 1: {}",
@@ -443,7 +443,7 @@ pub fn tile_loop_with_guard(loop_node: &AstNode, tile_size: usize) -> Option<Ast
 
             // startが0であることを要求（デフォルト）
             // start != 0 の場合は tile_loop_with_guard_any_start を使用
-            let is_start_zero = matches!(start.as_ref(), AstNode::Const(Literal::Int(0)));
+            let is_start_zero = matches!(start.as_ref(), AstNode::Const(Literal::I64(0)));
             if !is_start_zero {
                 log::trace!(
                     "Skipping tiling with guard for loop with start != 0: {}",
@@ -454,7 +454,7 @@ pub fn tile_loop_with_guard(loop_node: &AstNode, tile_size: usize) -> Option<Ast
 
             // stopの値を取得（定数の場合のみ最適化に使用）
             let stop_val = match stop.as_ref() {
-                AstNode::Const(Literal::Int(v)) => Some(*v),
+                AstNode::Const(Literal::I64(v)) => Some(*v),
                 _ => None,
             };
 
@@ -470,7 +470,7 @@ pub fn tile_loop_with_guard(loop_node: &AstNode, tile_size: usize) -> Option<Ast
             let (outer_var, inner_var, _) = find_next_ridx_names(&used_names);
 
             // 内側ループの本体: original_var = outer_var * tile_size + inner_var
-            let i_expr = helper_var(outer_var.clone()) * const_int(tile_size as isize)
+            let i_expr = helper_var(outer_var.clone()) * const_int(tile_size as i64)
                 + helper_var(inner_var.clone());
 
             // original_var = outer_var * tile_size + inner_var の代入
@@ -493,7 +493,7 @@ pub fn tile_loop_with_guard(loop_node: &AstNode, tile_size: usize) -> Option<Ast
             // 元のループ変数をスコープに宣言（ローカル変数として生成されるように）
             let mut inner_scope = Scope::new();
             inner_scope
-                .declare(var.clone(), DType::Int, Mutability::Mutable)
+                .declare(var.clone(), DType::I64, Mutability::Mutable)
                 .expect("Failed to declare loop variable in inner scope");
 
             let inner_body = AstNode::Block {
@@ -506,17 +506,17 @@ pub fn tile_loop_with_guard(loop_node: &AstNode, tile_size: usize) -> Option<Ast
                 inner_var.clone(),
                 const_int(0),
                 const_int(1),
-                const_int(tile_size as isize),
+                const_int(tile_size as i64),
                 inner_body,
             );
 
             // 外側ループの終了値: ceil_div(stop, tile_size)
             let outer_stop = if let Some(n) = stop_val {
                 // 定数の場合: (n + tile_size - 1) / tile_size
-                const_int((n as usize).div_ceil(tile_size) as isize)
+                const_int((n as usize).div_ceil(tile_size) as i64)
             } else {
                 // 変数の場合: (stop + tile_size - 1) / tile_size
-                ceil_div_ast(stop.as_ref().clone(), const_int(tile_size as isize))
+                ceil_div_ast(stop.as_ref().clone(), const_int(tile_size as i64))
             };
 
             // 外側ループ: for outer_var in 0..ceil_div(stop, tile_size) step 1
@@ -675,9 +675,9 @@ mod tests {
 
         let loop_node = AstNode::Range {
             var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Int(0))),
-            step: Box::new(AstNode::Const(Literal::Int(1))),
-            stop: Box::new(AstNode::Const(Literal::Int(4))),
+            start: Box::new(AstNode::Const(Literal::I64(0))),
+            step: Box::new(AstNode::Const(Literal::I64(1))),
+            stop: Box::new(AstNode::Const(Literal::I64(4))),
             body,
         };
 
@@ -691,8 +691,8 @@ mod tests {
             // 各statementでiが0, 1, 2, 3に置き換えられているか確認
             for (idx, stmt) in statements.iter().enumerate() {
                 if let AstNode::Store { offset, value, .. } = stmt {
-                    assert_eq!(**offset, AstNode::Const(Literal::Int(idx as isize)));
-                    assert_eq!(**value, AstNode::Const(Literal::Int(idx as isize)));
+                    assert_eq!(**offset, AstNode::Const(Literal::I64(idx as i64)));
+                    assert_eq!(**value, AstNode::Const(Literal::I64(idx as i64)));
                 } else {
                     panic!("Expected Store node");
                 }
@@ -708,9 +708,9 @@ mod tests {
 
         let loop_node = AstNode::Range {
             var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Int(0))),
-            step: Box::new(AstNode::Const(Literal::Int(1))),
-            stop: Box::new(AstNode::Const(Literal::Int(100))),
+            start: Box::new(AstNode::Const(Literal::I64(0))),
+            step: Box::new(AstNode::Const(Literal::I64(1))),
+            stop: Box::new(AstNode::Const(Literal::I64(100))),
             body,
         };
 
@@ -726,9 +726,9 @@ mod tests {
 
         let loop_node = AstNode::Range {
             var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Int(0))),
-            step: Box::new(AstNode::Const(Literal::Int(2))),
-            stop: Box::new(AstNode::Const(Literal::Int(10))),
+            start: Box::new(AstNode::Const(Literal::I64(0))),
+            step: Box::new(AstNode::Const(Literal::I64(2))),
+            stop: Box::new(AstNode::Const(Literal::I64(10))),
             body,
         };
 
@@ -755,9 +755,9 @@ mod tests {
 
         let original_loop = AstNode::Range {
             var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Int(0))),
-            step: Box::new(AstNode::Const(Literal::Int(1))),
-            stop: Box::new(AstNode::Const(Literal::Int(16))),
+            start: Box::new(AstNode::Const(Literal::I64(0))),
+            step: Box::new(AstNode::Const(Literal::I64(1))),
+            stop: Box::new(AstNode::Const(Literal::I64(16))),
             body,
         };
 
@@ -778,7 +778,7 @@ mod tests {
             {
                 // 変数名はridxN形式（既存変数と衝突しない連番）
                 assert!(var.starts_with("ridx"), "Expected ridxN, got {}", var);
-                assert_eq!(**step, AstNode::Const(Literal::Int(4))); // tile_size
+                assert_eq!(**step, AstNode::Const(Literal::I64(4))); // tile_size
 
                 // 内側ループが存在するか確認
                 assert!(matches!(outer_body.as_ref(), AstNode::Range { .. }));
@@ -800,9 +800,9 @@ mod tests {
 
         let original_loop = AstNode::Range {
             var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Int(0))),
-            step: Box::new(AstNode::Const(Literal::Int(1))),
-            stop: Box::new(AstNode::Const(Literal::Int(10))),
+            start: Box::new(AstNode::Const(Literal::I64(0))),
+            step: Box::new(AstNode::Const(Literal::I64(1))),
+            stop: Box::new(AstNode::Const(Literal::I64(10))),
             body,
         };
 
@@ -823,9 +823,9 @@ mod tests {
 
         let original_loop = AstNode::Range {
             var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Int(0))),
-            step: Box::new(AstNode::Const(Literal::Int(1))),
-            stop: Box::new(AstNode::Const(Literal::Int(16))),
+            start: Box::new(AstNode::Const(Literal::I64(0))),
+            step: Box::new(AstNode::Const(Literal::I64(1))),
+            stop: Box::new(AstNode::Const(Literal::I64(16))),
             body,
         };
 
@@ -837,12 +837,12 @@ mod tests {
     fn test_replace_var_in_ast() {
         let ast = AstNode::Add(
             Box::new(AstNode::Var("i".to_string())),
-            Box::new(AstNode::Const(Literal::Int(5))),
+            Box::new(AstNode::Const(Literal::I64(5))),
         );
 
         let replacement = AstNode::Mul(
             Box::new(AstNode::Var("j".to_string())),
-            Box::new(AstNode::Const(Literal::Int(2))),
+            Box::new(AstNode::Const(Literal::I64(2))),
         );
 
         let result = replace_var_in_ast(&ast, "i", &replacement);
@@ -850,7 +850,7 @@ mod tests {
         // i が (j * 2) に置き換えられているか確認
         if let AstNode::Add(left, right) = result {
             assert_eq!(*left, replacement);
-            assert_eq!(*right, AstNode::Const(Literal::Int(5)));
+            assert_eq!(*right, AstNode::Const(Literal::I64(5)));
         } else {
             panic!("Expected Add node");
         }
@@ -864,9 +864,9 @@ mod tests {
 
         let original_loop = AstNode::Range {
             var: "ridx2".to_string(),
-            start: Box::new(AstNode::Const(Literal::Int(0))),
-            step: Box::new(AstNode::Const(Literal::Int(1))),
-            stop: Box::new(AstNode::Const(Literal::Int(1024))),
+            start: Box::new(AstNode::Const(Literal::I64(0))),
+            step: Box::new(AstNode::Const(Literal::I64(1))),
+            stop: Box::new(AstNode::Const(Literal::I64(1024))),
             body,
         };
 
@@ -895,7 +895,7 @@ mod tests {
                             ridx2_decl.is_some(),
                             "Original loop variable 'ridx2' should be declared in inner body scope"
                         );
-                        assert_eq!(ridx2_decl.unwrap().dtype, DType::Int);
+                        assert_eq!(ridx2_decl.unwrap().dtype, DType::I64);
                     } else {
                         panic!("Expected Block node for inner body");
                     }
@@ -918,9 +918,9 @@ mod tests {
 
         let original_loop = AstNode::Range {
             var: "ridx2".to_string(),
-            start: Box::new(AstNode::Const(Literal::Int(0))),
-            step: Box::new(AstNode::Const(Literal::Int(1))),
-            stop: Box::new(AstNode::Const(Literal::Int(1000))),
+            start: Box::new(AstNode::Const(Literal::I64(0))),
+            step: Box::new(AstNode::Const(Literal::I64(1))),
+            stop: Box::new(AstNode::Const(Literal::I64(1000))),
             body,
         };
 
@@ -962,8 +962,8 @@ mod tests {
 
         let original_loop = AstNode::Range {
             var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Int(0))),
-            step: Box::new(AstNode::Const(Literal::Int(1))),
+            start: Box::new(AstNode::Const(Literal::I64(0))),
+            step: Box::new(AstNode::Const(Literal::I64(1))),
             stop: Box::new(AstNode::Var("N".to_string())), // 変数
             body,
         };
@@ -981,7 +981,7 @@ mod tests {
             // メインループを確認
             if let AstNode::Range { stop, step, .. } = &statements[0] {
                 // stepはタイルサイズ
-                assert_eq!(**step, AstNode::Const(Literal::Int(4)));
+                assert_eq!(**step, AstNode::Const(Literal::I64(4)));
 
                 // stopは (N / 4) * 4 の計算式ノード
                 // Mul(Idiv(Var("N"), Const(4)), Const(4))
@@ -990,7 +990,7 @@ mod tests {
                         matches!(lhs.as_ref(), AstNode::Idiv(_, _)),
                         "Expected Idiv node in stop expression"
                     );
-                    assert_eq!(**rhs, AstNode::Const(Literal::Int(4)));
+                    assert_eq!(**rhs, AstNode::Const(Literal::I64(4)));
                 } else {
                     panic!("Expected Mul node for aligned_stop, got {:?}", stop);
                 }
@@ -1031,9 +1031,9 @@ mod tests {
 
         let original_loop = AstNode::Range {
             var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Int(0))),
-            step: Box::new(AstNode::Const(Literal::Int(1))),
-            stop: Box::new(AstNode::Const(Literal::Int(16))),
+            start: Box::new(AstNode::Const(Literal::I64(0))),
+            step: Box::new(AstNode::Const(Literal::I64(1))),
+            stop: Box::new(AstNode::Const(Literal::I64(16))),
             body,
         };
 
@@ -1051,7 +1051,7 @@ mod tests {
             // 変数名はridxN形式
             assert!(var.starts_with("ridx"), "Expected ridxN, got {}", var);
             // 外側ループの終了値: ceil_div(16, 4) = 4
-            assert_eq!(*stop, AstNode::Const(Literal::Int(4)));
+            assert_eq!(*stop, AstNode::Const(Literal::I64(4)));
 
             // 内側ループが存在するか確認
             assert!(matches!(outer_body.as_ref(), AstNode::Range { .. }));
@@ -1084,9 +1084,9 @@ mod tests {
 
         let original_loop = AstNode::Range {
             var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Int(0))),
-            step: Box::new(AstNode::Const(Literal::Int(1))),
-            stop: Box::new(AstNode::Const(Literal::Int(10))),
+            start: Box::new(AstNode::Const(Literal::I64(0))),
+            step: Box::new(AstNode::Const(Literal::I64(1))),
+            stop: Box::new(AstNode::Const(Literal::I64(10))),
             body,
         };
 
@@ -1096,7 +1096,7 @@ mod tests {
         // ガード方式では、端数があっても単一の外側ループ
         // 外側ループの終了値: ceil_div(10, 4) = 3
         if let Some(AstNode::Range { stop, .. }) = tiled {
-            assert_eq!(*stop, AstNode::Const(Literal::Int(3)));
+            assert_eq!(*stop, AstNode::Const(Literal::I64(3)));
         } else {
             panic!("Expected Range node");
         }
@@ -1109,8 +1109,8 @@ mod tests {
 
         let original_loop = AstNode::Range {
             var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Int(0))),
-            step: Box::new(AstNode::Const(Literal::Int(1))),
+            start: Box::new(AstNode::Const(Literal::I64(0))),
+            step: Box::new(AstNode::Const(Literal::I64(1))),
             stop: Box::new(AstNode::Var("N".to_string())),
             body,
         };
@@ -1133,9 +1133,9 @@ mod tests {
 
         let original_loop = AstNode::Range {
             var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Int(0))),
-            step: Box::new(AstNode::Const(Literal::Int(1))),
-            stop: Box::new(AstNode::Const(Literal::Int(16))),
+            start: Box::new(AstNode::Const(Literal::I64(0))),
+            step: Box::new(AstNode::Const(Literal::I64(1))),
+            stop: Box::new(AstNode::Const(Literal::I64(16))),
             body,
         };
 

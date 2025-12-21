@@ -13,7 +13,7 @@ fn render_dtype_metal(dtype: &DType) -> String {
     match dtype {
         DType::Bool => "uchar".to_string(),
         DType::F32 => "float".to_string(),
-        DType::Int => "int".to_string(),
+        DType::I64 => "long".to_string(),
         DType::I32 => "int".to_string(),
         DType::Ptr(inner) => format!("device {}*", render_dtype_metal(inner)),
         DType::Vec(inner, size) => {
@@ -294,7 +294,7 @@ impl CLikeRenderer for MetalKernelRenderer {
 
     fn render_atomic_add(&self, ptr: &str, offset: &str, value: &str, dtype: &DType) -> String {
         match dtype {
-            DType::Int => {
+            DType::I64 => {
                 format!(
                     "atomic_fetch_add_explicit((device atomic_int*)&{}[{}], {}, memory_order_relaxed)",
                     ptr, offset, value
@@ -315,7 +315,7 @@ impl CLikeRenderer for MetalKernelRenderer {
 
     fn render_atomic_max(&self, ptr: &str, offset: &str, value: &str, dtype: &DType) -> String {
         match dtype {
-            DType::Int => {
+            DType::I64 => {
                 format!(
                     "atomic_fetch_max_explicit((device atomic_int*)&{}[{}], {}, memory_order_relaxed)",
                     ptr, offset, value
@@ -381,7 +381,7 @@ impl CLikeRenderer for MetalRenderer {
 
     fn render_atomic_add(&self, ptr: &str, offset: &str, value: &str, dtype: &DType) -> String {
         match dtype {
-            DType::Int => {
+            DType::I64 => {
                 // Metalのatomic_fetch_add_explicit
                 format!(
                     "atomic_fetch_add_explicit((device atomic_int*)&{}[{}], {}, memory_order_relaxed)",
@@ -404,7 +404,7 @@ impl CLikeRenderer for MetalRenderer {
 
     fn render_atomic_max(&self, ptr: &str, offset: &str, value: &str, dtype: &DType) -> String {
         match dtype {
-            DType::Int => {
+            DType::I64 => {
                 format!(
                     "atomic_fetch_max_explicit((device atomic_int*)&{}[{}], {}, memory_order_relaxed)",
                     ptr, offset, value
@@ -473,7 +473,7 @@ mod tests {
         assert_eq!(renderer.render_literal(&Literal::Bool(true)), "1");
         assert_eq!(renderer.render_literal(&Literal::Bool(false)), "0");
         assert_eq!(renderer.render_literal(&Literal::F32(3.14)), "3.14f");
-        assert_eq!(renderer.render_literal(&Literal::Int(42)), "42");
+        assert_eq!(renderer.render_literal(&Literal::I64(42)), "42");
     }
 
     #[test]
@@ -481,7 +481,7 @@ mod tests {
         let renderer = MetalRenderer::new();
         assert_eq!(renderer.render_dtype_backend(&DType::Bool), "uchar");
         assert_eq!(renderer.render_dtype_backend(&DType::F32), "float");
-        assert_eq!(renderer.render_dtype_backend(&DType::Int), "int");
+        assert_eq!(renderer.render_dtype_backend(&DType::I64), "long");
         assert_eq!(
             renderer.render_dtype_backend(&DType::F32.to_ptr()),
             "device float*"
@@ -528,7 +528,7 @@ mod tests {
         let params = vec![
             VarDecl {
                 name: "gidx".to_string(),
-                dtype: DType::Int,
+                dtype: DType::I64,
                 mutability: Mutability::Immutable,
                 kind: VarKind::GroupId(0),
             },
@@ -596,7 +596,7 @@ mod tests {
         let kernel_params = vec![
             VarDecl {
                 name: "gidx".to_string(),
-                dtype: DType::Int,
+                dtype: DType::I64,
                 mutability: Mutability::Immutable,
                 kind: VarKind::GroupId(0),
             },
@@ -660,14 +660,14 @@ mod tests {
         // ループとバリアを含むカーネル
         let mut loop_scope = Scope::new();
         loop_scope
-            .declare("i".to_string(), DType::Int, Mutability::Immutable)
+            .declare("i".to_string(), DType::I64, Mutability::Immutable)
             .unwrap();
 
         let loop_node = AstNode::Range {
             var: "i".to_string(),
-            start: Box::new(AstNode::Const(0_isize.into())),
-            step: Box::new(AstNode::Const(1_isize.into())),
-            stop: Box::new(AstNode::Const(10_isize.into())),
+            start: Box::new(AstNode::Const(0_i64.into())),
+            step: Box::new(AstNode::Const(1_i64.into())),
+            stop: Box::new(AstNode::Const(10_i64.into())),
             body: Box::new(AstNode::Block {
                 statements: vec![
                     store(
@@ -689,7 +689,7 @@ mod tests {
         let mut renderer = MetalRenderer::new();
         let code = renderer.render_statement(&loop_node);
 
-        assert!(code.contains("for (int i = 0; i < 10; i += 1)"));
+        assert!(code.contains("for (long i = 0; i < 10; i += 1)"));
         assert!(code.contains("shared[i] = input[i]"));
         assert!(code.contains("threadgroup_barrier"));
         assert!(code.contains("output[i] = shared[i]"));

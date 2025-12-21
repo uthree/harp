@@ -638,7 +638,7 @@ mod tests {
     fn test_rule_base_optimizer() {
         // Add(a, 0) -> a というルール
         let rule = astpat!(|a| {
-            AstNode::Add(Box::new(a), Box::new(AstNode::Const(Literal::Int(0))))
+            AstNode::Add(Box::new(a), Box::new(AstNode::Const(Literal::I64(0))))
         } => {
             a
         });
@@ -646,12 +646,12 @@ mod tests {
         let optimizer = RuleBaseOptimizer::new(vec![rule]);
 
         let input = AstNode::Add(
-            Box::new(AstNode::Const(Literal::Int(42))),
-            Box::new(AstNode::Const(Literal::Int(0))),
+            Box::new(AstNode::Const(Literal::I64(42))),
+            Box::new(AstNode::Const(Literal::I64(0))),
         );
 
         let result = optimizer.optimize(input);
-        assert_eq!(result, AstNode::Const(Literal::Int(42)));
+        assert_eq!(result, AstNode::Const(Literal::I64(42)));
     }
 
     #[test]
@@ -664,7 +664,7 @@ mod tests {
         });
 
         let rule2 = astpat!(|a| {
-            AstNode::Add(Box::new(a), Box::new(AstNode::Const(Literal::Int(0))))
+            AstNode::Add(Box::new(a), Box::new(AstNode::Const(Literal::I64(0))))
         } => {
             a
         });
@@ -678,13 +678,13 @@ mod tests {
 
         // (42 + 0) を最適化
         let input = AstNode::Add(
-            Box::new(AstNode::Const(Literal::Int(42))),
-            Box::new(AstNode::Const(Literal::Int(0))),
+            Box::new(AstNode::Const(Literal::I64(42))),
+            Box::new(AstNode::Const(Literal::I64(0))),
         );
 
         let result = optimizer.optimize(input);
         // 最終的に42に簡約されるはず
-        assert_eq!(result, AstNode::Const(Literal::Int(42)));
+        assert_eq!(result, AstNode::Const(Literal::I64(42)));
     }
 
     #[test]
@@ -705,24 +705,24 @@ mod tests {
         let input = AstNode::Add(
             Box::new(AstNode::Mul(
                 Box::new(AstNode::Add(
-                    Box::new(AstNode::Const(Literal::Int(2))),
-                    Box::new(AstNode::Const(Literal::Int(3))),
+                    Box::new(AstNode::Const(Literal::I64(2))),
+                    Box::new(AstNode::Const(Literal::I64(3))),
                 )),
-                Box::new(AstNode::Const(Literal::Int(1))),
+                Box::new(AstNode::Const(Literal::I64(1))),
             )),
-            Box::new(AstNode::Const(Literal::Int(0))),
+            Box::new(AstNode::Const(Literal::I64(0))),
         );
 
         let result = optimizer.optimize(input);
         // 最終的に5に簡約されるはず
-        assert_eq!(result, AstNode::Const(Literal::Int(5)));
+        assert_eq!(result, AstNode::Const(Literal::I64(5)));
     }
 
     #[test]
     fn test_beam_search_no_applicable_rules() {
         // マッチしないルールのみ
         let rule = astpat!(|a| {
-            AstNode::Mul(Box::new(a), Box::new(AstNode::Const(Literal::Int(99))))
+            AstNode::Mul(Box::new(a), Box::new(AstNode::Const(Literal::I64(99))))
         } => {
             a
         });
@@ -735,7 +735,7 @@ mod tests {
             .with_progress(false);
 
         // ルールが適用されない入力
-        let input = AstNode::Const(Literal::Int(42));
+        let input = AstNode::Const(Literal::I64(42));
         let result = optimizer.optimize(input.clone());
 
         // 変更されないはず
@@ -754,7 +754,7 @@ mod tests {
             .with_progress(false);
 
         // すでに最適化済みの入力
-        let input = AstNode::Const(Literal::Int(42));
+        let input = AstNode::Const(Literal::I64(42));
         let result = optimizer.optimize(input.clone());
 
         // 変更されないはず
@@ -777,13 +777,13 @@ mod tests {
             .with_progress(false);
 
         let input = AstNode::Add(
-            Box::new(AstNode::Const(Literal::Int(5))),
-            Box::new(AstNode::Const(Literal::Int(0))),
+            Box::new(AstNode::Const(Literal::I64(5))),
+            Box::new(AstNode::Const(Literal::I64(0))),
         );
 
         let result = optimizer.optimize(input);
         // ビーム幅1でも最適化できるはず
-        assert_eq!(result, AstNode::Const(Literal::Int(5)));
+        assert_eq!(result, AstNode::Const(Literal::I64(5)));
     }
 
     #[test]
@@ -799,8 +799,8 @@ mod tests {
             .with_progress(false);
 
         let input = AstNode::Add(
-            Box::new(AstNode::Const(Literal::Int(5))),
-            Box::new(AstNode::Const(Literal::Int(0))),
+            Box::new(AstNode::Const(Literal::I64(5))),
+            Box::new(AstNode::Const(Literal::I64(0))),
         );
 
         let result = optimizer.optimize(input.clone());
@@ -812,7 +812,7 @@ mod tests {
     fn test_beam_search_early_termination() {
         // 1回で最適化が完了し、それ以降候補がなくなるケース
         let rule = astpat!(|a| {
-            AstNode::Add(Box::new(a), Box::new(AstNode::Const(Literal::Int(0))))
+            AstNode::Add(Box::new(a), Box::new(AstNode::Const(Literal::I64(0))))
         } => {
             a
         });
@@ -825,12 +825,12 @@ mod tests {
             .with_progress(false);
 
         let input = AstNode::Add(
-            Box::new(AstNode::Const(Literal::Int(42))),
-            Box::new(AstNode::Const(Literal::Int(0))),
+            Box::new(AstNode::Const(Literal::I64(42))),
+            Box::new(AstNode::Const(Literal::I64(0))),
         );
 
         let result = optimizer.optimize(input);
-        assert_eq!(result, AstNode::Const(Literal::Int(42)));
+        assert_eq!(result, AstNode::Const(Literal::I64(42)));
     }
 
     #[test]
@@ -851,16 +851,16 @@ mod tests {
         let input = AstNode::Add(
             Box::new(AstNode::Mul(
                 Box::new(AstNode::Add(
-                    Box::new(AstNode::Const(Literal::Int(2))),
-                    Box::new(AstNode::Const(Literal::Int(3))),
+                    Box::new(AstNode::Const(Literal::I64(2))),
+                    Box::new(AstNode::Const(Literal::I64(3))),
                 )),
-                Box::new(AstNode::Const(Literal::Int(1))),
+                Box::new(AstNode::Const(Literal::I64(1))),
             )),
-            Box::new(AstNode::Const(Literal::Int(0))),
+            Box::new(AstNode::Const(Literal::I64(0))),
         );
 
         let result = optimizer.optimize(input);
-        assert_eq!(result, AstNode::Const(Literal::Int(5)));
+        assert_eq!(result, AstNode::Const(Literal::I64(5)));
     }
 
     /// パス順序が正しく記録されることをテスト
@@ -878,7 +878,7 @@ mod tests {
             }
             fn suggest(&self, ast: &AstNode) -> Vec<AstSuggestResult> {
                 match ast {
-                    AstNode::Mul(a, b) if matches!(b.as_ref(), AstNode::Const(Literal::Int(1))) => {
+                    AstNode::Mul(a, b) if matches!(b.as_ref(), AstNode::Const(Literal::I64(1))) => {
                         vec![AstSuggestResult {
                             ast: a.as_ref().clone(),
                             suggester_name: "MulOneSuggester".to_string(),
@@ -898,7 +898,7 @@ mod tests {
             }
             fn suggest(&self, ast: &AstNode) -> Vec<AstSuggestResult> {
                 match ast {
-                    AstNode::Add(a, b) if matches!(b.as_ref(), AstNode::Const(Literal::Int(0))) => {
+                    AstNode::Add(a, b) if matches!(b.as_ref(), AstNode::Const(Literal::I64(0))) => {
                         vec![AstSuggestResult {
                             ast: a.as_ref().clone(),
                             suggester_name: "AddZeroSuggester".to_string(),
@@ -925,14 +925,14 @@ mod tests {
         // Step 2: AddZeroSuggester適用 -> 42     (path = [MulOneSuggester, AddZeroSuggester])
         let input = AstNode::Mul(
             Box::new(AstNode::Add(
-                Box::new(AstNode::Const(Literal::Int(42))),
-                Box::new(AstNode::Const(Literal::Int(0))),
+                Box::new(AstNode::Const(Literal::I64(42))),
+                Box::new(AstNode::Const(Literal::I64(0))),
             )),
-            Box::new(AstNode::Const(Literal::Int(1))),
+            Box::new(AstNode::Const(Literal::I64(1))),
         );
 
         let (result, history) = optimizer.optimize_with_history(input);
-        assert_eq!(result, AstNode::Const(Literal::Int(42)));
+        assert_eq!(result, AstNode::Const(Literal::I64(42)));
 
         // 履歴の最後のスナップショットのパスを確認
         let last_snapshot = history.snapshots().last().unwrap();
@@ -967,7 +967,7 @@ mod tests {
             }
             fn suggest(&self, ast: &AstNode) -> Vec<AstSuggestResult> {
                 match ast {
-                    AstNode::Mul(a, b) if matches!(b.as_ref(), AstNode::Const(Literal::Int(1))) => {
+                    AstNode::Mul(a, b) if matches!(b.as_ref(), AstNode::Const(Literal::I64(1))) => {
                         vec![AstSuggestResult {
                             ast: a.as_ref().clone(),
                             suggester_name: "SuggesterA".to_string(),
@@ -987,7 +987,7 @@ mod tests {
             }
             fn suggest(&self, ast: &AstNode) -> Vec<AstSuggestResult> {
                 match ast {
-                    AstNode::Add(a, b) if matches!(b.as_ref(), AstNode::Const(Literal::Int(0))) => {
+                    AstNode::Add(a, b) if matches!(b.as_ref(), AstNode::Const(Literal::I64(0))) => {
                         vec![AstSuggestResult {
                             ast: a.as_ref().clone(),
                             suggester_name: "SuggesterB".to_string(),
@@ -1009,14 +1009,14 @@ mod tests {
         // Mul(Add(42, 0), 1) を最適化
         let input = AstNode::Mul(
             Box::new(AstNode::Add(
-                Box::new(AstNode::Const(Literal::Int(42))),
-                Box::new(AstNode::Const(Literal::Int(0))),
+                Box::new(AstNode::Const(Literal::I64(42))),
+                Box::new(AstNode::Const(Literal::I64(0))),
             )),
-            Box::new(AstNode::Const(Literal::Int(1))),
+            Box::new(AstNode::Const(Literal::I64(1))),
         );
 
         let (result, _history) = optimizer.optimize_with_history(input);
-        assert_eq!(result, AstNode::Const(Literal::Int(42)));
+        assert_eq!(result, AstNode::Const(Literal::I64(42)));
 
         // ビームサーチでは異なる系統から候補が選ばれることがある
         // これは正常な動作であり、パスの「不連続」は許容される

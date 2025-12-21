@@ -339,19 +339,19 @@ impl From<f32> for GraphNode {
 
 impl From<isize> for GraphNode {
     fn from(value: isize) -> Self {
-        GraphNode::constant(value)
+        GraphNode::constant(value as i64)
     }
 }
 
 impl From<i32> for GraphNode {
     fn from(value: i32) -> Self {
-        GraphNode::constant(value as isize)
+        GraphNode::constant(value as i64)
     }
 }
 
 impl From<i64> for GraphNode {
     fn from(value: i64) -> Self {
-        GraphNode::constant(value as isize)
+        GraphNode::constant(value)
     }
 }
 
@@ -707,7 +707,7 @@ mod tests {
         assert!(node.view.shape().is_empty());
 
         match &node.op {
-            GraphOp::Const(Literal::Int(v)) => assert_eq!(*v, 42),
+            GraphOp::Const(Literal::I64(v)) => assert_eq!(*v, 42),
             _ => panic!("Expected Int constant"),
         }
     }
@@ -716,7 +716,7 @@ mod tests {
     fn test_from_i32() {
         let node = GraphNode::from(100i32);
         match &node.op {
-            GraphOp::Const(Literal::Int(v)) => assert_eq!(*v, 100),
+            GraphOp::Const(Literal::I64(v)) => assert_eq!(*v, 100),
             _ => panic!("Expected Int constant"),
         }
     }

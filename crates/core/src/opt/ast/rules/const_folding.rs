@@ -25,8 +25,8 @@ macro_rules! binary_const_fold_both {
                     let b = bindings.get("b").unwrap();
 
                     match (a, b) {
-                        (AstNode::Const(Literal::Int(av)), AstNode::Const(Literal::Int(bv))) => {
-                            AstNode::Const(Literal::Int(av $op bv))
+                        (AstNode::Const(Literal::I64(av)), AstNode::Const(Literal::I64(bv))) => {
+                            AstNode::Const(Literal::I64(av $op bv))
                         }
                         (AstNode::Const(Literal::F32(av)), AstNode::Const(Literal::F32(bv))) => {
                             AstNode::Const(Literal::F32(av $op bv))
@@ -60,8 +60,8 @@ macro_rules! binary_const_fold_method {
                     let b = bindings.get("b").unwrap();
 
                     match (a, b) {
-                        (AstNode::Const(Literal::Int(av)), AstNode::Const(Literal::Int(bv))) => {
-                            AstNode::Const(Literal::Int(*av.$method(bv)))
+                        (AstNode::Const(Literal::I64(av)), AstNode::Const(Literal::I64(bv))) => {
+                            AstNode::Const(Literal::I64(*av.$method(bv)))
                         }
                         (AstNode::Const(Literal::F32(av)), AstNode::Const(Literal::F32(bv))) => {
                             AstNode::Const(Literal::F32(av.$method(*bv)))
@@ -95,10 +95,10 @@ macro_rules! binary_const_fold_isize_checked {
                     let b = bindings.get("b").unwrap();
 
                     match (a, b) {
-                        (AstNode::Const(Literal::Int(av)), AstNode::Const(Literal::Int(bv)))
+                        (AstNode::Const(Literal::I64(av)), AstNode::Const(Literal::I64(bv)))
                             if *bv != 0 =>
                         {
-                            AstNode::Const(Literal::Int(av $op bv))
+                            AstNode::Const(Literal::I64(av $op bv))
                         }
                         _ => AstNode::$node_variant(Box::new(a.clone()), Box::new(b.clone())),
                     }
@@ -106,7 +106,7 @@ macro_rules! binary_const_fold_isize_checked {
                 |bindings| {
                     matches!(
                         (bindings.get("a"), bindings.get("b")),
-                        (Some(AstNode::Const(Literal::Int(_))), Some(AstNode::Const(Literal::Int(b)))) if *b != 0
+                        (Some(AstNode::Const(Literal::I64(_))), Some(AstNode::Const(Literal::I64(b)))) if *b != 0
                     )
                 },
             )

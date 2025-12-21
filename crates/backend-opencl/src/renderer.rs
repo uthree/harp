@@ -168,7 +168,7 @@ impl CLikeRenderer for OpenCLRenderer {
         match dtype {
             DType::Bool => "uchar".to_string(), // OpenCLではucharを使用
             DType::F32 => "float".to_string(),
-            DType::Int => "int".to_string(),
+            DType::I64 => "long".to_string(),
             DType::I32 => "int".to_string(), // 32-bit signed integer
             DType::Ptr(inner) => {
                 let base = self.render_dtype_backend(inner);
@@ -327,7 +327,7 @@ impl CLikeRenderer for OpenCLRenderer {
 
     fn render_atomic_add(&self, ptr: &str, offset: &str, value: &str, dtype: &DType) -> String {
         match dtype {
-            DType::Int => {
+            DType::I64 => {
                 // OpenCLの標準atomic_add（整数用）
                 format!("atomic_add(&{}[{}], {})", ptr, offset, value)
             }
@@ -346,7 +346,7 @@ impl CLikeRenderer for OpenCLRenderer {
 
     fn render_atomic_max(&self, ptr: &str, offset: &str, value: &str, dtype: &DType) -> String {
         match dtype {
-            DType::Int => {
+            DType::I64 => {
                 // OpenCLの標準atomic_max（整数用）
                 format!("atomic_max(&{}[{}], {})", ptr, offset, value)
             }
@@ -419,7 +419,7 @@ mod tests {
         let params = vec![
             VarDecl {
                 name: "gidx".to_string(),
-                dtype: DType::Int,
+                dtype: DType::I64,
                 kind: VarKind::GroupId(0), // フィルタされるべき
                 mutability: Mutability::Immutable,
             },
@@ -483,13 +483,13 @@ mod tests {
         let params = vec![
             VarDecl {
                 name: "gidx".to_string(),
-                dtype: DType::Int,
+                dtype: DType::I64,
                 kind: VarKind::GroupId(0),
                 mutability: Mutability::Immutable,
             },
             VarDecl {
                 name: "lid".to_string(),
-                dtype: DType::Int,
+                dtype: DType::I64,
                 kind: VarKind::LocalId(0),
                 mutability: Mutability::Immutable,
             },
@@ -533,7 +533,7 @@ mod tests {
         // 基本型
         assert_eq!(renderer.render_dtype_backend(&DType::Bool), "uchar");
         assert_eq!(renderer.render_dtype_backend(&DType::F32), "float");
-        assert_eq!(renderer.render_dtype_backend(&DType::Int), "int");
+        assert_eq!(renderer.render_dtype_backend(&DType::I64), "long");
 
         // ポインタ型
         assert_eq!(
@@ -547,8 +547,8 @@ mod tests {
             "float4"
         );
         assert_eq!(
-            renderer.render_dtype_backend(&DType::Vec(Box::new(DType::Int), 2)),
-            "int2"
+            renderer.render_dtype_backend(&DType::Vec(Box::new(DType::I64), 2)),
+            "long2"
         );
 
         // タプル型（空 = void）
@@ -643,7 +643,7 @@ mod tests {
         // GroupIdパラメータがある場合、その名前でget_group_id()を生成
         let params = vec![VarDecl {
             name: "gidx".to_string(),
-            dtype: DType::Int,
+            dtype: DType::I64,
             kind: VarKind::GroupId(0),
             mutability: Mutability::Immutable,
         }];
@@ -654,19 +654,19 @@ mod tests {
         let params = vec![
             VarDecl {
                 name: "group_x".to_string(),
-                dtype: DType::Int,
+                dtype: DType::I64,
                 kind: VarKind::GroupId(0),
                 mutability: Mutability::Immutable,
             },
             VarDecl {
                 name: "group_y".to_string(),
-                dtype: DType::Int,
+                dtype: DType::I64,
                 kind: VarKind::GroupId(1),
                 mutability: Mutability::Immutable,
             },
             VarDecl {
                 name: "local_x".to_string(),
-                dtype: DType::Int,
+                dtype: DType::I64,
                 kind: VarKind::LocalId(0),
                 mutability: Mutability::Immutable,
             },

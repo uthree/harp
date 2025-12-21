@@ -170,7 +170,7 @@ mod tests {
     #[test]
     fn test_render_complex() {
         // (a + b) * 2
-        let ast = (var("a") + var("b")) * AstNode::Const(2isize.into());
+        let ast = (var("a") + var("b")) * AstNode::Const(2i64.into());
         assert_eq!(render_ast(&ast), "((a + b) * 2)");
     }
 
