@@ -1,13 +1,15 @@
 //! Array構造体 - 遅延評価を透過的に扱う配列
 //!
-//! 単一の`Array<T, D>`型で、未評価（計算グラフのみ）と評価済み（バッファあり）の
+//! 単一の`Array<T, D, B>`型で、未評価（計算グラフのみ）と評価済み（バッファあり）の
 //! 両方の状態を透過的に扱います。
 
+use crate::backend::Backend;
 use crate::context::ExecutionContext;
 use crate::dim::{DimDyn, Dimension, IntoDyn};
+use crate::generators::IntoShape;
 use harp_core::ast::DType as AstDType;
-use harp_core::backend::pipeline::KernelSourceRenderer;
-use harp_core::backend::{Buffer, Compiler, Device, Kernel};
+use harp_core::backend::Buffer;
+use harp_core::graph::shape::Expr;
 use harp_core::graph::{DType, GraphNode};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -59,11 +61,23 @@ pub enum ArrayError {
 pub trait ArrayElement: Clone + Send + Sync + 'static {
     /// 対応するDType
     fn dtype() -> DType;
+
+    /// デフォルト値（ゼロ相当）
+    fn zero() -> Self;
+
+    /// 単位元（1相当）
+    fn one() -> Self;
 }
 
 impl ArrayElement for f32 {
     fn dtype() -> DType {
         DType::F32
+    }
+    fn zero() -> Self {
+        0.0
+    }
+    fn one() -> Self {
+        1.0
     }
 }
 
@@ -71,11 +85,23 @@ impl ArrayElement for i32 {
     fn dtype() -> DType {
         DType::I32
     }
+    fn zero() -> Self {
+        0
+    }
+    fn one() -> Self {
+        1
+    }
 }
 
 impl ArrayElement for bool {
     fn dtype() -> DType {
         DType::Bool
+    }
+    fn zero() -> Self {
+        false
+    }
+    fn one() -> Self {
+        true
     }
 }
 
@@ -115,19 +141,21 @@ impl<Buf> fmt::Debug for ArrayState<Buf> {
 
 /// 配列（遅延評価を透過的に扱う）
 ///
-/// `Array<T, D>`は、計算グラフとバッファの両方を扱える統一的な配列型です。
+/// `Array<T, D, B>`は、計算グラフとバッファの両方を扱える統一的な配列型です。
 /// 演算時はグラフを構築するだけで、実際の計算は必要になるまで遅延されます。
 ///
 /// # 型パラメータ
 /// - `T`: 要素の型（f32, i32, bool）
 /// - `D`: 次元（Dim0, Dim1, Dim2, ..., DimDyn）
-/// - `R`, `Dev`, `Comp`, `Buf`: バックエンド関連の型パラメータ
+/// - `B`: バックエンド（Backendトレイトを実装）
 ///
 /// # 例
 /// ```ignore
+/// use harp_array::prelude::*;
+///
 /// // 配列の作成（Lazy状態）
-/// let a: Array2<f32> = zeros([100, 100]);
-/// let b: Array2<f32> = ones([100, 100]);
+/// let a: Array<f32, Dim2, MyBackend> = Array::zeros([100, 100]);
+/// let b: Array<f32, Dim2, MyBackend> = Array::ones([100, 100]);
 ///
 /// // 演算（グラフ構築のみ、計算はまだ）
 /// let c = &a + &b;
@@ -135,39 +163,41 @@ impl<Buf> fmt::Debug for ArrayState<Buf> {
 /// // データ取得時に計算が実行される
 /// let data = c.to_vec()?;
 /// ```
-pub struct Array<T, D, R, Dev, Comp, Buf>
+pub struct Array<T, D, B>
 where
     T: ArrayElement,
     D: Dimension,
-    R: KernelSourceRenderer + Clone,
-    Dev: Device,
-    Comp: Compiler<Dev = Dev>,
-    Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-    Buf: Buffer<Dev = Dev>,
+    B: Backend,
 {
     /// 実行コンテキストへの参照
-    ctx: Arc<ExecutionContext<R, Dev, Comp, Buf>>,
+    ctx: Arc<ExecutionContext<B::Renderer, B::Device, B::Compiler, B::Buffer>>,
     /// 内部状態（遅延評価のため内部可変性を使用）
-    state: RefCell<ArrayState<Buf>>,
+    state: RefCell<ArrayState<B::Buffer>>,
     /// 形状
     shape: Vec<usize>,
     /// 型マーカー
     _marker: PhantomData<(T, D)>,
 }
 
-impl<T, D, R, Dev, Comp, Buf> Array<T, D, R, Dev, Comp, Buf>
+impl<T, D, B> Array<T, D, B>
 where
     T: ArrayElement,
     D: Dimension,
-    R: KernelSourceRenderer + Clone,
-    Dev: Device,
-    Comp: Compiler<Dev = Dev>,
-    Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-    Buf: Buffer<Dev = Dev>,
+    B: Backend,
 {
     /// 計算グラフノードから遅延配列を作成
-    pub fn from_graph_node(
-        ctx: Arc<ExecutionContext<R, Dev, Comp, Buf>>,
+    pub fn from_graph_node(graph_node: GraphNode, shape: Vec<usize>) -> Self {
+        Self {
+            ctx: B::global_context(),
+            state: RefCell::new(ArrayState::Lazy { graph_node }),
+            shape,
+            _marker: PhantomData,
+        }
+    }
+
+    /// 計算グラフノードから遅延配列を作成（コンテキスト指定）
+    pub fn from_graph_node_with_ctx(
+        ctx: Arc<ExecutionContext<B::Renderer, B::Device, B::Compiler, B::Buffer>>,
         graph_node: GraphNode,
         shape: Vec<usize>,
     ) -> Self {
@@ -180,13 +210,9 @@ where
     }
 
     /// バッファから評価済み配列を作成
-    pub fn from_buffer(
-        ctx: Arc<ExecutionContext<R, Dev, Comp, Buf>>,
-        buffer: Arc<Buf>,
-        shape: Vec<usize>,
-    ) -> Self {
+    pub fn from_buffer(buffer: Arc<B::Buffer>, shape: Vec<usize>) -> Self {
         Self {
-            ctx,
+            ctx: B::global_context(),
             state: RefCell::new(ArrayState::Materialized {
                 buffer,
                 graph_node: None,
@@ -236,18 +262,16 @@ where
     pub(crate) fn graph_node(&self) -> GraphNode {
         match &*self.state.borrow() {
             ArrayState::Lazy { graph_node } => graph_node.clone(),
-            ArrayState::Materialized { graph_node, .. } => {
-                graph_node.clone().unwrap_or_else(|| {
-                    // バッファからの復元が必要な場合
-                    // 通常はgraph_nodeが保持されているはず
-                    panic!("graph_node not available for materialized array")
-                })
-            }
+            ArrayState::Materialized { graph_node, .. } => graph_node
+                .clone()
+                .unwrap_or_else(|| panic!("graph_node not available for materialized array")),
         }
     }
 
     /// 実行コンテキストへの参照を取得
-    pub fn context(&self) -> &Arc<ExecutionContext<R, Dev, Comp, Buf>> {
+    pub fn context(
+        &self,
+    ) -> &Arc<ExecutionContext<B::Renderer, B::Device, B::Compiler, B::Buffer>> {
         &self.ctx
     }
 
@@ -255,39 +279,29 @@ where
     ///
     /// 計算グラフをコンパイル・実行し、結果をバッファに保存します。
     /// 既に評価済みの場合は何もしません。
-    ///
-    /// # エラー
-    ///
-    /// コンパイルまたは実行に失敗した場合はエラーを返します。
     pub fn eval(&self) -> Result<(), ArrayError> {
-        // 既に評価済みならスキップ
         if self.is_materialized() {
             return Ok(());
         }
 
-        // グラフノードを取得
         let graph_node = match &*self.state.borrow() {
             ArrayState::Lazy { graph_node } => graph_node.clone(),
             ArrayState::Materialized { .. } => return Ok(()),
         };
 
-        // コンパイル
         let compiled = self
             .ctx
             .compile(&graph_node)
             .map_err(|e| ArrayError::Context(e.to_string()))?;
 
-        // グラフのDTypeをASTのDTypeに変換
         let ast_dtype = graph_dtype_to_ast(&T::dtype());
 
-        // 実行（入力なし - 定数のみのグラフを想定）
         // TODO: 入力バッファを持つグラフのサポート
         let output_buffer = self
             .ctx
             .execute(&compiled, HashMap::new(), self.shape.clone(), ast_dtype)
             .map_err(|e| ArrayError::Context(e.to_string()))?;
 
-        // 状態を更新
         *self.state.borrow_mut() = ArrayState::Materialized {
             buffer: Arc::new(output_buffer),
             graph_node: Some(graph_node),
@@ -299,31 +313,158 @@ where
     /// データをホストメモリに読み出す
     ///
     /// 評価されていない場合は自動的に評価を実行します。
-    ///
-    /// # 例
-    ///
-    /// ```ignore
-    /// let arr = zeros(ctx, [3, 4]);
-    /// let data: Vec<f32> = arr.to_vec()?;
-    /// assert_eq!(data.len(), 12);
-    /// ```
     pub fn to_vec(&self) -> Result<Vec<T>, ArrayError> {
-        // 必要なら評価
         self.eval()?;
 
-        // バッファからデータを読み出し
         let state = self.state.borrow();
         match &*state {
             ArrayState::Materialized { buffer, .. } => buffer
                 .read_vec::<T>()
                 .map_err(|e| ArrayError::Buffer(e.to_string())),
             ArrayState::Lazy { .. } => {
-                // evalが成功したはずなのにLazyのままは起こり得ない
                 unreachable!("Array should be materialized after eval()")
             }
         }
     }
 }
+
+// ============================================================================
+// 生成メソッド（型ごとの実装）
+// ============================================================================
+
+impl<D, B> Array<f32, D, B>
+where
+    D: Dimension,
+    B: Backend,
+{
+    /// ゼロで初期化された配列を生成
+    ///
+    /// # 例
+    /// ```ignore
+    /// let arr: Array<f32, Dim2, MyBackend> = Array::zeros([3, 4]);
+    /// ```
+    pub fn zeros<S: IntoShape>(shape: S) -> Self {
+        Self::full(shape, 0.0)
+    }
+
+    /// 1で初期化された配列を生成
+    ///
+    /// # 例
+    /// ```ignore
+    /// let arr: Array<f32, Dim2, MyBackend> = Array::ones([3, 4]);
+    /// ```
+    pub fn ones<S: IntoShape>(shape: S) -> Self {
+        Self::full(shape, 1.0)
+    }
+
+    /// 指定値で初期化された配列を生成
+    pub fn full<S: IntoShape>(shape: S, value: f32) -> Self {
+        let shape_vec = shape.into_shape();
+        let shape_exprs: Vec<Expr> = shape_vec.iter().map(|&s| Expr::from(s as isize)).collect();
+        let ndim = shape_vec.len();
+
+        let scalar = GraphNode::constant(value);
+
+        let ones_shape: Vec<Expr> = (0..ndim).map(|_| Expr::from(1)).collect();
+        let reshaped = if ndim > 0 {
+            scalar.reshape(ones_shape)
+        } else {
+            scalar
+        };
+
+        let node = if ndim > 0 {
+            reshaped.broadcast_to(shape_exprs)
+        } else {
+            reshaped
+        };
+
+        Self::from_graph_node(node, shape_vec)
+    }
+
+    /// 連番配列 [0.0, 1.0, 2.0, ...] を生成
+    pub fn arange(size: usize) -> Self {
+        let node = GraphNode::arange(size as isize).cast(DType::F32);
+        Self::from_graph_node(node, vec![size])
+    }
+
+    /// 一様乱数配列 [0, 1) を生成
+    pub fn rand<S: IntoShape>(shape: S) -> Self {
+        let shape_vec = shape.into_shape();
+        let shape_exprs: Vec<Expr> = shape_vec.iter().map(|&s| Expr::from(s as isize)).collect();
+        let node = GraphNode::rand(shape_exprs);
+        Self::from_graph_node(node, shape_vec)
+    }
+
+    /// 入力配列と同じ形状のゼロ配列を生成
+    pub fn zeros_like<T2: ArrayElement>(other: &Array<T2, D, B>) -> Self {
+        Self::zeros(other.shape().to_vec())
+    }
+
+    /// 入力配列と同じ形状の1配列を生成
+    pub fn ones_like<T2: ArrayElement>(other: &Array<T2, D, B>) -> Self {
+        Self::ones(other.shape().to_vec())
+    }
+}
+
+impl<D, B> Array<i32, D, B>
+where
+    D: Dimension,
+    B: Backend,
+{
+    /// ゼロで初期化された配列を生成
+    pub fn zeros<S: IntoShape>(shape: S) -> Self {
+        Self::full(shape, 0)
+    }
+
+    /// 1で初期化された配列を生成
+    pub fn ones<S: IntoShape>(shape: S) -> Self {
+        Self::full(shape, 1)
+    }
+
+    /// 指定値で初期化された配列を生成
+    pub fn full<S: IntoShape>(shape: S, value: i32) -> Self {
+        let shape_vec = shape.into_shape();
+        let shape_exprs: Vec<Expr> = shape_vec.iter().map(|&s| Expr::from(s as isize)).collect();
+        let ndim = shape_vec.len();
+
+        let scalar = GraphNode::constant(value as isize);
+
+        let ones_shape: Vec<Expr> = (0..ndim).map(|_| Expr::from(1)).collect();
+        let reshaped = if ndim > 0 {
+            scalar.reshape(ones_shape)
+        } else {
+            scalar
+        };
+
+        let node = if ndim > 0 {
+            reshaped.broadcast_to(shape_exprs).cast(DType::I32)
+        } else {
+            reshaped.cast(DType::I32)
+        };
+
+        Self::from_graph_node(node, shape_vec)
+    }
+
+    /// 連番配列 [0, 1, 2, ...] を生成
+    pub fn arange(size: usize) -> Self {
+        let node = GraphNode::arange(size as isize);
+        Self::from_graph_node(node, vec![size])
+    }
+
+    /// 入力配列と同じ形状のゼロ配列を生成
+    pub fn zeros_like<T2: ArrayElement>(other: &Array<T2, D, B>) -> Self {
+        Self::zeros(other.shape().to_vec())
+    }
+
+    /// 入力配列と同じ形状の1配列を生成
+    pub fn ones_like<T2: ArrayElement>(other: &Array<T2, D, B>) -> Self {
+        Self::ones(other.shape().to_vec())
+    }
+}
+
+// ============================================================================
+// GraphのDType変換
+// ============================================================================
 
 /// GraphのDTypeをASTのDTypeに変換
 fn graph_dtype_to_ast(dtype: &DType) -> AstDType {
@@ -331,19 +472,19 @@ fn graph_dtype_to_ast(dtype: &DType) -> AstDType {
         DType::F32 => AstDType::F32,
         DType::I32 => AstDType::Int,
         DType::Bool => AstDType::Bool,
-        DType::Unknown => AstDType::F32, // フォールバック
+        DType::Unknown => AstDType::F32,
     }
 }
 
-impl<T, D, R, Dev, Comp, Buf> Clone for Array<T, D, R, Dev, Comp, Buf>
+// ============================================================================
+// Clone, Debug, 次元変換
+// ============================================================================
+
+impl<T, D, B> Clone for Array<T, D, B>
 where
     T: ArrayElement,
     D: Dimension,
-    R: KernelSourceRenderer + Clone,
-    Dev: Device,
-    Comp: Compiler<Dev = Dev>,
-    Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-    Buf: Buffer<Dev = Dev>,
+    B: Backend,
 {
     fn clone(&self) -> Self {
         Self {
@@ -355,15 +496,11 @@ where
     }
 }
 
-impl<T, D, R, Dev, Comp, Buf> fmt::Debug for Array<T, D, R, Dev, Comp, Buf>
+impl<T, D, B> fmt::Debug for Array<T, D, B>
 where
     T: ArrayElement,
     D: Dimension,
-    R: KernelSourceRenderer + Clone,
-    Dev: Device,
-    Comp: Compiler<Dev = Dev>,
-    Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-    Buf: Buffer<Dev = Dev>,
+    B: Backend,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Array")
@@ -378,21 +515,13 @@ where
 // 次元変換
 // ============================================================================
 
-impl<T, R, Dev, Comp, Buf> Array<T, DimDyn, R, Dev, Comp, Buf>
+impl<T, B> Array<T, DimDyn, B>
 where
     T: ArrayElement,
-    R: KernelSourceRenderer + Clone,
-    Dev: Device,
-    Comp: Compiler<Dev = Dev>,
-    Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-    Buf: Buffer<Dev = Dev>,
+    B: Backend,
 {
     /// 動的次元から静的次元に変換
-    ///
-    /// 次元数が一致しない場合はエラーを返します。
-    pub fn into_dimensionality<D2: Dimension>(
-        self,
-    ) -> Result<Array<T, D2, R, Dev, Comp, Buf>, ArrayError> {
+    pub fn into_dimensionality<D2: Dimension>(self) -> Result<Array<T, D2, B>, ArrayError> {
         if let Some(expected) = D2::NDIM
             && self.ndim() != expected
         {
@@ -411,18 +540,14 @@ where
     }
 }
 
-impl<T, D, R, Dev, Comp, Buf> Array<T, D, R, Dev, Comp, Buf>
+impl<T, D, B> Array<T, D, B>
 where
     T: ArrayElement,
     D: Dimension + IntoDyn,
-    R: KernelSourceRenderer + Clone,
-    Dev: Device,
-    Comp: Compiler<Dev = Dev>,
-    Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-    Buf: Buffer<Dev = Dev>,
+    B: Backend,
 {
     /// 静的次元から動的次元に変換
-    pub fn into_dyn(self) -> Array<T, DimDyn, R, Dev, Comp, Buf> {
+    pub fn into_dyn(self) -> Array<T, DimDyn, B> {
         Array {
             ctx: self.ctx,
             state: self.state,
@@ -433,11 +558,8 @@ where
 }
 
 // ============================================================================
-// 型エイリアス
+// テスト
 // ============================================================================
-
-// 注: 実際の使用時はバックエンド型を指定する必要があります
-// 例: type Array2<T> = Array<T, Dim2, MetalRenderer, MetalDevice, MetalCompiler, MetalBuffer>;
 
 #[cfg(test)]
 mod tests {
@@ -448,5 +570,15 @@ mod tests {
         assert_eq!(f32::dtype(), DType::F32);
         assert_eq!(i32::dtype(), DType::I32);
         assert_eq!(bool::dtype(), DType::Bool);
+    }
+
+    #[test]
+    fn test_array_element_zero_one() {
+        assert_eq!(f32::zero(), 0.0);
+        assert_eq!(f32::one(), 1.0);
+        assert_eq!(i32::zero(), 0);
+        assert_eq!(i32::one(), 1);
+        assert!(!bool::zero());
+        assert!(bool::one());
     }
 }

@@ -4,9 +4,8 @@
 //! 演算は遅延評価され、計算グラフとして構築されます。
 
 use crate::array::{Array, ArrayElement};
+use crate::backend::Backend;
 use crate::dim::Dimension;
-use harp_core::backend::pipeline::KernelSourceRenderer;
-use harp_core::backend::{Buffer, Compiler, Device, Kernel};
 use harp_core::graph::GraphNode;
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
@@ -38,19 +37,11 @@ fn broadcast_shapes(shape1: &[usize], shape2: &[usize]) -> Vec<usize> {
 }
 
 /// 二項演算を適用
-fn apply_binary_op<T, D, R, Dev, Comp, Buf, F>(
-    lhs: &Array<T, D, R, Dev, Comp, Buf>,
-    rhs: &Array<T, D, R, Dev, Comp, Buf>,
-    op: F,
-) -> Array<T, D, R, Dev, Comp, Buf>
+fn apply_binary_op<T, D, B, F>(lhs: &Array<T, D, B>, rhs: &Array<T, D, B>, op: F) -> Array<T, D, B>
 where
     T: ArrayElement,
     D: Dimension,
-    R: KernelSourceRenderer + Clone,
-    Dev: Device,
-    Comp: Compiler<Dev = Dev>,
-    Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-    Buf: Buffer<Dev = Dev>,
+    B: Backend,
     F: FnOnce(GraphNode, GraphNode) -> GraphNode,
 {
     let lhs_node = lhs.graph_node();
@@ -58,29 +49,25 @@ where
     let result_node = op(lhs_node, rhs_node);
     let result_shape = broadcast_shapes(lhs.shape(), rhs.shape());
 
-    Array::from_graph_node(lhs.context().clone(), result_node, result_shape)
+    Array::from_graph_node(result_node, result_shape)
 }
 
 /// スカラーとの二項演算を適用
-fn apply_scalar_op<T, D, R, Dev, Comp, Buf, F>(
-    arr: &Array<T, D, R, Dev, Comp, Buf>,
+fn apply_scalar_op<T, D, B, F>(
+    arr: &Array<T, D, B>,
     scalar_node: GraphNode,
     op: F,
-) -> Array<T, D, R, Dev, Comp, Buf>
+) -> Array<T, D, B>
 where
     T: ArrayElement,
     D: Dimension,
-    R: KernelSourceRenderer + Clone,
-    Dev: Device,
-    Comp: Compiler<Dev = Dev>,
-    Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-    Buf: Buffer<Dev = Dev>,
+    B: Backend,
     F: FnOnce(GraphNode, GraphNode) -> GraphNode,
 {
     let arr_node = arr.graph_node();
     let result_node = op(arr_node, scalar_node);
 
-    Array::from_graph_node(arr.context().clone(), result_node, arr.shape().to_vec())
+    Array::from_graph_node(result_node, arr.shape().to_vec())
 }
 
 // ============================================================================
@@ -88,15 +75,11 @@ where
 // ============================================================================
 
 // Add: Array + Array
-impl<T, D, R, Dev, Comp, Buf> Add for Array<T, D, R, Dev, Comp, Buf>
+impl<T, D, B> Add for Array<T, D, B>
 where
     T: ArrayElement,
     D: Dimension,
-    R: KernelSourceRenderer + Clone,
-    Dev: Device,
-    Comp: Compiler<Dev = Dev>,
-    Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-    Buf: Buffer<Dev = Dev>,
+    B: Backend,
 {
     type Output = Self;
 
@@ -106,17 +89,13 @@ where
 }
 
 // Add: &Array + &Array
-impl<T, D, R, Dev, Comp, Buf> Add for &Array<T, D, R, Dev, Comp, Buf>
+impl<T, D, B> Add for &Array<T, D, B>
 where
     T: ArrayElement,
     D: Dimension,
-    R: KernelSourceRenderer + Clone,
-    Dev: Device,
-    Comp: Compiler<Dev = Dev>,
-    Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-    Buf: Buffer<Dev = Dev>,
+    B: Backend,
 {
-    type Output = Array<T, D, R, Dev, Comp, Buf>;
+    type Output = Array<T, D, B>;
 
     fn add(self, rhs: Self) -> Self::Output {
         apply_binary_op(self, rhs, |l, r| l + r)
@@ -124,15 +103,11 @@ where
 }
 
 // Sub: Array - Array
-impl<T, D, R, Dev, Comp, Buf> Sub for Array<T, D, R, Dev, Comp, Buf>
+impl<T, D, B> Sub for Array<T, D, B>
 where
     T: ArrayElement,
     D: Dimension,
-    R: KernelSourceRenderer + Clone,
-    Dev: Device,
-    Comp: Compiler<Dev = Dev>,
-    Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-    Buf: Buffer<Dev = Dev>,
+    B: Backend,
 {
     type Output = Self;
 
@@ -142,17 +117,13 @@ where
 }
 
 // Sub: &Array - &Array
-impl<T, D, R, Dev, Comp, Buf> Sub for &Array<T, D, R, Dev, Comp, Buf>
+impl<T, D, B> Sub for &Array<T, D, B>
 where
     T: ArrayElement,
     D: Dimension,
-    R: KernelSourceRenderer + Clone,
-    Dev: Device,
-    Comp: Compiler<Dev = Dev>,
-    Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-    Buf: Buffer<Dev = Dev>,
+    B: Backend,
 {
-    type Output = Array<T, D, R, Dev, Comp, Buf>;
+    type Output = Array<T, D, B>;
 
     fn sub(self, rhs: Self) -> Self::Output {
         apply_binary_op(self, rhs, |l, r| l - r)
@@ -160,15 +131,11 @@ where
 }
 
 // Mul: Array * Array
-impl<T, D, R, Dev, Comp, Buf> Mul for Array<T, D, R, Dev, Comp, Buf>
+impl<T, D, B> Mul for Array<T, D, B>
 where
     T: ArrayElement,
     D: Dimension,
-    R: KernelSourceRenderer + Clone,
-    Dev: Device,
-    Comp: Compiler<Dev = Dev>,
-    Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-    Buf: Buffer<Dev = Dev>,
+    B: Backend,
 {
     type Output = Self;
 
@@ -178,17 +145,13 @@ where
 }
 
 // Mul: &Array * &Array
-impl<T, D, R, Dev, Comp, Buf> Mul for &Array<T, D, R, Dev, Comp, Buf>
+impl<T, D, B> Mul for &Array<T, D, B>
 where
     T: ArrayElement,
     D: Dimension,
-    R: KernelSourceRenderer + Clone,
-    Dev: Device,
-    Comp: Compiler<Dev = Dev>,
-    Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-    Buf: Buffer<Dev = Dev>,
+    B: Backend,
 {
-    type Output = Array<T, D, R, Dev, Comp, Buf>;
+    type Output = Array<T, D, B>;
 
     fn mul(self, rhs: Self) -> Self::Output {
         apply_binary_op(self, rhs, |l, r| l * r)
@@ -196,15 +159,11 @@ where
 }
 
 // Div: Array / Array
-impl<T, D, R, Dev, Comp, Buf> Div for Array<T, D, R, Dev, Comp, Buf>
+impl<T, D, B> Div for Array<T, D, B>
 where
     T: ArrayElement,
     D: Dimension,
-    R: KernelSourceRenderer + Clone,
-    Dev: Device,
-    Comp: Compiler<Dev = Dev>,
-    Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-    Buf: Buffer<Dev = Dev>,
+    B: Backend,
 {
     type Output = Self;
 
@@ -214,17 +173,13 @@ where
 }
 
 // Div: &Array / &Array
-impl<T, D, R, Dev, Comp, Buf> Div for &Array<T, D, R, Dev, Comp, Buf>
+impl<T, D, B> Div for &Array<T, D, B>
 where
     T: ArrayElement,
     D: Dimension,
-    R: KernelSourceRenderer + Clone,
-    Dev: Device,
-    Comp: Compiler<Dev = Dev>,
-    Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-    Buf: Buffer<Dev = Dev>,
+    B: Backend,
 {
-    type Output = Array<T, D, R, Dev, Comp, Buf>;
+    type Output = Array<T, D, B>;
 
     fn div(self, rhs: Self) -> Self::Output {
         apply_binary_op(self, rhs, |l, r| l / r)
@@ -232,42 +187,34 @@ where
 }
 
 // Neg: -Array
-impl<T, D, R, Dev, Comp, Buf> Neg for Array<T, D, R, Dev, Comp, Buf>
+impl<T, D, B> Neg for Array<T, D, B>
 where
     T: ArrayElement,
     D: Dimension,
-    R: KernelSourceRenderer + Clone,
-    Dev: Device,
-    Comp: Compiler<Dev = Dev>,
-    Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-    Buf: Buffer<Dev = Dev>,
+    B: Backend,
 {
     type Output = Self;
 
     fn neg(self) -> Self::Output {
         let node = self.graph_node();
         let result_node = -node;
-        Array::from_graph_node(self.context().clone(), result_node, self.shape().to_vec())
+        Array::from_graph_node(result_node, self.shape().to_vec())
     }
 }
 
 // Neg: -&Array
-impl<T, D, R, Dev, Comp, Buf> Neg for &Array<T, D, R, Dev, Comp, Buf>
+impl<T, D, B> Neg for &Array<T, D, B>
 where
     T: ArrayElement,
     D: Dimension,
-    R: KernelSourceRenderer + Clone,
-    Dev: Device,
-    Comp: Compiler<Dev = Dev>,
-    Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-    Buf: Buffer<Dev = Dev>,
+    B: Backend,
 {
-    type Output = Array<T, D, R, Dev, Comp, Buf>;
+    type Output = Array<T, D, B>;
 
     fn neg(self) -> Self::Output {
         let node = self.graph_node();
         let result_node = -node;
-        Array::from_graph_node(self.context().clone(), result_node, self.shape().to_vec())
+        Array::from_graph_node(result_node, self.shape().to_vec())
     }
 }
 
@@ -279,14 +226,10 @@ where
 macro_rules! impl_scalar_ops {
     ($scalar:ty) => {
         // Array + scalar
-        impl<D, R, Dev, Comp, Buf> Add<$scalar> for Array<f32, D, R, Dev, Comp, Buf>
+        impl<D, B> Add<$scalar> for Array<f32, D, B>
         where
             D: Dimension,
-            R: KernelSourceRenderer + Clone,
-            Dev: Device,
-            Comp: Compiler<Dev = Dev>,
-            Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-            Buf: Buffer<Dev = Dev>,
+            B: Backend,
         {
             type Output = Self;
 
@@ -296,16 +239,12 @@ macro_rules! impl_scalar_ops {
         }
 
         // &Array + scalar
-        impl<D, R, Dev, Comp, Buf> Add<$scalar> for &Array<f32, D, R, Dev, Comp, Buf>
+        impl<D, B> Add<$scalar> for &Array<f32, D, B>
         where
             D: Dimension,
-            R: KernelSourceRenderer + Clone,
-            Dev: Device,
-            Comp: Compiler<Dev = Dev>,
-            Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-            Buf: Buffer<Dev = Dev>,
+            B: Backend,
         {
-            type Output = Array<f32, D, R, Dev, Comp, Buf>;
+            type Output = Array<f32, D, B>;
 
             fn add(self, rhs: $scalar) -> Self::Output {
                 apply_scalar_op(self, GraphNode::constant(rhs), |l, r| l + r)
@@ -313,31 +252,23 @@ macro_rules! impl_scalar_ops {
         }
 
         // scalar + Array
-        impl<D, R, Dev, Comp, Buf> Add<Array<f32, D, R, Dev, Comp, Buf>> for $scalar
+        impl<D, B> Add<Array<f32, D, B>> for $scalar
         where
             D: Dimension,
-            R: KernelSourceRenderer + Clone,
-            Dev: Device,
-            Comp: Compiler<Dev = Dev>,
-            Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-            Buf: Buffer<Dev = Dev>,
+            B: Backend,
         {
-            type Output = Array<f32, D, R, Dev, Comp, Buf>;
+            type Output = Array<f32, D, B>;
 
-            fn add(self, rhs: Array<f32, D, R, Dev, Comp, Buf>) -> Self::Output {
+            fn add(self, rhs: Array<f32, D, B>) -> Self::Output {
                 apply_scalar_op(&rhs, GraphNode::constant(self), |r, l| l + r)
             }
         }
 
         // Array - scalar
-        impl<D, R, Dev, Comp, Buf> Sub<$scalar> for Array<f32, D, R, Dev, Comp, Buf>
+        impl<D, B> Sub<$scalar> for Array<f32, D, B>
         where
             D: Dimension,
-            R: KernelSourceRenderer + Clone,
-            Dev: Device,
-            Comp: Compiler<Dev = Dev>,
-            Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-            Buf: Buffer<Dev = Dev>,
+            B: Backend,
         {
             type Output = Self;
 
@@ -347,16 +278,12 @@ macro_rules! impl_scalar_ops {
         }
 
         // &Array - scalar
-        impl<D, R, Dev, Comp, Buf> Sub<$scalar> for &Array<f32, D, R, Dev, Comp, Buf>
+        impl<D, B> Sub<$scalar> for &Array<f32, D, B>
         where
             D: Dimension,
-            R: KernelSourceRenderer + Clone,
-            Dev: Device,
-            Comp: Compiler<Dev = Dev>,
-            Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-            Buf: Buffer<Dev = Dev>,
+            B: Backend,
         {
-            type Output = Array<f32, D, R, Dev, Comp, Buf>;
+            type Output = Array<f32, D, B>;
 
             fn sub(self, rhs: $scalar) -> Self::Output {
                 apply_scalar_op(self, GraphNode::constant(rhs), |l, r| l - r)
@@ -364,31 +291,23 @@ macro_rules! impl_scalar_ops {
         }
 
         // scalar - Array
-        impl<D, R, Dev, Comp, Buf> Sub<Array<f32, D, R, Dev, Comp, Buf>> for $scalar
+        impl<D, B> Sub<Array<f32, D, B>> for $scalar
         where
             D: Dimension,
-            R: KernelSourceRenderer + Clone,
-            Dev: Device,
-            Comp: Compiler<Dev = Dev>,
-            Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-            Buf: Buffer<Dev = Dev>,
+            B: Backend,
         {
-            type Output = Array<f32, D, R, Dev, Comp, Buf>;
+            type Output = Array<f32, D, B>;
 
-            fn sub(self, rhs: Array<f32, D, R, Dev, Comp, Buf>) -> Self::Output {
+            fn sub(self, rhs: Array<f32, D, B>) -> Self::Output {
                 apply_scalar_op(&rhs, GraphNode::constant(self), |r, l| l - r)
             }
         }
 
         // Array * scalar
-        impl<D, R, Dev, Comp, Buf> Mul<$scalar> for Array<f32, D, R, Dev, Comp, Buf>
+        impl<D, B> Mul<$scalar> for Array<f32, D, B>
         where
             D: Dimension,
-            R: KernelSourceRenderer + Clone,
-            Dev: Device,
-            Comp: Compiler<Dev = Dev>,
-            Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-            Buf: Buffer<Dev = Dev>,
+            B: Backend,
         {
             type Output = Self;
 
@@ -398,16 +317,12 @@ macro_rules! impl_scalar_ops {
         }
 
         // &Array * scalar
-        impl<D, R, Dev, Comp, Buf> Mul<$scalar> for &Array<f32, D, R, Dev, Comp, Buf>
+        impl<D, B> Mul<$scalar> for &Array<f32, D, B>
         where
             D: Dimension,
-            R: KernelSourceRenderer + Clone,
-            Dev: Device,
-            Comp: Compiler<Dev = Dev>,
-            Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-            Buf: Buffer<Dev = Dev>,
+            B: Backend,
         {
-            type Output = Array<f32, D, R, Dev, Comp, Buf>;
+            type Output = Array<f32, D, B>;
 
             fn mul(self, rhs: $scalar) -> Self::Output {
                 apply_scalar_op(self, GraphNode::constant(rhs), |l, r| l * r)
@@ -415,31 +330,23 @@ macro_rules! impl_scalar_ops {
         }
 
         // scalar * Array
-        impl<D, R, Dev, Comp, Buf> Mul<Array<f32, D, R, Dev, Comp, Buf>> for $scalar
+        impl<D, B> Mul<Array<f32, D, B>> for $scalar
         where
             D: Dimension,
-            R: KernelSourceRenderer + Clone,
-            Dev: Device,
-            Comp: Compiler<Dev = Dev>,
-            Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-            Buf: Buffer<Dev = Dev>,
+            B: Backend,
         {
-            type Output = Array<f32, D, R, Dev, Comp, Buf>;
+            type Output = Array<f32, D, B>;
 
-            fn mul(self, rhs: Array<f32, D, R, Dev, Comp, Buf>) -> Self::Output {
+            fn mul(self, rhs: Array<f32, D, B>) -> Self::Output {
                 apply_scalar_op(&rhs, GraphNode::constant(self), |r, l| l * r)
             }
         }
 
         // Array / scalar
-        impl<D, R, Dev, Comp, Buf> Div<$scalar> for Array<f32, D, R, Dev, Comp, Buf>
+        impl<D, B> Div<$scalar> for Array<f32, D, B>
         where
             D: Dimension,
-            R: KernelSourceRenderer + Clone,
-            Dev: Device,
-            Comp: Compiler<Dev = Dev>,
-            Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-            Buf: Buffer<Dev = Dev>,
+            B: Backend,
         {
             type Output = Self;
 
@@ -449,16 +356,12 @@ macro_rules! impl_scalar_ops {
         }
 
         // &Array / scalar
-        impl<D, R, Dev, Comp, Buf> Div<$scalar> for &Array<f32, D, R, Dev, Comp, Buf>
+        impl<D, B> Div<$scalar> for &Array<f32, D, B>
         where
             D: Dimension,
-            R: KernelSourceRenderer + Clone,
-            Dev: Device,
-            Comp: Compiler<Dev = Dev>,
-            Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-            Buf: Buffer<Dev = Dev>,
+            B: Backend,
         {
-            type Output = Array<f32, D, R, Dev, Comp, Buf>;
+            type Output = Array<f32, D, B>;
 
             fn div(self, rhs: $scalar) -> Self::Output {
                 apply_scalar_op(self, GraphNode::constant(rhs), |l, r| l / r)
@@ -466,18 +369,14 @@ macro_rules! impl_scalar_ops {
         }
 
         // scalar / Array
-        impl<D, R, Dev, Comp, Buf> Div<Array<f32, D, R, Dev, Comp, Buf>> for $scalar
+        impl<D, B> Div<Array<f32, D, B>> for $scalar
         where
             D: Dimension,
-            R: KernelSourceRenderer + Clone,
-            Dev: Device,
-            Comp: Compiler<Dev = Dev>,
-            Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-            Buf: Buffer<Dev = Dev>,
+            B: Backend,
         {
-            type Output = Array<f32, D, R, Dev, Comp, Buf>;
+            type Output = Array<f32, D, B>;
 
-            fn div(self, rhs: Array<f32, D, R, Dev, Comp, Buf>) -> Self::Output {
+            fn div(self, rhs: Array<f32, D, B>) -> Self::Output {
                 apply_scalar_op(&rhs, GraphNode::constant(self), |r, l| l / r)
             }
         }
@@ -492,69 +391,53 @@ impl_scalar_ops!(f32);
 // ============================================================================
 
 // scalar + &Array
-impl<D, R, Dev, Comp, Buf> Add<&Array<f32, D, R, Dev, Comp, Buf>> for f32
+impl<D, B> Add<&Array<f32, D, B>> for f32
 where
     D: Dimension,
-    R: KernelSourceRenderer + Clone,
-    Dev: Device,
-    Comp: Compiler<Dev = Dev>,
-    Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-    Buf: Buffer<Dev = Dev>,
+    B: Backend,
 {
-    type Output = Array<f32, D, R, Dev, Comp, Buf>;
+    type Output = Array<f32, D, B>;
 
-    fn add(self, rhs: &Array<f32, D, R, Dev, Comp, Buf>) -> Self::Output {
+    fn add(self, rhs: &Array<f32, D, B>) -> Self::Output {
         apply_scalar_op(rhs, GraphNode::constant(self), |r, l| l + r)
     }
 }
 
 // scalar - &Array
-impl<D, R, Dev, Comp, Buf> Sub<&Array<f32, D, R, Dev, Comp, Buf>> for f32
+impl<D, B> Sub<&Array<f32, D, B>> for f32
 where
     D: Dimension,
-    R: KernelSourceRenderer + Clone,
-    Dev: Device,
-    Comp: Compiler<Dev = Dev>,
-    Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-    Buf: Buffer<Dev = Dev>,
+    B: Backend,
 {
-    type Output = Array<f32, D, R, Dev, Comp, Buf>;
+    type Output = Array<f32, D, B>;
 
-    fn sub(self, rhs: &Array<f32, D, R, Dev, Comp, Buf>) -> Self::Output {
+    fn sub(self, rhs: &Array<f32, D, B>) -> Self::Output {
         apply_scalar_op(rhs, GraphNode::constant(self), |r, l| l - r)
     }
 }
 
 // scalar * &Array
-impl<D, R, Dev, Comp, Buf> Mul<&Array<f32, D, R, Dev, Comp, Buf>> for f32
+impl<D, B> Mul<&Array<f32, D, B>> for f32
 where
     D: Dimension,
-    R: KernelSourceRenderer + Clone,
-    Dev: Device,
-    Comp: Compiler<Dev = Dev>,
-    Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-    Buf: Buffer<Dev = Dev>,
+    B: Backend,
 {
-    type Output = Array<f32, D, R, Dev, Comp, Buf>;
+    type Output = Array<f32, D, B>;
 
-    fn mul(self, rhs: &Array<f32, D, R, Dev, Comp, Buf>) -> Self::Output {
+    fn mul(self, rhs: &Array<f32, D, B>) -> Self::Output {
         apply_scalar_op(rhs, GraphNode::constant(self), |r, l| l * r)
     }
 }
 
 // scalar / &Array
-impl<D, R, Dev, Comp, Buf> Div<&Array<f32, D, R, Dev, Comp, Buf>> for f32
+impl<D, B> Div<&Array<f32, D, B>> for f32
 where
     D: Dimension,
-    R: KernelSourceRenderer + Clone,
-    Dev: Device,
-    Comp: Compiler<Dev = Dev>,
-    Comp::Kernel: Kernel<Buffer = Buf> + Clone,
-    Buf: Buffer<Dev = Dev>,
+    B: Backend,
 {
-    type Output = Array<f32, D, R, Dev, Comp, Buf>;
+    type Output = Array<f32, D, B>;
 
-    fn div(self, rhs: &Array<f32, D, R, Dev, Comp, Buf>) -> Self::Output {
+    fn div(self, rhs: &Array<f32, D, B>) -> Self::Output {
         apply_scalar_op(rhs, GraphNode::constant(self), |r, l| l / r)
     }
 }
