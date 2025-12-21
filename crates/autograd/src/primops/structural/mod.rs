@@ -7,8 +7,10 @@
 //! - 形状変更（Reshape）
 //! - 線形代数演算（Matmul）
 //! - 形状情報（Shape, Ndim）
+//! - 初期化（Zeros, Ones）
 
 pub mod dim;
+pub mod initialization;
 pub mod linalg;
 pub mod permute;
 pub mod reduce;
@@ -32,3 +34,6 @@ pub use linalg::{Matmul, MatmulBackward};
 
 // 形状
 pub use shape::{Ndim, Shape};
+
+// 初期化
+pub use initialization::{Ones, Zeros};

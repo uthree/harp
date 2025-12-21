@@ -46,6 +46,8 @@ pub use primops::{
     Max,
     Maximum,
     Ndim,
+    // 初期化
+    Ones,
     Permute,
     Prod,
     Reshape,
@@ -55,6 +57,7 @@ pub use primops::{
     Squeeze,
     Sum,
     Unsqueeze,
+    Zeros,
 };
 
 // 定数

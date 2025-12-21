@@ -53,6 +53,8 @@ pub use structural::{
     MaxBackward,
     // 形状情報
     Ndim,
+    // 初期化
+    Ones,
     // 軸順序変更
     Permute,
     PermuteBackward,
@@ -69,5 +71,6 @@ pub use structural::{
     SumBackward,
     Unsqueeze,
     UnsqueezeBackward,
+    Zeros,
     inverse_permutation,
 };

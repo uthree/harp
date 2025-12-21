@@ -1,9 +1,12 @@
-//! ndarray に対する Reduce/Expand/Permute/Reshape/Squeeze/Unsqueeze/Linalg/Shape トレイトの実装
+//! ndarray に対する Reduce/Expand/Permute/Reshape/Squeeze/Unsqueeze/Linalg/Shape/Zeros/Ones/Maximum トレイトの実装
 
-use ndarray::{Array0, Array2, Axis, Dimension, Ix0, IxDyn, concatenate};
+use ndarray::{Array0, Array2, Axis, Dimension, Ix0, IxDyn, Zip, concatenate};
 use num_traits::One;
 
-use crate::primops::{Expand, Matmul, Max, Permute, Prod, Reshape, Shape, Squeeze, Sum, Unsqueeze};
+use crate::primops::{
+    Expand, Matmul, Max, Maximum, Ones, Permute, Prod, Reshape, Shape, Squeeze, Sum, Unsqueeze,
+    Zeros,
+};
 
 // ============================================================================
 // GradRoot の実装 (Array0)
@@ -285,5 +288,71 @@ where
             }
         }
         result
+    }
+}
+
+// ============================================================================
+// Zeros の実装
+// ============================================================================
+
+impl<A, D> Zeros for ndarray::Array<A, D>
+where
+    A: Clone + num_traits::Zero,
+    D: Dimension,
+{
+    fn zeros(shape: &[usize]) -> Self {
+        let dyn_array = ndarray::Array::<A, IxDyn>::zeros(IxDyn(shape));
+        dyn_array
+            .into_dimensionality()
+            .expect("Zeros: dimension mismatch")
+    }
+}
+
+// ============================================================================
+// Ones の実装
+// ============================================================================
+
+impl<A, D> Ones for ndarray::Array<A, D>
+where
+    A: Clone + num_traits::Zero + num_traits::One,
+    D: Dimension,
+{
+    fn ones(shape: &[usize]) -> Self {
+        let dyn_array = ndarray::Array::<A, IxDyn>::ones(IxDyn(shape));
+        dyn_array
+            .into_dimensionality()
+            .expect("Ones: dimension mismatch")
+    }
+}
+
+// ============================================================================
+// Maximum の実装（要素ごとの max）
+// ============================================================================
+
+impl<A, D> Maximum for ndarray::Array<A, D>
+where
+    A: Clone + PartialOrd + Default,
+    D: Dimension,
+{
+    type Output = Self;
+
+    fn maximum(&self, other: &Self) -> Self::Output {
+        Zip::from(self)
+            .and(other)
+            .map_collect(|a, b| if a >= b { a.clone() } else { b.clone() })
+    }
+
+    fn maximum_grad_lhs(grad: &Self, lhs: &Self, rhs: &Self) -> Self {
+        Zip::from(grad)
+            .and(lhs)
+            .and(rhs)
+            .map_collect(|g, l, r| if l >= r { g.clone() } else { A::default() })
+    }
+
+    fn maximum_grad_rhs(grad: &Self, lhs: &Self, rhs: &Self) -> Self {
+        Zip::from(grad)
+            .and(lhs)
+            .and(rhs)
+            .map_collect(|g, l, r| if r > l { g.clone() } else { A::default() })
     }
 }

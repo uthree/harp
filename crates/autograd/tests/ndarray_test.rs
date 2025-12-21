@@ -1,6 +1,9 @@
 #![cfg(feature = "ndarray")]
 
-use autograd::{Expand, Matmul, Max, Permute, Prod, Reshape, Squeeze, Sum, Unsqueeze, Variable};
+use autograd::{
+    Expand, Matmul, Max, Maximum, Ones, Permute, Prod, Reshape, Squeeze, Sum, Unsqueeze, Variable,
+    Zeros,
+};
 use ndarray::{Array1, Array2, ArrayD, IxDyn, array};
 
 // ============================================================================
@@ -942,4 +945,147 @@ fn test_matmul_fallback_identity() {
     assert_eq!(c[[0, 1]], 2.0);
     assert_eq!(c[[1, 0]], 3.0);
     assert_eq!(c[[1, 1]], 4.0);
+}
+
+// ============================================================================
+// Zeros/Ones 初期化のテスト
+// ============================================================================
+
+#[test]
+fn test_zeros_trait_array2() {
+    let zeros: Array2<f64> = Zeros::zeros(&[3, 4]);
+    assert_eq!(zeros.shape(), &[3, 4]);
+    assert!(zeros.iter().all(|&x| x == 0.0));
+}
+
+#[test]
+fn test_ones_trait_array2() {
+    let ones: Array2<f64> = Ones::ones(&[2, 5]);
+    assert_eq!(ones.shape(), &[2, 5]);
+    assert!(ones.iter().all(|&x| x == 1.0));
+}
+
+#[test]
+fn test_zeros_trait_array1() {
+    let zeros: Array1<f64> = Zeros::zeros(&[10]);
+    assert_eq!(zeros.shape(), &[10]);
+    assert!(zeros.iter().all(|&x| x == 0.0));
+}
+
+#[test]
+fn test_ones_trait_array1() {
+    let ones: Array1<f64> = Ones::ones(&[10]);
+    assert_eq!(ones.shape(), &[10]);
+    assert!(ones.iter().all(|&x| x == 1.0));
+}
+
+#[test]
+fn test_variable_zeros() {
+    let zeros: Variable<Array2<f64>> = Variable::zeros(&[3, 4]);
+    assert_eq!(zeros.value().shape(), &[3, 4]);
+    assert!(zeros.value().iter().all(|&x| x == 0.0));
+}
+
+#[test]
+fn test_variable_ones() {
+    let ones: Variable<Array2<f64>> = Variable::ones(&[2, 5]);
+    assert_eq!(ones.value().shape(), &[2, 5]);
+    assert!(ones.value().iter().all(|&x| x == 1.0));
+}
+
+// ============================================================================
+// Maximum（要素ごとの最大値）のテスト
+// ============================================================================
+
+#[test]
+fn test_maximum_trait_array2() {
+    let a = array![[1.0, 3.0], [2.0, 4.0]];
+    let b = array![[2.0, 2.0], [3.0, 3.0]];
+    let result = a.maximum(&b);
+    assert_eq!(result, array![[2.0, 3.0], [3.0, 4.0]]);
+}
+
+#[test]
+fn test_maximum_trait_array1() {
+    let a = array![1.0, 5.0, 3.0, 7.0];
+    let b = array![2.0, 4.0, 6.0, 0.0];
+    let result = a.maximum(&b);
+    assert_eq!(result, array![2.0, 5.0, 6.0, 7.0]);
+}
+
+#[test]
+fn test_variable_maximum_forward() {
+    let x: Variable<Array2<f64>> = Variable::new(array![[1.0, 3.0], [2.0, 4.0]]);
+    let y: Variable<Array2<f64>> = Variable::new(array![[2.0, 2.0], [3.0, 3.0]]);
+    let z = x.maximum(&y);
+    assert_eq!(z.value(), array![[2.0, 3.0], [3.0, 4.0]]);
+}
+
+#[test]
+fn test_variable_maximum_backward() {
+    // z = maximum(x, y)
+    // ∂z/∂x = 1 if x >= y else 0
+    // ∂z/∂y = 1 if y > x else 0
+    let x: Variable<Array2<f64>> = Variable::new(array![[1.0, 3.0], [2.0, 4.0]]);
+    let y: Variable<Array2<f64>> = Variable::new(array![[2.0, 2.0], [3.0, 3.0]]);
+    let z = x.maximum(&y);
+
+    let grad = Variable::new(array![[1.0, 1.0], [1.0, 1.0]]);
+    z.backward_with(grad);
+
+    // x >= y の位置: (0,1), (1,1)
+    // y > x の位置: (0,0), (1,0)
+    assert_eq!(x.grad().unwrap().value(), array![[0.0, 1.0], [0.0, 1.0]]);
+    assert_eq!(y.grad().unwrap().value(), array![[1.0, 0.0], [1.0, 0.0]]);
+}
+
+// ============================================================================
+// ReLU の実装テスト (maximum と zeros を組み合わせ)
+// ============================================================================
+
+#[test]
+fn test_relu_with_maximum() {
+    // ReLU(x) = max(x, 0)
+    let x: Variable<Array2<f64>> = Variable::new(array![[-1.0, 2.0], [3.0, -4.0]]);
+    let zeros: Variable<Array2<f64>> = Variable::zeros(&[2, 2]);
+    let relu = x.maximum(&zeros);
+    assert_eq!(relu.value(), array![[0.0, 2.0], [3.0, 0.0]]);
+}
+
+#[test]
+fn test_relu_backward() {
+    // ReLU(x) = max(x, 0)
+    // ∂ReLU/∂x = 1 if x > 0 else 0
+    let x: Variable<Array2<f64>> = Variable::new(array![[-1.0, 2.0], [3.0, -4.0]]);
+    let zeros: Variable<Array2<f64>> = Variable::zeros(&[2, 2]);
+    let relu = x.maximum(&zeros);
+
+    let grad = Variable::new(array![[1.0, 1.0], [1.0, 1.0]]);
+    relu.backward_with(grad);
+
+    // x > 0 の位置: (0,1), (1,0)
+    // x <= 0 の位置: (0,0), (1,1)
+    assert_eq!(x.grad().unwrap().value(), array![[0.0, 1.0], [1.0, 0.0]]);
+}
+
+#[test]
+fn test_relu_chain() {
+    // y = ReLU(x) * 2
+    let x: Variable<Array1<f64>> = Variable::new(array![-2.0, -1.0, 0.0, 1.0, 2.0]);
+    let zeros: Variable<Array1<f64>> = Variable::zeros(&[5]);
+    let two: Variable<Array1<f64>> = Variable::new(array![2.0, 2.0, 2.0, 2.0, 2.0]);
+
+    let relu = x.maximum(&zeros);
+    let y = &relu * &two;
+
+    assert_eq!(y.value(), array![0.0, 0.0, 0.0, 2.0, 4.0]);
+
+    let grad = Variable::new(array![1.0, 1.0, 1.0, 1.0, 1.0]);
+    y.backward_with(grad);
+
+    // ∂y/∂relu = two = [2, 2, 2, 2, 2]
+    // ∂relu/∂x = [0, 0, 1, 1, 1] (x >= 0 の位置)
+    // 注: x=0 では劣勾配を使用し、勾配を伝播させる
+    // ∂y/∂x = [0, 0, 2, 2, 2]
+    assert_eq!(x.grad().unwrap().value(), array![0.0, 0.0, 2.0, 2.0, 2.0]);
 }

@@ -44,6 +44,8 @@ pub use crate::primops::{
     Max,
     // 形状情報
     Ndim,
+    // 初期化
+    Ones,
     // 軸順序・形状
     Permute,
     Prod,
@@ -53,6 +55,7 @@ pub use crate::primops::{
     Squeeze,
     Sum,
     Unsqueeze,
+    Zeros,
 };
 
 // ============================================================================
