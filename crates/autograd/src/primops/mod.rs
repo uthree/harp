@@ -7,6 +7,7 @@ pub mod arithmetic;
 pub mod cast;
 pub mod linalg;
 pub mod reduce;
+pub mod shape;
 pub mod transcendental;
 
 // 四則演算
@@ -30,3 +31,6 @@ pub use transcendental::{
 
 // 線形代数
 pub use linalg::{Matmul, MatmulBackward, Transpose, TransposeBackward};
+
+// 形状
+pub use shape::{Ndim, Shape};
