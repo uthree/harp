@@ -857,3 +857,43 @@ fn test_squeeze_unsqueeze_static_roundtrip() {
     assert_eq!(squeezed.shape(), arr.shape());
     assert_eq!(squeezed, arr);
 }
+
+// ============================================================================
+// Array0 の backward テスト
+// ============================================================================
+
+#[test]
+fn test_array0_backward() {
+    use ndarray::Array1;
+
+    // Array1 を sum して Array0 にし、backward() を呼ぶ
+    let arr: Array1<f64> = Array1::from_vec(vec![1.0, 2.0, 3.0]);
+    let x: Variable<Array1<f64>> = Variable::new(arr);
+
+    // sum で Array0 になる（全要素の合計）
+    // 注: 実際には複数回 sum する必要がある
+    let y = x.sum(0); // [1, 2, 3] -> [6] (まだ1次元)
+
+    // squeeze で Array0 に変換
+    let z = y.squeeze(0); // [6] -> scalar
+
+    // backward() が呼べることを確認（GradRoot が実装されている）
+    z.backward();
+
+    // 勾配は全て 1.0
+    let grad = x.grad().unwrap().value();
+    assert_eq!(grad, Array1::from_vec(vec![1.0, 1.0, 1.0]));
+}
+
+#[test]
+fn test_array0_grad_root() {
+    use autograd::GradRoot;
+    use ndarray::Array0;
+
+    // Array0 が GradRoot を実装していることを確認
+    let unit: Array0<f64> = Array0::<f64>::unit_grad();
+    assert_eq!(unit[()], 1.0);
+
+    let unit_f32: Array0<f32> = Array0::<f32>::unit_grad();
+    assert_eq!(unit_f32[()], 1.0);
+}

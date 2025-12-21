@@ -1,5 +1,3 @@
-use num_traits::One;
-
 /// 逆伝播の中間点として使用可能な型
 /// Clone を実装する全ての型に自動実装される
 pub trait GradNode: Clone {}
@@ -25,9 +23,18 @@ pub trait GradFn<T> {
 /// Clone を実装する全ての型は GradNode を自動実装
 impl<T: Clone> GradNode for T {}
 
-/// Clone + One を実装する全ての型は GradRoot を自動実装
-impl<T: Clone + One> GradRoot for T {
+// ============================================================================
+// GradRoot の明示的実装（スカラー型）
+// ============================================================================
+
+impl GradRoot for f32 {
     fn unit_grad() -> Self {
-        T::one()
+        1.0
+    }
+}
+
+impl GradRoot for f64 {
+    fn unit_grad() -> Self {
+        1.0
     }
 }

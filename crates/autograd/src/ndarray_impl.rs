@@ -1,8 +1,26 @@
 //! ndarray に対する Reduce/Expand/Permute/Reshape/Squeeze/Unsqueeze/Linalg/Shape トレイトの実装
 
-use ndarray::{Array2, Axis, Dimension, IxDyn, concatenate};
+use ndarray::{Array0, Array2, Axis, Dimension, Ix0, IxDyn, concatenate};
+use num_traits::One;
 
 use crate::primops::{Expand, Matmul, Max, Permute, Prod, Reshape, Shape, Squeeze, Sum, Unsqueeze};
+
+// ============================================================================
+// GradRoot の実装 (Array0)
+// ============================================================================
+
+use crate::traits::GradRoot;
+
+/// Array0<A> に GradRoot を実装することで
+/// Variable<Array0<A>>::backward() が使用可能になる
+impl<A> GradRoot for Array0<A>
+where
+    A: Clone + One,
+{
+    fn unit_grad() -> Self {
+        Array0::from_elem(Ix0(), A::one())
+    }
+}
 
 // ============================================================================
 // Shape の実装
