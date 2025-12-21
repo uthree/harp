@@ -3,9 +3,94 @@
 //! 実行時にデバイスを選択できる配列型を提供します。
 //! `.to(device)`メソッドでデバイス間転送が可能です。
 
-use crate::array::{ArrayElement, ArrayError};
 use crate::device::Device;
 use crate::dim::Dimension;
+use thiserror::Error;
+
+// ============================================================================
+// ArrayElement - 配列要素トレイト
+// ============================================================================
+
+/// 配列要素として使用可能な型のトレイト
+///
+/// このトレイトを実装することで、任意の型を配列要素として使用できます。
+pub trait ArrayElement: Clone + Copy + Default + 'static {
+    /// 型のゼロ値
+    fn zero() -> Self;
+
+    /// 型の1値
+    fn one() -> Self;
+
+    /// データ型名
+    fn dtype_name() -> &'static str;
+}
+
+impl ArrayElement for f32 {
+    fn zero() -> Self {
+        0.0
+    }
+    fn one() -> Self {
+        1.0
+    }
+    fn dtype_name() -> &'static str {
+        "f32"
+    }
+}
+
+impl ArrayElement for i32 {
+    fn zero() -> Self {
+        0
+    }
+    fn one() -> Self {
+        1
+    }
+    fn dtype_name() -> &'static str {
+        "i32"
+    }
+}
+
+impl ArrayElement for bool {
+    fn zero() -> Self {
+        false
+    }
+    fn one() -> Self {
+        true
+    }
+    fn dtype_name() -> &'static str {
+        "bool"
+    }
+}
+
+// ============================================================================
+// ArrayError - 配列エラー型
+// ============================================================================
+
+/// 配列演算のエラー型
+#[derive(Error, Debug)]
+pub enum ArrayError {
+    /// 形状の不一致
+    #[error("Shape mismatch: expected {expected:?}, got {actual:?}")]
+    ShapeMismatch {
+        expected: Vec<usize>,
+        actual: Vec<usize>,
+    },
+
+    /// 無効な軸
+    #[error("Invalid axis: {axis} for array with {ndim} dimensions")]
+    InvalidAxis { axis: usize, ndim: usize },
+
+    /// コンテキストエラー
+    #[error("Context error: {0}")]
+    Context(String),
+
+    /// コンパイルエラー
+    #[error("Compilation error: {0}")]
+    Compilation(String),
+
+    /// デバイスエラー
+    #[error("Device error: {0}")]
+    Device(String),
+}
 
 // ============================================================================
 // Array - 配列型
@@ -310,9 +395,9 @@ mod tests {
         let data = vec![1.0f32, 2.0, 3.0, 4.0];
         let shape = vec![2, 2];
         let arr: Array<f32, Dim2> =
-            Array::from_vec_with_device(data.clone(), shape.clone(), Device::Cpu);
+            Array::from_vec_with_device(data.clone(), shape.clone(), Device::OpenCL);
 
-        assert_eq!(arr.device(), Device::Cpu);
+        assert_eq!(arr.device(), Device::OpenCL);
         assert_eq!(arr.shape(), &[2, 2]);
         assert_eq!(arr.ndim(), 2);
         assert_eq!(arr.len(), 4);
@@ -320,38 +405,39 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "cpu")]
+    #[cfg(feature = "opencl")]
     fn test_array_to_same_device() {
         let data = vec![1.0f32, 2.0, 3.0, 4.0];
         let shape = vec![2, 2];
-        let arr: Array<f32, Dim2> = Array::from_vec_with_device(data.clone(), shape, Device::Cpu);
+        let arr: Array<f32, Dim2> =
+            Array::from_vec_with_device(data.clone(), shape, Device::OpenCL);
 
-        // CPUからCPUへの転送は常に成功
-        let arr2 = arr.to(Device::Cpu).unwrap();
-        assert_eq!(arr2.device(), Device::Cpu);
+        // OpenCLからOpenCLへの転送は常に成功
+        let arr2 = arr.to(Device::OpenCL).unwrap();
+        assert_eq!(arr2.device(), Device::OpenCL);
         assert_eq!(arr2.to_vec(), data);
     }
 
     #[test]
-    #[cfg(not(feature = "cpu"))]
+    #[cfg(not(feature = "opencl"))]
     fn test_array_to_unavailable_device() {
         let data = vec![1.0f32, 2.0, 3.0, 4.0];
-        let arr: Array<f32, Dim2> = Array::from_vec_with_device(data, vec![2, 2], Device::Cpu);
+        let arr: Array<f32, Dim2> = Array::from_vec_with_device(data, vec![2, 2], Device::OpenCL);
 
-        // CPUが無効な場合はエラー
-        assert!(arr.to(Device::Cpu).is_err());
+        // OpenCLが無効な場合はエラー
+        assert!(arr.to(Device::OpenCL).is_err());
     }
 
     #[test]
     fn test_array_type_aliases() {
-        let _: Array0<f32> = Array::from_vec_with_device(vec![1.0], vec![], Device::Cpu);
-        let _: Array1<f32> = Array::from_vec_with_device(vec![1.0, 2.0], vec![2], Device::Cpu);
+        let _: Array0<f32> = Array::from_vec_with_device(vec![1.0], vec![], Device::OpenCL);
+        let _: Array1<f32> = Array::from_vec_with_device(vec![1.0, 2.0], vec![2], Device::OpenCL);
         let _: Array2<f32> =
-            Array::from_vec_with_device(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2], Device::Cpu);
+            Array::from_vec_with_device(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2], Device::OpenCL);
     }
 
     #[test]
-    #[cfg(feature = "cpu")]
+    #[cfg(feature = "opencl")]
     fn test_array_zeros() {
         let arr = <Array<f32, Dim2>>::zeros([3, 4]);
         assert_eq!(arr.shape(), &[3, 4]);
@@ -360,7 +446,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "cpu")]
+    #[cfg(feature = "opencl")]
     fn test_array_ones() {
         let arr = <Array<f32, Dim2>>::ones([2, 3]);
         assert_eq!(arr.shape(), &[2, 3]);
@@ -368,14 +454,14 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "cpu")]
+    #[cfg(feature = "opencl")]
     fn test_array_full() {
         let arr = <Array<f32, Dim2>>::full([2, 2], 3.14);
         assert!(arr.to_vec().iter().all(|&x| (x - 3.14_f32).abs() < 1e-6));
     }
 
     #[test]
-    #[cfg(feature = "cpu")]
+    #[cfg(feature = "opencl")]
     fn test_array_arange() {
         let arr = <Array<f32, crate::dim::Dim1>>::arange(5);
         assert_eq!(arr.shape(), &[5]);
@@ -383,7 +469,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "cpu")]
+    #[cfg(feature = "opencl")]
     fn test_array_zeros_like() {
         let original = <Array<f32, Dim2>>::ones([3, 4]);
         let zeros = <Array<f32, Dim2>>::zeros_like(&original);
@@ -392,7 +478,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "cpu")]
+    #[cfg(feature = "opencl")]
     fn test_array_i32() {
         let arr = <Array<i32, Dim2>>::zeros([2, 3]);
         assert_eq!(arr.shape(), &[2, 3]);

@@ -91,7 +91,7 @@ impl Device {
     /// }
     /// ```
     pub fn available() -> Vec<Device> {
-        [Device::Metal, Device::OpenCL, Device::Cpu]
+        [Device::Metal, Device::OpenCL]
             .into_iter()
             .filter(|d| d.is_available())
             .collect()
@@ -99,7 +99,7 @@ impl Device {
 
     /// デフォルトデバイスを取得
     ///
-    /// 優先順位: Metal > OpenCL > CPU
+    /// 優先順位: Metal > OpenCL
     ///
     /// # Panics
     ///
@@ -112,15 +112,12 @@ impl Device {
         #[cfg(all(feature = "opencl", not(feature = "metal")))]
         return Device::OpenCL;
 
-        #[cfg(all(feature = "cpu", not(any(feature = "metal", feature = "opencl"))))]
-        return Device::Cpu;
-
-        panic!("No backend available. Enable at least one backend feature: metal, opencl, or cpu");
+        panic!("No backend available. Enable at least one backend feature: metal or opencl");
     }
 
     /// 全てのデバイスバリアントを取得
     pub fn all() -> &'static [Device] {
-        &[Device::Metal, Device::OpenCL, Device::Cpu]
+        &[Device::Metal, Device::OpenCL]
     }
 }
 
@@ -144,28 +141,25 @@ mod tests {
     fn test_device_name() {
         assert_eq!(Device::Metal.name(), "metal");
         assert_eq!(Device::OpenCL.name(), "opencl");
-        assert_eq!(Device::Cpu.name(), "cpu");
     }
 
     #[test]
     fn test_device_display() {
         assert_eq!(format!("{}", Device::Metal), "metal");
         assert_eq!(format!("{}", Device::OpenCL), "opencl");
-        assert_eq!(format!("{}", Device::Cpu), "cpu");
     }
 
     #[test]
     fn test_device_equality() {
         assert_eq!(Device::Metal, Device::Metal);
-        assert_ne!(Device::Metal, Device::Cpu);
+        assert_ne!(Device::Metal, Device::OpenCL);
     }
 
     #[test]
     fn test_device_all() {
         let all = Device::all();
-        assert_eq!(all.len(), 3);
+        assert_eq!(all.len(), 2);
         assert!(all.contains(&Device::Metal));
         assert!(all.contains(&Device::OpenCL));
-        assert!(all.contains(&Device::Cpu));
     }
 }

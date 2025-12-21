@@ -8,7 +8,6 @@ description = "ndarray/PyTorch-like array API for Harp"
 default = []
 metal = []
 opencl = []
-cpu = []
 
 [dependencies]
 harp-core = { path = "../core" }

@@ -8,7 +8,7 @@ members = [
     "crates/dsl",
     "crates/cli",
     "crates/autograd",
-    "crates/array",
+    "crates/array", "crates/nn",
 ]
 resolver = "2"
 
