@@ -47,6 +47,7 @@ pub use primops::{
     // 形状情報
     Ndim,
     NegBackward,
+    // 軸順序変更
     Permute,
     PermuteBackward,
     PhaseShiftQuarter,
@@ -63,10 +64,14 @@ pub use primops::{
     SinBackward,
     Sqrt,
     SqrtBackward,
+    // 次元操作
+    Squeeze,
+    SqueezeBackward,
     Sum,
     SumBackward,
     Two,
-    // 軸順序変更
+    Unsqueeze,
+    UnsqueezeBackward,
     inverse_permutation,
 };
 

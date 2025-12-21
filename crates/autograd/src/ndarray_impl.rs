@@ -1,8 +1,8 @@
-//! ndarray に対する Reduce/Expand/Permute/Reshape/Linalg/Shape トレイトの実装
+//! ndarray に対する Reduce/Expand/Permute/Reshape/Squeeze/Unsqueeze/Linalg/Shape トレイトの実装
 
 use ndarray::{Array2, Axis, Dimension, IxDyn, concatenate};
 
-use crate::primops::{Expand, Matmul, Max, Permute, Prod, Reshape, Shape, Sum};
+use crate::primops::{Expand, Matmul, Max, Permute, Prod, Reshape, Shape, Squeeze, Sum, Unsqueeze};
 
 // ============================================================================
 // Shape の実装
@@ -185,6 +185,55 @@ where
         reshaped
             .into_dimensionality()
             .expect("reshape: dimension mismatch")
+    }
+}
+
+// ============================================================================
+// Squeeze の実装
+// ============================================================================
+
+impl<A, D> Squeeze for ndarray::Array<A, D>
+where
+    A: Clone,
+    D: Dimension + ndarray::RemoveAxis,
+{
+    type Output = Self;
+
+    fn squeeze(&self, axis: usize) -> Self::Output {
+        assert_eq!(
+            self.shape()[axis],
+            1,
+            "squeeze requires axis {} to have size 1, got {}",
+            axis,
+            self.shape()[axis]
+        );
+        // index_axis で軸を削除後、into_dimensionality で型変換
+        let removed = self.index_axis(Axis(axis), 0).to_owned();
+        removed
+            .insert_axis(Axis(0))
+            .remove_axis(Axis(0))
+            .into_dimensionality()
+            .expect("dimension mismatch after squeeze")
+    }
+}
+
+// ============================================================================
+// Unsqueeze の実装
+// ============================================================================
+
+impl<A, D> Unsqueeze for ndarray::Array<A, D>
+where
+    A: Clone,
+    D: Dimension,
+{
+    type Output = Self;
+
+    fn unsqueeze(&self, axis: usize) -> Self::Output {
+        // insert_axis で軸を追加後、into_dimensionality で型変換
+        let inserted = self.clone().insert_axis(Axis(axis));
+        inserted
+            .into_dimensionality()
+            .expect("dimension mismatch after unsqueeze")
     }
 }
 

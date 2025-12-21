@@ -1,7 +1,7 @@
 #![cfg(feature = "ndarray")]
 
-use autograd::{Expand, Matmul, Max, Permute, Prod, Reshape, Sum, Variable};
-use ndarray::{Array1, Array2, array};
+use autograd::{Expand, Matmul, Max, Permute, Prod, Reshape, Squeeze, Sum, Unsqueeze, Variable};
+use ndarray::{Array1, Array2, ArrayD, IxDyn, array};
 
 // ============================================================================
 // 演算子の組み合わせテスト（値/参照の混合）
@@ -722,4 +722,95 @@ fn test_matmul_chain() {
     // grad_ab = I @ C^T = I @ 2I = 2I
     // grad_a = grad_ab @ B^T = 2I @ I = 2I
     assert_eq!(a.grad().unwrap().value(), array![[2.0, 0.0], [0.0, 2.0]]);
+}
+
+// ============================================================================
+// 次元操作（Squeeze/Unsqueeze）のテスト
+// ============================================================================
+
+#[test]
+fn test_squeeze_trait() {
+    // 動的次元配列でテスト: [2, 1, 3] -> [2, 3]
+    let arr: ArrayD<f64> =
+        ArrayD::from_shape_vec(IxDyn(&[2, 1, 3]), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+    let squeezed: ArrayD<f64> = Squeeze::squeeze(&arr, 1);
+    assert_eq!(squeezed.shape(), &[2, 3]);
+    assert_eq!(squeezed[[0, 0]], 1.0);
+    assert_eq!(squeezed[[1, 2]], 6.0);
+}
+
+#[test]
+fn test_unsqueeze_trait() {
+    // 動的次元配列でテスト: [2, 3] -> [2, 1, 3]
+    let arr: ArrayD<f64> =
+        ArrayD::from_shape_vec(IxDyn(&[2, 3]), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+    let unsqueezed: ArrayD<f64> = Unsqueeze::unsqueeze(&arr, 1);
+    assert_eq!(unsqueezed.shape(), &[2, 1, 3]);
+    assert_eq!(unsqueezed[[0, 0, 0]], 1.0);
+    assert_eq!(unsqueezed[[1, 0, 2]], 6.0);
+}
+
+#[test]
+fn test_squeeze_unsqueeze_roundtrip() {
+    // unsqueeze -> squeeze で元に戻る
+    let arr: ArrayD<f64> =
+        ArrayD::from_shape_vec(IxDyn(&[2, 3]), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+    let unsqueezed: ArrayD<f64> = Unsqueeze::unsqueeze(&arr, 1);
+    let squeezed: ArrayD<f64> = Squeeze::squeeze(&unsqueezed, 1);
+    assert_eq!(squeezed.shape(), arr.shape());
+    assert_eq!(squeezed, arr);
+}
+
+#[test]
+fn test_variable_squeeze_forward() {
+    let arr: ArrayD<f64> =
+        ArrayD::from_shape_vec(IxDyn(&[2, 1, 3]), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+    let x: Variable<ArrayD<f64>> = Variable::new(arr);
+    let y = x.squeeze(1);
+    assert_eq!(y.value().shape(), &[2, 3]);
+}
+
+#[test]
+fn test_variable_unsqueeze_forward() {
+    let arr: ArrayD<f64> =
+        ArrayD::from_shape_vec(IxDyn(&[2, 3]), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+    let x: Variable<ArrayD<f64>> = Variable::new(arr);
+    let y = x.unsqueeze(1);
+    assert_eq!(y.value().shape(), &[2, 1, 3]);
+}
+
+#[test]
+fn test_variable_squeeze_backward() {
+    // y = squeeze(x, 1)
+    // ∂L/∂x = unsqueeze(∂L/∂y, 1)
+    let arr: ArrayD<f64> =
+        ArrayD::from_shape_vec(IxDyn(&[2, 1, 3]), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+    let x: Variable<ArrayD<f64>> = Variable::new(arr);
+    let y = x.squeeze(1); // [2, 3]
+
+    let grad: ArrayD<f64> =
+        ArrayD::from_shape_vec(IxDyn(&[2, 3]), vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0]).unwrap();
+    y.backward_with(Variable::new(grad));
+
+    // 勾配は unsqueeze されて [2, 1, 3] になる
+    let x_grad = x.grad().unwrap().value();
+    assert_eq!(x_grad.shape(), &[2, 1, 3]);
+}
+
+#[test]
+fn test_variable_unsqueeze_backward() {
+    // y = unsqueeze(x, 1)
+    // ∂L/∂x = squeeze(∂L/∂y, 1)
+    let arr: ArrayD<f64> =
+        ArrayD::from_shape_vec(IxDyn(&[2, 3]), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+    let x: Variable<ArrayD<f64>> = Variable::new(arr);
+    let y = x.unsqueeze(1); // [2, 1, 3]
+
+    let grad: ArrayD<f64> =
+        ArrayD::from_shape_vec(IxDyn(&[2, 1, 3]), vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0]).unwrap();
+    y.backward_with(Variable::new(grad));
+
+    // 勾配は squeeze されて [2, 3] になる
+    let x_grad = x.grad().unwrap().value();
+    assert_eq!(x_grad.shape(), &[2, 3]);
 }

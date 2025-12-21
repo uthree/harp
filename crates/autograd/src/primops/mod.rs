@@ -59,6 +59,7 @@ pub use structural::{
     MaxBackward,
     // 形状情報
     Ndim,
+    // 軸順序変更
     Permute,
     PermuteBackward,
     Prod,
@@ -67,8 +68,12 @@ pub use structural::{
     Reshape,
     ReshapeBackward,
     Shape,
+    // 次元操作
+    Squeeze,
+    SqueezeBackward,
     Sum,
     SumBackward,
-    // 軸順序変更
+    Unsqueeze,
+    UnsqueezeBackward,
     inverse_permutation,
 };

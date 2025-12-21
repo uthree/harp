@@ -2,11 +2,13 @@
 //!
 //! テンソルの構造を変更する演算を定義します。
 //! - 縮約・拡張演算（Sum, Prod, Max, Expand）
+//! - 次元操作（Squeeze, Unsqueeze）
 //! - 軸順序変更（Permute）
 //! - 形状変更（Reshape）
 //! - 線形代数演算（Matmul）
 //! - 形状情報（Shape, Ndim）
 
+pub mod dim;
 pub mod linalg;
 pub mod permute;
 pub mod reduce;
@@ -15,6 +17,9 @@ pub mod shape;
 
 // 縮約・拡張演算
 pub use reduce::{Expand, ExpandBackward, Max, MaxBackward, Prod, ProdBackward, Sum, SumBackward};
+
+// 次元操作
+pub use dim::{Squeeze, SqueezeBackward, Unsqueeze, UnsqueezeBackward};
 
 // 軸順序変更
 pub use permute::{Permute, PermuteBackward, inverse_permutation};
