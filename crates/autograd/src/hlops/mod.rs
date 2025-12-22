@@ -5,13 +5,13 @@
 //!
 //! ## モジュール構成
 //!
-//! - `elementwise`: 要素単位演算
-//!   - Sub, Div, Cos, Ln, Exp
-//! - `structural`: 構造変更演算
-//!   - matmul_fallback (汎用フォールバック)
+//! - `arithmetic`: 四則演算（Sub, Div）
+//! - `transcendental`: 超越関数（Cos, Ln, Exp）
+//! - `array`: 配列演算（matmul_fallback）
 
-pub mod elementwise;
-pub mod structural;
+pub mod arithmetic;
+pub mod array;
+pub mod transcendental;
 
-pub use elementwise::One;
-pub use structural::matmul_fallback;
+pub use arithmetic::One;
+pub use array::matmul_fallback;

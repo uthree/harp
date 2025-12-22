@@ -1,5 +1,7 @@
 //! 四則演算のプリミティブ演算（Add, Mul, Neg, Recip）
 
+pub mod cast;
+
 use std::ops;
 
 use crate::traits::{GradFn, GradNode};

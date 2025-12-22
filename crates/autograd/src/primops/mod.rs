@@ -5,44 +5,39 @@
 //!
 //! ## モジュール構成
 //!
-//! - `elementwise`: 要素単位演算（スカラー・テンソル両対応）
-//!   - 四則演算、超越関数、型変換
-//! - `structural`: 構造変更演算（テンソル専用）
-//!   - 縮約・拡張、線形代数、形状情報
+//! - `arithmetic`: 四則演算（加減乗除、剰余、maximum）
+//! - `transcendental`: 超越関数（sin, cos, exp2, log2, sqrt）
+//! - `array`: 配列演算（縮約・拡張、次元操作、線形代数）
 
-pub mod elementwise;
-pub mod structural;
+pub mod arithmetic;
+pub mod array;
+pub mod transcendental;
 
-// 要素単位演算の再エクスポート（公開API）
-pub use elementwise::{
+// 四則演算の再エクスポート
+pub use arithmetic::{
     // 四則演算
     AddBackward,
-    // 型変換
-    CastBackward,
-    // 超越関数
-    Cos,
-    Exp2,
-    Exp2Backward,
     Floor,
-    Log2,
-    Log2Backward,
     Maximum,
     MaximumBackward,
     MulBackward,
     NegBackward,
     RecipBackward,
     RemBackward,
-    Sin,
-    SinBackward,
-    Sqrt,
-    SqrtBackward,
+    // 型変換
+    cast::CastBackward,
 };
 
-// 要素単位演算の再エクスポート（内部実装詳細、hlops で使用）
-pub(crate) use elementwise::{Ln2, Log2E, MulLn2, MulLog2E, PhaseShiftQuarter};
+// 超越関数の再エクスポート（公開API）
+pub use transcendental::{
+    Cos, Exp2, Exp2Backward, Log2, Log2Backward, Sin, SinBackward, Sqrt, SqrtBackward,
+};
 
-// 構造変更演算の再エクスポート
-pub use structural::{
+// 超越関数の再エクスポート（内部実装詳細、hlops で使用）
+pub(crate) use transcendental::{Ln2, Log2E, MulLn2, MulLog2E, PhaseShiftQuarter};
+
+// 配列演算の再エクスポート
+pub use array::{
     // 縮約・拡張演算
     Expand,
     ExpandBackward,

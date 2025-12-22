@@ -1,6 +1,6 @@
-//! 構造変更の高級演算 (Structural HLOPs)
+//! 配列の高級演算 (Array HLOPs)
 //!
-//! primops の組み合わせで実装される構造変更演算：
+//! primops の組み合わせで実装される配列演算:
 //! - Matmul = Unsqueeze + Expand + Mul + Sum + Squeeze (汎用フォールバック)
 
 pub mod linalg;

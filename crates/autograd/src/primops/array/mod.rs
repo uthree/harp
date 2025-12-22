@@ -1,6 +1,6 @@
-//! 構造変更演算 (Structural Operations)
+//! 配列演算 (Array Operations)
 //!
-//! テンソルの構造を変更する演算を定義します。
+//! 多次元配列の構造を変更する演算を定義します。
 //! - 縮約・拡張演算（Sum, Prod, Max, Expand）
 //! - 次元操作（Squeeze, Unsqueeze）
 //! - 軸順序変更（Permute）
