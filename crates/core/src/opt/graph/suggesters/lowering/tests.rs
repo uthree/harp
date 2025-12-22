@@ -423,3 +423,98 @@ fn test_lower_elementwise_with_broadcast_input() {
         "Broadcast elementwise should be lowered to Kernel node"
     );
 }
+
+// ============================================================================
+// FusedElementwiseReduce統一テスト（axes=[]のケース）
+// ============================================================================
+
+#[test]
+fn test_fused_elementwise_reduce_with_empty_axes() {
+    // axes=[]のケース: Elementwiseとして処理される
+    let suggester = LoweringSuggester::new();
+
+    let mut graph = Graph::new();
+    let a = graph.input("a", DType::F32, vec![10, 20]);
+    let b = graph.input("b", DType::F32, vec![10, 20]);
+
+    // FusedElementwiseReduce with axes=[] は Elementwise と同等
+    let expr = wildcard("0") + wildcard("1");
+    let c = test_fused_elementwise_reduce(vec![a.clone(), b.clone()], expr, ReduceOp::Sum, vec![]);
+    graph.output("c", c);
+
+    let suggestions = suggester.suggest(&graph);
+
+    // axes=[]でも正しくloweringされることを確認
+    assert_eq!(
+        suggestions.len(),
+        1,
+        "FusedElementwiseReduce with axes=[] should generate 1 candidate"
+    );
+
+    // Kernelノードに変換されることを確認
+    let new_graph = &suggestions[0].graph;
+    let outputs = new_graph.outputs();
+    let output = outputs.get("c").unwrap();
+    assert!(
+        matches!(output.op, GraphOp::Kernel { .. }),
+        "FusedElementwiseReduce with axes=[] should be lowered to Kernel node"
+    );
+
+    // 出力形状が入力と同じことを確認（縮約なし）
+    let output_shape = output.view.shape();
+    assert_eq!(output_shape.len(), 2, "Output should be 2D");
+    assert_eq!(output_shape[0], 10.into(), "Output dim 0 should be 10");
+    assert_eq!(output_shape[1], 20.into(), "Output dim 1 should be 20");
+}
+
+#[test]
+fn test_elementwise_via_unified_lowering() {
+    // Elementwiseが統一されたFusedElementwiseReduce経由でloweringされることを確認
+    let suggester = LoweringSuggester::new();
+
+    let mut graph = Graph::new();
+    let a = graph.input("a", DType::F32, vec![5, 10, 15]);
+    let b = graph.input("b", DType::F32, vec![5, 10, 15]);
+    let c = a * b; // Elementwise Mul
+    graph.output("c", c);
+
+    let suggestions = suggester.suggest(&graph);
+    assert_eq!(suggestions.len(), 1, "Should generate 1 candidate");
+
+    // Kernelノードに変換されることを確認
+    let new_graph = &suggestions[0].graph;
+    let output = new_graph.outputs().get("c").unwrap();
+    assert!(matches!(output.op, GraphOp::Kernel { .. }));
+
+    // 出力形状が正しいことを確認
+    let output_shape = output.view.shape();
+    assert_eq!(output_shape.len(), 3);
+    assert_eq!(output_shape[0], 5.into());
+    assert_eq!(output_shape[1], 10.into());
+    assert_eq!(output_shape[2], 15.into());
+}
+
+#[test]
+fn test_reduce_via_unified_lowering() {
+    // Reduceが統一されたFusedElementwiseReduce経由でloweringされることを確認
+    let suggester = LoweringSuggester::new();
+
+    let mut graph = Graph::new();
+    let a = graph.input("a", DType::F32, vec![5, 10, 15]);
+    let b = a.reduce(ReduceOp::Prod, 1); // Reduce Prod over axis 1
+    graph.output("b", b);
+
+    let suggestions = suggester.suggest(&graph);
+    assert_eq!(suggestions.len(), 1, "Should generate 1 candidate");
+
+    // Kernelノードに変換されることを確認
+    let new_graph = &suggestions[0].graph;
+    let output = new_graph.outputs().get("b").unwrap();
+    assert!(matches!(output.op, GraphOp::Kernel { .. }));
+
+    // 出力形状が正しいことを確認（axis 1が縮約された）
+    let output_shape = output.view.shape();
+    assert_eq!(output_shape.len(), 2);
+    assert_eq!(output_shape[0], 5.into());
+    assert_eq!(output_shape[1], 15.into());
+}

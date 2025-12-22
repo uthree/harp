@@ -198,15 +198,6 @@ pub fn build_contiguous_offset_with_shape(ndim: usize, shape: Option<&[Expr]>) -
     offset
 }
 
-/// 特定軸を除いた連続メモリのオフセット計算式を構築（Reduce用、具体的なshapeを使用）
-pub fn build_contiguous_offset_excluding_axis_with_shape(
-    ndim: usize,
-    exclude_axis: usize,
-    shape: Option<&[Expr]>,
-) -> AstNode {
-    build_contiguous_offset_excluding_axes_with_shape(ndim, &[exclude_axis], shape)
-}
-
 /// 複数の軸を除いた連続メモリのオフセット計算式を構築（複数軸Reduce用、具体的なshapeを使用）
 pub fn build_contiguous_offset_excluding_axes_with_shape(
     ndim: usize,

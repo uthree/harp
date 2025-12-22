@@ -59,11 +59,6 @@ pub enum GraphOp {
         axis: usize,
         cumulative_strategy: Option<CumulativeStrategy>,
     }, // elementwise -> cumulative パターンを融合
-    FusedReduce {
-        ops: Vec<ReduceOp>,
-        axes: Vec<usize>,
-        reduce_strategy: Option<ReduceStrategy>,
-    }, // 複数のreduce演算を融合（複数軸対応）
     Pad {
         padding: Vec<(Expr, Expr)>, // 各軸の(前, 後)パディング量（動的shape対応）
         value: f32,                 // パディング値

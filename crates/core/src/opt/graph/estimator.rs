@@ -306,18 +306,6 @@ impl SimpleCostEstimator {
                     ])
                     + lowering_penalty
             }
-            GraphOp::FusedReduce { ops, .. } => {
-                let input = &node.src[0];
-                let num_elements = self.compute_num_elements(input);
-                let log_reduce_cost =
-                    log_sum_exp_iter(ops.iter().map(|op| self.reduce_op_cost(op)));
-                // 複数のreduce演算を融合
-                // FusedReduceもKernelにloweringされるべきなのでペナルティを追加
-                let lowering_penalty = self.kernel_launch_overhead.ln();
-                num_elements.ln()
-                    + log_sum_exp(self.memory_access_cost.ln(), log_reduce_cost)
-                    + lowering_penalty
-            }
             GraphOp::Pad { .. } => {
                 // Padは出力バッファの初期化 + 入力データのコピー
                 // コスト = 出力要素数 × (初期化 + コピー) × self.memory_access_cost

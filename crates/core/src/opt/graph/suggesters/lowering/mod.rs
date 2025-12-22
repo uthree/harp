@@ -10,7 +10,8 @@ mod helpers;
 mod other;
 mod reduce;
 
-use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp};
+use crate::ast::helper::wildcard;
+use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp, ReduceOp};
 use crate::opt::context::DeviceCapabilities;
 use crate::opt::graph::{GraphSuggester, SuggestResult};
 use std::collections::{HashMap, HashSet};
@@ -229,18 +230,37 @@ impl LoweringSuggester {
         let name = self.generate_kernel_name(kind, node.view.shape());
 
         let ast = match &node.op {
+            // Elementwise → FusedElementwiseReduce(expr, axes=[])
             GraphOp::Elementwise { op, .. } => {
-                elementwise::build_elementwise_function(node, op, &name)
+                let expr = elementwise::build_elementwise_expr(op);
+                let expr_with_consts = elementwise::embed_constants(&expr, &node.src);
+                reduce::build_fused_elementwise_reduce_function(
+                    node,
+                    &expr_with_consts,
+                    &ReduceOp::Sum, // 未使用（axes=[]の場合）
+                    &[],
+                    &name,
+                )
             }
+            // Reduce → FusedElementwiseReduce(identity, axes=[axis])
             GraphOp::Reduce { op, axis, .. } => {
-                reduce::build_reduce_function(node, op, *axis, &name)
+                let expr = wildcard("0");
+                reduce::build_fused_elementwise_reduce_function(node, &expr, op, &[*axis], &name)
             }
             GraphOp::Cumulative { op, axis, .. } => {
                 reduce::build_cumulative_function(node, op, *axis, &name)
             }
             GraphOp::Contiguous => other::build_contiguous_function(node, &name),
+            // FusedElementwise → FusedElementwiseReduce(expr, axes=[])
             GraphOp::FusedElementwise { expr, .. } => {
-                elementwise::build_fused_elementwise_function(node, expr, &name)
+                let expr_with_consts = elementwise::embed_constants(expr, &node.src);
+                reduce::build_fused_elementwise_reduce_function(
+                    node,
+                    &expr_with_consts,
+                    &ReduceOp::Sum, // 未使用（axes=[]の場合）
+                    &[],
+                    &name,
+                )
             }
             GraphOp::FusedElementwiseReduce {
                 expr,
@@ -287,10 +307,6 @@ impl LoweringSuggester {
                 *groups,
                 &name,
             ),
-            GraphOp::FusedReduce { .. } => {
-                // FusedReduceはタプル出力が必要なので後で実装
-                return None;
-            }
             GraphOp::SubgraphCall { .. } | GraphOp::SubgraphOutput { .. } => {
                 // サブグラフ関連のノードは直接lowerできない
                 // これらは別のグラフを呼び出すメタ演算

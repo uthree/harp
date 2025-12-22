@@ -1,21 +1,16 @@
 //! Elementwise演算のLowering
 //!
-//! Elementwise、FusedElementwise演算のAST関数生成を担当します。
+//! Elementwise演算の式変換と定数処理を担当します。
+//! 実際のAST関数生成はreduce.rs (FusedElementwiseReduce) で統一して行います。
 
-use crate::ast::{AstNode, DType as AstDType, Literal, helper::*};
-use crate::graph::ops::custom_placeholders as ph;
-use crate::graph::{DType as GraphDType, ElementwiseOp, GraphNode, GraphNodeData, GraphOp};
+use crate::ast::{AstNode, Literal, helper::wildcard};
+use crate::graph::{ElementwiseOp, GraphNode, GraphNodeData, GraphOp};
 use std::collections::{HashMap, HashSet};
-
-use crate::graph::shape::Expr;
-
-use super::helpers::{
-    build_contiguous_offset_with_shape, build_strided_offset, graph_dtype_to_ast,
-    wrap_with_loops_with_shape,
-};
 
 /// ElementwiseOpから演算式を構築
 pub fn build_elementwise_expr(op: &ElementwiseOp) -> AstNode {
+    use crate::ast::helper::*;
+
     match op {
         ElementwiseOp::Add => wildcard("0") + wildcard("1"),
         ElementwiseOp::Mul => wildcard("0") * wildcard("1"),
@@ -29,138 +24,6 @@ pub fn build_elementwise_expr(op: &ElementwiseOp) -> AstNode {
         ElementwiseOp::Sin => sin(wildcard("0")),
         ElementwiseOp::Sqrt => sqrt(wildcard("0")),
     }
-}
-
-/// Elementwise演算の関数を生成
-pub fn build_elementwise_function(
-    node: &GraphNode,
-    op: &ElementwiseOp,
-    name: &str,
-) -> Option<AstNode> {
-    let output_shape = node.view.shape();
-    let ndim = output_shape.len();
-
-    // 演算式を構築
-    let expr = build_elementwise_expr(op);
-
-    // 非定数ソースを収集（View情報付き）
-    let non_const_srcs: Vec<_> = node
-        .src
-        .iter()
-        .filter(|s| !matches!(s.op, GraphOp::Const(_)) && !is_pure_const_node(s))
-        .collect();
-
-    // 定数を埋め込んだ式を構築
-    let expr_with_consts = embed_constants(&expr, &node.src);
-
-    Some(build_elementwise_function_impl_with_views(
-        ndim,
-        &non_const_srcs,
-        expr_with_consts,
-        &node.dtype,
-        name,
-        Some(output_shape),
-    ))
-}
-
-/// FusedElementwise演算の関数を生成
-pub fn build_fused_elementwise_function(
-    node: &GraphNode,
-    expr: &AstNode,
-    name: &str,
-) -> Option<AstNode> {
-    let output_shape = node.view.shape();
-    let ndim = output_shape.len();
-
-    // 非定数ソースを収集（View情報付き）
-    let non_const_srcs: Vec<_> = node
-        .src
-        .iter()
-        .filter(|s| !matches!(s.op, GraphOp::Const(_)) && !is_pure_const_node(s))
-        .collect();
-
-    let expr_with_consts = embed_constants(expr, &node.src);
-
-    Some(build_elementwise_function_impl_with_views(
-        ndim,
-        &non_const_srcs,
-        expr_with_consts,
-        &node.dtype,
-        name,
-        Some(output_shape),
-    ))
-}
-
-/// Elementwise関数の実装（各入力のViewを考慮）
-///
-/// 各入力のView情報に基づいてオフセットを計算し、非連続メモリ配置に対応します。
-/// 出力は常に連続メモリ配置を維持します。
-pub fn build_elementwise_function_impl_with_views(
-    ndim: usize,
-    srcs: &[&GraphNode],
-    expr: AstNode,
-    output_dtype: &GraphDType,
-    name: &str,
-    output_shape: Option<&[Expr]>,
-) -> AstNode {
-    // 出力は連続メモリ配置
-    let output_offset = build_contiguous_offset_with_shape(ndim, output_shape);
-    let load_dtype = graph_dtype_to_ast(output_dtype);
-
-    // 各入力のViewからオフセットを計算してロードを構築
-    let mut mappings = HashMap::new();
-    for (i, src) in srcs.iter().enumerate() {
-        // 入力のViewに基づいてオフセットを計算
-        let input_offset = build_strided_offset(&src.view, ndim);
-        let load_node = load(var(ph::input(i)), input_offset, load_dtype.clone());
-        mappings.insert(i.to_string(), load_node);
-    }
-    let final_expr = expr.substitute(&mappings);
-
-    let store_stmt = store(var(ph::OUTPUT), output_offset, final_expr);
-    let body = wrap_with_loops_with_shape(ndim, vec![store_stmt], output_shape);
-
-    function(
-        Some(name.to_string()),
-        vec![],
-        AstDType::Tuple(vec![]),
-        body,
-    )
-}
-
-/// Elementwise関数の実装（具体的なshapeを使用、後方互換用）
-///
-/// 注意: この関数はすべての入力が連続メモリ配置であることを前提としています。
-/// 非連続View対応が必要な場合は`build_elementwise_function_impl_with_views`を使用してください。
-#[allow(dead_code)]
-pub fn build_elementwise_function_impl_with_shape(
-    ndim: usize,
-    num_inputs: usize,
-    expr: AstNode,
-    output_dtype: &GraphDType,
-    name: &str,
-    shape: Option<&[Expr]>,
-) -> AstNode {
-    let offset = build_contiguous_offset_with_shape(ndim, shape);
-    let load_dtype = graph_dtype_to_ast(output_dtype);
-
-    // 入力のロードを含む式を構築
-    let mut mappings = HashMap::new();
-    for i in 0..num_inputs {
-        let load_node = load(var(ph::input(i)), offset.clone(), load_dtype.clone());
-        mappings.insert(i.to_string(), load_node);
-    }
-    let final_expr = expr.substitute(&mappings);
-
-    let store_stmt = store(var(ph::OUTPUT), offset, final_expr);
-    let body = wrap_with_loops_with_shape(ndim, vec![store_stmt], shape);
-
-    function(
-        Some(name.to_string()),
-        vec![],
-        AstDType::Tuple(vec![]),
-        body,
-    )
 }
 
 // ============================================================
