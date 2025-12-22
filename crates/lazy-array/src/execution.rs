@@ -16,8 +16,8 @@ pub mod opencl {
     use harp_core::backend::{Buffer, CompiledKernel, Compiler, Pipeline};
     use harp_core::graph::Graph;
 
+    use crate::backend::ArrayError;
     use crate::cache::ProgramCache;
-    use crate::dyn_backend::ArrayError;
 
     /// OpenCL用のパイプライン型エイリアス
     pub type OpenCLPipeline = Pipeline<OpenCLRenderer, OpenCLDevice, OpenCLCompiler>;
@@ -171,8 +171,8 @@ pub mod metal {
     use harp_core::backend::{Buffer, CompiledKernel, Pipeline};
     use harp_core::graph::Graph;
 
+    use crate::backend::ArrayError;
     use crate::cache::ProgramCache;
-    use crate::dyn_backend::ArrayError;
 
     /// Metal用のパイプライン型エイリアス
     pub type MetalPipeline = Pipeline<MetalRenderer, MetalDevice, MetalCompiler>;

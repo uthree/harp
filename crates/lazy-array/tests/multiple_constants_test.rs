@@ -342,4 +342,113 @@ mod opencl_tests {
         }
         println!("PASS: Three inputs (a+b)*c");
     }
+
+    #[test]
+    fn test_six_constants_complex_dag() {
+        // 6つの定数で複雑なDAG: ((a + b) * (c + d)) + (e * f)
+        // a=1, b=2, c=3, d=4, e=5, f=6
+        // = (1+2) * (3+4) + (5*6)
+        // = 3 * 7 + 30
+        // = 21 + 30
+        // = 51
+        let mut pipeline = create_pipeline();
+        let device = pipeline.device().clone();
+
+        let a = broadcast_constant(1.0);
+        let b = broadcast_constant(2.0);
+        let c = broadcast_constant(3.0);
+        let d = broadcast_constant(4.0);
+        let e = broadcast_constant(5.0);
+        let f = broadcast_constant(6.0);
+
+        let ab = a + b;        // 1 + 2 = 3
+        let cd = c + d;        // 3 + 4 = 7
+        let ef = e * f;        // 5 * 6 = 30
+        let ab_cd = ab * cd;   // 3 * 7 = 21
+        let result = ab_cd + ef; // 21 + 30 = 51
+
+        let mut graph = Graph::new();
+        graph.output("result", result);
+
+        println!("=== Six constants complex DAG test ===");
+        println!("DSL:\n{}", harp_dsl::decompile(&graph));
+
+        let compiled = pipeline.compile_program(graph).expect("compile");
+        let mut output =
+            OpenCLBuffer::allocate(&device, vec![4, 4], harp_core::ast::DType::F32).expect("alloc");
+
+        let inputs: HashMap<String, &OpenCLBuffer> = HashMap::new();
+        let mut outputs: HashMap<String, &mut OpenCLBuffer> = HashMap::new();
+        outputs.insert("result".to_string(), &mut output);
+
+        compiled
+            .execute(&device, &inputs, &mut outputs)
+            .expect("execute");
+
+        let data: Vec<f32> = output.read_vec().expect("read");
+        println!("Result: {:?}", &data[..4]);
+
+        // 期待値: ((1+2) * (3+4)) + (5*6) = 3*7 + 30 = 51
+        for (i, v) in data.iter().enumerate() {
+            assert!(
+                (v - 51.0).abs() < 1e-5,
+                "[{}] Expected 51.0, got {}",
+                i,
+                v
+            );
+        }
+        println!("PASS: Six constants complex DAG");
+    }
+
+    #[test]
+    fn test_diamond_dag() {
+        // ダイヤモンド形状のDAG: a が ab と ac の両方で使用される
+        // ab = a + b
+        // ac = a * c
+        // result = ab + ac
+        // a=2, b=3, c=4
+        // = (2+3) + (2*4) = 5 + 8 = 13
+        let mut pipeline = create_pipeline();
+        let device = pipeline.device().clone();
+
+        let a = broadcast_constant(2.0);
+        let b = broadcast_constant(3.0);
+        let c = broadcast_constant(4.0);
+
+        let ab = &a + b;      // 2 + 3 = 5
+        let ac = a * c;       // 2 * 4 = 8
+        let result = ab + ac; // 5 + 8 = 13
+
+        let mut graph = Graph::new();
+        graph.output("result", result);
+
+        println!("=== Diamond DAG test ===");
+        println!("DSL:\n{}", harp_dsl::decompile(&graph));
+
+        let compiled = pipeline.compile_program(graph).expect("compile");
+        let mut output =
+            OpenCLBuffer::allocate(&device, vec![4, 4], harp_core::ast::DType::F32).expect("alloc");
+
+        let inputs: HashMap<String, &OpenCLBuffer> = HashMap::new();
+        let mut outputs: HashMap<String, &mut OpenCLBuffer> = HashMap::new();
+        outputs.insert("result".to_string(), &mut output);
+
+        compiled
+            .execute(&device, &inputs, &mut outputs)
+            .expect("execute");
+
+        let data: Vec<f32> = output.read_vec().expect("read");
+        println!("Result: {:?}", &data[..4]);
+
+        // 期待値: (2+3) + (2*4) = 13
+        for (i, v) in data.iter().enumerate() {
+            assert!(
+                (v - 13.0).abs() < 1e-5,
+                "[{}] Expected 13.0, got {}",
+                i,
+                v
+            );
+        }
+        println!("PASS: Diamond DAG");
+    }
 }
