@@ -6,8 +6,8 @@
 use std::marker::PhantomData;
 use std::ops;
 
+use crate::differentiable::Differentiable;
 use crate::traits::GradFn;
-use crate::variable::Variable;
 
 // ============================================================================
 // CastBackward (型変換の逆伝播)
@@ -21,7 +21,7 @@ where
     From: 'static,
     To: 'static,
 {
-    input: Variable<From>,
+    input: Differentiable<From>,
     _phantom: PhantomData<To>,
 }
 
@@ -30,7 +30,7 @@ where
     From: 'static,
     To: 'static,
 {
-    pub fn new(input: Variable<From>) -> Self {
+    pub fn new(input: Differentiable<From>) -> Self {
         Self {
             input,
             _phantom: PhantomData,
@@ -38,17 +38,20 @@ where
     }
 }
 
-impl<From, To> GradFn<Variable<To>> for CastBackward<From, To>
+impl<From, To> GradFn<Differentiable<To>> for CastBackward<From, To>
 where
     From: Clone + ops::Add<From, Output = From> + 'static,
     To: Clone + Into<From> + 'static,
 {
-    fn backward(&mut self, grad_y: Variable<To>) {
+    fn backward(&mut self, grad_y: Differentiable<To>) {
         // 勾配も型変換して逆伝播
         let requires_grad = grad_y.requires_grad();
         let grad_from: From = grad_y.value().into();
         self.input
-            .backward_with(Variable::new_with_requires_grad(grad_from, requires_grad));
+            .backward_with(Differentiable::new_with_requires_grad(
+                grad_from,
+                requires_grad,
+            ));
     }
 }
 
@@ -56,25 +59,25 @@ where
 // Variable<From> への Cast 実装
 // ============================================================================
 
-impl<From> Variable<From>
+impl<From> Differentiable<From>
 where
     From: Clone + 'static,
 {
     /// 型変換を行う
     /// 双方向Into必須: From: Into<To>, To: Into<From>
-    pub fn cast<To>(&self) -> Variable<To>
+    pub fn cast<To>(&self) -> Differentiable<To>
     where
         From: Into<To> + ops::Add<From, Output = From>,
         To: Clone + Into<From> + ops::Add<To, Output = To> + 'static,
     {
         let output: To = self.value().into();
         if self.requires_grad() {
-            Variable::with_grad_fn(
+            Differentiable::with_grad_fn(
                 output,
                 Box::new(CastBackward::<From, To>::new(self.clone())),
             )
         } else {
-            Variable::new_no_grad(output)
+            Differentiable::new_no_grad(output)
         }
     }
 }

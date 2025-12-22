@@ -3,8 +3,8 @@
 use std::ops;
 
 use super::shape::Shape;
+use crate::differentiable::Differentiable;
 use crate::traits::GradFn;
-use crate::variable::Variable;
 
 // ============================================================================
 // 縮約演算トレイト
@@ -75,7 +75,7 @@ pub trait Expand {
 /// 総和の勾配関数
 /// y = sum(x, axis) の場合、∂L/∂x = expand(∂L/∂y, axis)
 pub struct SumBackward<T: 'static> {
-    input: Variable<T>,
+    input: Differentiable<T>,
     axis: usize,
     /// 拡張時に必要なサイズ（縮約前の軸のサイズ）
     size: usize,
@@ -84,7 +84,7 @@ pub struct SumBackward<T: 'static> {
 impl<T: 'static> SumBackward<T> {
     /// 指定した軸で総和を取る勾配関数を作成
     /// size: 縮約前の軸のサイズ（逆伝播での拡張に使用）
-    pub fn new(input: Variable<T>, axis: usize, size: usize) -> Self {
+    pub fn new(input: Differentiable<T>, axis: usize, size: usize) -> Self {
         Self { input, axis, size }
     }
 
@@ -99,16 +99,19 @@ impl<T: 'static> SumBackward<T> {
     }
 }
 
-impl<T> GradFn<Variable<T>> for SumBackward<T>
+impl<T> GradFn<Differentiable<T>> for SumBackward<T>
 where
     T: Clone + ops::Add<T, Output = T> + Expand<Output = T> + 'static,
 {
-    fn backward(&mut self, grad_y: Variable<T>) {
+    fn backward(&mut self, grad_y: Differentiable<T>) {
         // 総和の勾配: 出力の勾配を入力の形状に拡張
         let requires_grad = grad_y.requires_grad();
         let expanded = grad_y.value().expand(self.axis, self.size);
         self.input
-            .backward_with(Variable::new_with_requires_grad(expanded, requires_grad));
+            .backward_with(Differentiable::new_with_requires_grad(
+                expanded,
+                requires_grad,
+            ));
     }
 }
 
@@ -119,13 +122,13 @@ where
 /// 拡張の勾配関数（SumBackward の逆操作）
 /// y = expand(x, axis, size) の場合、∂L/∂x = sum(∂L/∂y, axis)
 pub struct ExpandBackward<T: 'static> {
-    input: Variable<T>,
+    input: Differentiable<T>,
     axis: usize,
 }
 
 impl<T: 'static> ExpandBackward<T> {
     /// 指定した軸で拡張する勾配関数を作成
-    pub fn new(input: Variable<T>, axis: usize) -> Self {
+    pub fn new(input: Differentiable<T>, axis: usize) -> Self {
         Self { input, axis }
     }
 
@@ -135,16 +138,19 @@ impl<T: 'static> ExpandBackward<T> {
     }
 }
 
-impl<T> GradFn<Variable<T>> for ExpandBackward<T>
+impl<T> GradFn<Differentiable<T>> for ExpandBackward<T>
 where
     T: Clone + ops::Add<T, Output = T> + Sum<Output = T> + 'static,
 {
-    fn backward(&mut self, grad_y: Variable<T>) {
+    fn backward(&mut self, grad_y: Differentiable<T>) {
         // 拡張の勾配: 出力の勾配を縮約
         let requires_grad = grad_y.requires_grad();
         let reduced = grad_y.value().sum(self.axis);
         self.input
-            .backward_with(Variable::new_with_requires_grad(reduced, requires_grad));
+            .backward_with(Differentiable::new_with_requires_grad(
+                reduced,
+                requires_grad,
+            ));
     }
 }
 
@@ -157,7 +163,7 @@ where
 ///
 /// 逆伝播時に入力値と出力値が必要なため、順伝播時にキャッシュします。
 pub struct ProdBackward<T: 'static> {
-    input: Variable<T>,
+    input: Differentiable<T>,
     input_value: T,
     output_value: T,
     axis: usize,
@@ -166,7 +172,7 @@ pub struct ProdBackward<T: 'static> {
 
 impl<T: Clone + 'static> ProdBackward<T> {
     /// 指定した軸で総乗を取る勾配関数を作成
-    pub fn new(input: Variable<T>, output_value: T, axis: usize, size: usize) -> Self {
+    pub fn new(input: Differentiable<T>, output_value: T, axis: usize, size: usize) -> Self {
         let input_value = input.value();
         Self {
             input,
@@ -193,7 +199,7 @@ impl<T: Clone + 'static> ProdBackward<T> {
     }
 }
 
-impl<T> GradFn<Variable<T>> for ProdBackward<T>
+impl<T> GradFn<Differentiable<T>> for ProdBackward<T>
 where
     T: Clone
         + ops::Add<T, Output = T>
@@ -202,7 +208,7 @@ where
         + Expand<Output = T>
         + 'static,
 {
-    fn backward(&mut self, grad_y: Variable<T>) {
+    fn backward(&mut self, grad_y: Differentiable<T>) {
         // 総乗の勾配: ∂L/∂x_i = ∂L/∂y * y / x_i
         // grad_y を拡張し、output / input を掛ける
         let requires_grad = grad_y.requires_grad();
@@ -210,7 +216,10 @@ where
         let expanded_output = self.output_value.clone().expand(self.axis, self.size);
         let grad_val = expanded_grad * expanded_output / self.input_value.clone();
         self.input
-            .backward_with(Variable::new_with_requires_grad(grad_val, requires_grad));
+            .backward_with(Differentiable::new_with_requires_grad(
+                grad_val,
+                requires_grad,
+            ));
     }
 }
 
@@ -224,7 +233,7 @@ where
 /// 逆伝播時に入力値が必要なため（最大値の位置を特定するため）、
 /// 順伝播時にキャッシュします。
 pub struct MaxBackward<T: 'static> {
-    input: Variable<T>,
+    input: Differentiable<T>,
     input_value: T,
     output_value: T,
     axis: usize,
@@ -232,7 +241,7 @@ pub struct MaxBackward<T: 'static> {
 
 impl<T: Clone + 'static> MaxBackward<T> {
     /// 指定した軸で最大値を取る勾配関数を作成
-    pub fn new(input: Variable<T>, output_value: T, axis: usize) -> Self {
+    pub fn new(input: Differentiable<T>, output_value: T, axis: usize) -> Self {
         let input_value = input.value();
         Self {
             input,
@@ -258,11 +267,11 @@ impl<T: Clone + 'static> MaxBackward<T> {
     }
 }
 
-impl<T> GradFn<Variable<T>> for MaxBackward<T>
+impl<T> GradFn<Differentiable<T>> for MaxBackward<T>
 where
     T: Clone + ops::Add<T, Output = T> + Max<Output = T> + 'static,
 {
-    fn backward(&mut self, grad_y: Variable<T>) {
+    fn backward(&mut self, grad_y: Differentiable<T>) {
         // 最大値の勾配: 最大値の位置にのみ勾配を伝播
         let requires_grad = grad_y.requires_grad();
         let grad_val = T::max_grad(
@@ -272,7 +281,10 @@ where
             self.axis,
         );
         self.input
-            .backward_with(Variable::new_with_requires_grad(grad_val, requires_grad));
+            .backward_with(Differentiable::new_with_requires_grad(
+                grad_val,
+                requires_grad,
+            ));
     }
 }
 
@@ -281,25 +293,28 @@ where
 // ============================================================================
 
 // T: Sum の場合の実装
-impl<T> Variable<T>
+impl<T> Differentiable<T>
 where
     T: Clone + ops::Add<T, Output = T> + Sum<Output = T> + Expand<Output = T> + Shape + 'static,
 {
     /// 指定した軸で総和を計算
-    pub fn sum(&self, axis: usize) -> Variable<T> {
+    pub fn sum(&self, axis: usize) -> Differentiable<T> {
         let input_val = self.value();
         let size = input_val.shape()[axis];
         let output = input_val.sum(axis);
         if self.requires_grad() {
-            Variable::with_grad_fn(output, Box::new(SumBackward::new(self.clone(), axis, size)))
+            Differentiable::with_grad_fn(
+                output,
+                Box::new(SumBackward::new(self.clone(), axis, size)),
+            )
         } else {
-            Variable::new_no_grad(output)
+            Differentiable::new_no_grad(output)
         }
     }
 }
 
 // T: Prod の場合の実装
-impl<T> Variable<T>
+impl<T> Differentiable<T>
 where
     T: Clone
         + ops::Add<T, Output = T>
@@ -311,53 +326,53 @@ where
         + 'static,
 {
     /// 指定した軸で総乗を計算
-    pub fn prod(&self, axis: usize) -> Variable<T> {
+    pub fn prod(&self, axis: usize) -> Differentiable<T> {
         let input_val = self.value();
         let size = input_val.shape()[axis];
         let output = input_val.prod(axis);
         if self.requires_grad() {
-            Variable::with_grad_fn(
+            Differentiable::with_grad_fn(
                 output.clone(),
                 Box::new(ProdBackward::new(self.clone(), output, axis, size)),
             )
         } else {
-            Variable::new_no_grad(output)
+            Differentiable::new_no_grad(output)
         }
     }
 }
 
 // T: Max の場合の実装
-impl<T> Variable<T>
+impl<T> Differentiable<T>
 where
     T: Clone + ops::Add<T, Output = T> + Max<Output = T> + Shape + 'static,
 {
     /// 指定した軸で最大値を計算
-    pub fn max(&self, axis: usize) -> Variable<T> {
+    pub fn max(&self, axis: usize) -> Differentiable<T> {
         let input_val = self.value();
         let output = input_val.max(axis);
         if self.requires_grad() {
-            Variable::with_grad_fn(
+            Differentiable::with_grad_fn(
                 output.clone(),
                 Box::new(MaxBackward::new(self.clone(), output, axis)),
             )
         } else {
-            Variable::new_no_grad(output)
+            Differentiable::new_no_grad(output)
         }
     }
 }
 
 // T: Expand の場合の実装
-impl<T> Variable<T>
+impl<T> Differentiable<T>
 where
     T: Clone + ops::Add<T, Output = T> + Sum<Output = T> + Expand<Output = T> + 'static,
 {
     /// 指定した軸方向に拡張
-    pub fn expand(&self, axis: usize, size: usize) -> Variable<T> {
+    pub fn expand(&self, axis: usize, size: usize) -> Differentiable<T> {
         let output = self.value().expand(axis, size);
         if self.requires_grad() {
-            Variable::with_grad_fn(output, Box::new(ExpandBackward::new(self.clone(), axis)))
+            Differentiable::with_grad_fn(output, Box::new(ExpandBackward::new(self.clone(), axis)))
         } else {
-            Variable::new_no_grad(output)
+            Differentiable::new_no_grad(output)
         }
     }
 }

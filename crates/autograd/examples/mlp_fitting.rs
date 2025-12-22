@@ -13,7 +13,7 @@
 //! cargo run --example mlp_fitting -p autograd --features ndarray
 //! ```
 
-use autograd::Variable;
+use autograd::Differentiable;
 use indicatif::{ProgressBar, ProgressStyle};
 use ndarray::Array2;
 use rand::Rng;
@@ -33,7 +33,7 @@ fn target_function(x: f64, y: f64) -> f64 {
 // ============================================================================
 
 /// ReLU: max(x, 0)
-fn relu(x: &Variable<Array2<f64>>) -> Variable<Array2<f64>> {
+fn relu(x: &Differentiable<Array2<f64>>) -> Differentiable<Array2<f64>> {
     x.maximum(&x.zeros_like())
 }
 
@@ -44,9 +44,9 @@ fn relu(x: &Variable<Array2<f64>>) -> Variable<Array2<f64>> {
 /// 2-layer perceptron (no bias, ReLU activation)
 struct Mlp {
     // Layer 1: [input, hidden]
-    w1: Variable<Array2<f64>>,
+    w1: Differentiable<Array2<f64>>,
     // Layer 2: [hidden, output]
-    w2: Variable<Array2<f64>>,
+    w2: Differentiable<Array2<f64>>,
 }
 
 impl Mlp {
@@ -68,13 +68,13 @@ impl Mlp {
         let w2 = Array2::from_shape_vec((hidden_dim, output_dim), w2_data).unwrap();
 
         Self {
-            w1: Variable::new(w1),
-            w2: Variable::new(w2),
+            w1: Differentiable::new(w1),
+            w2: Differentiable::new(w2),
         }
     }
 
     /// Forward pass: x [batch, input] -> y [batch, output]
-    fn forward(&self, x: &Variable<Array2<f64>>) -> Variable<Array2<f64>> {
+    fn forward(&self, x: &Differentiable<Array2<f64>>) -> Differentiable<Array2<f64>> {
         // Layer 1: z1 = x @ W1
         let z1 = x.matmul(&self.w1);
 
@@ -95,11 +95,11 @@ impl Mlp {
     fn step(&mut self, lr: f64) {
         if let Some(grad) = self.w1.grad() {
             let new_w1 = self.w1.value() - &(grad.value() * lr);
-            self.w1 = Variable::new(new_w1);
+            self.w1 = Differentiable::new(new_w1);
         }
         if let Some(grad) = self.w2.grad() {
             let new_w2 = self.w2.value() - &(grad.value() * lr);
-            self.w2 = Variable::new(new_w2);
+            self.w2 = Differentiable::new(new_w2);
         }
     }
 }
@@ -209,8 +209,8 @@ fn main() {
             mlp.zero_grad();
 
             // Forward pass
-            let x_var = Variable::new(x_batch);
-            let y_var = Variable::new(y_batch);
+            let x_var = Differentiable::new(x_batch);
+            let y_var = Differentiable::new(y_batch);
             let pred = mlp.forward(&x_var);
 
             // MSE loss: L = mean((pred - target)^2)
@@ -225,7 +225,7 @@ fn main() {
             // Backpropagation
             // Gradient scale: 1/batch_size (for MSE averaging)
             let grad_scale = 1.0 / (batch_size as f64);
-            let grad = Variable::new(Array2::from_elem((1, 1), grad_scale));
+            let grad = Differentiable::new(Array2::from_elem((1, 1), grad_scale));
             loss.backward_with(grad);
 
             // Update parameters
@@ -271,7 +271,7 @@ fn main() {
 
     for (x, y) in test_points {
         let input = Array2::from_shape_vec((1, 2), vec![x, y]).unwrap();
-        let x_var = Variable::new(input);
+        let x_var = Differentiable::new(input);
         let pred = mlp.forward(&x_var);
         let pred_val = pred.value()[[0, 0]];
         let true_val = target_function(x, y);

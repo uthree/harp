@@ -8,8 +8,8 @@
 
 use std::ops;
 
+use crate::differentiable::Differentiable;
 use crate::traits::GradFn;
-use crate::variable::Variable;
 
 // ============================================================================
 // Squeeze トレイト
@@ -72,13 +72,13 @@ impl Unsqueeze for f64 {
 /// Squeeze の勾配関数
 /// y = squeeze(x, axis) の場合、∂L/∂x = unsqueeze(∂L/∂y, axis)
 pub struct SqueezeBackward<T: 'static, U: 'static> {
-    input: Variable<T>,
+    input: Differentiable<T>,
     axis: usize,
     _phantom: std::marker::PhantomData<U>,
 }
 
 impl<T: 'static, U: 'static> SqueezeBackward<T, U> {
-    pub fn new(input: Variable<T>, axis: usize) -> Self {
+    pub fn new(input: Differentiable<T>, axis: usize) -> Self {
         Self {
             input,
             axis,
@@ -92,17 +92,20 @@ impl<T: 'static, U: 'static> SqueezeBackward<T, U> {
     }
 }
 
-impl<T, U> GradFn<Variable<U>> for SqueezeBackward<T, U>
+impl<T, U> GradFn<Differentiable<U>> for SqueezeBackward<T, U>
 where
     T: Clone + ops::Add<T, Output = T> + 'static,
     U: Clone + Unsqueeze<Output = T> + 'static,
 {
-    fn backward(&mut self, grad_y: Variable<U>) {
+    fn backward(&mut self, grad_y: Differentiable<U>) {
         // Squeeze の逆 = Unsqueeze
         let requires_grad = grad_y.requires_grad();
         let grad_x = grad_y.value().unsqueeze(self.axis);
         self.input
-            .backward_with(Variable::new_with_requires_grad(grad_x, requires_grad));
+            .backward_with(Differentiable::new_with_requires_grad(
+                grad_x,
+                requires_grad,
+            ));
     }
 }
 
@@ -113,13 +116,13 @@ where
 /// Unsqueeze の勾配関数
 /// y = unsqueeze(x, axis) の場合、∂L/∂x = squeeze(∂L/∂y, axis)
 pub struct UnsqueezeBackward<T: 'static, U: 'static> {
-    input: Variable<T>,
+    input: Differentiable<T>,
     axis: usize,
     _phantom: std::marker::PhantomData<U>,
 }
 
 impl<T: 'static, U: 'static> UnsqueezeBackward<T, U> {
-    pub fn new(input: Variable<T>, axis: usize) -> Self {
+    pub fn new(input: Differentiable<T>, axis: usize) -> Self {
         Self {
             input,
             axis,
@@ -133,17 +136,20 @@ impl<T: 'static, U: 'static> UnsqueezeBackward<T, U> {
     }
 }
 
-impl<T, U> GradFn<Variable<U>> for UnsqueezeBackward<T, U>
+impl<T, U> GradFn<Differentiable<U>> for UnsqueezeBackward<T, U>
 where
     T: Clone + ops::Add<T, Output = T> + 'static,
     U: Clone + Squeeze<Output = T> + 'static,
 {
-    fn backward(&mut self, grad_y: Variable<U>) {
+    fn backward(&mut self, grad_y: Differentiable<U>) {
         // Unsqueeze の逆 = Squeeze
         let requires_grad = grad_y.requires_grad();
         let grad_x = grad_y.value().squeeze(self.axis);
         self.input
-            .backward_with(Variable::new_with_requires_grad(grad_x, requires_grad));
+            .backward_with(Differentiable::new_with_requires_grad(
+                grad_x,
+                requires_grad,
+            ));
     }
 }
 
@@ -151,7 +157,7 @@ where
 // Variable<T> への Squeeze 実装
 // ============================================================================
 
-impl<T> Variable<T>
+impl<T> Differentiable<T>
 where
     T: Clone + ops::Add<T, Output = T> + Squeeze + 'static,
     <T as Squeeze>::Output: Clone
@@ -160,10 +166,10 @@ where
         + 'static,
 {
     /// 指定した軸（size=1）を削除
-    pub fn squeeze(&self, axis: usize) -> Variable<<T as Squeeze>::Output> {
+    pub fn squeeze(&self, axis: usize) -> Differentiable<<T as Squeeze>::Output> {
         let output = Squeeze::squeeze(&self.value(), axis);
         if self.requires_grad() {
-            Variable::with_grad_fn(
+            Differentiable::with_grad_fn(
                 output,
                 Box::new(SqueezeBackward::<T, <T as Squeeze>::Output>::new(
                     self.clone(),
@@ -171,7 +177,7 @@ where
                 )),
             )
         } else {
-            Variable::new_no_grad(output)
+            Differentiable::new_no_grad(output)
         }
     }
 }
@@ -180,7 +186,7 @@ where
 // Variable<T> への Unsqueeze 実装
 // ============================================================================
 
-impl<T> Variable<T>
+impl<T> Differentiable<T>
 where
     T: Clone + ops::Add<T, Output = T> + Unsqueeze + 'static,
     <T as Unsqueeze>::Output: Clone
@@ -189,10 +195,10 @@ where
         + 'static,
 {
     /// 指定した位置に新しい軸（size=1）を挿入
-    pub fn unsqueeze(&self, axis: usize) -> Variable<<T as Unsqueeze>::Output> {
+    pub fn unsqueeze(&self, axis: usize) -> Differentiable<<T as Unsqueeze>::Output> {
         let output = Unsqueeze::unsqueeze(&self.value(), axis);
         if self.requires_grad() {
-            Variable::with_grad_fn(
+            Differentiable::with_grad_fn(
                 output,
                 Box::new(UnsqueezeBackward::<T, <T as Unsqueeze>::Output>::new(
                     self.clone(),
@@ -200,7 +206,7 @@ where
                 )),
             )
         } else {
-            Variable::new_no_grad(output)
+            Differentiable::new_no_grad(output)
         }
     }
 }

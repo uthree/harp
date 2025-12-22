@@ -8,7 +8,7 @@
 //! cargo run --example curve_fitting -p autograd
 //! ```
 
-use autograd::Variable;
+use autograd::Differentiable;
 use indicatif::{ProgressBar, ProgressStyle};
 use rand::Rng;
 use textplots::{Chart, Plot, Shape};
@@ -16,14 +16,14 @@ use textplots::{Chart, Plot, Shape};
 /// Polynomial model: y = a*x^3 + b*x^2 + c*x + d
 fn polynomial(
     x: f64,
-    a: &Variable<f64>,
-    b: &Variable<f64>,
-    c: &Variable<f64>,
-    d: &Variable<f64>,
-) -> Variable<f64> {
-    let x_var = Variable::new_no_grad(x);
-    let x2 = Variable::new_no_grad(x * x);
-    let x3 = Variable::new_no_grad(x * x * x);
+    a: &Differentiable<f64>,
+    b: &Differentiable<f64>,
+    c: &Differentiable<f64>,
+    d: &Differentiable<f64>,
+) -> Differentiable<f64> {
+    let x_var = Differentiable::new_no_grad(x);
+    let x2 = Differentiable::new_no_grad(x * x);
+    let x3 = Differentiable::new_no_grad(x * x * x);
 
     // a*x^3 + b*x^2 + c*x + d
     &(&(a * &x3) + &(b * &x2)) + &(&(c * &x_var) + d)
@@ -33,39 +33,39 @@ fn polynomial(
 fn mse_loss(
     xs: &[f64],
     ys: &[f64],
-    a: &Variable<f64>,
-    b: &Variable<f64>,
-    c: &Variable<f64>,
-    d: &Variable<f64>,
-) -> Variable<f64> {
+    a: &Differentiable<f64>,
+    b: &Differentiable<f64>,
+    c: &Differentiable<f64>,
+    d: &Differentiable<f64>,
+) -> Differentiable<f64> {
     let n = xs.len() as f64;
-    let mut total_loss = Variable::new(0.0);
+    let mut total_loss = Differentiable::new(0.0);
 
     for (&x, &y_target) in xs.iter().zip(ys.iter()) {
         let y_pred = polynomial(x, a, b, c, d);
-        let y_target_var = Variable::new_no_grad(y_target);
+        let y_target_var = Differentiable::new_no_grad(y_target);
         let diff = &y_pred - &y_target_var;
         let squared = &diff * &diff;
         total_loss = &total_loss + &squared;
     }
 
-    let n_var = Variable::new_no_grad(n);
+    let n_var = Differentiable::new_no_grad(n);
     &total_loss / &n_var
 }
 
 /// Reset gradients to zero
-fn zero_grad(params: &[&Variable<f64>]) {
+fn zero_grad(params: &[&Differentiable<f64>]) {
     for p in params {
         p.zero_grad();
     }
 }
 
 /// Gradient descent step
-fn sgd_step(params: &mut [Variable<f64>], lr: f64) {
+fn sgd_step(params: &mut [Differentiable<f64>], lr: f64) {
     for p in params.iter_mut() {
         if let Some(grad) = p.grad() {
             let new_val = p.value() - lr * grad.value();
-            *p = Variable::new(new_val);
+            *p = Differentiable::new(new_val);
         }
     }
 }
@@ -109,10 +109,10 @@ fn main() {
     // ============================================================
     println!("Initializing parameters...");
 
-    let mut a = Variable::new(rng.gen_range(-0.5..0.5));
-    let mut b = Variable::new(rng.gen_range(-0.5..0.5));
-    let mut c = Variable::new(rng.gen_range(-0.5..0.5));
-    let mut d = Variable::new(rng.gen_range(-0.5..0.5));
+    let mut a = Differentiable::new(rng.gen_range(-0.5..0.5));
+    let mut b = Differentiable::new(rng.gen_range(-0.5..0.5));
+    let mut c = Differentiable::new(rng.gen_range(-0.5..0.5));
+    let mut d = Differentiable::new(rng.gen_range(-0.5..0.5));
 
     println!(
         "  Initial: a={:.4}, b={:.4}, c={:.4}, d={:.4}",

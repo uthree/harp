@@ -6,9 +6,9 @@
 
 use std::ops;
 
+use crate::differentiable::Differentiable;
 use crate::primops::RecipBackward;
 use crate::traits::GradNode;
-use crate::variable::Variable;
 
 // ============================================================================
 // Sub演算子の実装 (Add + Neg)
@@ -17,48 +17,48 @@ use crate::variable::Variable;
 /// Sub演算子の全組み合わせを生成するマクロ
 macro_rules! impl_sub_op {
     ($t:ident, [$($bounds:tt)*]) => {
-        // &Variable<T> - &Variable<T> -> Variable<T> (基本実装: Neg + Add)
-        impl<$t> ops::Sub<&Variable<$t>> for &Variable<$t>
+        // &Differentiable<T> - &Differentiable<T> -> Differentiable<T> (基本実装: Neg + Add)
+        impl<$t> ops::Sub<&Differentiable<$t>> for &Differentiable<$t>
         where
             $($bounds)*
         {
-            type Output = Variable<$t>;
+            type Output = Differentiable<$t>;
 
-            fn sub(self, rhs: &Variable<$t>) -> Variable<$t> {
+            fn sub(self, rhs: &Differentiable<$t>) -> Differentiable<$t> {
                 let neg_rhs = -rhs;
                 self + &neg_rhs
             }
         }
 
-        // Variable<T> - Variable<T>
-        impl<$t> ops::Sub<Variable<$t>> for Variable<$t>
+        // Differentiable<T> - Differentiable<T>
+        impl<$t> ops::Sub<Differentiable<$t>> for Differentiable<$t>
         where
             $($bounds)*
         {
-            type Output = Variable<$t>;
-            fn sub(self, rhs: Variable<$t>) -> Variable<$t> {
+            type Output = Differentiable<$t>;
+            fn sub(self, rhs: Differentiable<$t>) -> Differentiable<$t> {
                 &self - &rhs
             }
         }
 
-        // Variable<T> - &Variable<T>
-        impl<$t> ops::Sub<&Variable<$t>> for Variable<$t>
+        // Differentiable<T> - &Differentiable<T>
+        impl<$t> ops::Sub<&Differentiable<$t>> for Differentiable<$t>
         where
             $($bounds)*
         {
-            type Output = Variable<$t>;
-            fn sub(self, rhs: &Variable<$t>) -> Variable<$t> {
+            type Output = Differentiable<$t>;
+            fn sub(self, rhs: &Differentiable<$t>) -> Differentiable<$t> {
                 &self - rhs
             }
         }
 
-        // &Variable<T> - Variable<T>
-        impl<$t> ops::Sub<Variable<$t>> for &Variable<$t>
+        // &Differentiable<T> - Differentiable<T>
+        impl<$t> ops::Sub<Differentiable<$t>> for &Differentiable<$t>
         where
             $($bounds)*
         {
-            type Output = Variable<$t>;
-            fn sub(self, rhs: Variable<$t>) -> Variable<$t> {
+            type Output = Differentiable<$t>;
+            fn sub(self, rhs: Differentiable<$t>) -> Differentiable<$t> {
                 self - &rhs
             }
         }
@@ -68,7 +68,7 @@ macro_rules! impl_sub_op {
 // Sub: T - T -> T (Neg + Add で実装)
 impl_sub_op!(T, [
     T: GradNode + ops::Add<T, Output = T> + ops::Neg<Output = T> + 'static,
-    for<'a> &'a Variable<T>: ops::Neg<Output = Variable<T>>,
+    for<'a> &'a Differentiable<T>: ops::Neg<Output = Differentiable<T>>,
 ]);
 
 // ============================================================================
@@ -78,19 +78,19 @@ impl_sub_op!(T, [
 /// Div演算子の全組み合わせを生成するマクロ
 macro_rules! impl_div_op {
     ($t:ident, [$($bounds:tt)*]) => {
-        // &Variable<T> / &Variable<T> -> Variable<T> (基本実装: Recip + Mul)
-        impl<$t> ops::Div<&Variable<$t>> for &Variable<$t>
+        // &Differentiable<T> / &Differentiable<T> -> Differentiable<T> (基本実装: Recip + Mul)
+        impl<$t> ops::Div<&Differentiable<$t>> for &Differentiable<$t>
         where
             $($bounds)*
         {
-            type Output = Variable<$t>;
+            type Output = Differentiable<$t>;
 
-            fn div(self, rhs: &Variable<$t>) -> Variable<$t> {
+            fn div(self, rhs: &Differentiable<$t>) -> Differentiable<$t> {
                 // 1/rhs を計算
                 let rhs_val = rhs.value();
                 let one = $t::one();
                 let recip_val = one / rhs_val;
-                let recip = Variable::with_grad_fn(
+                let recip = Differentiable::with_grad_fn(
                     recip_val,
                     Box::new(RecipBackward::new(rhs.clone())),
                 );
@@ -99,35 +99,35 @@ macro_rules! impl_div_op {
             }
         }
 
-        // Variable<T> / Variable<T>
-        impl<$t> ops::Div<Variable<$t>> for Variable<$t>
+        // Differentiable<T> / Differentiable<T>
+        impl<$t> ops::Div<Differentiable<$t>> for Differentiable<$t>
         where
             $($bounds)*
         {
-            type Output = Variable<$t>;
-            fn div(self, rhs: Variable<$t>) -> Variable<$t> {
+            type Output = Differentiable<$t>;
+            fn div(self, rhs: Differentiable<$t>) -> Differentiable<$t> {
                 &self / &rhs
             }
         }
 
-        // Variable<T> / &Variable<T>
-        impl<$t> ops::Div<&Variable<$t>> for Variable<$t>
+        // Differentiable<T> / &Differentiable<T>
+        impl<$t> ops::Div<&Differentiable<$t>> for Differentiable<$t>
         where
             $($bounds)*
         {
-            type Output = Variable<$t>;
-            fn div(self, rhs: &Variable<$t>) -> Variable<$t> {
+            type Output = Differentiable<$t>;
+            fn div(self, rhs: &Differentiable<$t>) -> Differentiable<$t> {
                 &self / rhs
             }
         }
 
-        // &Variable<T> / Variable<T>
-        impl<$t> ops::Div<Variable<$t>> for &Variable<$t>
+        // &Differentiable<T> / Differentiable<T>
+        impl<$t> ops::Div<Differentiable<$t>> for &Differentiable<$t>
         where
             $($bounds)*
         {
-            type Output = Variable<$t>;
-            fn div(self, rhs: Variable<$t>) -> Variable<$t> {
+            type Output = Differentiable<$t>;
+            fn div(self, rhs: Differentiable<$t>) -> Differentiable<$t> {
                 self / &rhs
             }
         }

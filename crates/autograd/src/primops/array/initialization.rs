@@ -81,11 +81,11 @@ impl Ones for f64 {
 // Variable<T> への実装
 // ============================================================================
 
-use crate::Variable;
+use crate::Differentiable;
 use crate::primops::Shape;
 use crate::shape::IntoShape;
 
-impl<T: Zeros + 'static> Variable<T> {
+impl<T: Zeros + 'static> Differentiable<T> {
     /// 指定した形状のゼロ埋め変数を作成
     ///
     /// 勾配追跡なしで作成される（ReLU のゼロ境界などに使用）。
@@ -99,8 +99,8 @@ impl<T: Zeros + 'static> Variable<T> {
     /// let zeros: Variable<f64> = Variable::zeros(&[]);
     /// assert_eq!(zeros.value(), 0.0);
     /// ```
-    pub fn zeros(shape: &[usize]) -> Variable<T> {
-        Variable::new_no_grad(T::zeros(shape))
+    pub fn zeros(shape: &[usize]) -> Differentiable<T> {
+        Differentiable::new_no_grad(T::zeros(shape))
     }
 
     /// 指定した形状のゼロ埋め変数を作成（IntoShape版）
@@ -123,12 +123,12 @@ impl<T: Zeros + 'static> Variable<T> {
     /// use ndarray::Array2;
     /// let zeros: Variable<Array2<f64>> = Variable::zeros_shape([3, 4]);
     /// ```
-    pub fn zeros_shape<S: IntoShape>(shape: S) -> Variable<T> {
-        Variable::new_no_grad(T::zeros(&shape.into_shape()))
+    pub fn zeros_shape<S: IntoShape>(shape: S) -> Differentiable<T> {
+        Differentiable::new_no_grad(T::zeros(&shape.into_shape()))
     }
 }
 
-impl<T: Ones + 'static> Variable<T> {
+impl<T: Ones + 'static> Differentiable<T> {
     /// 指定した形状の1埋め変数を作成
     ///
     /// 勾配追跡なしで作成される。
@@ -142,8 +142,8 @@ impl<T: Ones + 'static> Variable<T> {
     /// let ones: Variable<f64> = Variable::ones(&[]);
     /// assert_eq!(ones.value(), 1.0);
     /// ```
-    pub fn ones(shape: &[usize]) -> Variable<T> {
-        Variable::new_no_grad(T::ones(shape))
+    pub fn ones(shape: &[usize]) -> Differentiable<T> {
+        Differentiable::new_no_grad(T::ones(shape))
     }
 
     /// 指定した形状の1埋め変数を作成（IntoShape版）
@@ -166,8 +166,8 @@ impl<T: Ones + 'static> Variable<T> {
     /// use ndarray::Array2;
     /// let ones: Variable<Array2<f64>> = Variable::ones_shape([3, 4]);
     /// ```
-    pub fn ones_shape<S: IntoShape>(shape: S) -> Variable<T> {
-        Variable::new_no_grad(T::ones(&shape.into_shape()))
+    pub fn ones_shape<S: IntoShape>(shape: S) -> Differentiable<T> {
+        Differentiable::new_no_grad(T::ones(&shape.into_shape()))
     }
 }
 
@@ -175,7 +175,7 @@ impl<T: Ones + 'static> Variable<T> {
 // zeros_like / ones_like
 // ============================================================================
 
-impl<T: Clone + Zeros + Shape + 'static> Variable<T> {
+impl<T: Clone + Zeros + Shape + 'static> Differentiable<T> {
     /// 自身と同じ形状のゼロ埋め変数を作成
     ///
     /// `torch.zeros_like()` に相当する機能。
@@ -192,18 +192,18 @@ impl<T: Clone + Zeros + Shape + 'static> Variable<T> {
     /// assert_eq!(zeros.value(), array![[0.0, 0.0], [0.0, 0.0]]);
     /// ```
     #[cfg(feature = "ndarray")]
-    pub fn zeros_like(&self) -> Variable<T> {
-        Variable::new_no_grad(T::zeros(self.value().shape()))
+    pub fn zeros_like(&self) -> Differentiable<T> {
+        Differentiable::new_no_grad(T::zeros(self.value().shape()))
     }
 
     /// 自身と同じ形状のゼロ埋め変数を作成（スカラー用）
     #[cfg(not(feature = "ndarray"))]
-    pub fn zeros_like(&self) -> Variable<T> {
-        Variable::new_no_grad(T::zeros(&[]))
+    pub fn zeros_like(&self) -> Differentiable<T> {
+        Differentiable::new_no_grad(T::zeros(&[]))
     }
 }
 
-impl<T: Clone + Ones + Shape + 'static> Variable<T> {
+impl<T: Clone + Ones + Shape + 'static> Differentiable<T> {
     /// 自身と同じ形状の1埋め変数を作成
     ///
     /// `torch.ones_like()` に相当する機能。
@@ -220,13 +220,13 @@ impl<T: Clone + Ones + Shape + 'static> Variable<T> {
     /// assert_eq!(ones.value(), array![[1.0, 1.0], [1.0, 1.0]]);
     /// ```
     #[cfg(feature = "ndarray")]
-    pub fn ones_like(&self) -> Variable<T> {
-        Variable::new_no_grad(T::ones(self.value().shape()))
+    pub fn ones_like(&self) -> Differentiable<T> {
+        Differentiable::new_no_grad(T::ones(self.value().shape()))
     }
 
     /// 自身と同じ形状の1埋め変数を作成（スカラー用）
     #[cfg(not(feature = "ndarray"))]
-    pub fn ones_like(&self) -> Variable<T> {
-        Variable::new_no_grad(T::ones(&[]))
+    pub fn ones_like(&self) -> Differentiable<T> {
+        Differentiable::new_no_grad(T::ones(&[]))
     }
 }

@@ -5,8 +5,8 @@
 
 use std::ops;
 
+use crate::differentiable::Differentiable;
 use crate::traits::GradFn;
-use crate::variable::Variable;
 
 // ============================================================================
 // Permute トレイト
@@ -53,13 +53,13 @@ impl Permute for f64 {
 /// 軸順序変更の勾配関数
 /// y = permute(x, axes) の場合、∂L/∂x = permute(∂L/∂y, inverse(axes))
 pub struct PermuteBackward<T: 'static> {
-    input: Variable<T>,
+    input: Differentiable<T>,
     /// 逆順列（逆伝播時に使用）
     inverse_axes: Vec<usize>,
 }
 
 impl<T: 'static> PermuteBackward<T> {
-    pub fn new(input: Variable<T>, axes: &[usize]) -> Self {
+    pub fn new(input: Differentiable<T>, axes: &[usize]) -> Self {
         let inverse_axes = inverse_permutation(axes);
         Self {
             input,
@@ -73,16 +73,19 @@ impl<T: 'static> PermuteBackward<T> {
     }
 }
 
-impl<T> GradFn<Variable<T>> for PermuteBackward<T>
+impl<T> GradFn<Differentiable<T>> for PermuteBackward<T>
 where
     T: Clone + ops::Add<T, Output = T> + Permute + 'static,
 {
-    fn backward(&mut self, grad_y: Variable<T>) {
+    fn backward(&mut self, grad_y: Differentiable<T>) {
         // 軸順序変更の勾配: 逆順列を適用
         let requires_grad = grad_y.requires_grad();
         let grad_x = grad_y.value().permute(&self.inverse_axes);
         self.input
-            .backward_with(Variable::new_with_requires_grad(grad_x, requires_grad));
+            .backward_with(Differentiable::new_with_requires_grad(
+                grad_x,
+                requires_grad,
+            ));
     }
 }
 
@@ -90,17 +93,17 @@ where
 // Variable<T> への実装
 // ============================================================================
 
-impl<T> Variable<T>
+impl<T> Differentiable<T>
 where
     T: Clone + ops::Add<T, Output = T> + Permute + 'static,
 {
     /// 軸の順序を入れ替える
-    pub fn permute(&self, axes: &[usize]) -> Variable<T> {
+    pub fn permute(&self, axes: &[usize]) -> Differentiable<T> {
         let output = self.value().permute(axes);
         if self.requires_grad() {
-            Variable::with_grad_fn(output, Box::new(PermuteBackward::new(self.clone(), axes)))
+            Differentiable::with_grad_fn(output, Box::new(PermuteBackward::new(self.clone(), axes)))
         } else {
-            Variable::new_no_grad(output)
+            Differentiable::new_no_grad(output)
         }
     }
 }

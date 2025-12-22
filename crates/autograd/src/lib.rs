@@ -17,6 +17,7 @@
 //! - **primops**: プリミティブ演算（直接実装、独自の逆伝播を持つ）
 //! - **hlops**: 高級演算（primopsの組み合わせで実装）
 
+pub mod differentiable;
 pub mod hlops;
 #[cfg(feature = "ndarray")]
 mod ndarray_impl;
@@ -24,16 +25,15 @@ pub mod prelude;
 pub mod primops;
 pub mod shape;
 pub mod traits;
-pub mod variable;
 
 // ============================================================================
 // 主要な型・トレイト（トップレベルからもアクセス可能）
 // ============================================================================
 
 // Core
+pub use differentiable::Differentiable;
 pub use shape::IntoShape;
 pub use traits::{Arithmetic, Array, GradFn, GradNode, GradRoot, Transcendental};
-pub use variable::Variable;
 
 // 演算トレイト
 pub use primops::{

@@ -14,7 +14,7 @@
 // Core
 // ============================================================================
 
-pub use crate::Variable;
+pub use crate::Differentiable;
 pub use crate::shape::IntoShape;
 pub use crate::traits::{Arithmetic, Array, GradNode, GradRoot, Transcendental};
 

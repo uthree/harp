@@ -4,8 +4,8 @@ pub mod cast;
 
 use std::ops;
 
+use crate::differentiable::Differentiable;
 use crate::traits::{GradFn, GradNode};
-use crate::variable::Variable;
 
 // ============================================================================
 // AddBackward (加算の逆伝播)
@@ -14,21 +14,21 @@ use crate::variable::Variable;
 /// 加算の勾配関数
 /// z = lhs + rhs の場合、∂L/∂lhs = ∂L/∂z, ∂L/∂rhs = ∂L/∂z
 pub struct AddBackward<T: 'static> {
-    lhs: Variable<T>,
-    rhs: Variable<T>,
+    lhs: Differentiable<T>,
+    rhs: Differentiable<T>,
 }
 
 impl<T: 'static> AddBackward<T> {
-    pub fn new(lhs: Variable<T>, rhs: Variable<T>) -> Self {
+    pub fn new(lhs: Differentiable<T>, rhs: Differentiable<T>) -> Self {
         Self { lhs, rhs }
     }
 }
 
-impl<T> GradFn<Variable<T>> for AddBackward<T>
+impl<T> GradFn<Differentiable<T>> for AddBackward<T>
 where
     T: Clone + ops::Add<T, Output = T> + 'static,
 {
-    fn backward(&mut self, grad_y: Variable<T>) {
+    fn backward(&mut self, grad_y: Differentiable<T>) {
         // 加算の勾配: 両方に同じ勾配を伝播
         self.lhs.backward_with(grad_y.clone());
         self.rhs.backward_with(grad_y);
@@ -42,15 +42,15 @@ where
 /// 乗算の勾配関数
 /// z = lhs * rhs の場合、∂L/∂lhs = ∂L/∂z * rhs, ∂L/∂rhs = ∂L/∂z * lhs
 pub struct MulBackward<T: 'static> {
-    lhs: Variable<T>,
-    rhs: Variable<T>,
+    lhs: Differentiable<T>,
+    rhs: Differentiable<T>,
     // 順伝播時の値をキャッシュ（逆伝播で使用）
     lhs_value: T,
     rhs_value: T,
 }
 
 impl<T: Clone + 'static> MulBackward<T> {
-    pub fn new(lhs: Variable<T>, rhs: Variable<T>) -> Self {
+    pub fn new(lhs: Differentiable<T>, rhs: Differentiable<T>) -> Self {
         // 順伝播時の値をコピー（backward 時に必要）
         let lhs_value = lhs.value();
         let rhs_value = rhs.value();
@@ -63,25 +63,27 @@ impl<T: Clone + 'static> MulBackward<T> {
     }
 }
 
-impl<T> GradFn<Variable<T>> for MulBackward<T>
+impl<T> GradFn<Differentiable<T>> for MulBackward<T>
 where
     T: Clone + ops::Add<T, Output = T> + ops::Mul<T, Output = T> + 'static,
 {
-    fn backward(&mut self, grad_y: Variable<T>) {
+    fn backward(&mut self, grad_y: Differentiable<T>) {
         // 乗算の勾配: ∂L/∂lhs = ∂L/∂z * rhs, ∂L/∂rhs = ∂L/∂z * lhs
         let requires_grad = grad_y.requires_grad();
 
         let grad_lhs_val = grad_y.value() * self.rhs_value.clone();
-        self.lhs.backward_with(Variable::new_with_requires_grad(
-            grad_lhs_val,
-            requires_grad,
-        ));
+        self.lhs
+            .backward_with(Differentiable::new_with_requires_grad(
+                grad_lhs_val,
+                requires_grad,
+            ));
 
         let grad_rhs_val = grad_y.value() * self.lhs_value.clone();
-        self.rhs.backward_with(Variable::new_with_requires_grad(
-            grad_rhs_val,
-            requires_grad,
-        ));
+        self.rhs
+            .backward_with(Differentiable::new_with_requires_grad(
+                grad_rhs_val,
+                requires_grad,
+            ));
     }
 }
 
@@ -92,25 +94,28 @@ where
 /// 符号反転の勾配関数
 /// z = -x の場合、∂L/∂x = -∂L/∂z
 pub struct NegBackward<T: 'static> {
-    input: Variable<T>,
+    input: Differentiable<T>,
 }
 
 impl<T: 'static> NegBackward<T> {
-    pub fn new(input: Variable<T>) -> Self {
+    pub fn new(input: Differentiable<T>) -> Self {
         Self { input }
     }
 }
 
-impl<T> GradFn<Variable<T>> for NegBackward<T>
+impl<T> GradFn<Differentiable<T>> for NegBackward<T>
 where
     T: Clone + ops::Add<T, Output = T> + ops::Neg<Output = T> + 'static,
 {
-    fn backward(&mut self, grad_y: Variable<T>) {
+    fn backward(&mut self, grad_y: Differentiable<T>) {
         // 符号反転の勾配: ∂L/∂x = -∂L/∂z
         let requires_grad = grad_y.requires_grad();
         let grad_val = -grad_y.value();
         self.input
-            .backward_with(Variable::new_with_requires_grad(grad_val, requires_grad));
+            .backward_with(Differentiable::new_with_requires_grad(
+                grad_val,
+                requires_grad,
+            ));
     }
 }
 
@@ -121,20 +126,20 @@ where
 /// 逆数の勾配関数
 /// z = 1/x の場合、∂L/∂x = -∂L/∂z / x²
 pub struct RecipBackward<T: 'static> {
-    input: Variable<T>,
+    input: Differentiable<T>,
     // 順伝播時の値をキャッシュ（逆伝播で使用）
     input_value: T,
 }
 
 impl<T: Clone + 'static> RecipBackward<T> {
-    pub fn new(input: Variable<T>) -> Self {
+    pub fn new(input: Differentiable<T>) -> Self {
         // 順伝播時の値をコピー（backward 時に必要）
         let input_value = input.value();
         Self { input, input_value }
     }
 }
 
-impl<T> GradFn<Variable<T>> for RecipBackward<T>
+impl<T> GradFn<Differentiable<T>> for RecipBackward<T>
 where
     T: Clone
         + ops::Add<T, Output = T>
@@ -143,14 +148,17 @@ where
         + ops::Neg<Output = T>
         + 'static,
 {
-    fn backward(&mut self, grad_y: Variable<T>) {
+    fn backward(&mut self, grad_y: Differentiable<T>) {
         // 逆数の勾配: ∂L/∂x = -∂L/∂z / x²
         let requires_grad = grad_y.requires_grad();
         let x = self.input_value.clone();
         let x_squared = x.clone() * x;
         let grad_val = -(grad_y.value() / x_squared);
         self.input
-            .backward_with(Variable::new_with_requires_grad(grad_val, requires_grad));
+            .backward_with(Differentiable::new_with_requires_grad(
+                grad_val,
+                requires_grad,
+            ));
     }
 }
 
@@ -162,59 +170,59 @@ where
 macro_rules! impl_binary_op {
     // Add演算子
     (Add, $t:ident, $method:ident, $grad_fn:ident, [$($bounds:tt)*]) => {
-        // &Variable<T> + &Variable<T> -> Variable<T> (基本実装)
-        impl<$t> ops::Add<&Variable<$t>> for &Variable<$t>
+        // &Differentiable<T> + &Differentiable<T> -> Differentiable<T> (基本実装)
+        impl<$t> ops::Add<&Differentiable<$t>> for &Differentiable<$t>
         where
             $($bounds)*
         {
-            type Output = Variable<$t>;
+            type Output = Differentiable<$t>;
 
-            fn $method(self, rhs: &Variable<$t>) -> Self::Output {
+            fn $method(self, rhs: &Differentiable<$t>) -> Self::Output {
                 let lhs_val = self.value();
                 let rhs_val = rhs.value();
                 let result_val = lhs_val + rhs_val;
 
                 // どちらかが requires_grad=true なら逆伝播パスを作成
                 if self.requires_grad() || rhs.requires_grad() {
-                    Variable::with_grad_fn(
+                    Differentiable::with_grad_fn(
                         result_val,
                         Box::new($grad_fn::new(self.clone(), rhs.clone())),
                     )
                 } else {
-                    Variable::new_no_grad(result_val)
+                    Differentiable::new_no_grad(result_val)
                 }
             }
         }
 
-        // Variable<T> + Variable<T>
-        impl<$t> ops::Add<Variable<$t>> for Variable<$t>
+        // Differentiable<T> + Differentiable<T>
+        impl<$t> ops::Add<Differentiable<$t>> for Differentiable<$t>
         where
             $($bounds)*
         {
-            type Output = Variable<$t>;
-            fn $method(self, rhs: Variable<$t>) -> Self::Output {
+            type Output = Differentiable<$t>;
+            fn $method(self, rhs: Differentiable<$t>) -> Self::Output {
                 &self + &rhs
             }
         }
 
-        // Variable<T> + &Variable<T>
-        impl<$t> ops::Add<&Variable<$t>> for Variable<$t>
+        // Differentiable<T> + &Differentiable<T>
+        impl<$t> ops::Add<&Differentiable<$t>> for Differentiable<$t>
         where
             $($bounds)*
         {
-            type Output = Variable<$t>;
-            fn $method(self, rhs: &Variable<$t>) -> Self::Output {
+            type Output = Differentiable<$t>;
+            fn $method(self, rhs: &Differentiable<$t>) -> Self::Output {
                 &self + rhs
             }
         }
 
-        // &Variable<T> + Variable<T>
-        impl<$t> ops::Add<Variable<$t>> for &Variable<$t>
+        // &Differentiable<T> + Differentiable<T>
+        impl<$t> ops::Add<Differentiable<$t>> for &Differentiable<$t>
         where
             $($bounds)*
         {
-            type Output = Variable<$t>;
-            fn $method(self, rhs: Variable<$t>) -> Self::Output {
+            type Output = Differentiable<$t>;
+            fn $method(self, rhs: Differentiable<$t>) -> Self::Output {
                 self + &rhs
             }
         }
@@ -222,59 +230,59 @@ macro_rules! impl_binary_op {
 
     // Mul演算子
     (Mul, $t:ident, $method:ident, $grad_fn:ident, [$($bounds:tt)*]) => {
-        // &Variable<T> * &Variable<T> -> Variable<T> (基本実装)
-        impl<$t> ops::Mul<&Variable<$t>> for &Variable<$t>
+        // &Differentiable<T> * &Differentiable<T> -> Differentiable<T> (基本実装)
+        impl<$t> ops::Mul<&Differentiable<$t>> for &Differentiable<$t>
         where
             $($bounds)*
         {
-            type Output = Variable<$t>;
+            type Output = Differentiable<$t>;
 
-            fn $method(self, rhs: &Variable<$t>) -> Self::Output {
+            fn $method(self, rhs: &Differentiable<$t>) -> Self::Output {
                 let lhs_val = self.value();
                 let rhs_val = rhs.value();
                 let result_val = lhs_val * rhs_val;
 
                 // どちらかが requires_grad=true なら逆伝播パスを作成
                 if self.requires_grad() || rhs.requires_grad() {
-                    Variable::with_grad_fn(
+                    Differentiable::with_grad_fn(
                         result_val,
                         Box::new($grad_fn::new(self.clone(), rhs.clone())),
                     )
                 } else {
-                    Variable::new_no_grad(result_val)
+                    Differentiable::new_no_grad(result_val)
                 }
             }
         }
 
-        // Variable<T> * Variable<T>
-        impl<$t> ops::Mul<Variable<$t>> for Variable<$t>
+        // Differentiable<T> * Differentiable<T>
+        impl<$t> ops::Mul<Differentiable<$t>> for Differentiable<$t>
         where
             $($bounds)*
         {
-            type Output = Variable<$t>;
-            fn $method(self, rhs: Variable<$t>) -> Self::Output {
+            type Output = Differentiable<$t>;
+            fn $method(self, rhs: Differentiable<$t>) -> Self::Output {
                 &self * &rhs
             }
         }
 
-        // Variable<T> * &Variable<T>
-        impl<$t> ops::Mul<&Variable<$t>> for Variable<$t>
+        // Differentiable<T> * &Differentiable<T>
+        impl<$t> ops::Mul<&Differentiable<$t>> for Differentiable<$t>
         where
             $($bounds)*
         {
-            type Output = Variable<$t>;
-            fn $method(self, rhs: &Variable<$t>) -> Self::Output {
+            type Output = Differentiable<$t>;
+            fn $method(self, rhs: &Differentiable<$t>) -> Self::Output {
                 &self * rhs
             }
         }
 
-        // &Variable<T> * Variable<T>
-        impl<$t> ops::Mul<Variable<$t>> for &Variable<$t>
+        // &Differentiable<T> * Differentiable<T>
+        impl<$t> ops::Mul<Differentiable<$t>> for &Differentiable<$t>
         where
             $($bounds)*
         {
-            type Output = Variable<$t>;
-            fn $method(self, rhs: Variable<$t>) -> Self::Output {
+            type Output = Differentiable<$t>;
+            fn $method(self, rhs: Differentiable<$t>) -> Self::Output {
                 self * &rhs
             }
         }
@@ -284,12 +292,12 @@ macro_rules! impl_binary_op {
 /// 単項演算子の全組み合わせを生成するマクロ（単一型パラメータ版）
 macro_rules! impl_unary_op {
     (Neg, $t:ident, $method:ident, $grad_fn:ident, [$($bounds:tt)*]) => {
-        // -&Variable<T> -> Variable<T> (基本実装)
-        impl<$t> ops::Neg for &Variable<$t>
+        // -&Differentiable<T> -> Differentiable<T> (基本実装)
+        impl<$t> ops::Neg for &Differentiable<$t>
         where
             $($bounds)*
         {
-            type Output = Variable<$t>;
+            type Output = Differentiable<$t>;
 
             fn $method(self) -> Self::Output {
                 let val = self.value();
@@ -297,19 +305,19 @@ macro_rules! impl_unary_op {
 
                 // requires_grad=true なら逆伝播パスを作成
                 if self.requires_grad() {
-                    Variable::with_grad_fn(result_val, Box::new($grad_fn::new(self.clone())))
+                    Differentiable::with_grad_fn(result_val, Box::new($grad_fn::new(self.clone())))
                 } else {
-                    Variable::new_no_grad(result_val)
+                    Differentiable::new_no_grad(result_val)
                 }
             }
         }
 
-        // -Variable<T> -> Variable<T>
-        impl<$t> ops::Neg for Variable<$t>
+        // -Differentiable<T> -> Differentiable<T>
+        impl<$t> ops::Neg for Differentiable<$t>
         where
             $($bounds)*
         {
-            type Output = Variable<$t>;
+            type Output = Differentiable<$t>;
             fn $method(self) -> Self::Output {
                 -&self
             }
@@ -350,14 +358,14 @@ pub trait Floor: Sized {
 /// - ∂L/∂x = ∂L/∂z（xの変化はそのまま出力に反映）
 /// - ∂L/∂y = -∂L/∂z * floor(x/y)
 pub struct RemBackward<T: 'static> {
-    lhs: Variable<T>,
-    rhs: Variable<T>,
+    lhs: Differentiable<T>,
+    rhs: Differentiable<T>,
     lhs_value: T,
     rhs_value: T,
 }
 
 impl<T: Clone + 'static> RemBackward<T> {
-    pub fn new(lhs: Variable<T>, rhs: Variable<T>) -> Self {
+    pub fn new(lhs: Differentiable<T>, rhs: Differentiable<T>) -> Self {
         let lhs_value = lhs.value();
         let rhs_value = rhs.value();
         Self {
@@ -369,7 +377,7 @@ impl<T: Clone + 'static> RemBackward<T> {
     }
 }
 
-impl<T> GradFn<Variable<T>> for RemBackward<T>
+impl<T> GradFn<Differentiable<T>> for RemBackward<T>
 where
     T: Clone
         + ops::Add<T, Output = T>
@@ -379,7 +387,7 @@ where
         + Floor
         + 'static,
 {
-    fn backward(&mut self, grad_y: Variable<T>) {
+    fn backward(&mut self, grad_y: Differentiable<T>) {
         let requires_grad = grad_y.requires_grad();
 
         // ∂L/∂x = ∂L/∂z
@@ -389,15 +397,16 @@ where
         let quotient = self.lhs_value.clone() / self.rhs_value.clone();
         let floor_quotient = quotient.floor();
         let grad_rhs_val = -(grad_y.value() * floor_quotient);
-        self.rhs.backward_with(Variable::new_with_requires_grad(
-            grad_rhs_val,
-            requires_grad,
-        ));
+        self.rhs
+            .backward_with(Differentiable::new_with_requires_grad(
+                grad_rhs_val,
+                requires_grad,
+            ));
     }
 }
 
-// Variable<T> への Rem 実装
-impl<T> Variable<T>
+// Differentiable<T> への Rem 実装
+impl<T> Differentiable<T>
 where
     T: Clone
         + ops::Add<T, Output = T>
@@ -409,15 +418,15 @@ where
         + 'static,
 {
     /// 剰余を計算
-    pub fn rem(&self, other: &Variable<T>) -> Variable<T> {
+    pub fn rem(&self, other: &Differentiable<T>) -> Differentiable<T> {
         let output = self.value() % other.value();
         if self.requires_grad() || other.requires_grad() {
-            Variable::with_grad_fn(
+            Differentiable::with_grad_fn(
                 output,
                 Box::new(RemBackward::new(self.clone(), other.clone())),
             )
         } else {
-            Variable::new_no_grad(output)
+            Differentiable::new_no_grad(output)
         }
     }
 }
@@ -458,14 +467,14 @@ pub trait Maximum<Rhs = Self>: Sized {
 /// - ∂L/∂x = ∂L/∂z if x >= y, else 0
 /// - ∂L/∂y = ∂L/∂z if y > x, else 0
 pub struct MaximumBackward<T: 'static> {
-    lhs: Variable<T>,
-    rhs: Variable<T>,
+    lhs: Differentiable<T>,
+    rhs: Differentiable<T>,
     lhs_value: T,
     rhs_value: T,
 }
 
 impl<T: Clone + 'static> MaximumBackward<T> {
-    pub fn new(lhs: Variable<T>, rhs: Variable<T>) -> Self {
+    pub fn new(lhs: Differentiable<T>, rhs: Differentiable<T>) -> Self {
         let lhs_value = lhs.value();
         let rhs_value = rhs.value();
         Self {
@@ -477,44 +486,46 @@ impl<T: Clone + 'static> MaximumBackward<T> {
     }
 }
 
-impl<T> GradFn<Variable<T>> for MaximumBackward<T>
+impl<T> GradFn<Differentiable<T>> for MaximumBackward<T>
 where
     T: Clone + ops::Add<T, Output = T> + Maximum<T, Output = T> + 'static,
 {
-    fn backward(&mut self, grad_y: Variable<T>) {
+    fn backward(&mut self, grad_y: Differentiable<T>) {
         let requires_grad = grad_y.requires_grad();
 
         // ∂L/∂lhs = grad if lhs >= rhs, else 0
         let grad_lhs_val = T::maximum_grad_lhs(&grad_y.value(), &self.lhs_value, &self.rhs_value);
-        self.lhs.backward_with(Variable::new_with_requires_grad(
-            grad_lhs_val,
-            requires_grad,
-        ));
+        self.lhs
+            .backward_with(Differentiable::new_with_requires_grad(
+                grad_lhs_val,
+                requires_grad,
+            ));
 
         // ∂L/∂rhs = grad if rhs > lhs, else 0
         let grad_rhs_val = T::maximum_grad_rhs(&grad_y.value(), &self.lhs_value, &self.rhs_value);
-        self.rhs.backward_with(Variable::new_with_requires_grad(
-            grad_rhs_val,
-            requires_grad,
-        ));
+        self.rhs
+            .backward_with(Differentiable::new_with_requires_grad(
+                grad_rhs_val,
+                requires_grad,
+            ));
     }
 }
 
-// Variable<T> への Maximum 実装
-impl<T> Variable<T>
+// Differentiable<T> への Maximum 実装
+impl<T> Differentiable<T>
 where
     T: Clone + ops::Add<T, Output = T> + Maximum<T, Output = T> + 'static,
 {
     /// 2つの変数のうち大きい方を返す
-    pub fn maximum(&self, other: &Variable<T>) -> Variable<T> {
+    pub fn maximum(&self, other: &Differentiable<T>) -> Differentiable<T> {
         let output = self.value().maximum(&other.value());
         if self.requires_grad() || other.requires_grad() {
-            Variable::with_grad_fn(
+            Differentiable::with_grad_fn(
                 output,
                 Box::new(MaximumBackward::new(self.clone(), other.clone())),
             )
         } else {
-            Variable::new_no_grad(output)
+            Differentiable::new_no_grad(output)
         }
     }
 }

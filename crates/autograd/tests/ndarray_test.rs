@@ -1,7 +1,7 @@
 #![cfg(feature = "ndarray")]
 
 use autograd::{
-    Expand, Matmul, Max, Maximum, Ones, Permute, Prod, Reshape, Squeeze, Sum, Unsqueeze, Variable,
+    Expand, Matmul, Max, Maximum, Ones, Permute, Prod, Reshape, Squeeze, Sum, Unsqueeze, Differentiable,
     Zeros,
 };
 use ndarray::{Array1, Array2, ArrayD, IxDyn, array};

@@ -5,8 +5,8 @@
 use std::ops;
 
 use super::permute::Permute;
+use crate::differentiable::Differentiable;
 use crate::traits::GradFn;
-use crate::variable::Variable;
 
 // ============================================================================
 // Matmul トレイト
@@ -30,14 +30,14 @@ pub trait Matmul<Rhs = Self>: Sized {
 ///
 /// 転置は permute([1, 0]) で表現
 pub struct MatmulBackward<T: 'static> {
-    lhs: Variable<T>,
-    rhs: Variable<T>,
+    lhs: Differentiable<T>,
+    rhs: Differentiable<T>,
     lhs_value: T,
     rhs_value: T,
 }
 
 impl<T: Clone + 'static> MatmulBackward<T> {
-    pub fn new(lhs: Variable<T>, rhs: Variable<T>) -> Self {
+    pub fn new(lhs: Differentiable<T>, rhs: Differentiable<T>) -> Self {
         let lhs_value = lhs.value();
         let rhs_value = rhs.value();
         Self {
@@ -49,24 +49,30 @@ impl<T: Clone + 'static> MatmulBackward<T> {
     }
 }
 
-impl<T> GradFn<Variable<T>> for MatmulBackward<T>
+impl<T> GradFn<Differentiable<T>> for MatmulBackward<T>
 where
     T: Clone + ops::Add<T, Output = T> + Permute + Matmul<T, Output = T> + 'static,
 {
-    fn backward(&mut self, grad_y: Variable<T>) {
+    fn backward(&mut self, grad_y: Differentiable<T>) {
         let requires_grad = grad_y.requires_grad();
 
         // ∂L/∂A = ∂L/∂C @ B^T (B^T = permute(B, [1, 0]))
         let rhs_t = self.rhs_value.permute(&[1, 0]);
         let grad_lhs = grad_y.value().matmul(&rhs_t);
         self.lhs
-            .backward_with(Variable::new_with_requires_grad(grad_lhs, requires_grad));
+            .backward_with(Differentiable::new_with_requires_grad(
+                grad_lhs,
+                requires_grad,
+            ));
 
         // ∂L/∂B = A^T @ ∂L/∂C (A^T = permute(A, [1, 0]))
         let lhs_t = self.lhs_value.permute(&[1, 0]);
         let grad_rhs = lhs_t.matmul(&grad_y.value());
         self.rhs
-            .backward_with(Variable::new_with_requires_grad(grad_rhs, requires_grad));
+            .backward_with(Differentiable::new_with_requires_grad(
+                grad_rhs,
+                requires_grad,
+            ));
     }
 }
 
@@ -74,20 +80,20 @@ where
 // Variable<T> への実装
 // ============================================================================
 
-impl<T> Variable<T>
+impl<T> Differentiable<T>
 where
     T: Clone + ops::Add<T, Output = T> + Permute + Matmul<T, Output = T> + 'static,
 {
     /// 行列積を計算
-    pub fn matmul(&self, other: &Variable<T>) -> Variable<T> {
+    pub fn matmul(&self, other: &Differentiable<T>) -> Differentiable<T> {
         let output = self.value().matmul(&other.value());
         if self.requires_grad() || other.requires_grad() {
-            Variable::with_grad_fn(
+            Differentiable::with_grad_fn(
                 output,
                 Box::new(MatmulBackward::new(self.clone(), other.clone())),
             )
         } else {
-            Variable::new_no_grad(output)
+            Differentiable::new_no_grad(output)
         }
     }
 }

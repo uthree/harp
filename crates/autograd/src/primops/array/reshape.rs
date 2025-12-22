@@ -6,8 +6,8 @@
 use std::ops;
 
 use super::shape::Shape;
+use crate::differentiable::Differentiable;
 use crate::traits::GradFn;
-use crate::variable::Variable;
 
 // ============================================================================
 // Reshape トレイト
@@ -27,13 +27,13 @@ pub trait Reshape: Sized {
 /// 形状変更の勾配関数
 /// y = reshape(x, new_shape) の場合、∂L/∂x = reshape(∂L/∂y, original_shape)
 pub struct ReshapeBackward<T: 'static> {
-    input: Variable<T>,
+    input: Differentiable<T>,
     /// 元の形状（逆伝播時に戻す）
     original_shape: Vec<usize>,
 }
 
 impl<T: 'static> ReshapeBackward<T> {
-    pub fn new(input: Variable<T>, original_shape: Vec<usize>) -> Self {
+    pub fn new(input: Differentiable<T>, original_shape: Vec<usize>) -> Self {
         Self {
             input,
             original_shape,
@@ -46,16 +46,19 @@ impl<T: 'static> ReshapeBackward<T> {
     }
 }
 
-impl<T> GradFn<Variable<T>> for ReshapeBackward<T>
+impl<T> GradFn<Differentiable<T>> for ReshapeBackward<T>
 where
     T: Clone + ops::Add<T, Output = T> + Reshape + 'static,
 {
-    fn backward(&mut self, grad_y: Variable<T>) {
+    fn backward(&mut self, grad_y: Differentiable<T>) {
         // 形状変更の勾配: 元の形状に戻す
         let requires_grad = grad_y.requires_grad();
         let grad_x = grad_y.value().reshape(&self.original_shape);
         self.input
-            .backward_with(Variable::new_with_requires_grad(grad_x, requires_grad));
+            .backward_with(Differentiable::new_with_requires_grad(
+                grad_x,
+                requires_grad,
+            ));
     }
 }
 
@@ -63,21 +66,21 @@ where
 // Variable<T> への実装
 // ============================================================================
 
-impl<T> Variable<T>
+impl<T> Differentiable<T>
 where
     T: Clone + ops::Add<T, Output = T> + Reshape + Shape + 'static,
 {
     /// 形状を変更
-    pub fn reshape(&self, new_shape: &[usize]) -> Variable<T> {
+    pub fn reshape(&self, new_shape: &[usize]) -> Differentiable<T> {
         let original_shape = self.value().shape().to_vec();
         let output = self.value().reshape(new_shape);
         if self.requires_grad() {
-            Variable::with_grad_fn(
+            Differentiable::with_grad_fn(
                 output,
                 Box::new(ReshapeBackward::new(self.clone(), original_shape)),
             )
         } else {
-            Variable::new_no_grad(output)
+            Differentiable::new_no_grad(output)
         }
     }
 }

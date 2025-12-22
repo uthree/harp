@@ -1,4 +1,4 @@
-use autograd::{RecipBackward, Variable};
+use autograd::{RecipBackward, Differentiable};
 use std::f64::consts::{E, FRAC_1_SQRT_2, LN_2, PI, SQRT_2};
 
 // ============================================================================
@@ -7,45 +7,45 @@ use std::f64::consts::{E, FRAC_1_SQRT_2, LN_2, PI, SQRT_2};
 
 #[test]
 fn test_variable_new_and_value() {
-    let x = Variable::new(3.0_f64);
+    let x = Differentiable::new(3.0_f64);
     assert_eq!(x.value(), 3.0);
 }
 
 #[test]
 fn test_add() {
-    let x = Variable::new(2.0_f64);
-    let y = Variable::new(3.0_f64);
+    let x = Differentiable::new(2.0_f64);
+    let y = Differentiable::new(3.0_f64);
     let z = &x + &y;
     assert_eq!(z.value(), 5.0);
 }
 
 #[test]
 fn test_mul() {
-    let x = Variable::new(2.0_f64);
-    let y = Variable::new(3.0_f64);
+    let x = Differentiable::new(2.0_f64);
+    let y = Differentiable::new(3.0_f64);
     let z = &x * &y;
     assert_eq!(z.value(), 6.0);
 }
 
 #[test]
 fn test_sub() {
-    let x = Variable::new(5.0_f64);
-    let y = Variable::new(3.0_f64);
+    let x = Differentiable::new(5.0_f64);
+    let y = Differentiable::new(3.0_f64);
     let z = &x - &y;
     assert_eq!(z.value(), 2.0);
 }
 
 #[test]
 fn test_div() {
-    let x = Variable::new(6.0_f64);
-    let y = Variable::new(2.0_f64);
+    let x = Differentiable::new(6.0_f64);
+    let y = Differentiable::new(2.0_f64);
     let z = &x / &y;
     assert_eq!(z.value(), 3.0);
 }
 
 #[test]
 fn test_neg() {
-    let x = Variable::new(3.0_f64);
+    let x = Differentiable::new(3.0_f64);
     let z = -&x;
     assert_eq!(z.value(), -3.0);
 }
@@ -58,8 +58,8 @@ fn test_neg() {
 fn test_add_backward() {
     // z = x + y
     // ∂z/∂x = 1, ∂z/∂y = 1
-    let x = Variable::new(2.0_f64);
-    let y = Variable::new(3.0_f64);
+    let x = Differentiable::new(2.0_f64);
+    let y = Differentiable::new(3.0_f64);
     let z = &x + &y;
 
     z.backward();
@@ -72,8 +72,8 @@ fn test_add_backward() {
 fn test_mul_backward() {
     // z = x * y
     // ∂z/∂x = y, ∂z/∂y = x
-    let x = Variable::new(2.0_f64);
-    let y = Variable::new(3.0_f64);
+    let x = Differentiable::new(2.0_f64);
+    let y = Differentiable::new(3.0_f64);
     let z = &x * &y;
 
     z.backward();
@@ -86,7 +86,7 @@ fn test_mul_backward() {
 fn test_neg_backward() {
     // z = -x
     // ∂z/∂x = -1
-    let x = Variable::new(3.0_f64);
+    let x = Differentiable::new(3.0_f64);
     let z = -&x;
 
     z.backward();
@@ -98,8 +98,8 @@ fn test_neg_backward() {
 fn test_recip_backward() {
     // z = 1/x
     // ∂z/∂x = -1/x²
-    let x = Variable::new(2.0_f64);
-    let z = Variable::with_grad_fn(1.0 / x.value(), Box::new(RecipBackward::new(x.clone())));
+    let x = Differentiable::new(2.0_f64);
+    let z = Differentiable::with_grad_fn(1.0 / x.value(), Box::new(RecipBackward::new(x.clone())));
 
     z.backward();
 
@@ -115,16 +115,16 @@ fn test_recip_backward() {
 fn test_chain_rule() {
     // f(x) = (x + 1) * 2
     // df/dx = 2
-    let x = Variable::new(3.0_f64);
-    let one = Variable::new(1.0_f64);
-    let two = Variable::new(2.0_f64);
+    let x = Differentiable::new(3.0_f64);
+    let one = Differentiable::new(1.0_f64);
+    let two = Differentiable::new(2.0_f64);
 
     // x + 1
     let sum = &x + &one;
 
     // (x + 1) * 2
     // 演算結果同士の演算も Variable なので直接可能
-    let sum_var = Variable::new(sum.value());
+    let sum_var = Differentiable::new(sum.value());
     let result = &sum_var * &two;
 
     result.backward();
@@ -137,7 +137,7 @@ fn test_chain_rule() {
 fn test_multiple_paths() {
     // f(x) = x * x = x²
     // df/dx = 2x
-    let x = Variable::new(3.0_f64);
+    let x = Differentiable::new(3.0_f64);
     let z = &x * &x;
 
     z.backward();
@@ -153,8 +153,8 @@ fn test_multiple_paths() {
 #[test]
 fn test_gradient_accumulation() {
     // 複数回 backward を呼んだ場合、勾配は累積される
-    let x = Variable::new(2.0_f64);
-    let y = Variable::new(3.0_f64);
+    let x = Differentiable::new(2.0_f64);
+    let y = Differentiable::new(3.0_f64);
 
     let z1 = &x + &y;
     z1.backward();
@@ -171,8 +171,8 @@ fn test_gradient_accumulation() {
 
 #[test]
 fn test_zero_grad() {
-    let x = Variable::new(2.0_f64);
-    let y = Variable::new(3.0_f64);
+    let x = Differentiable::new(2.0_f64);
+    let y = Differentiable::new(3.0_f64);
 
     let z = &x + &y;
     z.backward();
@@ -186,7 +186,7 @@ fn test_zero_grad() {
 
 #[test]
 fn test_requires_grad_default() {
-    let x = Variable::new(2.0_f64);
+    let x = Differentiable::new(2.0_f64);
     // デフォルトで requires_grad = true
     assert!(x.requires_grad());
 }
@@ -194,8 +194,8 @@ fn test_requires_grad_default() {
 #[test]
 fn test_requires_grad_false() {
     // requires_grad = false の場合、勾配は累積されない
-    let x = Variable::new(2.0_f64);
-    let y = Variable::new(3.0_f64);
+    let x = Differentiable::new(2.0_f64);
+    let y = Differentiable::new(3.0_f64);
 
     // x の勾配計算を無効化
     x.set_requires_grad(false);
@@ -214,9 +214,9 @@ fn test_requires_grad_false() {
 #[test]
 fn test_requires_grad_chain() {
     // チェーンの途中で requires_grad = false
-    let x = Variable::new(2.0_f64);
-    let y = Variable::new(3.0_f64);
-    let w = Variable::new(4.0_f64);
+    let x = Differentiable::new(2.0_f64);
+    let y = Differentiable::new(3.0_f64);
+    let w = Differentiable::new(4.0_f64);
 
     // y のみ勾配計算を無効化
     y.set_requires_grad(false);
@@ -242,8 +242,8 @@ fn test_requires_grad_chain() {
 #[test]
 fn test_detach() {
     // detach すると勾配の伝播が止まる
-    let x = Variable::new(2.0_f64);
-    let y = Variable::new(3.0_f64);
+    let x = Differentiable::new(2.0_f64);
+    let y = Differentiable::new(3.0_f64);
 
     let z = &x + &y;
 
@@ -265,14 +265,14 @@ fn test_detach() {
 fn test_simple_chain() {
     // f(x) = 2 * (x + 1)
     // f'(x) = 2
-    let x = Variable::new(3.0_f64);
-    let one = Variable::new(1.0_f64);
-    let two = Variable::new(2.0_f64);
+    let x = Differentiable::new(3.0_f64);
+    let one = Differentiable::new(1.0_f64);
+    let two = Differentiable::new(2.0_f64);
 
     // x + 1 = 4
     let sum = &x + &one;
 
-    let sum_var = Variable::new(sum.value());
+    let sum_var = Differentiable::new(sum.value());
     let result = &two * &sum_var;
 
     assert_eq!(result.value(), 8.0);
@@ -288,14 +288,14 @@ fn test_division_chain() {
     // f(x) = 1 / (x + 1)
     // f'(x) = -1 / (x + 1)²
     // f'(1) = -1 / 4 = -0.25
-    let x = Variable::new(1.0_f64);
-    let one = Variable::new(1.0_f64);
+    let x = Differentiable::new(1.0_f64);
+    let one = Differentiable::new(1.0_f64);
 
     // x + 1 = 2
     let sum = &x + &one;
 
-    let sum_var = Variable::new(sum.value());
-    let result = Variable::with_grad_fn(
+    let sum_var = Differentiable::new(sum.value());
+    let result = Differentiable::with_grad_fn(
         1.0 / sum_var.value(),
         Box::new(RecipBackward::new(sum_var.clone())),
     );
@@ -314,55 +314,55 @@ fn test_division_chain() {
 
 #[test]
 fn test_sin_forward() {
-    let x = Variable::new(0.0_f64);
+    let x = Differentiable::new(0.0_f64);
     let y = x.sin();
     assert!((y.value() - 0.0).abs() < 1e-10);
 
-    let x = Variable::new(PI / 2.0);
+    let x = Differentiable::new(PI / 2.0);
     let y = x.sin();
     assert!((y.value() - 1.0).abs() < 1e-10);
 }
 
 #[test]
 fn test_cos_forward() {
-    let x = Variable::new(0.0_f64);
+    let x = Differentiable::new(0.0_f64);
     let y = x.cos();
     assert!((y.value() - 1.0).abs() < 1e-10);
 
-    let x = Variable::new(PI);
+    let x = Differentiable::new(PI);
     let y = x.cos();
     assert!((y.value() - (-1.0)).abs() < 1e-10);
 }
 
 #[test]
 fn test_log2_forward() {
-    let x = Variable::new(1.0_f64);
+    let x = Differentiable::new(1.0_f64);
     let y = x.log2();
     assert!((y.value() - 0.0).abs() < 1e-10);
 
-    let x = Variable::new(8.0_f64);
+    let x = Differentiable::new(8.0_f64);
     let y = x.log2();
     assert!((y.value() - 3.0).abs() < 1e-10);
 }
 
 #[test]
 fn test_exp2_forward() {
-    let x = Variable::new(0.0_f64);
+    let x = Differentiable::new(0.0_f64);
     let y = x.exp2();
     assert!((y.value() - 1.0).abs() < 1e-10);
 
-    let x = Variable::new(3.0_f64);
+    let x = Differentiable::new(3.0_f64);
     let y = x.exp2();
     assert!((y.value() - 8.0).abs() < 1e-10);
 }
 
 #[test]
 fn test_sqrt_forward() {
-    let x = Variable::new(4.0_f64);
+    let x = Differentiable::new(4.0_f64);
     let y = x.sqrt();
     assert!((y.value() - 2.0).abs() < 1e-10);
 
-    let x = Variable::new(2.0_f64);
+    let x = Differentiable::new(2.0_f64);
     let y = x.sqrt();
     assert!((y.value() - SQRT_2).abs() < 1e-10);
 }
@@ -375,13 +375,13 @@ fn test_sqrt_forward() {
 fn test_sin_backward() {
     // y = sin(x)
     // ∂y/∂x = cos(x)
-    let x = Variable::new(0.0_f64);
+    let x = Differentiable::new(0.0_f64);
     let y = x.sin();
     y.backward();
     // cos(0) = 1
     assert!((x.grad().unwrap().value() - 1.0).abs() < 1e-10);
 
-    let x = Variable::new(PI / 2.0);
+    let x = Differentiable::new(PI / 2.0);
     let y = x.sin();
     y.backward();
     // cos(π/2) = 0
@@ -392,13 +392,13 @@ fn test_sin_backward() {
 fn test_cos_backward() {
     // y = cos(x)
     // ∂y/∂x = -sin(x)
-    let x = Variable::new(0.0_f64);
+    let x = Differentiable::new(0.0_f64);
     let y = x.cos();
     y.backward();
     // -sin(0) = 0
     assert!(x.grad().unwrap().value().abs() < 1e-10);
 
-    let x = Variable::new(PI / 2.0);
+    let x = Differentiable::new(PI / 2.0);
     let y = x.cos();
     y.backward();
     // -sin(π/2) = -1
@@ -409,7 +409,7 @@ fn test_cos_backward() {
 fn test_log2_backward() {
     // y = log2(x)
     // ∂y/∂x = 1 / (x * ln(2))
-    let x = Variable::new(2.0_f64);
+    let x = Differentiable::new(2.0_f64);
     let y = x.log2();
     y.backward();
     // 1 / (2 * ln(2))
@@ -421,7 +421,7 @@ fn test_log2_backward() {
 fn test_exp2_backward() {
     // y = exp2(x) = 2^x
     // ∂y/∂x = 2^x * ln(2)
-    let x = Variable::new(3.0_f64);
+    let x = Differentiable::new(3.0_f64);
     let y = x.exp2();
     y.backward();
     // 2^3 * ln(2) = 8 * ln(2)
@@ -433,13 +433,13 @@ fn test_exp2_backward() {
 fn test_sqrt_backward() {
     // y = sqrt(x)
     // ∂y/∂x = 1 / (2 * sqrt(x))
-    let x = Variable::new(4.0_f64);
+    let x = Differentiable::new(4.0_f64);
     let y = x.sqrt();
     y.backward();
     // 1 / (2 * 2) = 0.25
     assert!((x.grad().unwrap().value() - 0.25).abs() < 1e-10);
 
-    let x = Variable::new(2.0_f64);
+    let x = Differentiable::new(2.0_f64);
     let y = x.sqrt();
     y.backward();
     // 1 / (2 * sqrt(2)) = 1 / (2 * SQRT_2) = FRAC_1_SQRT_2 / 2
@@ -456,7 +456,7 @@ fn test_sin_mul_cos() {
     // y = sin(x) * cos(x) = sin(2x) / 2
     // ∂y/∂x = cos(x) * cos(x) - sin(x) * sin(x) = cos(2x)
     // x = π/4 の場合: cos(π/2) = 0
-    let x = Variable::new(PI / 4.0);
+    let x = Differentiable::new(PI / 4.0);
     let sin_x = x.sin();
     let cos_x = x.cos();
     let y = &sin_x * &cos_x;
@@ -476,7 +476,7 @@ fn test_sin_mul_cos() {
 fn test_exp2_log2_inverse() {
     // y = exp2(log2(x)) = x
     // ∂y/∂x = 1
-    let x = Variable::new(5.0_f64);
+    let x = Differentiable::new(5.0_f64);
     let log_x = x.log2();
     let y = log_x.exp2();
 
@@ -494,17 +494,17 @@ fn test_exp2_log2_inverse() {
 #[test]
 fn test_ln_forward() {
     // ln(1) = 0
-    let x = Variable::new(1.0_f64);
+    let x = Differentiable::new(1.0_f64);
     let y = x.ln();
     assert!((y.value() - 0.0).abs() < 1e-10);
 
     // ln(e) = 1
-    let x = Variable::new(E);
+    let x = Differentiable::new(E);
     let y = x.ln();
     assert!((y.value() - 1.0).abs() < 1e-10);
 
     // ln(e^2) = 2
-    let x = Variable::new(E * E);
+    let x = Differentiable::new(E * E);
     let y = x.ln();
     assert!((y.value() - 2.0).abs() < 1e-10);
 }
@@ -512,17 +512,17 @@ fn test_ln_forward() {
 #[test]
 fn test_exp_forward() {
     // exp(0) = 1
-    let x = Variable::new(0.0_f64);
+    let x = Differentiable::new(0.0_f64);
     let y = x.exp();
     assert!((y.value() - 1.0).abs() < 1e-10);
 
     // exp(1) = e
-    let x = Variable::new(1.0_f64);
+    let x = Differentiable::new(1.0_f64);
     let y = x.exp();
     assert!((y.value() - E).abs() < 1e-10);
 
     // exp(2) = e^2
-    let x = Variable::new(2.0_f64);
+    let x = Differentiable::new(2.0_f64);
     let y = x.exp();
     assert!((y.value() - E * E).abs() < 1e-10);
 }
@@ -531,13 +531,13 @@ fn test_exp_forward() {
 fn test_ln_backward() {
     // y = ln(x)
     // ∂y/∂x = 1/x
-    let x = Variable::new(2.0_f64);
+    let x = Differentiable::new(2.0_f64);
     let y = x.ln();
     y.backward();
     // 1/2 = 0.5
     assert!((x.grad().unwrap().value() - 0.5).abs() < 1e-10);
 
-    let x = Variable::new(E);
+    let x = Differentiable::new(E);
     let y = x.ln();
     y.backward();
     // 1/e
@@ -548,19 +548,19 @@ fn test_ln_backward() {
 fn test_exp_backward() {
     // y = exp(x)
     // ∂y/∂x = exp(x)
-    let x = Variable::new(0.0_f64);
+    let x = Differentiable::new(0.0_f64);
     let y = x.exp();
     y.backward();
     // exp(0) = 1
     assert!((x.grad().unwrap().value() - 1.0).abs() < 1e-10);
 
-    let x = Variable::new(1.0_f64);
+    let x = Differentiable::new(1.0_f64);
     let y = x.exp();
     y.backward();
     // exp(1) = e
     assert!((x.grad().unwrap().value() - E).abs() < 1e-10);
 
-    let x = Variable::new(2.0_f64);
+    let x = Differentiable::new(2.0_f64);
     let y = x.exp();
     y.backward();
     // exp(2) = e^2
@@ -571,7 +571,7 @@ fn test_exp_backward() {
 fn test_exp_ln_inverse() {
     // y = exp(ln(x)) = x
     // ∂y/∂x = 1
-    let x = Variable::new(5.0_f64);
+    let x = Differentiable::new(5.0_f64);
     let ln_x = x.ln();
     let y = ln_x.exp();
 
@@ -586,7 +586,7 @@ fn test_exp_ln_inverse() {
 fn test_ln_exp_inverse() {
     // y = ln(exp(x)) = x
     // ∂y/∂x = 1
-    let x = Variable::new(3.0_f64);
+    let x = Differentiable::new(3.0_f64);
     let exp_x = x.exp();
     let y = exp_x.ln();
 
@@ -604,20 +604,20 @@ fn test_ln_exp_inverse() {
 #[test]
 fn test_rem_forward() {
     // 7.5 % 2.5 = 0.0
-    let x = Variable::new(7.5_f64);
-    let y = Variable::new(2.5_f64);
+    let x = Differentiable::new(7.5_f64);
+    let y = Differentiable::new(2.5_f64);
     let z = x.rem(&y);
     assert!((z.value() - 0.0).abs() < 1e-10);
 
     // 7.0 % 3.0 = 1.0
-    let x = Variable::new(7.0_f64);
-    let y = Variable::new(3.0_f64);
+    let x = Differentiable::new(7.0_f64);
+    let y = Differentiable::new(3.0_f64);
     let z = x.rem(&y);
     assert!((z.value() - 1.0).abs() < 1e-10);
 
     // 5.5 % 2.0 = 1.5
-    let x = Variable::new(5.5_f64);
-    let y = Variable::new(2.0_f64);
+    let x = Differentiable::new(5.5_f64);
+    let y = Differentiable::new(2.0_f64);
     let z = x.rem(&y);
     assert!((z.value() - 1.5).abs() < 1e-10);
 }
@@ -631,8 +631,8 @@ fn test_rem_backward() {
     // x = 7.0, y = 3.0 → z = 1.0
     // floor(7/3) = 2
     // ∂z/∂x = 1, ∂z/∂y = -2
-    let x = Variable::new(7.0_f64);
-    let y = Variable::new(3.0_f64);
+    let x = Differentiable::new(7.0_f64);
+    let y = Differentiable::new(3.0_f64);
     let z = x.rem(&y);
 
     z.backward();
@@ -645,9 +645,9 @@ fn test_rem_backward() {
 fn test_rem_chain() {
     // w = (x % y) * 2
     // x = 7.0, y = 3.0 → (7 % 3) * 2 = 1 * 2 = 2
-    let x = Variable::new(7.0_f64);
-    let y = Variable::new(3.0_f64);
-    let two = Variable::new(2.0_f64);
+    let x = Differentiable::new(7.0_f64);
+    let y = Differentiable::new(3.0_f64);
+    let two = Differentiable::new(2.0_f64);
 
     let rem = x.rem(&y);
     let w = &rem * &two;
@@ -694,8 +694,8 @@ impl From<f64> for Scaled {
 #[test]
 fn test_cast_forward() {
     // Scaled(3.0) -> f64 = 30.0
-    let x = Variable::new(Scaled(3.0));
-    let y: Variable<f64> = x.cast();
+    let x = Differentiable::new(Scaled(3.0));
+    let y: Differentiable<f64> = x.cast();
     assert!((y.value() - 30.0).abs() < 1e-10);
 }
 
@@ -704,8 +704,8 @@ fn test_cast_backward() {
     // y = cast(x) where x: Scaled, y: f64
     // y = x.0 * 10
     // ∂L/∂x = ∂L/∂y の逆変換 (÷10)
-    let x = Variable::new(Scaled(3.0));
-    let y: Variable<f64> = x.cast();
+    let x = Differentiable::new(Scaled(3.0));
+    let y: Differentiable<f64> = x.cast();
 
     // y.backward() でgrad_y = 1.0 (f64)
     // これがScaledに変換されて x.grad = Scaled(0.1)
@@ -719,9 +719,9 @@ fn test_cast_backward() {
 fn test_cast_chain() {
     // z = cast(x) + 5.0
     // x: Scaled, z: f64
-    let x = Variable::new(Scaled(2.0)); // → 20.0
-    let y: Variable<f64> = x.cast();
-    let five = Variable::new(5.0_f64);
+    let x = Differentiable::new(Scaled(2.0)); // → 20.0
+    let y: Differentiable<f64> = x.cast();
+    let five = Differentiable::new(5.0_f64);
     let z = y + five;
 
     assert!((z.value() - 25.0).abs() < 1e-10);
@@ -741,8 +741,8 @@ fn test_cast_chain() {
 #[test]
 fn test_no_grad_forward_only() {
     // requires_grad=false 同士の演算では grad_fn が作成されない
-    let x = Variable::new_no_grad(2.0_f64);
-    let y = Variable::new_no_grad(3.0_f64);
+    let x = Differentiable::new_no_grad(2.0_f64);
+    let y = Differentiable::new_no_grad(3.0_f64);
 
     assert!(!x.requires_grad());
     assert!(!y.requires_grad());
@@ -763,8 +763,8 @@ fn test_no_grad_forward_only() {
 #[test]
 fn test_mixed_requires_grad() {
     // requires_grad=true と false の混在
-    let x = Variable::new(2.0_f64); // requires_grad=true
-    let y = Variable::new_no_grad(3.0_f64); // requires_grad=false
+    let x = Differentiable::new(2.0_f64); // requires_grad=true
+    let y = Differentiable::new_no_grad(3.0_f64); // requires_grad=false
 
     assert!(x.requires_grad());
     assert!(!y.requires_grad());
@@ -781,7 +781,7 @@ fn test_mixed_requires_grad() {
 #[test]
 fn test_transcendental_no_grad() {
     // 超越関数でも requires_grad=false なら勾配追跡しない
-    let x = Variable::new_no_grad(1.0_f64);
+    let x = Differentiable::new_no_grad(1.0_f64);
     let sin_x = x.sin();
     assert!((sin_x.value() - 1.0_f64.sin()).abs() < 1e-10);
     assert!(!sin_x.requires_grad());
@@ -802,8 +802,8 @@ fn test_transcendental_no_grad() {
 #[test]
 fn test_new_with_requires_grad() {
     // new_with_requires_grad のテスト
-    let x_true = Variable::new_with_requires_grad(1.0_f64, true);
-    let x_false = Variable::new_with_requires_grad(1.0_f64, false);
+    let x_true = Differentiable::new_with_requires_grad(1.0_f64, true);
+    let x_false = Differentiable::new_with_requires_grad(1.0_f64, false);
 
     assert!(x_true.requires_grad());
     assert!(!x_false.requires_grad());
@@ -812,9 +812,9 @@ fn test_new_with_requires_grad() {
 #[test]
 fn test_complex_no_grad_chain() {
     // 複雑な計算でも requires_grad=false なら全体が勾配追跡なし
-    let a = Variable::new_no_grad(2.0_f64);
-    let b = Variable::new_no_grad(3.0_f64);
-    let c = Variable::new_no_grad(4.0_f64);
+    let a = Differentiable::new_no_grad(2.0_f64);
+    let b = Differentiable::new_no_grad(3.0_f64);
+    let c = Differentiable::new_no_grad(4.0_f64);
 
     // (a + b) * c - a
     let sum = &a + &b; // 5.0
@@ -832,8 +832,8 @@ fn test_complex_no_grad_chain() {
 #[test]
 fn test_maximum_forward() {
     // 順伝播: 大きい方の値が返る
-    let x = Variable::new(3.0_f64);
-    let y = Variable::new(5.0_f64);
+    let x = Differentiable::new(3.0_f64);
+    let y = Differentiable::new(5.0_f64);
     let z = x.maximum(&y);
 
     assert_eq!(z.value(), 5.0);
@@ -842,8 +842,8 @@ fn test_maximum_forward() {
 #[test]
 fn test_maximum_forward_reversed() {
     // 順伝播: 順序を入れ替えても正しく動作
-    let x = Variable::new(7.0_f64);
-    let y = Variable::new(2.0_f64);
+    let x = Differentiable::new(7.0_f64);
+    let y = Differentiable::new(2.0_f64);
     let z = x.maximum(&y);
 
     assert_eq!(z.value(), 7.0);
@@ -852,8 +852,8 @@ fn test_maximum_forward_reversed() {
 #[test]
 fn test_maximum_forward_equal() {
     // 等しい場合も正しく動作
-    let x = Variable::new(4.0_f64);
-    let y = Variable::new(4.0_f64);
+    let x = Differentiable::new(4.0_f64);
+    let y = Differentiable::new(4.0_f64);
     let z = x.maximum(&y);
 
     assert_eq!(z.value(), 4.0);
@@ -863,8 +863,8 @@ fn test_maximum_forward_equal() {
 fn test_maximum_backward_lhs_larger() {
     // z = maximum(x, y) where x > y
     // ∂z/∂x = 1, ∂z/∂y = 0
-    let x = Variable::new(5.0_f64);
-    let y = Variable::new(3.0_f64);
+    let x = Differentiable::new(5.0_f64);
+    let y = Differentiable::new(3.0_f64);
     let z = x.maximum(&y);
 
     z.backward();
@@ -879,8 +879,8 @@ fn test_maximum_backward_lhs_larger() {
 fn test_maximum_backward_rhs_larger() {
     // z = maximum(x, y) where x < y
     // ∂z/∂x = 0, ∂z/∂y = 1
-    let x = Variable::new(2.0_f64);
-    let y = Variable::new(6.0_f64);
+    let x = Differentiable::new(2.0_f64);
+    let y = Differentiable::new(6.0_f64);
     let z = x.maximum(&y);
 
     z.backward();
@@ -896,8 +896,8 @@ fn test_maximum_backward_equal() {
     // z = maximum(x, y) where x == y
     // PyTorch方式: 等しい場合は左側(lhs)に勾配を流す
     // ∂z/∂x = 1, ∂z/∂y = 0
-    let x = Variable::new(4.0_f64);
-    let y = Variable::new(4.0_f64);
+    let x = Differentiable::new(4.0_f64);
+    let y = Differentiable::new(4.0_f64);
     let z = x.maximum(&y);
 
     z.backward();
@@ -912,9 +912,9 @@ fn test_maximum_backward_equal() {
 fn test_maximum_chain() {
     // z = maximum(x, y) * 2
     // ∂z/∂x = 2 if x >= y, else 0
-    let x = Variable::new(5.0_f64);
-    let y = Variable::new(3.0_f64);
-    let two = Variable::new(2.0_f64);
+    let x = Differentiable::new(5.0_f64);
+    let y = Differentiable::new(3.0_f64);
+    let two = Differentiable::new(2.0_f64);
     let max_xy = x.maximum(&y);
     let z = max_xy * two;
 
@@ -929,8 +929,8 @@ fn test_maximum_chain() {
 #[test]
 fn test_maximum_no_grad() {
     // requires_grad=false なら勾配追跡しない
-    let x = Variable::new_no_grad(5.0_f64);
-    let y = Variable::new_no_grad(3.0_f64);
+    let x = Differentiable::new_no_grad(5.0_f64);
+    let y = Differentiable::new_no_grad(3.0_f64);
     let z = x.maximum(&y);
 
     assert_eq!(z.value(), 5.0);
