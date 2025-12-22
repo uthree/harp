@@ -1,1 +1,1 @@
-mod tensor;
+pub mod tensor;

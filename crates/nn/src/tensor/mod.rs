@@ -1,10 +1,13 @@
 pub mod initialization;
 
-use harp_autograd::Differentiable;
-use harp_lazy_array::prelude::*;
-use harp_lazy_array::{ArrayElement, LazyArray};
+pub use initialization::TensorInit;
 
-pub struct Tensor<T: ArrayElement, D: Dimension>(Differentiable<LazyArray<T, D>>);
+use harp_autograd::Differentiable;
+use harp_lazy_array::LazyArray;
+use harp_lazy_array::prelude::*;
+
+/// Tensor型: 自動微分可能な遅延評価配列
+pub type Tensor<T, D> = Differentiable<LazyArray<T, D>>;
 pub type Tensor0<T> = Tensor<T, Dim0>;
 pub type Tensor1<T> = Tensor<T, Dim1>;
 pub type Tensor2<T> = Tensor<T, Dim2>;
