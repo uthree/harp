@@ -71,8 +71,16 @@ let suggester = PaddingSliceSuggester::default();
 - Cumulative演算は現時点で対象外
 - スカラー入力はスキップ
 
+### 正規化
+- **CanonicalFormSuggester**: Elementwise/Reduce/FusedElementwiseをFusedElementwiseReduceに統一変換
+  - `Elementwise { op }` → `FusedElementwiseReduce { expr: op_to_ast(op), axes: [] }`
+  - `Reduce { op, axis }` → `FusedElementwiseReduce { expr: wildcard("0"), reduce_op: op, axes: [axis] }`
+  - `FusedElementwise { expr }` → `FusedElementwiseReduce { expr, axes: [] }`
+  - Loweringフェーズ前に適用することで、LoweringSuggesterのコードを簡素化
+
 ### Lowering系
 - **LoweringSuggester**: GraphOpをKernel(Function)に変換
+  - FusedElementwiseReduceのみ処理（CanonicalFormSuggesterで事前に正規化が必要）
   - デフォルトでSequential戦略のみで候補を生成
   - 並列化はAST最適化フェーズ（Global/LocalParallelizationSuggester）で行う
   - テスト用に`with_parallel_strategies()`で複数戦略を有効化可能
@@ -172,7 +180,9 @@ ProgramRootAbsorptionSuggesterはViewを透過的に扱わないため、ViewMer
 ```
 FusionSuggester        : Elementwise演算の融合
        ↓
-LoweringSuggester      : GraphOp → Kernel(Function) [Sequential]
+CanonicalFormSuggester : Elementwise/Reduce → FusedElementwiseReduce (正規化)
+       ↓
+LoweringSuggester      : FusedElementwiseReduce → Kernel(Function) [Sequential]
        ↓
 BufferAbsorptionSuggester : 入力Bufferの取り込み
        ↓
@@ -261,7 +271,7 @@ let (optimized, history) = optimizer.optimize_with_history(graph);
 | `create_subgraph_inlining_suggester()` | サブグラフインライン展開用 |
 | `create_view_merge_only_suggester()` | ViewMergeのみ |
 | `create_graph_optimization_suggester()` | グラフ構造最適化（View挿入、融合等） |
-| `create_lowering_only_suggester()` | Lowering用（Sequentialのみ） |
+| `create_lowering_only_suggester()` | Lowering用（CanonicalFormSuggester + LoweringSuggester） |
 | `create_lowering_only_suggester_with_simd(widths)` | SIMD幅指定付きLowering |
 | `create_kernel_partition_suggester()` | カーネル分割用 |
 | `create_fusion_suggester()` | 吸収・マージ用 |

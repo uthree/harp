@@ -228,11 +228,24 @@ impl GraphSuggester for BufferAbsorptionSuggester {
 mod tests {
     use super::*;
     use crate::graph::DType;
+    use crate::opt::graph::suggesters::{CanonicalFormSuggester, LoweringSuggester};
+
+    /// グラフを正規形に変換するヘルパー関数
+    fn canonicalize_graph(graph: &Graph) -> Graph {
+        let canonical = CanonicalFormSuggester::new();
+        let mut current = graph.clone();
+        loop {
+            let suggestions = canonical.suggest(&current);
+            if suggestions.is_empty() {
+                break;
+            }
+            current = suggestions[0].graph.clone();
+        }
+        current
+    }
 
     #[test]
     fn test_buffer_absorption_basic() {
-        use crate::opt::graph::suggesters::LoweringSuggester;
-
         let lowering = LoweringSuggester::new();
         let buffer_absorber = BufferAbsorptionSuggester::new();
 
@@ -246,8 +259,9 @@ mod tests {
         eprintln!("=== Initial Graph ===");
         eprintln!("outputs count: {}", graph.outputs().len());
 
-        // Loweringを適用
-        let lowered = lowering.suggest(&graph);
+        // 正規化してからLoweringを適用
+        let canonical_graph = canonicalize_graph(&graph);
+        let lowered = lowering.suggest(&canonical_graph);
         assert!(!lowered.is_empty());
         let lowered_graph = &lowered[0].graph;
 
@@ -286,8 +300,6 @@ mod tests {
 
     #[test]
     fn test_buffer_absorption_preserves_input_metas() {
-        use crate::opt::graph::suggesters::LoweringSuggester;
-
         let lowering = LoweringSuggester::new();
         let buffer_absorber = BufferAbsorptionSuggester::new();
 
@@ -297,7 +309,9 @@ mod tests {
         let c = a + b;
         graph.output("c", c);
 
-        let lowered = lowering.suggest(&graph);
+        // 正規化してからLoweringを適用
+        let canonical_graph = canonicalize_graph(&graph);
+        let lowered = lowering.suggest(&canonical_graph);
         let lowered_graph = &lowered[0].graph;
 
         let absorbed = buffer_absorber.suggest(lowered_graph);

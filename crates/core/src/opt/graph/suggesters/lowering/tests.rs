@@ -4,6 +4,24 @@ use super::*;
 use crate::ast::{AstNode, DType as AstDType, Scope, helper::*};
 use crate::graph::shape::View;
 use crate::graph::{DType, ReduceOp};
+use crate::opt::graph::suggesters::CanonicalFormSuggester;
+
+/// グラフを正規形に変換するヘルパー関数
+/// Elementwise/Reduce/FusedElementwiseをFusedElementwiseReduceに変換
+fn canonicalize_graph(graph: &Graph) -> Graph {
+    let canonical = CanonicalFormSuggester::new();
+    let mut current = graph.clone();
+
+    // すべてのノードが正規化されるまで繰り返す
+    loop {
+        let suggestions = canonical.suggest(&current);
+        if suggestions.is_empty() {
+            break;
+        }
+        current = suggestions[0].graph.clone();
+    }
+    current
+}
 
 /// テスト用: FusedElementwiseReduceノードを作成
 fn test_fused_elementwise_reduce(
@@ -46,7 +64,9 @@ fn test_lower_elementwise_add() {
     let c = a + b;
     graph.output("c", c);
 
-    let suggestions = suggester.suggest(&graph);
+    // 正規化してからlowering
+    let canonical_graph = canonicalize_graph(&graph);
+    let suggestions = suggester.suggest(&canonical_graph);
 
     // Sequential専用モードでは1つの候補が生成される
     assert_eq!(
@@ -74,7 +94,9 @@ fn test_lower_reduce_sum() {
     let b = a.reduce_sum(1);
     graph.output("b", b);
 
-    let suggestions = suggester.suggest(&graph);
+    // 正規化してからlowering
+    let canonical_graph = canonicalize_graph(&graph);
+    let suggestions = suggester.suggest(&canonical_graph);
 
     // Sequential専用モードでは1つの候補が生成される
     assert_eq!(
@@ -133,8 +155,11 @@ fn test_beam_search_with_lowering() {
     let initial_cost = estimator.estimate(&graph);
     println!("Initial cost: {}", initial_cost);
 
-    // LoweringSuggesterのみでBeamSearch
-    let composite = CompositeSuggester::new(vec![Box::new(LoweringSuggester::new())]);
+    // CanonicalFormSuggesterとLoweringSuggesterでBeamSearch
+    let composite = CompositeSuggester::new(vec![
+        Box::new(CanonicalFormSuggester::new()),
+        Box::new(LoweringSuggester::new()),
+    ]);
 
     let optimizer = BeamSearchGraphOptimizer::new(composite)
         .with_beam_width(4)
@@ -176,9 +201,10 @@ fn test_beam_search_with_fusion_and_lowering() {
     let result = mul + d;
     graph.output("result", result);
 
-    // FusionとLoweringの両方を含むSuggester
+    // Fusion、CanonicalForm、Loweringを含むSuggester
     let suggesters: Vec<Box<dyn crate::opt::graph::GraphSuggester>> = vec![
         Box::new(FusionSuggester::new()),
+        Box::new(CanonicalFormSuggester::new()),
         Box::new(LoweringSuggester::new()),
     ];
     let composite = CompositeSuggester::new(suggesters);
@@ -260,14 +286,13 @@ fn test_lower_fused_elementwise_reduce_multiple_axes() {
 
 #[test]
 fn test_lower_elementwise_with_transposed_input() {
-    use crate::graph::shape::Expr;
     use crate::opt::graph::BeamSearchGraphOptimizer;
 
     let suggester = LoweringSuggester::new();
 
     let mut graph = Graph::new();
-    let a = graph.input("a", DType::F32, vec![10, 20]); // [10, 20]
-    let b = graph.input("b", DType::F32, vec![20, 10]); // [20, 10]
+    let a = graph.input("a", DType::F32, vec![10, 20]);
+    let b = graph.input("b", DType::F32, vec![20, 10]);
 
     // aを転置 [10, 20] -> [20, 10]
     let a_t = a.view(a.view.clone().permute(vec![1, 0]));
@@ -276,8 +301,9 @@ fn test_lower_elementwise_with_transposed_input() {
     let c = a_t + b;
     graph.output("c", c);
 
-    // Lowering候補を生成
-    let suggestions = suggester.suggest(&graph);
+    // 正規化してからLowering候補を生成
+    let canonical_graph = canonicalize_graph(&graph);
+    let suggestions = suggester.suggest(&canonical_graph);
 
     // 転置したViewを持つ入力もloweringできることを確認
     assert!(
@@ -286,11 +312,13 @@ fn test_lower_elementwise_with_transposed_input() {
     );
 
     // 最終的にKernelノードに変換されることを確認
-    let optimizer = BeamSearchGraphOptimizer::new(crate::opt::graph::CompositeSuggester::new(
-        vec![Box::new(LoweringSuggester::new())],
-    ))
-    .with_beam_width(4)
-    .with_max_steps(20);
+    let optimizer =
+        BeamSearchGraphOptimizer::new(crate::opt::graph::CompositeSuggester::new(vec![
+            Box::new(CanonicalFormSuggester::new()),
+            Box::new(LoweringSuggester::new()),
+        ]))
+        .with_beam_width(4)
+        .with_max_steps(20);
 
     let (optimized, _) = optimizer.optimize_with_history(graph);
     let output = optimized.outputs().get("c").unwrap();
@@ -317,8 +345,9 @@ fn test_lower_reduce_with_transposed_input() {
     let b = a_t.reduce_sum(0); // [10]
     graph.output("b", b);
 
-    // Lowering候補を生成
-    let suggestions = suggester.suggest(&graph);
+    // 正規化してからLowering候補を生成
+    let canonical_graph = canonicalize_graph(&graph);
+    let suggestions = suggester.suggest(&canonical_graph);
 
     // 転置したViewを持つ入力もloweringできることを確認
     assert!(
@@ -327,11 +356,13 @@ fn test_lower_reduce_with_transposed_input() {
     );
 
     // 最終的にKernelノードに変換されることを確認
-    let optimizer = BeamSearchGraphOptimizer::new(crate::opt::graph::CompositeSuggester::new(
-        vec![Box::new(LoweringSuggester::new())],
-    ))
-    .with_beam_width(4)
-    .with_max_steps(20);
+    let optimizer =
+        BeamSearchGraphOptimizer::new(crate::opt::graph::CompositeSuggester::new(vec![
+            Box::new(CanonicalFormSuggester::new()),
+            Box::new(LoweringSuggester::new()),
+        ]))
+        .with_beam_width(4)
+        .with_max_steps(20);
 
     let (optimized, _) = optimizer.optimize_with_history(graph);
     let output = optimized.outputs().get("b").unwrap();
@@ -399,8 +430,9 @@ fn test_lower_elementwise_with_broadcast_input() {
     let c = a_broadcast + b;
     graph.output("c", c);
 
-    // Lowering候補を生成
-    let suggestions = suggester.suggest(&graph);
+    // 正規化してからLowering候補を生成
+    let canonical_graph = canonicalize_graph(&graph);
+    let suggestions = suggester.suggest(&canonical_graph);
 
     // ブロードキャストしたViewを持つ入力もloweringできることを確認
     assert!(
@@ -409,11 +441,13 @@ fn test_lower_elementwise_with_broadcast_input() {
     );
 
     // 最終的にKernelノードに変換されることを確認
-    let optimizer = BeamSearchGraphOptimizer::new(crate::opt::graph::CompositeSuggester::new(
-        vec![Box::new(LoweringSuggester::new())],
-    ))
-    .with_beam_width(4)
-    .with_max_steps(20);
+    let optimizer =
+        BeamSearchGraphOptimizer::new(crate::opt::graph::CompositeSuggester::new(vec![
+            Box::new(CanonicalFormSuggester::new()),
+            Box::new(LoweringSuggester::new()),
+        ]))
+        .with_beam_width(4)
+        .with_max_steps(20);
 
     let (optimized, _) = optimizer.optimize_with_history(graph);
     let output = optimized.outputs().get("c").unwrap();
@@ -469,7 +503,7 @@ fn test_fused_elementwise_reduce_with_empty_axes() {
 
 #[test]
 fn test_elementwise_via_unified_lowering() {
-    // Elementwiseが統一されたFusedElementwiseReduce経由でloweringされることを確認
+    // Elementwiseが正規化→lowering経由でKernelに変換されることを確認
     let suggester = LoweringSuggester::new();
 
     let mut graph = Graph::new();
@@ -478,7 +512,9 @@ fn test_elementwise_via_unified_lowering() {
     let c = a * b; // Elementwise Mul
     graph.output("c", c);
 
-    let suggestions = suggester.suggest(&graph);
+    // 正規化してからLowering
+    let canonical_graph = canonicalize_graph(&graph);
+    let suggestions = suggester.suggest(&canonical_graph);
     assert_eq!(suggestions.len(), 1, "Should generate 1 candidate");
 
     // Kernelノードに変換されることを確認
@@ -496,7 +532,7 @@ fn test_elementwise_via_unified_lowering() {
 
 #[test]
 fn test_reduce_via_unified_lowering() {
-    // Reduceが統一されたFusedElementwiseReduce経由でloweringされることを確認
+    // Reduceが正規化→lowering経由でKernelに変換されることを確認
     let suggester = LoweringSuggester::new();
 
     let mut graph = Graph::new();
@@ -504,7 +540,9 @@ fn test_reduce_via_unified_lowering() {
     let b = a.reduce(ReduceOp::Prod, 1); // Reduce Prod over axis 1
     graph.output("b", b);
 
-    let suggestions = suggester.suggest(&graph);
+    // 正規化してからLowering
+    let canonical_graph = canonicalize_graph(&graph);
+    let suggestions = suggester.suggest(&canonical_graph);
     assert_eq!(suggestions.len(), 1, "Should generate 1 candidate");
 
     // Kernelノードに変換されることを確認

@@ -10,8 +10,7 @@ mod helpers;
 mod other;
 mod reduce;
 
-use crate::ast::helper::wildcard;
-use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp, ReduceOp};
+use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp};
 use crate::opt::context::DeviceCapabilities;
 use crate::opt::graph::{GraphSuggester, SuggestResult};
 use std::collections::{HashMap, HashSet};
@@ -22,7 +21,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 static KERNEL_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 // サブモジュールから関数を再エクスポート
-pub use elementwise::is_pure_const_node;
+pub use elementwise::{build_elementwise_expr, is_pure_const_node};
 
 /// GraphOpをKernelノードに変換するSuggester
 ///
@@ -230,38 +229,21 @@ impl LoweringSuggester {
         let name = self.generate_kernel_name(kind, node.view.shape());
 
         let ast = match &node.op {
-            // Elementwise → FusedElementwiseReduce(expr, axes=[])
-            GraphOp::Elementwise { op, .. } => {
-                let expr = elementwise::build_elementwise_expr(op);
-                let expr_with_consts = elementwise::embed_constants(&expr, &node.src);
-                reduce::build_fused_elementwise_reduce_function(
-                    node,
-                    &expr_with_consts,
-                    &ReduceOp::Sum, // 未使用（axes=[]の場合）
-                    &[],
-                    &name,
-                )
-            }
-            // Reduce → FusedElementwiseReduce(identity, axes=[axis])
-            GraphOp::Reduce { op, axis, .. } => {
-                let expr = wildcard("0");
-                reduce::build_fused_elementwise_reduce_function(node, &expr, op, &[*axis], &name)
+            // Elementwise/Reduce/FusedElementwiseはCanonicalFormSuggesterで
+            // 事前にFusedElementwiseReduceに変換されるため、ここでは処理しない
+            GraphOp::Elementwise { .. }
+            | GraphOp::Reduce { .. }
+            | GraphOp::FusedElementwise { .. } => {
+                log::debug!(
+                    "LoweringSuggester: {:?} should be canonicalized first",
+                    std::mem::discriminant(&node.op)
+                );
+                return None;
             }
             GraphOp::Cumulative { op, axis, .. } => {
                 reduce::build_cumulative_function(node, op, *axis, &name)
             }
             GraphOp::Contiguous => other::build_contiguous_function(node, &name),
-            // FusedElementwise → FusedElementwiseReduce(expr, axes=[])
-            GraphOp::FusedElementwise { expr, .. } => {
-                let expr_with_consts = elementwise::embed_constants(expr, &node.src);
-                reduce::build_fused_elementwise_reduce_function(
-                    node,
-                    &expr_with_consts,
-                    &ReduceOp::Sum, // 未使用（axes=[]の場合）
-                    &[],
-                    &name,
-                )
-            }
             GraphOp::FusedElementwiseReduce {
                 expr,
                 reduce_op,

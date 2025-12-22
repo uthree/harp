@@ -11,10 +11,11 @@ use crate::opt::ast::{
 };
 use crate::opt::context::DeviceCapabilities;
 use crate::opt::graph::{
-    BeamSearchGraphOptimizer, BufferAbsorptionSuggester, ChainedGraphOptimizer, CompositeSuggester,
-    ContiguousInsertionSuggester, FusionSuggester, GraphOptimizer, GreedyGraphOptimizer,
-    KernelMergeSuggester, KernelPartitionSuggester, LoweringSuggester, OptimizationHistory,
-    SubgraphInliningSuggester, ViewInsertionSuggester, ViewMergeSuggester,
+    BeamSearchGraphOptimizer, BufferAbsorptionSuggester, CanonicalFormSuggester,
+    ChainedGraphOptimizer, CompositeSuggester, ContiguousInsertionSuggester, FusionSuggester,
+    GraphOptimizer, GreedyGraphOptimizer, KernelMergeSuggester, KernelPartitionSuggester,
+    LoweringSuggester, OptimizationHistory, SubgraphInliningSuggester, ViewInsertionSuggester,
+    ViewMergeSuggester,
 };
 
 // =============================================================================
@@ -144,8 +145,12 @@ pub fn create_lowering_only_suggester() -> CompositeSuggester {
 /// 貪欲法Lowering用のSuggesterを作成
 ///
 /// 高速にLoweringを行います。
+/// CanonicalFormSuggesterを含み、Elementwise/ReduceをFusedElementwiseReduceに正規化してからLoweringします。
 pub fn create_greedy_lowering_only_suggester() -> CompositeSuggester {
-    CompositeSuggester::new(vec![Box::new(LoweringSuggester::new())])
+    CompositeSuggester::new(vec![
+        Box::new(CanonicalFormSuggester::new()),
+        Box::new(LoweringSuggester::new()),
+    ])
 }
 
 /// KernelPartitionフェーズ用のSuggesterを作成
@@ -446,8 +451,12 @@ pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOpt
     // SimpleCostEstimatorは並列カーネルにボーナス（コスト減少）を与えるため、
     // 適切なスレッドグループサイズとベクトル化が選択される
     // DeviceCapabilitiesがある場合はLoweringSuggesterに渡す
+    // CanonicalFormSuggesterを含めてElementwise/ReduceをFusedElementwiseReduceに正規化
     let lowering_suggester = if let Some(ref caps) = config.opt_context {
-        CompositeSuggester::new(vec![Box::new(LoweringSuggester::from_capabilities(caps))])
+        CompositeSuggester::new(vec![
+            Box::new(CanonicalFormSuggester::new()),
+            Box::new(LoweringSuggester::from_capabilities(caps)),
+        ])
     } else {
         create_greedy_lowering_only_suggester()
     };
@@ -809,22 +818,25 @@ mod tests {
         let c = a + b;
         graph.output("c", c);
 
-        let suggestions = greedy_suggester.suggest(&graph);
+        // 複数回suggestを繰り返してすべてがKernelになるまで処理
+        let mut current_graph = graph;
+        let mut iterations = 0;
+        loop {
+            let suggestions = greedy_suggester.suggest(&current_graph);
+            if suggestions.is_empty() {
+                break;
+            }
+            current_graph = suggestions[0].graph.clone();
+            iterations += 1;
+            assert!(iterations < 10, "Too many iterations");
+        }
 
-        // LoweringSuggesterは1つの候補を生成
-        assert_eq!(
-            suggestions.len(),
-            1,
-            "LoweringSuggester should generate exactly 1 candidate, got {}",
-            suggestions.len()
-        );
-
-        // 生成された候補はKernelノードを含む
-        let outputs = suggestions[0].graph.outputs();
+        // 最終的にKernelノードになっていることを確認
+        let outputs = current_graph.outputs();
         let output = outputs.get("c").unwrap();
         assert!(
             matches!(output.op, GraphOp::Kernel { .. }),
-            "Output should be Kernel node"
+            "Output should be Kernel node after full optimization"
         );
     }
 

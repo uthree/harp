@@ -1,4 +1,5 @@
 pub mod buffer_absorption;
+pub mod canonical_form;
 pub mod composite;
 pub mod contiguous;
 pub mod fusion;
@@ -12,6 +13,7 @@ pub mod view_merge;
 
 // Re-export commonly used types
 pub use buffer_absorption::BufferAbsorptionSuggester;
+pub use canonical_form::CanonicalFormSuggester;
 pub use composite::CompositeSuggester;
 pub use contiguous::ContiguousInsertionSuggester;
 pub use fusion::FusionSuggester;

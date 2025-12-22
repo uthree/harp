@@ -335,6 +335,21 @@ impl GraphSuggester for ViewMergeSuggester {
 mod tests {
     use super::*;
     use crate::graph::DType;
+    use crate::opt::graph::suggesters::CanonicalFormSuggester;
+
+    /// グラフを正規形に変換するヘルパー関数
+    fn canonicalize_graph(graph: &Graph) -> Graph {
+        let canonical = CanonicalFormSuggester::new();
+        let mut current = graph.clone();
+        loop {
+            let suggestions = canonical.suggest(&current);
+            if suggestions.is_empty() {
+                break;
+            }
+            current = suggestions[0].graph.clone();
+        }
+        current
+    }
 
     #[test]
     fn test_view_merge_basic() {
@@ -498,8 +513,9 @@ mod tests {
         let sum = a + b;
         graph.output("result", sum);
 
-        // LoweringSuggesterでKernelノードに変換
-        let lowered_graphs = lowering_suggester.suggest(&graph);
+        // 正規化してからLoweringSuggesterでKernelノードに変換
+        let canonical_graph = canonicalize_graph(&graph);
+        let lowered_graphs = lowering_suggester.suggest(&canonical_graph);
         assert!(
             !lowered_graphs.is_empty(),
             "LoweringSuggester should produce suggestions"
