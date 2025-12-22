@@ -12,6 +12,4 @@
 pub mod arithmetic;
 pub mod array;
 pub mod transcendental;
-
-pub use arithmetic::One;
 pub use array::matmul_fallback;

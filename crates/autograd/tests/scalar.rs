@@ -1,4 +1,4 @@
-use autograd::{RecipBackward, Differentiable};
+use harp_autograd::{Differentiable, RecipBackward};
 use std::f64::consts::{E, FRAC_1_SQRT_2, LN_2, PI, SQRT_2};
 
 // ============================================================================

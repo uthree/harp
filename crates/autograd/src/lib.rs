@@ -62,9 +62,6 @@ pub use primops::{
     Zeros,
 };
 
-// 定数
-pub use hlops::One;
-
 // ユーティリティ
 pub use primops::inverse_permutation;
 

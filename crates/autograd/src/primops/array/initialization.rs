@@ -17,7 +17,7 @@
 /// let zeros: f64 = Zeros::zeros(&[]);  // スカラー
 /// assert_eq!(zeros, 0.0);
 /// ```
-pub trait Zeros: Sized {
+pub trait Zeros {
     /// 指定した形状のゼロ埋め配列を作成
     ///
     /// # 引数
@@ -40,7 +40,7 @@ pub trait Zeros: Sized {
 /// let ones: f64 = Ones::ones(&[]);  // スカラー
 /// assert_eq!(ones, 1.0);
 /// ```
-pub trait Ones: Sized {
+pub trait Ones {
     /// 指定した形状の1埋め配列を作成
     ///
     /// # 引数
@@ -53,35 +53,24 @@ pub trait Ones: Sized {
 // スカラー型への実装
 // ============================================================================
 
-impl Zeros for f32 {
+impl<T: Zero> Zeros for T {
     fn zeros(_shape: &[usize]) -> Self {
-        0.0
+        Self::zero()
     }
 }
 
-impl Zeros for f64 {
-    fn zeros(_shape: &[usize]) -> Self {
-        0.0
-    }
-}
-
-impl Ones for f32 {
+impl<T: One> Ones for T {
     fn ones(_shape: &[usize]) -> Self {
-        1.0
+        Self::one()
     }
 }
-
-impl Ones for f64 {
-    fn ones(_shape: &[usize]) -> Self {
-        1.0
-    }
-}
-
 // ============================================================================
 // Variable<T> への実装
 // ============================================================================
 
 use crate::Differentiable;
+use num_traits::{One, Zero};
+
 use crate::primops::Shape;
 use crate::shape::IntoShape;
 
