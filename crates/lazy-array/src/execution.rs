@@ -166,6 +166,7 @@ pub mod metal {
     use std::cell::RefCell;
 
     use harp_backend_metal::{MetalBuffer, MetalCompiler, MetalDevice, MetalRenderer};
+    use harp_core::Compiler;
     use harp_core::ast::DType;
     use harp_core::backend::sequence::CompiledProgram;
     use harp_core::backend::{Buffer, CompiledKernel, Pipeline};

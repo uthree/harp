@@ -8,12 +8,14 @@ description = "ndarray/PyTorch-like array API for Harp with lazy evaluation"
 default = []
 metal = ["harp-backend-metal"]
 opencl = ["harp-backend-opencl"]
+autograd = ["dep:autograd"]
 
 [dependencies]
 harp-core = { path = "../core" }
 harp-dsl = { path = "../dsl" }
 harp-backend-opencl = { path = "../backend-opencl", optional = true }
 harp-backend-metal = { path = "../backend-metal", optional = true }
+autograd = { path = "../autograd", optional = true }
 thiserror = "1.0"
 
 [dev-dependencies]

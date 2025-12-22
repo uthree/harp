@@ -28,6 +28,10 @@ pub mod device;
 pub mod dim;
 pub mod execution;
 pub mod generators;
+pub mod ops;
+
+#[cfg(feature = "autograd")]
+pub mod autograd;
 
 // Re-exports
 pub use backend::{

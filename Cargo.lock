@@ -1844,6 +1844,7 @@ dependencies = [
 name = "harp-lazy-array"
 version = "0.1.0"
 dependencies = [
+ "autograd",
  "harp-backend-metal",
  "harp-backend-opencl",
  "harp-core",
