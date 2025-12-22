@@ -1,8 +1,0 @@
-[package]
-name = "harp-nn"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-harp-autograd = {path="../autograd"}
-harp-lazy-array = {path="../lazy-array", features = ["autograd"]}

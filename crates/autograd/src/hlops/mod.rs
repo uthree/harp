@@ -10,6 +10,4 @@
 //! - `array`: 配列演算（matmul_fallback）
 
 pub mod arithmetic;
-pub mod array;
 pub mod transcendental;
-pub use array::matmul_fallback;

@@ -8,10 +8,10 @@
 use std::ops;
 
 use crate::differentiable::Differentiable;
-use crate::primops::{Cos, Exp2, Ln2, Log2, Log2E, MulLn2, MulLog2E, PhaseShiftQuarter, Sin};
+use crate::primops::{Exp2, Log2, Log2E, Pi, Sin};
 
 // ============================================================================
-// Variable<T> への Cos 実装 (hlops: PhaseShiftQuarter + Sin)
+// Variable<T> への Cos 実装 (hlops: Pi + Sin)
 // ============================================================================
 
 impl<T> Differentiable<T>
@@ -20,15 +20,15 @@ where
         + ops::Add<T, Output = T>
         + ops::Mul<T, Output = T>
         + Sin
-        + Cos
-        + PhaseShiftQuarter
+        + Pi
+        + ops::Div<f64>
         + 'static,
 {
     /// 余弦関数を計算
     /// cos(x) = sin(x + π/2) として実装
     pub fn cos(&self) -> Differentiable<T> {
         // 1/4周期シフトしてからsin適用
-        self.phase_shift_quarter().sin()
+        (self + (T::pi() / 2.0f64)).sin()
     }
 }
 
@@ -43,8 +43,6 @@ where
         + ops::Mul<T, Output = T>
         + ops::Div<T, Output = T>
         + Log2
-        + Ln2
-        + MulLn2
         + 'static,
 {
     /// 自然対数を計算
@@ -60,14 +58,7 @@ where
 
 impl<T> Differentiable<T>
 where
-    T: Clone
-        + ops::Add<T, Output = T>
-        + ops::Mul<T, Output = T>
-        + Exp2
-        + Ln2
-        + MulLog2E
-        + Log2E
-        + 'static,
+    T: Clone + ops::Add<T, Output = T> + ops::Mul<T, Output = T> + Exp2 + Log2E + 'static,
 {
     /// 自然指数関数を計算
     /// exp(x) = exp2(x * log2(e)) として実装

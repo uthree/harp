@@ -11,10 +11,7 @@
 
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
-use crate::primops::{
-    Exp2, Expand, Log2, Maximum, Ones, Permute, Reshape, Shape, Sin, Sqrt, Squeeze, Sum, Unsqueeze,
-    Zeros,
-};
+use crate::primops::{Exp2, Log2, Maximum, Sin, Sqrt};
 
 // ============================================================================
 // 基本トレイト
@@ -89,8 +86,6 @@ pub trait Arithmetic:
     + Mul<Output = Self>
     + Div<Output = Self>
     + Neg<Output = Self>
-    + Zeros
-    + Ones
     + Maximum<Output = Self>
     + 'static
 {
@@ -137,24 +132,4 @@ pub trait Transcendental: Arithmetic + Sin + Exp2 + Log2 + Sqrt {}
 ///     x.sum(0).expand(0, 10)
 /// }
 /// ```
-pub trait Array:
-    Transcendental
-    + Shape
-    + Sum<Output = Self>
-    + Expand<Output = Self>
-    + Reshape
-    + Squeeze<Output = Self>
-    + Unsqueeze<Output = Self>
-    + Permute
-{
-}
-
-// ============================================================================
-// ブランケット実装
-// ============================================================================
-
-impl Arithmetic for f32 {}
-impl Arithmetic for f64 {}
-
-impl Transcendental for f32 {}
-impl Transcendental for f64 {}
+pub trait Array: Transcendental {}

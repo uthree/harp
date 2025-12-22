@@ -14,11 +14,6 @@ pub trait Sin: Sized {
     fn sin(&self) -> Self;
 }
 
-/// 余弦関数を表すトレイト（primopsとして定義、計算はhlopsで実装可能）
-pub trait Cos: Sized {
-    fn cos(&self) -> Self;
-}
-
 /// 2を底とする対数関数を表すトレイト
 pub trait Log2: Sized {
     fn log2(&self) -> Self;
@@ -39,27 +34,9 @@ pub trait Ln2 {
     fn ln2() -> Self;
 }
 
-/// 定数 2 を取得するトレイト
-pub trait Two {
-    fn two() -> Self;
-}
-
-/// 位相を1/4周期（π/2ラジアン = 90度）シフトするトレイト
-/// cos(x) = sin(x + π/2) を実現するための基本演算
-pub trait PhaseShiftQuarter {
-    fn phase_shift_quarter(&self) -> Self;
-}
-
-/// 自身に ln(2) を乗算するトレイト
-/// ln(x) = log2(x) * ln(2) を実現するための基本演算
-pub trait MulLn2 {
-    fn mul_ln2(&self) -> Self;
-}
-
-/// 自身に log2(e) = 1/ln(2) を乗算するトレイト
-/// exp(x) = exp2(x * log2(e)) を実現するための基本演算
-pub trait MulLog2E {
-    fn mul_log2e(&self) -> Self;
+/// 定数 π を取得するトレイト
+pub trait Pi {
+    fn pi() -> Self;
 }
 
 // ============================================================================
@@ -82,12 +59,12 @@ impl<T: Clone + 'static> SinBackward<T> {
 
 impl<T> GradFn<Differentiable<T>> for SinBackward<T>
 where
-    T: Clone + ops::Add<T, Output = T> + ops::Mul<T, Output = T> + Cos + 'static,
+    T: Clone + ops::Add<T> + ops::Mul<T> + ops::Div<f64> + Pi + 'static,
 {
     fn backward(&mut self, grad_y: Differentiable<T>) {
         // sin の勾配: ∂L/∂x = ∂L/∂y * cos(x)
         let requires_grad = grad_y.requires_grad();
-        let cos_x = self.input_value.cos();
+        let cos_x = (self.input_value + (T::pi() / 2.0f64)).sin();
         let grad_val = grad_y.value() * cos_x;
         self.input
             .backward_with(Differentiable::new_with_requires_grad(
@@ -294,7 +271,6 @@ where
         + ops::Add<T, Output = T>
         + ops::Mul<T, Output = T>
         + ops::Div<T, Output = T>
-        + Two
         + 'static,
 {
     fn backward(&mut self, grad_y: Differentiable<T>) {
@@ -316,31 +292,13 @@ where
 
 impl<T> Differentiable<T>
 where
-    T: Clone + ops::Add<T, Output = T> + ops::Mul<T, Output = T> + Sin + Cos + 'static,
+    T: Clone + ops::Add<T, Output = T> + ops::Mul<T, Output = T> + Sin + 'static,
 {
     /// 正弦関数を計算
     pub fn sin(&self) -> Differentiable<T> {
         let output = self.value().sin();
         if self.requires_grad() {
             Differentiable::with_grad_fn(output, Box::new(SinBackward::new(self.clone())))
-        } else {
-            Differentiable::new_no_grad(output)
-        }
-    }
-}
-
-impl<T> Differentiable<T>
-where
-    T: Clone + ops::Add<T, Output = T> + PhaseShiftQuarter + 'static,
-{
-    /// 位相を1/4周期シフト（π/2加算）
-    pub fn phase_shift_quarter(&self) -> Differentiable<T> {
-        let output = self.value().phase_shift_quarter();
-        if self.requires_grad() {
-            Differentiable::with_grad_fn(
-                output,
-                Box::new(PhaseShiftQuarterBackward::new(self.clone())),
-            )
         } else {
             Differentiable::new_no_grad(output)
         }
@@ -370,7 +328,7 @@ where
 
 impl<T> Differentiable<T>
 where
-    T: Clone + ops::Add<T, Output = T> + ops::Mul<T, Output = T> + Exp2 + Ln2 + 'static,
+    T: Clone + ops::Add<T, Output = T> + ops::Mul<T, Output = T> + Exp2 + 'static,
 {
     /// 2を底とする指数関数を計算
     pub fn exp2(&self) -> Differentiable<T> {
@@ -393,7 +351,6 @@ where
         + ops::Mul<T, Output = T>
         + ops::Div<T, Output = T>
         + Sqrt
-        + Two
         + 'static,
 {
     /// 平方根を計算
@@ -410,36 +367,6 @@ where
     }
 }
 
-impl<T> Differentiable<T>
-where
-    T: Clone + ops::Add<T, Output = T> + ops::Mul<T, Output = T> + MulLn2 + Ln2 + 'static,
-{
-    /// 自身に ln(2) を乗算
-    pub fn mul_ln2(&self) -> Differentiable<T> {
-        let output = self.value().mul_ln2();
-        if self.requires_grad() {
-            Differentiable::with_grad_fn(output, Box::new(MulLn2Backward::new(self.clone())))
-        } else {
-            Differentiable::new_no_grad(output)
-        }
-    }
-}
-
-impl<T> Differentiable<T>
-where
-    T: Clone + ops::Add<T, Output = T> + ops::Mul<T, Output = T> + MulLog2E + Log2E + 'static,
-{
-    /// 自身に log2(e) を乗算
-    pub fn mul_log2e(&self) -> Differentiable<T> {
-        let output = self.value().mul_log2e();
-        if self.requires_grad() {
-            Differentiable::with_grad_fn(output, Box::new(MulLog2EBackward::new(self.clone())))
-        } else {
-            Differentiable::new_no_grad(output)
-        }
-    }
-}
-
 // ============================================================================
 // f32 / f64 へのトレイト実装
 // ============================================================================
@@ -449,12 +376,6 @@ macro_rules! impl_transcendental_for_float {
         impl Sin for $t {
             fn sin(&self) -> Self {
                 <$t>::sin(*self)
-            }
-        }
-
-        impl Cos for $t {
-            fn cos(&self) -> Self {
-                <$t>::cos(*self)
             }
         }
 
@@ -482,27 +403,9 @@ macro_rules! impl_transcendental_for_float {
             }
         }
 
-        impl Two for $t {
-            fn two() -> Self {
-                2.0
-            }
-        }
-
-        impl PhaseShiftQuarter for $t {
-            fn phase_shift_quarter(&self) -> Self {
-                self + std::f64::consts::FRAC_PI_2 as $t
-            }
-        }
-
-        impl MulLn2 for $t {
-            fn mul_ln2(&self) -> Self {
-                self * std::f64::consts::LN_2 as $t
-            }
-        }
-
-        impl MulLog2E for $t {
-            fn mul_log2e(&self) -> Self {
-                self * std::f64::consts::LOG2_E as $t
+        impl Pi for $t {
+            fn pi() -> Self {
+                3.141592
             }
         }
 

@@ -38,32 +38,13 @@ pub use traits::{Arithmetic, Array, GradFn, GradNode, GradRoot, Transcendental};
 // 演算トレイト
 pub use primops::{
     // 要素単位
-    Cos,
     Exp2,
-    // 構造変更
-    Expand,
     Floor,
     Log2,
-    Matmul,
-    Max,
     Maximum,
-    Ndim,
-    // 初期化
-    Ones,
-    Permute,
-    Prod,
-    Reshape,
-    Shape,
     Sin,
     Sqrt,
-    Squeeze,
-    Sum,
-    Unsqueeze,
-    Zeros,
 };
-
-// ユーティリティ
-pub use primops::inverse_permutation;
 
 // ============================================================================
 // Backward 構造体（内部実装詳細、ドキュメントから隠す）
@@ -71,8 +52,6 @@ pub use primops::inverse_permutation;
 
 #[doc(hidden)]
 pub use primops::{
-    AddBackward, CastBackward, Exp2Backward, ExpandBackward, Log2Backward, MatmulBackward,
-    MaxBackward, MaximumBackward, MulBackward, NegBackward, PermuteBackward, ProdBackward,
-    RecipBackward, RemBackward, ReshapeBackward, SinBackward, SqrtBackward, SqueezeBackward,
-    SumBackward, UnsqueezeBackward,
+    AddBackward, CastBackward, Exp2Backward, Log2Backward, MaximumBackward, MulBackward,
+    NegBackward, RecipBackward, RemBackward, SinBackward, SqrtBackward,
 };

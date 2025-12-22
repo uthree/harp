@@ -1841,26 +1841,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "harp-lazy-array"
-version = "0.1.0"
-dependencies = [
- "harp-autograd",
- "harp-backend-metal",
- "harp-backend-opencl",
- "harp-core",
- "harp-dsl",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "harp-nn"
-version = "0.1.0"
-dependencies = [
- "harp-autograd",
- "harp-lazy-array",
-]
-
-[[package]]
 name = "harp-viz"
 version = "0.1.0"
 dependencies = [

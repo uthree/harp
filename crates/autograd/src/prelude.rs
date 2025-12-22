@@ -24,37 +24,10 @@ pub use crate::traits::{Arithmetic, Array, GradNode, GradRoot, Transcendental};
 
 pub use crate::primops::{
     // 超越関数
-    Cos,
     Exp2,
     Floor,
     Log2,
     Maximum,
     Sin,
     Sqrt,
-};
-
-// ============================================================================
-// 構造変更演算（トレイト）
-// ============================================================================
-
-pub use crate::primops::{
-    // 縮約・拡張
-    Expand,
-    // 線形代数
-    Matmul,
-    Max,
-    // 形状情報
-    Ndim,
-    // 初期化
-    Ones,
-    // 軸順序・形状
-    Permute,
-    Prod,
-    Reshape,
-    Shape,
-    // 次元操作
-    Squeeze,
-    Sum,
-    Unsqueeze,
-    Zeros,
 };
