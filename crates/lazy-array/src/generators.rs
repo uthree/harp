@@ -1,7 +1,7 @@
 //! 形状指定ユーティリティ
 //!
 //! 配列の形状を柔軟に指定できるようにするトレイトを提供します。
-//! 生成関数は `Array::<f32>::zeros(shape)` のようにArrayの関連関数として使用します。
+//! 生成関数は `LazyArray::<f32, _>::zeros(shape)` のようにArrayの関連関数として使用します。
 
 use harp_core::graph::shape::Expr;
 

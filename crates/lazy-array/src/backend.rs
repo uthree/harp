@@ -197,7 +197,7 @@ enum ArrayState {
 }
 
 // ============================================================================
-// Array - 配列型
+// LazyArray - 遅延評価配列型
 // ============================================================================
 
 /// 配列型（遅延評価）
@@ -220,7 +220,7 @@ enum ArrayState {
 /// // データ取得時に初めて計算が実行される
 /// let data: Vec<f32> = c.to_vec()?;
 /// ```
-pub struct Array<T: ArrayElement, D: Dimension> {
+pub struct LazyArray<T: ArrayElement, D: Dimension> {
     /// 内部状態（遅延/評価済み）
     state: Rc<RefCell<ArrayState>>,
     /// ターゲットデバイス
@@ -231,7 +231,7 @@ pub struct Array<T: ArrayElement, D: Dimension> {
     _phantom: PhantomData<(T, D)>,
 }
 
-impl<T: ArrayElement, D: Dimension> Array<T, D> {
+impl<T: ArrayElement, D: Dimension> LazyArray<T, D> {
     /// GraphNodeから配列を作成（内部用）
     pub(crate) fn from_node(node: GraphNode, shape: Vec<usize>, device: Device) -> Self {
         Self {
@@ -305,13 +305,13 @@ impl<T: ArrayElement, D: Dimension> Array<T, D> {
     }
 
     /// 別のデバイスに転送
-    pub fn to(&self, device: Device) -> Result<Array<T, D>, ArrayError> {
+    pub fn to(&self, device: Device) -> Result<LazyArray<T, D>, ArrayError> {
         if !device.is_available() {
             return Err(ArrayError::DeviceNotAvailable(device.name().to_string()));
         }
 
         // 新しいデバイスで同じグラフノードを持つ配列を作成
-        Ok(Array {
+        Ok(LazyArray {
             state: Rc::new(RefCell::new(ArrayState::Lazy {
                 node: self.graph_node(),
             })),
@@ -424,7 +424,7 @@ impl<T: ArrayElement, D: Dimension> Array<T, D> {
         match &*self.state.borrow() {
             ArrayState::Materialized { buffer, .. } => buffer.read_vec(),
             ArrayState::Lazy { .. } => Err(ArrayError::Execution(
-                "Array not materialized after eval".to_string(),
+                "LazyArray not materialized after eval".to_string(),
             )),
         }
     }
@@ -436,7 +436,7 @@ impl<T: ArrayElement, D: Dimension> Array<T, D> {
 
 use crate::generators::IntoShape;
 
-impl<D: Dimension> Array<f32, D> {
+impl<D: Dimension> LazyArray<f32, D> {
     /// ゼロで初期化された配列を生成（遅延）
     pub fn zeros<S: IntoShape>(shape: S) -> Self {
         Self::zeros_on(shape, Device::default_device())
@@ -508,12 +508,12 @@ impl<D: Dimension> Array<f32, D> {
     }
 
     /// 入力配列と同じ形状のゼロ配列を生成
-    pub fn zeros_like<T2: ArrayElement>(other: &Array<T2, D>) -> Self {
+    pub fn zeros_like<T2: ArrayElement>(other: &LazyArray<T2, D>) -> Self {
         Self::zeros_on(other.shape().to_vec(), other.device())
     }
 
     /// 入力配列と同じ形状の1配列を生成
-    pub fn ones_like<T2: ArrayElement>(other: &Array<T2, D>) -> Self {
+    pub fn ones_like<T2: ArrayElement>(other: &LazyArray<T2, D>) -> Self {
         Self::ones_on(other.shape().to_vec(), other.device())
     }
 }
@@ -522,7 +522,7 @@ impl<D: Dimension> Array<f32, D> {
 // 生成メソッド（i32）
 // ============================================================================
 
-impl<D: Dimension> Array<i32, D> {
+impl<D: Dimension> LazyArray<i32, D> {
     /// ゼロで初期化された配列を生成
     pub fn zeros<S: IntoShape>(shape: S) -> Self {
         Self::zeros_on(shape, Device::default_device())
@@ -592,12 +592,12 @@ impl<D: Dimension> Array<i32, D> {
     }
 
     /// 入力配列と同じ形状のゼロ配列を生成
-    pub fn zeros_like<T2: ArrayElement>(other: &Array<T2, D>) -> Self {
+    pub fn zeros_like<T2: ArrayElement>(other: &LazyArray<T2, D>) -> Self {
         Self::zeros_on(other.shape().to_vec(), other.device())
     }
 
     /// 入力配列と同じ形状の1配列を生成
-    pub fn ones_like<T2: ArrayElement>(other: &Array<T2, D>) -> Self {
+    pub fn ones_like<T2: ArrayElement>(other: &LazyArray<T2, D>) -> Self {
         Self::ones_on(other.shape().to_vec(), other.device())
     }
 }
@@ -606,7 +606,7 @@ impl<D: Dimension> Array<i32, D> {
 // Clone, Debug
 // ============================================================================
 
-impl<T: ArrayElement, D: Dimension> Clone for Array<T, D> {
+impl<T: ArrayElement, D: Dimension> Clone for LazyArray<T, D> {
     fn clone(&self) -> Self {
         Self {
             state: Rc::new(RefCell::new(ArrayState::Lazy {
@@ -619,9 +619,9 @@ impl<T: ArrayElement, D: Dimension> Clone for Array<T, D> {
     }
 }
 
-impl<T: ArrayElement, D: Dimension> std::fmt::Debug for Array<T, D> {
+impl<T: ArrayElement, D: Dimension> std::fmt::Debug for LazyArray<T, D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Array")
+        f.debug_struct("LazyArray")
             .field("device", &self.device)
             .field("shape", &self.shape)
             .field("materialized", &self.is_materialized())
@@ -636,28 +636,28 @@ impl<T: ArrayElement, D: Dimension> std::fmt::Debug for Array<T, D> {
 use crate::dim::{Dim0, Dim1, Dim2, Dim3, Dim4, Dim5, Dim6, DimDyn};
 
 /// 0次元配列（スカラー）
-pub type Array0<T> = Array<T, Dim0>;
+pub type Array0<T> = LazyArray<T, Dim0>;
 
 /// 1次元配列（ベクトル）
-pub type Array1<T> = Array<T, Dim1>;
+pub type Array1<T> = LazyArray<T, Dim1>;
 
 /// 2次元配列（行列）
-pub type Array2<T> = Array<T, Dim2>;
+pub type Array2<T> = LazyArray<T, Dim2>;
 
 /// 3次元配列
-pub type Array3<T> = Array<T, Dim3>;
+pub type Array3<T> = LazyArray<T, Dim3>;
 
 /// 4次元配列
-pub type Array4<T> = Array<T, Dim4>;
+pub type Array4<T> = LazyArray<T, Dim4>;
 
 /// 5次元配列
-pub type Array5<T> = Array<T, Dim5>;
+pub type Array5<T> = LazyArray<T, Dim5>;
 
 /// 6次元配列
-pub type Array6<T> = Array<T, Dim6>;
+pub type Array6<T> = LazyArray<T, Dim6>;
 
 /// 動的次元配列
-pub type ArrayD<T> = Array<T, DimDyn>;
+pub type ArrayD<T> = LazyArray<T, DimDyn>;
 
 // ============================================================================
 // 演算子実装
@@ -682,126 +682,126 @@ fn broadcast_shapes(shape1: &[usize], shape2: &[usize]) -> Vec<usize> {
     );
 }
 
-// Add: &Array + &Array
-impl<T, D> Add for &Array<T, D>
+// Add: &LazyArray + &LazyArray
+impl<T, D> Add for &LazyArray<T, D>
 where
     T: ArrayElement,
     D: Dimension,
 {
-    type Output = Array<T, D>;
+    type Output = LazyArray<T, D>;
 
     fn add(self, rhs: Self) -> Self::Output {
         let result_shape = broadcast_shapes(self.shape(), rhs.shape());
         let result_node = self.graph_node() + rhs.graph_node();
-        Array::from_node(result_node, result_shape, self.device)
+        LazyArray::from_node(result_node, result_shape, self.device)
     }
 }
 
-// Sub: &Array - &Array
-impl<T, D> Sub for &Array<T, D>
+// Sub: &LazyArray - &LazyArray
+impl<T, D> Sub for &LazyArray<T, D>
 where
     T: ArrayElement,
     D: Dimension,
 {
-    type Output = Array<T, D>;
+    type Output = LazyArray<T, D>;
 
     fn sub(self, rhs: Self) -> Self::Output {
         let result_shape = broadcast_shapes(self.shape(), rhs.shape());
         let result_node = self.graph_node() - rhs.graph_node();
-        Array::from_node(result_node, result_shape, self.device)
+        LazyArray::from_node(result_node, result_shape, self.device)
     }
 }
 
-// Mul: &Array * &Array
-impl<T, D> Mul for &Array<T, D>
+// Mul: &LazyArray * &LazyArray
+impl<T, D> Mul for &LazyArray<T, D>
 where
     T: ArrayElement,
     D: Dimension,
 {
-    type Output = Array<T, D>;
+    type Output = LazyArray<T, D>;
 
     fn mul(self, rhs: Self) -> Self::Output {
         let result_shape = broadcast_shapes(self.shape(), rhs.shape());
         let result_node = self.graph_node() * rhs.graph_node();
-        Array::from_node(result_node, result_shape, self.device)
+        LazyArray::from_node(result_node, result_shape, self.device)
     }
 }
 
-// Div: &Array / &Array
-impl<T, D> Div for &Array<T, D>
+// Div: &LazyArray / &LazyArray
+impl<T, D> Div for &LazyArray<T, D>
 where
     T: ArrayElement,
     D: Dimension,
 {
-    type Output = Array<T, D>;
+    type Output = LazyArray<T, D>;
 
     fn div(self, rhs: Self) -> Self::Output {
         let result_shape = broadcast_shapes(self.shape(), rhs.shape());
         let result_node = self.graph_node() / rhs.graph_node();
-        Array::from_node(result_node, result_shape, self.device)
+        LazyArray::from_node(result_node, result_shape, self.device)
     }
 }
 
-// Neg: -&Array
-impl<T, D> Neg for &Array<T, D>
+// Neg: -&LazyArray
+impl<T, D> Neg for &LazyArray<T, D>
 where
     T: ArrayElement,
     D: Dimension,
 {
-    type Output = Array<T, D>;
+    type Output = LazyArray<T, D>;
 
     fn neg(self) -> Self::Output {
         let result_node = -self.graph_node();
-        Array::from_node(result_node, self.shape.clone(), self.device)
+        LazyArray::from_node(result_node, self.shape.clone(), self.device)
     }
 }
 
 // スカラー演算 (f32)
-impl<D> Add<f32> for &Array<f32, D>
+impl<D> Add<f32> for &LazyArray<f32, D>
 where
     D: Dimension,
 {
-    type Output = Array<f32, D>;
+    type Output = LazyArray<f32, D>;
 
     fn add(self, rhs: f32) -> Self::Output {
         let result_node = self.graph_node() + GraphNode::constant(rhs);
-        Array::from_node(result_node, self.shape.clone(), self.device)
+        LazyArray::from_node(result_node, self.shape.clone(), self.device)
     }
 }
 
-impl<D> Sub<f32> for &Array<f32, D>
+impl<D> Sub<f32> for &LazyArray<f32, D>
 where
     D: Dimension,
 {
-    type Output = Array<f32, D>;
+    type Output = LazyArray<f32, D>;
 
     fn sub(self, rhs: f32) -> Self::Output {
         let result_node = self.graph_node() - GraphNode::constant(rhs);
-        Array::from_node(result_node, self.shape.clone(), self.device)
+        LazyArray::from_node(result_node, self.shape.clone(), self.device)
     }
 }
 
-impl<D> Mul<f32> for &Array<f32, D>
+impl<D> Mul<f32> for &LazyArray<f32, D>
 where
     D: Dimension,
 {
-    type Output = Array<f32, D>;
+    type Output = LazyArray<f32, D>;
 
     fn mul(self, rhs: f32) -> Self::Output {
         let result_node = self.graph_node() * GraphNode::constant(rhs);
-        Array::from_node(result_node, self.shape.clone(), self.device)
+        LazyArray::from_node(result_node, self.shape.clone(), self.device)
     }
 }
 
-impl<D> Div<f32> for &Array<f32, D>
+impl<D> Div<f32> for &LazyArray<f32, D>
 where
     D: Dimension,
 {
-    type Output = Array<f32, D>;
+    type Output = LazyArray<f32, D>;
 
     fn div(self, rhs: f32) -> Self::Output {
         let result_node = self.graph_node() / GraphNode::constant(rhs);
-        Array::from_node(result_node, self.shape.clone(), self.device)
+        LazyArray::from_node(result_node, self.shape.clone(), self.device)
     }
 }
 
@@ -816,7 +816,7 @@ mod tests {
 
     #[test]
     fn test_array_creation() {
-        let arr = <Array<f32, Dim2>>::zeros([3, 4]);
+        let arr = <LazyArray<f32, Dim2>>::zeros([3, 4]);
         assert_eq!(arr.shape(), &[3, 4]);
         assert_eq!(arr.ndim(), 2);
         assert_eq!(arr.len(), 12);
@@ -825,8 +825,8 @@ mod tests {
 
     #[test]
     fn test_array_ops_lazy() {
-        let a = <Array<f32, Dim2>>::zeros([3, 4]);
-        let b = <Array<f32, Dim2>>::ones([3, 4]);
+        let a = <LazyArray<f32, Dim2>>::zeros([3, 4]);
+        let b = <LazyArray<f32, Dim2>>::ones([3, 4]);
 
         // 演算は遅延評価
         let c = &a + &b;
@@ -836,14 +836,14 @@ mod tests {
 
     #[test]
     fn test_array_scalar_ops() {
-        let a = <Array<f32, Dim2>>::ones([2, 3]);
+        let a = <LazyArray<f32, Dim2>>::ones([2, 3]);
         let b = &a * 2.0f32;
         assert_eq!(b.shape(), &[2, 3]);
     }
 
     #[test]
     fn test_array_clone() {
-        let a = <Array<f32, Dim2>>::zeros([2, 2]);
+        let a = <LazyArray<f32, Dim2>>::zeros([2, 2]);
         let b = a.clone();
         assert_eq!(b.shape(), &[2, 2]);
     }
@@ -861,7 +861,7 @@ mod opencl_tests {
     #[test]
     fn test_eval_constant_scalar() {
         // スカラー定数のeval
-        let arr: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 2.5);
+        let arr: Array2<f32> = <LazyArray<f32, Dim2>>::full([4, 4], 2.5);
         arr.eval().expect("eval failed");
         assert!(arr.is_materialized());
 
@@ -875,7 +875,7 @@ mod opencl_tests {
     #[test]
     fn test_eval_zeros() {
         // zeros配列のeval
-        let arr: Array1<f32> = <Array<f32, Dim1>>::zeros([64]);
+        let arr: Array1<f32> = <LazyArray<f32, Dim1>>::zeros([64]);
         arr.eval().expect("eval failed");
         assert!(arr.is_materialized());
 
@@ -889,7 +889,7 @@ mod opencl_tests {
     #[test]
     fn test_eval_ones() {
         // ones配列のeval
-        let arr: Array2<f32> = <Array<f32, Dim2>>::ones([8, 8]);
+        let arr: Array2<f32> = <LazyArray<f32, Dim2>>::ones([8, 8]);
         arr.eval().expect("eval failed");
         assert!(arr.is_materialized());
 
@@ -903,7 +903,7 @@ mod opencl_tests {
     #[test]
     fn test_eval_add_scalar() {
         // 定数 + スカラー（線形チェーン）
-        let a: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 1.0);
+        let a: Array2<f32> = <LazyArray<f32, Dim2>>::full([4, 4], 1.0);
         let c = &a + 2.0f32;
 
         c.eval().expect("eval failed");
@@ -919,7 +919,7 @@ mod opencl_tests {
     #[test]
     fn test_eval_mul_scalar() {
         // 定数 * スカラー
-        let a: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 3.0);
+        let a: Array2<f32> = <LazyArray<f32, Dim2>>::full([4, 4], 3.0);
         let b = &a * 2.0f32;
 
         b.eval().expect("eval failed");
@@ -932,7 +932,7 @@ mod opencl_tests {
     #[test]
     fn test_eval_div_scalar() {
         // 定数 / スカラー: 16.0 / 2.0 = 8.0
-        let a: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 16.0);
+        let a: Array2<f32> = <LazyArray<f32, Dim2>>::full([4, 4], 16.0);
         let b = &a / 2.0f32;
 
         b.eval().expect("eval failed");
@@ -945,7 +945,7 @@ mod opencl_tests {
     #[test]
     fn test_eval_mul_chain_three() {
         // 3段階の乗算チェーン: a * 0.5 * 0.5 * 0.5
-        let a: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 16.0);
+        let a: Array2<f32> = <LazyArray<f32, Dim2>>::full([4, 4], 16.0);
         let b = &a * 0.5f32;
         let c = &b * 0.5f32;
         let result = &c * 0.5f32;
@@ -962,7 +962,7 @@ mod opencl_tests {
     #[test]
     fn test_eval_chain() {
         // 連鎖演算: (a + 1) * 2（線形チェーン）
-        let a: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 1.0);
+        let a: Array2<f32> = <LazyArray<f32, Dim2>>::full([4, 4], 1.0);
         let c = &(&a + 1.0f32) * 2.0f32;
 
         c.eval().expect("eval failed");
@@ -975,7 +975,7 @@ mod opencl_tests {
     #[test]
     fn test_eval_already_materialized() {
         // 既に評価済みの場合は何もしない
-        let arr: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 1.0);
+        let arr: Array2<f32> = <LazyArray<f32, Dim2>>::full([4, 4], 1.0);
         arr.eval().expect("first eval failed");
         assert!(arr.is_materialized());
 
@@ -991,7 +991,7 @@ mod opencl_tests {
     #[test]
     fn test_eval_long_chain() {
         // 長い線形チェーン: a + 1 + 2 + 3 + 4
-        let a: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 0.0);
+        let a: Array2<f32> = <LazyArray<f32, Dim2>>::full([4, 4], 0.0);
         let b = &a + 1.0f32;
         let c = &b + 2.0f32;
         let d = &c + 3.0f32;
@@ -1008,7 +1008,7 @@ mod opencl_tests {
     #[test]
     fn test_eval_alternating_ops() {
         // 演算子を交互に使用: (a + 1) * 2 - 0.5
-        let a: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 3.0);
+        let a: Array2<f32> = <LazyArray<f32, Dim2>>::full([4, 4], 3.0);
         let b = &a + 1.0f32;
         let c = &b * 2.0f32;
         let result = &c - 0.5f32;
@@ -1027,7 +1027,7 @@ mod opencl_tests {
         // 2段階の除算チェーン: a / 2 / 2
         use harp_core::graph::Graph;
 
-        let a: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 16.0);
+        let a: Array2<f32> = <LazyArray<f32, Dim2>>::full([4, 4], 16.0);
         let b = &a / 2.0f32;
         let result = &b / 2.0f32;
 
@@ -1063,7 +1063,7 @@ mod opencl_tests {
         // 3段階除算の結果を確認（グラフ構造のデバッグ情報付き）
         use harp_core::graph::Graph;
 
-        let a: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 16.0);
+        let a: Array2<f32> = <LazyArray<f32, Dim2>>::full([4, 4], 16.0);
         let b = &a / 2.0f32;
         let c = &b / 2.0f32;
         let result = &c / 2.0f32;
@@ -1096,7 +1096,7 @@ mod opencl_tests {
     #[test]
     fn test_eval_div_chain() {
         // 除算チェーン: a / 2 / 2 / 2
-        let a: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 16.0);
+        let a: Array2<f32> = <LazyArray<f32, Dim2>>::full([4, 4], 16.0);
         let b = &a / 2.0f32;
         let c = &b / 2.0f32;
         let result = &c / 2.0f32;
@@ -1113,7 +1113,7 @@ mod opencl_tests {
     #[test]
     fn test_eval_negation() {
         // 否定演算: -a
-        let a: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 5.0);
+        let a: Array2<f32> = <LazyArray<f32, Dim2>>::full([4, 4], 5.0);
         let result = -&a;
 
         result.eval().expect("eval failed");
@@ -1127,7 +1127,7 @@ mod opencl_tests {
     #[test]
     fn test_eval_i32_basic() {
         // 整数型の基本テスト
-        let a: Array1<i32> = <Array<i32, Dim1>>::full([16], 42);
+        let a: Array1<i32> = <LazyArray<i32, Dim1>>::full([16], 42);
 
         a.eval().expect("eval failed");
         let data = a.to_vec().expect("to_vec failed");
@@ -1140,7 +1140,7 @@ mod opencl_tests {
     #[test]
     fn test_eval_large_array() {
         // 大きな配列での演算
-        let a: Array1<f32> = <Array<f32, Dim1>>::full([1024], 2.0);
+        let a: Array1<f32> = <LazyArray<f32, Dim1>>::full([1024], 2.0);
         let result = &(&a + 1.0f32) * 3.0f32;
 
         // (2 + 1) * 3 = 9
@@ -1160,8 +1160,8 @@ mod opencl_tests {
     fn test_eval_zeros_plus_ones() {
         // zeros() + ones() の結合テスト
         // 複数の独立した定数配列を結合可能
-        let a: Array2<f32> = <Array<f32, Dim2>>::zeros([4, 4]);
-        let b: Array2<f32> = <Array<f32, Dim2>>::ones([4, 4]);
+        let a: Array2<f32> = <LazyArray<f32, Dim2>>::zeros([4, 4]);
+        let b: Array2<f32> = <LazyArray<f32, Dim2>>::ones([4, 4]);
         let c = &a + &b;
 
         // 0 + 1 = 1
@@ -1176,8 +1176,8 @@ mod opencl_tests {
     #[test]
     fn test_eval_multiple_arrays_complex() {
         // シンプルなテスト: a * c where a=2, c=1 -> expected 2
-        let a: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 2.0);
-        let c: Array2<f32> = <Array<f32, Dim2>>::ones([4, 4]);
+        let a: Array2<f32> = <LazyArray<f32, Dim2>>::full([4, 4], 2.0);
+        let c: Array2<f32> = <LazyArray<f32, Dim2>>::ones([4, 4]);
         let result = &a * &c;
 
         result.eval().expect("eval failed");
@@ -1193,9 +1193,9 @@ mod opencl_tests {
     #[test]
     fn test_eval_three_arrays_add_then_mul() {
         // (a + b) * c where a=2, b=3, c=1 -> expected 5
-        let a: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 2.0);
-        let b: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 3.0);
-        let c: Array2<f32> = <Array<f32, Dim2>>::ones([4, 4]);
+        let a: Array2<f32> = <LazyArray<f32, Dim2>>::full([4, 4], 2.0);
+        let b: Array2<f32> = <LazyArray<f32, Dim2>>::full([4, 4], 3.0);
+        let c: Array2<f32> = <LazyArray<f32, Dim2>>::ones([4, 4]);
 
         let ab = &a + &b;
         let result = &ab * &c;
