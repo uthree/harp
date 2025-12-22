@@ -14,6 +14,11 @@ use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp};
 use crate::opt::context::DeviceCapabilities;
 use crate::opt::graph::{GraphSuggester, SuggestResult};
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// グローバルカーネルIDカウンター
+/// 各カーネルに一意のIDを割り当てるために使用
+static KERNEL_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 // サブモジュールから関数を再エクスポート
 pub use elementwise::is_pure_const_node;
@@ -83,12 +88,16 @@ impl LoweringSuggester {
     /// 命名規則:
     /// - プレフィックス: E (Elementwise), ER (ElementwiseReduce), C (Cumulative), R (Reduce), O (Other)
     /// - 出力shape: `_`区切りで追加
-    /// - 例: shape [2, 4] のElementwise演算 → `E_2_4`
+    /// - 一意のID: カーネルごとに一意のIDを付加
+    /// - 例: shape [2, 4] のElementwise演算 → `E_2_4_123`
     fn generate_kernel_name(
         &self,
         kind: KernelKind,
         shape: &[crate::graph::shape::Expr],
     ) -> String {
+        // グローバルカウンターから一意のIDを取得
+        let kernel_id = KERNEL_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
+
         let mut name = kind.prefix().to_string();
 
         for dim in shape {
@@ -105,6 +114,9 @@ impl LoweringSuggester {
                 }
             }
         }
+
+        // 一意のIDを追加
+        name.push_str(&format!("_{}", kernel_id));
 
         name
     }

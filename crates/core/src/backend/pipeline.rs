@@ -392,9 +392,74 @@ where
             kernel_call_infos.into_iter().map(|k| vec![k]).collect()
         };
 
+        // Check if AST execution waves have actual buffer names (not placeholders)
+        // Actual buffer names contain patterns like "output_" from lowerer
+        let has_actual_buffer_names = !ast_execution_waves.is_empty()
+            && ast_execution_waves.iter().flatten().any(|call| {
+                call.outputs.iter().any(|o| o.starts_with("output_"))
+                    || call.inputs.iter().any(|i| i.starts_with("output_"))
+            });
+
         // Establish data flow: chain kernel outputs to inputs with proper buffer names
-        let (execution_waves, intermediate_specs) =
-            Self::establish_data_flow(raw_execution_waves, &signature);
+        // Skip if AST already has actual buffer names from the lowerer
+        let (execution_waves, intermediate_specs) = if has_actual_buffer_names {
+            // Fix up the last kernel's output to be the external output name
+            let mut fixed_waves = raw_execution_waves.clone();
+            let external_output = signature
+                .outputs
+                .first()
+                .map(|o| o.name.clone())
+                .unwrap_or_else(|| "output".to_string());
+            let external_inputs: Vec<String> =
+                signature.inputs.iter().map(|i| i.name.clone()).collect();
+
+            // Find and fix the last kernel's output
+            if let Some(last_wave) = fixed_waves.last_mut()
+                && let Some(last_call) = last_wave.last_mut()
+            {
+                // Save the old output name to update references
+                let old_output = last_call.outputs.first().cloned();
+                // Replace with external output name
+                if !last_call.outputs.is_empty() {
+                    last_call.outputs[0] = external_output.clone();
+                }
+
+                // Also need to update any kernel that reads from this old output
+                // (shouldn't happen if this is truly the last kernel, but just in case)
+                if let Some(old) = old_output {
+                    for wave in fixed_waves.iter_mut() {
+                        for call in wave.iter_mut() {
+                            for input in call.inputs.iter_mut() {
+                                if input == &old {
+                                    *input = external_output.clone();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Map placeholder inputs (input0, input1, ...) to external input names
+            for wave in fixed_waves.iter_mut() {
+                for call in wave.iter_mut() {
+                    for input in call.inputs.iter_mut() {
+                        // If input is a placeholder like "input0", map to external input
+                        if let Some(idx_str) = input.strip_prefix("input")
+                            && let Ok(idx) = idx_str.parse::<usize>()
+                            && idx < external_inputs.len()
+                        {
+                            *input = external_inputs[idx].clone();
+                        }
+                    }
+                }
+            }
+
+            // Collect intermediate buffer specs (exclude the external output)
+            let intermediate_specs = Self::collect_intermediate_specs(&fixed_waves, &signature);
+            (fixed_waves, intermediate_specs)
+        } else {
+            Self::establish_data_flow(raw_execution_waves, &signature)
+        };
 
         Ok(CompiledProgram::new(
             kernels,
@@ -501,6 +566,8 @@ where
         let mut kernel_idx = 0;
         // Track available buffers from previous kernels' outputs
         let mut available_buffers: Vec<String> = Vec::new();
+        // Track mapping from kernel name to its output buffer
+        let mut kernel_output_map: HashMap<String, String> = HashMap::new();
 
         for wave in &raw_waves {
             let mut rewritten_wave = Vec::new();
@@ -528,24 +595,49 @@ where
                             .unwrap_or_else(|| format!("__temp_{}", kernel_idx - 1))
                     })]
                 } else {
-                    // Multiple inputs: use the N most recent buffers in reverse order
-                    // (most recent first for the first input, second most recent for second input, etc.)
-                    let mut multi_inputs = Vec::new();
-                    let available_len = available_buffers.len();
-                    for i in 0..num_inputs {
-                        if i < available_len {
-                            // Get from available buffers (most recent first)
-                            multi_inputs.push(available_buffers[available_len - 1 - i].clone());
-                        } else if !external_inputs.is_empty() && i < external_inputs.len() {
-                            multi_inputs.push(external_inputs[i].clone());
+                    // Multiple inputs: use kernel_output_map to get buffers in correct order
+                    // The kernel IDs in the names reflect the creation order, which matches the expected input order.
+
+                    // Collect all kernel outputs with their IDs
+                    let mut kernel_outputs_with_ids: Vec<(usize, String)> = kernel_output_map
+                        .iter()
+                        .filter_map(|(kernel_name, output_buf)| {
+                            // Extract kernel ID from name like "O_4_4_123" or "E_4_4_456"
+                            // The ID is the last underscore-separated component
+                            kernel_name
+                                .rsplit('_')
+                                .next()
+                                .and_then(|s| s.parse::<usize>().ok())
+                                .map(|id| (id, output_buf.clone()))
+                        })
+                        .collect();
+
+                    // Sort by kernel ID (ascending order = creation order = expected input order)
+                    kernel_outputs_with_ids.sort_by_key(|(id, _)| *id);
+
+                    let mut multi_inputs: Vec<String> = kernel_outputs_with_ids
+                        .iter()
+                        .take(num_inputs)
+                        .map(|(_, buf)| buf.clone())
+                        .collect();
+
+                    // If we don't have enough buffers, fall back to external inputs
+                    while multi_inputs.len() < num_inputs {
+                        let remaining = num_inputs - multi_inputs.len();
+                        if !external_inputs.is_empty() && remaining <= external_inputs.len() {
+                            for i in 0..remaining {
+                                if i < external_inputs.len() {
+                                    multi_inputs.push(external_inputs[i].clone());
+                                }
+                            }
                         } else {
-                            // Fallback: use temp buffer names
-                            multi_inputs
-                                .push(format!("__temp_{}", kernel_idx.saturating_sub(i + 1)));
+                            // Fallback: add placeholder temp buffers
+                            for i in 0..remaining {
+                                multi_inputs.push(format!("__temp_{}", i));
+                            }
                         }
                     }
-                    // Reverse to maintain correct order (first input should be earlier buffer)
-                    multi_inputs.reverse();
+
                     multi_inputs
                 };
 
@@ -564,14 +656,62 @@ where
                     call.local_size,
                 ));
 
-                // Add this kernel's output to available buffers
-                available_buffers.push(output_name);
+                // Add this kernel's output to available buffers and kernel_output_map
+                available_buffers.push(output_name.clone());
+                kernel_output_map.insert(call.kernel_name.clone(), output_name);
                 kernel_idx += 1;
             }
             rewritten_waves.push(rewritten_wave);
         }
 
         (rewritten_waves, intermediate_specs)
+    }
+
+    /// Collect intermediate buffer specs from execution waves
+    ///
+    /// This is used when AST already has proper buffer names and we skip establish_data_flow.
+    /// It identifies all intermediate buffers (outputs that are not external outputs)
+    /// and creates specs for them.
+    fn collect_intermediate_specs(
+        execution_waves: &[Vec<KernelCallInfo>],
+        signature: &KernelSignature,
+    ) -> Vec<IntermediateBufferSpec> {
+        let external_outputs: std::collections::HashSet<String> =
+            signature.outputs.iter().map(|o| o.name.clone()).collect();
+
+        let mut intermediate_specs = Vec::new();
+        let mut seen_buffers: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        for wave in execution_waves {
+            for call in wave {
+                for output in &call.outputs {
+                    // If this output is not an external output, it's an intermediate buffer
+                    if !external_outputs.contains(output) && !seen_buffers.contains(output) {
+                        seen_buffers.insert(output.clone());
+
+                        // Use the output shape from signature as a reasonable default
+                        let shape = signature
+                            .outputs
+                            .first()
+                            .map(|o| {
+                                o.shape
+                                    .iter()
+                                    .map(|e| e.as_usize().unwrap_or(1))
+                                    .collect::<Vec<usize>>()
+                            })
+                            .unwrap_or_else(|| vec![1]);
+
+                        intermediate_specs.push(IntermediateBufferSpec::new(
+                            output.clone(),
+                            shape,
+                            DType::F32,
+                        ));
+                    }
+                }
+            }
+        }
+
+        intermediate_specs
     }
 
     // Internal: optimize graph

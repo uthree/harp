@@ -160,31 +160,11 @@ pub fn collect_kernels_as_program(graph: &Graph) -> Option<crate::ast::AstNode> 
                         kernels.push(ast.clone());
                         // カーネル呼び出し情報を生成（各カーネルを別のwaveに配置）
                         if let Some(kernel_name) = name {
-                            // Kernelノードからdispatchサイズと入出力を取得
                             use crate::graph::shape::Expr;
-                            // パラメータからinputs/outputsを抽出するヘルパー
-                            fn extract_io_from_params(
-                                params: &[crate::ast::VarDecl],
-                            ) -> (Vec<String>, Vec<String>) {
-                                use crate::ast::Mutability;
-                                let mut inputs = Vec::new();
-                                let mut outputs = Vec::new();
-                                for param in params {
-                                    if matches!(param.dtype, crate::ast::DType::Ptr(_)) {
-                                        match param.mutability {
-                                            Mutability::Immutable => {
-                                                inputs.push(param.name.clone())
-                                            }
-                                            Mutability::Mutable => outputs.push(param.name.clone()),
-                                        }
-                                    }
-                                }
-                                (inputs, outputs)
-                            }
 
-                            let (grid_size, local_size, inputs, outputs) = match ast {
+                            // ディスパッチサイズをASTから取得
+                            let (grid_size, local_size) = match ast {
                                 AstNode::Kernel {
-                                    params,
                                     default_grid_size,
                                     default_thread_group_size,
                                     ..
@@ -205,38 +185,69 @@ pub fn collect_kernels_as_program(graph: &Graph) -> Option<crate::ast::AstNode> 
                                         Expr::try_from(default_thread_group_size[2].as_ref())
                                             .unwrap_or(Expr::Const(1)),
                                     ];
-                                    let (inputs, outputs) = extract_io_from_params(params);
-                                    (gs, ls, inputs, outputs)
-                                }
-                                AstNode::Function { params, body, .. } => {
-                                    // Functionノードはdispatchサイズを持たない（デフォルト値を使用）
-                                    let (inputs, outputs) = if params.is_empty() {
-                                        // paramsが空の場合、関数本体からプレースホルダーを抽出
-                                        use crate::backend::c_like::extract_buffer_placeholders;
-                                        let (input_names, has_output) =
-                                            extract_buffer_placeholders(body);
-                                        let output_names = if has_output {
-                                            vec!["output".to_string()]
-                                        } else {
-                                            vec![]
-                                        };
-                                        (input_names, output_names)
-                                    } else {
-                                        extract_io_from_params(params)
-                                    };
-                                    (
-                                        [Expr::Const(1), Expr::Const(1), Expr::Const(1)],
-                                        [Expr::Const(1), Expr::Const(1), Expr::Const(1)],
-                                        inputs,
-                                        outputs,
-                                    )
+                                    (gs, ls)
                                 }
                                 _ => (
                                     [Expr::Const(1), Expr::Const(1), Expr::Const(1)],
                                     [Expr::Const(1), Expr::Const(1), Expr::Const(1)],
-                                    vec![],
-                                    vec![],
                                 ),
+                            };
+
+                            // 実際のバッファ名をnode.srcから抽出
+                            // node.srcの構造: [入力バッファ..., カーネル依存..., 出力バッファ]
+                            // 最後の要素が出力バッファ、それ以外は入力（外部バッファまたは依存カーネルの出力）
+                            let (inputs, outputs): (Vec<String>, Vec<String>) = {
+                                let mut inputs = Vec::new();
+                                let mut outputs = Vec::new();
+
+                                if !node.src.is_empty() {
+                                    // 最後の要素が出力バッファ
+                                    if let Some(last) = node.src.last()
+                                        && let GraphOp::Buffer { name } = &last.op
+                                    {
+                                        outputs.push(name.clone());
+                                    }
+
+                                    // 出力バッファ以外は入力
+                                    for src in
+                                        node.src.iter().take(node.src.len().saturating_sub(1))
+                                    {
+                                        match &src.op {
+                                            GraphOp::Buffer { name } => {
+                                                inputs.push(name.clone());
+                                            }
+                                            GraphOp::Kernel { .. } => {
+                                                // カーネル依存の場合、そのカーネルの出力バッファを使用
+                                                if let Some(kernel_output) = src.src.last()
+                                                    && let GraphOp::Buffer { name } =
+                                                        &kernel_output.op
+                                                {
+                                                    inputs.push(name.clone());
+                                                }
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                }
+
+                                // node.srcから入力が見つからない場合はAST本体からプレースホルダーを抽出
+                                // （外部入力バッファを使用するケース）
+                                if inputs.is_empty() {
+                                    use crate::backend::c_like::extract_buffer_placeholders;
+                                    // 関数本体からプレースホルダーを抽出
+                                    let body = match ast {
+                                        AstNode::Kernel { body, .. }
+                                        | AstNode::Function { body, .. } => Some(body.as_ref()),
+                                        _ => None,
+                                    };
+                                    if let Some(body) = body {
+                                        let (input_names, _has_output) =
+                                            extract_buffer_placeholders(body);
+                                        inputs = input_names;
+                                    }
+                                }
+
+                                (inputs, outputs)
                             };
                             let call_info = AstKernelCallInfo::new(
                                 kernel_name,

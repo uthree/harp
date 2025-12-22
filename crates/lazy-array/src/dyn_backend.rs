@@ -1183,14 +1183,16 @@ mod opencl_tests {
         result.eval().expect("eval failed");
         let data = result.to_vec().expect("to_vec failed");
         println!("a * c (2 * 1) = {:?}", &data[..4]);
-        assert!((data[0] - 2.0).abs() < 1e-5, "Expected 2.0, got {}", data[0]);
+        assert!(
+            (data[0] - 2.0).abs() < 1e-5,
+            "Expected 2.0, got {}",
+            data[0]
+        );
     }
 
     #[test]
-    #[ignore = "Known issue: 3 or more constant arrays combined produce wrong results (core bug)"]
     fn test_eval_three_arrays_add_then_mul() {
         // (a + b) * c where a=2, b=3, c=1 -> expected 5
-        // 現在の実装では8.0が返される（core側のバグ）
         let a: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 2.0);
         let b: Array2<f32> = <Array<f32, Dim2>>::full([4, 4], 3.0);
         let c: Array2<f32> = <Array<f32, Dim2>>::ones([4, 4]);
@@ -1202,7 +1204,10 @@ mod opencl_tests {
         let data = result.to_vec().expect("to_vec failed");
         println!("(a + b) * c = {:?}", &data[..4]);
 
-        // 5.0が期待値だが、現在は8.0が返される
-        assert!((data[0] - 5.0).abs() < 1e-5, "Expected 5.0, got {}", data[0]);
+        assert!(
+            (data[0] - 5.0).abs() < 1e-5,
+            "Expected 5.0, got {}",
+            data[0]
+        );
     }
 }
