@@ -3,6 +3,12 @@
 //! 実行時にデバイスを選択できる配列型を提供します。
 //! 演算は遅延評価され、`forward()`または`to_vec()`呼び出し時に実行されます。
 
+mod buffer;
+mod constructors;
+mod eval;
+
+pub use buffer::Buffer;
+
 use crate::device::Device;
 use crate::dim::Dimension;
 use harp_core::ast::DType;
@@ -11,12 +17,6 @@ use std::cell::RefCell;
 use std::marker::PhantomData;
 use std::rc::Rc;
 use thiserror::Error;
-
-#[cfg(feature = "opencl")]
-use crate::execution::opencl::with_opencl_context;
-
-#[cfg(feature = "metal")]
-use crate::execution::metal::with_metal_context;
 
 // ============================================================================
 // ArrayElement - 配列要素トレイト
@@ -130,70 +130,15 @@ pub enum ArrayError {
 }
 
 // ============================================================================
-// DynBuffer - 動的バッファ
-// ============================================================================
-
-/// 動的バッファ（デバイス非依存）
-#[derive(Clone)]
-pub enum DynBuffer {
-    /// OpenCLバッファ
-    #[cfg(feature = "opencl")]
-    OpenCL(harp_backend_opencl::OpenCLBuffer),
-    /// Metalバッファ
-    #[cfg(feature = "metal")]
-    Metal(harp_backend_metal::MetalBuffer),
-}
-
-impl DynBuffer {
-    /// バッファの形状を取得
-    pub fn shape(&self) -> &[usize] {
-        match self {
-            #[cfg(feature = "opencl")]
-            DynBuffer::OpenCL(buf) => {
-                use harp_core::backend::Buffer;
-                buf.shape()
-            }
-            #[cfg(feature = "metal")]
-            DynBuffer::Metal(buf) => {
-                use harp_core::backend::Buffer;
-                buf.shape()
-            }
-            #[allow(unreachable_patterns)]
-            _ => &[],
-        }
-    }
-
-    /// バッファからデータを読み出し
-    pub fn read_vec<T: Clone + 'static>(&self) -> Result<Vec<T>, ArrayError> {
-        match self {
-            #[cfg(feature = "opencl")]
-            DynBuffer::OpenCL(buf) => {
-                use harp_core::backend::Buffer;
-                buf.read_vec()
-                    .map_err(|e| ArrayError::Execution(e.to_string()))
-            }
-            #[cfg(feature = "metal")]
-            DynBuffer::Metal(buf) => {
-                use harp_core::backend::Buffer;
-                buf.read_vec()
-                    .map_err(|e| ArrayError::Execution(e.to_string()))
-            }
-            #[allow(unreachable_patterns)]
-            _ => Err(ArrayError::NoBackend),
-        }
-    }
-}
-
-// ============================================================================
 // ArrayState - 配列の内部状態
 // ============================================================================
 
 /// 配列の内部状態
-enum ArrayState {
+pub(crate) enum ArrayState {
     /// 遅延評価状態: GraphNodeのみ保持
     Lazy { node: GraphNode },
     /// 評価済み状態: バッファにデータが存在
-    Materialized { node: GraphNode, buffer: DynBuffer },
+    Materialized { node: GraphNode, buffer: Buffer },
 }
 
 // ============================================================================
@@ -222,13 +167,13 @@ enum ArrayState {
 /// ```
 pub struct LazyArray<T: ArrayElement, D: Dimension> {
     /// 内部状態（遅延/評価済み）
-    state: Rc<RefCell<ArrayState>>,
+    pub(crate) state: Rc<RefCell<ArrayState>>,
     /// ターゲットデバイス
-    device: Device,
+    pub(crate) device: Device,
     /// 形状
-    shape: Vec<usize>,
+    pub(crate) shape: Vec<usize>,
     /// 型マーカー
-    _phantom: PhantomData<(T, D)>,
+    pub(crate) _phantom: PhantomData<(T, D)>,
 }
 
 impl<T: ArrayElement, D: Dimension> LazyArray<T, D> {
@@ -339,84 +284,6 @@ impl<T: ArrayElement, D: Dimension> LazyArray<T, D> {
         }
     }
 
-    /// OpenCLで評価を実行
-    #[cfg(feature = "opencl")]
-    fn eval_opencl(&self) -> Result<(), ArrayError> {
-        use std::collections::HashMap;
-
-        let node = self.graph_node();
-
-        // 1. Graphを構築
-        let mut graph = Graph::new();
-        graph.output("result", node.clone());
-
-        // 2. コンパイル & バッファ確保 & 実行
-        let buffer = with_opencl_context(|ctx| {
-            // コンパイル（複数カーネル対応）
-            let compiled = ctx.compile_program(graph)?;
-
-            // 出力バッファを確保
-            let mut output_buf = ctx.allocate_buffer(self.shape.clone(), T::buffer_dtype())?;
-
-            // 入力バッファのマップ（今回は外部入力なし）
-            let inputs: HashMap<String, &harp_backend_opencl::OpenCLBuffer> = HashMap::new();
-
-            // 出力バッファのマップ
-            let mut outputs: HashMap<String, &mut harp_backend_opencl::OpenCLBuffer> =
-                HashMap::new();
-            outputs.insert("result".to_string(), &mut output_buf);
-
-            // 実行
-            compiled
-                .execute(ctx.device(), &inputs, &mut outputs)
-                .map_err(|e| ArrayError::Execution(e.to_string()))?;
-
-            Ok(output_buf)
-        })?;
-
-        // 3. 状態をMaterializedに遷移
-        *self.state.borrow_mut() = ArrayState::Materialized {
-            node,
-            buffer: DynBuffer::OpenCL(buffer),
-        };
-
-        Ok(())
-    }
-
-    /// Metalで評価を実行
-    #[cfg(feature = "metal")]
-    fn eval_metal(&self) -> Result<(), ArrayError> {
-        let node = self.graph_node();
-
-        // 1. Graphを構築
-        let mut graph = Graph::new();
-        graph.output("result", node.clone());
-
-        // 2. コンパイル & バッファ確保 & 実行
-        let buffer = with_metal_context(|ctx| {
-            // コンパイル
-            let compiled = ctx.compile(graph)?;
-
-            // 出力バッファを確保
-            let mut output_buf = ctx.allocate_buffer(self.shape.clone(), T::buffer_dtype())?;
-
-            // 実行（入力なし、出力のみ）
-            compiled
-                .execute(&[], &mut [&mut output_buf])
-                .map_err(|e| ArrayError::Execution(e.to_string()))?;
-
-            Ok(output_buf)
-        })?;
-
-        // 3. 状態をMaterializedに遷移
-        *self.state.borrow_mut() = ArrayState::Materialized {
-            node,
-            buffer: DynBuffer::Metal(buffer),
-        };
-
-        Ok(())
-    }
-
     /// データをベクタとして取得（遅延評価を実行）
     pub fn to_vec(&self) -> Result<Vec<T>, ArrayError> {
         self.forward()?;
@@ -427,178 +294,6 @@ impl<T: ArrayElement, D: Dimension> LazyArray<T, D> {
                 "LazyArray not materialized after eval".to_string(),
             )),
         }
-    }
-}
-
-// ============================================================================
-// 生成メソッド（f32）
-// ============================================================================
-
-use crate::generators::IntoShape;
-
-impl<D: Dimension> LazyArray<f32, D> {
-    /// ゼロで初期化された配列を生成（遅延）
-    pub fn zeros<S: IntoShape>(shape: S) -> Self {
-        Self::zeros_on(shape, Device::default_device())
-    }
-
-    /// 指定デバイスでゼロ配列を生成（遅延）
-    pub fn zeros_on<S: IntoShape>(shape: S, device: Device) -> Self {
-        Self::full_on(shape, 0.0, device)
-    }
-
-    /// 1で初期化された配列を生成（遅延）
-    pub fn ones<S: IntoShape>(shape: S) -> Self {
-        Self::ones_on(shape, Device::default_device())
-    }
-
-    /// 指定デバイスで1配列を生成（遅延）
-    pub fn ones_on<S: IntoShape>(shape: S, device: Device) -> Self {
-        Self::full_on(shape, 1.0, device)
-    }
-
-    /// 指定値で初期化された配列を生成（遅延）
-    pub fn full<S: IntoShape>(shape: S, value: f32) -> Self {
-        Self::full_on(shape, value, Device::default_device())
-    }
-
-    /// 指定デバイスで指定値配列を生成（遅延）
-    ///
-    /// constant(value) でスカラーを作成し、unsqueeze + broadcast_to + contiguous で
-    /// 指定形状の配列に展開します。
-    pub fn full_on<S: IntoShape>(shape: S, value: f32, device: Device) -> Self {
-        use harp_core::graph::shape::Expr;
-
-        let shape_vec = shape.into_shape();
-        if shape_vec.is_empty() {
-            // スカラーの場合
-            let node = GraphNode::constant(value);
-            return Self::from_node(node, shape_vec, device);
-        }
-
-        // constant(value) でスカラーを作成
-        let mut node = GraphNode::constant(value);
-
-        // 目標の次元数分 unsqueeze して [1, 1, ..., 1] の形状にする
-        for _ in 0..shape_vec.len() {
-            let new_view = node.view.clone().unsqueeze(0);
-            node = node.view(new_view);
-        }
-
-        // broadcast_to で目標形状に拡張
-        let target_shape: Vec<Expr> = shape_vec.iter().map(|&s| Expr::from(s as isize)).collect();
-        node = node.broadcast_to(target_shape);
-
-        // contiguous でメモリレイアウトを実体化
-        node = node.contiguous();
-
-        Self::from_node(node, shape_vec, device)
-    }
-
-    /// 連番配列を生成（遅延）
-    pub fn arange(size: usize) -> Self {
-        Self::arange_on(size, Device::default_device())
-    }
-
-    /// 指定デバイスで連番配列を生成（遅延）
-    pub fn arange_on(size: usize, device: Device) -> Self {
-        // TODO: arangeノードを実装
-        let node = GraphNode::constant(0.0f32);
-        Self::from_node(node, vec![size], device)
-    }
-
-    /// 入力配列と同じ形状のゼロ配列を生成
-    pub fn zeros_like<T2: ArrayElement>(other: &LazyArray<T2, D>) -> Self {
-        Self::zeros_on(other.shape().to_vec(), other.device())
-    }
-
-    /// 入力配列と同じ形状の1配列を生成
-    pub fn ones_like<T2: ArrayElement>(other: &LazyArray<T2, D>) -> Self {
-        Self::ones_on(other.shape().to_vec(), other.device())
-    }
-}
-
-// ============================================================================
-// 生成メソッド（i32）
-// ============================================================================
-
-impl<D: Dimension> LazyArray<i32, D> {
-    /// ゼロで初期化された配列を生成
-    pub fn zeros<S: IntoShape>(shape: S) -> Self {
-        Self::zeros_on(shape, Device::default_device())
-    }
-
-    /// 指定デバイスでゼロ配列を生成
-    pub fn zeros_on<S: IntoShape>(shape: S, device: Device) -> Self {
-        Self::full_on(shape, 0, device)
-    }
-
-    /// 1で初期化された配列を生成
-    pub fn ones<S: IntoShape>(shape: S) -> Self {
-        Self::ones_on(shape, Device::default_device())
-    }
-
-    /// 指定デバイスで1配列を生成
-    pub fn ones_on<S: IntoShape>(shape: S, device: Device) -> Self {
-        Self::full_on(shape, 1, device)
-    }
-
-    /// 指定値で初期化された配列を生成
-    pub fn full<S: IntoShape>(shape: S, value: i32) -> Self {
-        Self::full_on(shape, value, Device::default_device())
-    }
-
-    /// 指定デバイスで指定値配列を生成
-    ///
-    /// constant(value) でスカラーを作成し、unsqueeze + broadcast_to + contiguous で
-    /// 指定形状の配列に展開します。
-    pub fn full_on<S: IntoShape>(shape: S, value: i32, device: Device) -> Self {
-        use harp_core::graph::shape::Expr;
-
-        let shape_vec = shape.into_shape();
-        if shape_vec.is_empty() {
-            let node = GraphNode::constant(value);
-            return Self::from_node(node, shape_vec, device);
-        }
-
-        // constant(value) でスカラーを作成
-        let mut node = GraphNode::constant(value);
-
-        // 目標の次元数分 unsqueeze して [1, 1, ..., 1] の形状にする
-        for _ in 0..shape_vec.len() {
-            let new_view = node.view.clone().unsqueeze(0);
-            node = node.view(new_view);
-        }
-
-        // broadcast_to で目標形状に拡張
-        let target_shape: Vec<Expr> = shape_vec.iter().map(|&s| Expr::from(s as isize)).collect();
-        node = node.broadcast_to(target_shape);
-
-        // contiguous でメモリレイアウトを実体化
-        node = node.contiguous();
-
-        Self::from_node(node, shape_vec, device)
-    }
-
-    /// 連番配列を生成
-    pub fn arange(size: usize) -> Self {
-        Self::arange_on(size, Device::default_device())
-    }
-
-    /// 指定デバイスで連番配列を生成
-    pub fn arange_on(size: usize, device: Device) -> Self {
-        let node = GraphNode::constant(0i32);
-        Self::from_node(node, vec![size], device)
-    }
-
-    /// 入力配列と同じ形状のゼロ配列を生成
-    pub fn zeros_like<T2: ArrayElement>(other: &LazyArray<T2, D>) -> Self {
-        Self::zeros_on(other.shape().to_vec(), other.device())
-    }
-
-    /// 入力配列と同じ形状の1配列を生成
-    pub fn ones_like<T2: ArrayElement>(other: &LazyArray<T2, D>) -> Self {
-        Self::ones_on(other.shape().to_vec(), other.device())
     }
 }
 
@@ -857,6 +552,7 @@ mod tests {
 mod opencl_tests {
     use super::*;
     use crate::dim::{Dim1, Dim2};
+    use crate::execution::opencl::with_opencl_context;
 
     #[test]
     fn test_eval_constant_scalar() {
@@ -1025,8 +721,6 @@ mod opencl_tests {
     #[test]
     fn test_eval_div_chain_two() {
         // 2段階の除算チェーン: a / 2 / 2
-        use harp_core::graph::Graph;
-
         let a: Array2<f32> = <LazyArray<f32, Dim2>>::full([4, 4], 16.0);
         let b = &a / 2.0f32;
         let result = &b / 2.0f32;
@@ -1061,8 +755,6 @@ mod opencl_tests {
     #[test]
     fn test_eval_div_chain_debug() {
         // 3段階除算の結果を確認（グラフ構造のデバッグ情報付き）
-        use harp_core::graph::Graph;
-
         let a: Array2<f32> = <LazyArray<f32, Dim2>>::full([4, 4], 16.0);
         let b = &a / 2.0f32;
         let c = &b / 2.0f32;
