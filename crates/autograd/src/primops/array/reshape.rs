@@ -16,8 +16,9 @@ use crate::traits::GradFn;
 /// 形状変更を表すトレイト
 /// 要素数は保存される必要がある（例: [2, 3] → [3, 2] or [6] or [1, 6] など）
 pub trait Reshape: Sized {
+    type Output;
     /// 形状を変更
-    fn reshape(&self, new_shape: &[usize]) -> Self;
+    fn reshape(&self, new_shape: &[usize]) -> Self::Output;
 }
 
 // ============================================================================
@@ -46,11 +47,12 @@ impl<T: 'static> ReshapeBackward<T> {
     }
 }
 
-impl<T> GradFn<Differentiable<T>> for ReshapeBackward<T>
+impl<T, O> GradFn<Differentiable<O>> for ReshapeBackward<T>
 where
-    T: Clone + ops::Add<T, Output = T> + Reshape + 'static,
+    T: Clone + ops::Add<T, Output = T> + Reshape<Output = O> + 'static,
+    O: Clone + ops::Add<O, Output = O> + Reshape<Output = T> + 'static,
 {
-    fn backward(&mut self, grad_y: Differentiable<T>) {
+    fn backward(&mut self, grad_y: Differentiable<O>) {
         // 形状変更の勾配: 元の形状に戻す
         let requires_grad = grad_y.requires_grad();
         let grad_x = grad_y.value().reshape(&self.original_shape);
@@ -66,12 +68,13 @@ where
 // Variable<T> への実装
 // ============================================================================
 
-impl<T> Differentiable<T>
+impl<T, O> Differentiable<T>
 where
-    T: Clone + ops::Add<T, Output = T> + Reshape + Shape + 'static,
+    T: Clone + ops::Add<T, Output = T> + Reshape<Output = O> + Shape + 'static,
+    O: Clone + ops::Add<O, Output = O> + Reshape<Output = T> + Shape + 'static,
 {
     /// 形状を変更
-    pub fn reshape(&self, new_shape: &[usize]) -> Differentiable<T> {
+    pub fn reshape(&self, new_shape: &[usize]) -> Differentiable<O> {
         let original_shape = self.value().shape().to_vec();
         let output = self.value().reshape(new_shape);
         if self.requires_grad() {

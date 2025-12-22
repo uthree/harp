@@ -13,7 +13,7 @@
 /// # 使用例
 ///
 /// ```
-/// use autograd::IntoShape;
+/// use harp_autograd::IntoShape;
 ///
 /// // 配列から
 /// let shape: Vec<usize> = [3, 4].into_shape();

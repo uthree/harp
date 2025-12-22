@@ -3,9 +3,9 @@
 //! # 使用例
 //!
 //! ```rust
-//! use autograd::prelude::*;
+//! use harp_autograd::prelude::*;
 //!
-//! let x = Variable::new(1.0_f32);
+//! let x = Differentiable::new(1.0_f32);
 //! let y = x.sin();
 //! y.backward();
 //! ```

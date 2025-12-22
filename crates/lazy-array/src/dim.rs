@@ -10,6 +10,12 @@ use std::fmt;
 
 /// 次元数を表すトレイト
 pub trait Dimension: Clone + fmt::Debug + 'static {
+    /// 1つ軸を増やした時の次元
+    type Larger: Dimension;
+
+    /// 1つ軸を減らした時の次元
+    type Smaller: Dimension;
+
     /// 次元数。動的次元の場合はNone
     const NDIM: Option<usize>;
 
@@ -33,6 +39,9 @@ pub struct Dim0;
 impl Dimension for Dim0 {
     const NDIM: Option<usize> = Some(0);
 
+    type Smaller = Dim0;
+    type Larger = Dim1;
+
     fn ndim(&self) -> usize {
         0
     }
@@ -48,6 +57,9 @@ pub struct Dim1;
 
 impl Dimension for Dim1 {
     const NDIM: Option<usize> = Some(1);
+
+    type Smaller = Dim0;
+    type Larger = Dim2;
 
     fn ndim(&self) -> usize {
         1
@@ -65,6 +77,9 @@ pub struct Dim2;
 impl Dimension for Dim2 {
     const NDIM: Option<usize> = Some(2);
 
+    type Smaller = Dim1;
+    type Larger = Dim3;
+
     fn ndim(&self) -> usize {
         2
     }
@@ -80,6 +95,9 @@ pub struct Dim3;
 
 impl Dimension for Dim3 {
     const NDIM: Option<usize> = Some(3);
+
+    type Smaller = Dim2;
+    type Larger = Dim4;
 
     fn ndim(&self) -> usize {
         3
@@ -97,6 +115,9 @@ pub struct Dim4;
 impl Dimension for Dim4 {
     const NDIM: Option<usize> = Some(4);
 
+    type Smaller = Dim3;
+    type Larger = Dim5;
+
     fn ndim(&self) -> usize {
         4
     }
@@ -113,6 +134,9 @@ pub struct Dim5;
 impl Dimension for Dim5 {
     const NDIM: Option<usize> = Some(5);
 
+    type Smaller = Dim4;
+    type Larger = Dim6;
+
     fn ndim(&self) -> usize {
         5
     }
@@ -128,6 +152,9 @@ pub struct Dim6;
 
 impl Dimension for Dim6 {
     const NDIM: Option<usize> = Some(6);
+
+    type Smaller = Dim5;
+    type Larger = DimDyn;
 
     fn ndim(&self) -> usize {
         6
@@ -171,6 +198,9 @@ impl DimDyn {
 
 impl Dimension for DimDyn {
     const NDIM: Option<usize> = None;
+
+    type Smaller = DimDyn;
+    type Larger = DimDyn;
 
     fn ndim(&self) -> usize {
         self.0

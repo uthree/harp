@@ -12,7 +12,7 @@
 /// # 使用例
 ///
 /// ```
-/// use autograd::primops::Zeros;
+/// use harp_autograd::primops::Zeros;
 ///
 /// let zeros: f64 = Zeros::zeros(&[]);  // スカラー
 /// assert_eq!(zeros, 0.0);
@@ -35,7 +35,7 @@ pub trait Zeros {
 /// # 使用例
 ///
 /// ```
-/// use autograd::primops::Ones;
+/// use harp_autograd::primops::Ones;
 ///
 /// let ones: f64 = Ones::ones(&[]);  // スカラー
 /// assert_eq!(ones, 1.0);
@@ -58,7 +58,7 @@ pub trait Ones {
 /// # 使用例
 ///
 /// ```ignore
-/// use autograd::primops::Rand;
+/// use harp_autograd::primops::Rand;
 ///
 /// let rand_arr: LazyArray<f32, Dim2> = Rand::rand(&[3, 4]);
 /// ```
@@ -82,7 +82,7 @@ pub trait Rand {
 /// # 使用例
 ///
 /// ```ignore
-/// use autograd::primops::Randn;
+/// use harp_autograd::primops::Randn;
 ///
 /// let randn_arr: LazyArray<f32, Dim2> = Randn::randn(&[3, 4]);
 /// ```
@@ -111,7 +111,7 @@ impl<T: One> Ones for T {
     }
 }
 // ============================================================================
-// Variable<T> への実装
+// Differentiable<T> への実装
 // ============================================================================
 
 use crate::Differentiable;
@@ -128,10 +128,10 @@ impl<T: Zeros + 'static> Differentiable<T> {
     /// # 使用例
     ///
     /// ```
-    /// use autograd::Variable;
-    /// use autograd::primops::Zeros;
+    /// use harp_autograd::Differentiable;
+    /// use harp_autograd::primops::Zeros;
     ///
-    /// let zeros: Variable<f64> = Variable::zeros(&[]);
+    /// let zeros: Differentiable<f64> = Differentiable::zeros(&[]);
     /// assert_eq!(zeros.value(), 0.0);
     /// ```
     pub fn zeros(shape: &[usize]) -> Differentiable<T> {
@@ -145,18 +145,18 @@ impl<T: Zeros + 'static> Differentiable<T> {
     /// # 使用例
     ///
     /// ```
-    /// use autograd::Variable;
+    /// use harp_autograd::Differentiable;
     ///
     /// // スカラーの場合（空配列で形状を指定）
-    /// let zeros: Variable<f64> = Variable::zeros_shape([]);
+    /// let zeros: Differentiable<f64> = Differentiable::zeros_shape([]);
     /// assert_eq!(zeros.value(), 0.0);
     /// ```
     ///
     /// ndarray featureを有効にした場合は多次元配列も使用可能：
     /// ```ignore
-    /// use autograd::Variable;
+    /// use harp_autograd::Differentiable;
     /// use ndarray::Array2;
-    /// let zeros: Variable<Array2<f64>> = Variable::zeros_shape([3, 4]);
+    /// let zeros: Differentiable<Array2<f64>> = Differentiable::zeros_shape([3, 4]);
     /// ```
     pub fn zeros_shape<S: IntoShape>(shape: S) -> Differentiable<T> {
         Differentiable::new_no_grad(T::zeros(&shape.into_shape()))
@@ -171,10 +171,10 @@ impl<T: Ones + 'static> Differentiable<T> {
     /// # 使用例
     ///
     /// ```
-    /// use autograd::Variable;
-    /// use autograd::primops::Ones;
+    /// use harp_autograd::Differentiable;
+    /// use harp_autograd::primops::Ones;
     ///
-    /// let ones: Variable<f64> = Variable::ones(&[]);
+    /// let ones: Differentiable<f64> = Differentiable::ones(&[]);
     /// assert_eq!(ones.value(), 1.0);
     /// ```
     pub fn ones(shape: &[usize]) -> Differentiable<T> {
@@ -188,18 +188,18 @@ impl<T: Ones + 'static> Differentiable<T> {
     /// # 使用例
     ///
     /// ```
-    /// use autograd::Variable;
+    /// use harp_autograd::Differentiable;
     ///
     /// // スカラーの場合（空配列で形状を指定）
-    /// let ones: Variable<f64> = Variable::ones_shape([]);
+    /// let ones: Differentiable<f64> = Differentiable::ones_shape([]);
     /// assert_eq!(ones.value(), 1.0);
     /// ```
     ///
     /// ndarray featureを有効にした場合は多次元配列も使用可能：
     /// ```ignore
-    /// use autograd::Variable;
+    /// use harp_autograd::Differentiable;
     /// use ndarray::Array2;
-    /// let ones: Variable<Array2<f64>> = Variable::ones_shape([3, 4]);
+    /// let ones: Differentiable<Array2<f64>> = Differentiable::ones_shape([3, 4]);
     /// ```
     pub fn ones_shape<S: IntoShape>(shape: S) -> Differentiable<T> {
         Differentiable::new_no_grad(T::ones(&shape.into_shape()))
@@ -219,10 +219,10 @@ impl<T: Clone + Zeros + Shape + 'static> Differentiable<T> {
     /// # 使用例
     ///
     /// ```
-    /// use autograd::Variable;
+    /// use harp_autograd::Differentiable;
     /// use ndarray::array;
     ///
-    /// let x = Variable::new(array![[1.0, 2.0], [3.0, 4.0]]);
+    /// let x = Differentiable::new(array![[1.0, 2.0], [3.0, 4.0]]);
     /// let zeros = x.zeros_like();
     /// assert_eq!(zeros.value(), array![[0.0, 0.0], [0.0, 0.0]]);
     /// ```
@@ -247,10 +247,10 @@ impl<T: Clone + Ones + Shape + 'static> Differentiable<T> {
     /// # 使用例
     ///
     /// ```
-    /// use autograd::Variable;
+    /// use harp_autograd::Differentiable;
     /// use ndarray::array;
     ///
-    /// let x = Variable::new(array![[1.0, 2.0], [3.0, 4.0]]);
+    /// let x = Differentiable::new(array![[1.0, 2.0], [3.0, 4.0]]);
     /// let ones = x.ones_like();
     /// assert_eq!(ones.value(), array![[1.0, 1.0], [1.0, 1.0]]);
     /// ```
@@ -267,7 +267,7 @@ impl<T: Clone + Ones + Shape + 'static> Differentiable<T> {
 }
 
 // ============================================================================
-// Rand 用の Variable<T> 実装
+// Rand 用の Differentiable<T> 実装
 // ============================================================================
 
 impl<T: Rand + 'static> Differentiable<T> {
@@ -278,10 +278,10 @@ impl<T: Rand + 'static> Differentiable<T> {
     /// # 使用例
     ///
     /// ```ignore
-    /// use autograd::Variable;
-    /// use autograd::primops::Rand;
+    /// use harp_autograd::Differentiable;
+    /// use harp_autograd::primops::Rand;
     ///
-    /// let rand: Variable<LazyArray<f32, Dim2>> = Variable::rand(&[3, 4]);
+    /// let rand: Differentiable<LazyArray<f32, Dim2>> = Differentiable::rand(&[3, 4]);
     /// ```
     pub fn rand(shape: &[usize]) -> Differentiable<T> {
         Differentiable::new_no_grad(T::rand(shape))
