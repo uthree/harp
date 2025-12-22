@@ -1,14 +1,14 @@
-//! 2層パーセプトロン（MLP）による多次元関数フィッティングのデモ
+//! 2-Layer Perceptron (MLP) Multidimensional Function Fitting Demo
 //!
-//! 2次元入力 (x, y) から複雑な関数 z = f(x, y) を学習します。
+//! Learns a complex function z = f(x, y) from 2D input (x, y).
 //!
-//! ターゲット関数:
-//!   z = sin(πx) * cos(πy) + 0.3x² - 0.2y² + 0.1xy
+//! Target function:
+//!   z = sin(pi*x) * cos(pi*y) + 0.3x^2 - 0.2y^2 + 0.1xy
 //!
-//! ネットワーク構造:
-//!   入力層 (2) → 隠れ層 (32) → 出力層 (1)
+//! Network structure:
+//!   Input (2) -> Hidden (32) -> Output (1)
 //!
-//! 実行:
+//! Run:
 //! ```
 //! cargo run --example mlp_fitting -p autograd --features ndarray
 //! ```
@@ -19,17 +19,17 @@ use ndarray::Array2;
 use rand::Rng;
 
 // ============================================================================
-// ターゲット関数
+// Target function
 // ============================================================================
 
-/// 学習対象の関数: z = sin(πx) * cos(πy) + 0.3x² - 0.2y² + 0.1xy
+/// Target function: z = sin(pi*x) * cos(pi*y) + 0.3x^2 - 0.2y^2 + 0.1xy
 fn target_function(x: f64, y: f64) -> f64 {
     let pi = std::f64::consts::PI;
     (pi * x).sin() * (pi * y).cos() + 0.3 * x * x - 0.2 * y * y + 0.1 * x * y
 }
 
 // ============================================================================
-// ReLU 活性化関数
+// ReLU activation function
 // ============================================================================
 
 /// ReLU: max(x, 0)
@@ -38,14 +38,14 @@ fn relu(x: &Variable<Array2<f64>>) -> Variable<Array2<f64>> {
 }
 
 // ============================================================================
-// 2層 MLP
+// 2-Layer MLP
 // ============================================================================
 
-/// 2層パーセプトロン（バイアスなし、ReLU活性化）
+/// 2-layer perceptron (no bias, ReLU activation)
 struct Mlp {
-    // 第1層: [入力, 隠れ]
+    // Layer 1: [input, hidden]
     w1: Variable<Array2<f64>>,
-    // 第2層: [隠れ, 出力]
+    // Layer 2: [hidden, output]
     w2: Variable<Array2<f64>>,
 }
 
@@ -53,7 +53,7 @@ impl Mlp {
     fn new(input_dim: usize, hidden_dim: usize, output_dim: usize) -> Self {
         let mut rng = rand::thread_rng();
 
-        // He 初期化 (ReLU 向け)
+        // He initialization (for ReLU)
         let scale1 = (2.0 / input_dim as f64).sqrt();
         let scale2 = (2.0 / hidden_dim as f64).sqrt();
 
@@ -73,25 +73,25 @@ impl Mlp {
         }
     }
 
-    /// 順伝播: x [batch, input] → y [batch, output]
+    /// Forward pass: x [batch, input] -> y [batch, output]
     fn forward(&self, x: &Variable<Array2<f64>>) -> Variable<Array2<f64>> {
-        // 第1層: z1 = x @ W1
+        // Layer 1: z1 = x @ W1
         let z1 = x.matmul(&self.w1);
 
-        // ReLU 活性化: h = max(z1, 0)
+        // ReLU activation: h = max(z1, 0)
         let h = relu(&z1);
 
-        // 第2層: y = h @ W2
+        // Layer 2: y = h @ W2
         h.matmul(&self.w2)
     }
 
-    /// 勾配をゼロに初期化
+    /// Zero gradients
     fn zero_grad(&self) {
         self.w1.zero_grad();
         self.w2.zero_grad();
     }
 
-    /// 勾配降下法でパラメータを更新
+    /// Update parameters with gradient descent
     fn step(&mut self, lr: f64) {
         if let Some(grad) = self.w1.grad() {
             let new_w1 = self.w1.value() - &(grad.value() * lr);
@@ -105,25 +105,23 @@ impl Mlp {
 }
 
 // ============================================================================
-// メイン
+// Main
 // ============================================================================
 
 fn main() {
-    println!("╔════════════════════════════════════════════════════════════════╗");
-    println!("║     2層パーセプトロンによる多次元関数フィッティング デモ       ║");
-    println!("╚════════════════════════════════════════════════════════════════╝");
+    println!("2-Layer Perceptron Multidimensional Function Fitting Demo");
     println!();
 
     // ============================================================
-    // 1. データ生成
+    // 1. Generate data
     // ============================================================
-    println!("📊 データ生成中...");
+    println!("Generating data...");
 
     let mut rng = rand::thread_rng();
     let n_samples = 500;
     let noise_scale = 0.05;
 
-    // [-1, 1] × [-1, 1] の範囲でサンプリング
+    // Sample from [-1, 1] x [-1, 1]
     let mut x_data: Vec<f64> = Vec::with_capacity(n_samples * 2);
     let mut y_data: Vec<f64> = Vec::with_capacity(n_samples);
 
@@ -140,16 +138,16 @@ fn main() {
     let x_train = Array2::from_shape_vec((n_samples, 2), x_data).unwrap();
     let y_train = Array2::from_shape_vec((n_samples, 1), y_data).unwrap();
 
-    println!("   サンプル数: {}", n_samples);
-    println!("   入力次元: 2 (x, y)");
-    println!("   出力次元: 1 (z)");
-    println!("   ターゲット関数: z = sin(πx)cos(πy) + 0.3x² - 0.2y² + 0.1xy");
+    println!("  Samples: {}", n_samples);
+    println!("  Input dim: 2 (x, y)");
+    println!("  Output dim: 1 (z)");
+    println!("  Target function: z = sin(pi*x)cos(pi*y) + 0.3x^2 - 0.2y^2 + 0.1xy");
     println!();
 
     // ============================================================
-    // 2. MLP 初期化
+    // 2. Initialize MLP
     // ============================================================
-    println!("🔧 ネットワーク初期化...");
+    println!("Initializing network...");
 
     let input_dim = 2;
     let hidden_dim = 32;
@@ -158,11 +156,11 @@ fn main() {
     let mut mlp = Mlp::new(input_dim, hidden_dim, output_dim);
 
     println!(
-        "   構造: {} → {} → {} (バイアスなし)",
+        "  Structure: {} -> {} -> {} (no bias)",
         input_dim, hidden_dim, output_dim
     );
     println!(
-        "   パラメータ数: {} (W1: {}×{} + W2: {}×{})",
+        "  Parameters: {} (W1: {}x{} + W2: {}x{})",
         input_dim * hidden_dim + hidden_dim * output_dim,
         input_dim,
         hidden_dim,
@@ -172,7 +170,7 @@ fn main() {
     println!();
 
     // ============================================================
-    // 3. 学習（自動微分による勾配降下法）
+    // 3. Training (gradient descent with autograd)
     // ============================================================
     let epochs = 1000;
     let lr = 0.01;
@@ -180,11 +178,11 @@ fn main() {
     let n_batches = n_samples / batch_size;
 
     println!(
-        "🚀 学習開始 (epochs={}, lr={}, batch_size={})",
+        "Starting training (epochs={}, lr={}, batch_size={})",
         epochs, lr, batch_size
     );
-    println!("   活性化関数: ReLU (max(x, 0))");
-    println!("   勾配計算: 自動微分 (バックプロパゲーション)");
+    println!("  Activation: ReLU (max(x, 0))");
+    println!("  Gradient: autograd (backpropagation)");
     println!();
 
     let pb = ProgressBar::new(epochs as u64);
@@ -192,7 +190,7 @@ fn main() {
         ProgressStyle::default_bar()
             .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} (loss: {msg})")
             .unwrap()
-            .progress_chars("█▉▊▋▌▍▎▏  "),
+            .progress_chars("=>-"),
     );
 
     let mut loss_history: Vec<f64> = Vec::new();
@@ -207,30 +205,30 @@ fn main() {
             let x_batch = x_train.slice(ndarray::s![start..end, ..]).to_owned();
             let y_batch = y_train.slice(ndarray::s![start..end, ..]).to_owned();
 
-            // 勾配をゼロに初期化
+            // Zero gradients
             mlp.zero_grad();
 
-            // 順伝播
+            // Forward pass
             let x_var = Variable::new(x_batch);
             let y_var = Variable::new(y_batch);
             let pred = mlp.forward(&x_var);
 
-            // MSE損失: L = mean((pred - target)²)
+            // MSE loss: L = mean((pred - target)^2)
             let diff = &pred - &y_var;
             let squared = &diff * &diff;
-            let loss = squared.sum(0).sum(1); // スカラーに縮約
+            let loss = squared.sum(0).sum(1); // Reduce to scalar
 
-            // 損失値を記録
+            // Record loss
             let loss_val = loss.value()[[0, 0]] / (batch_size as f64);
             epoch_loss += loss_val;
 
-            // 逆伝播
-            // 勾配スケール: 1/batch_size (MSEの平均化)
+            // Backpropagation
+            // Gradient scale: 1/batch_size (for MSE averaging)
             let grad_scale = 1.0 / (batch_size as f64);
             let grad = Variable::new(Array2::from_elem((1, 1), grad_scale));
             loss.backward_with(grad);
 
-            // パラメータ更新
+            // Update parameters
             mlp.step(lr);
         }
 
@@ -247,21 +245,21 @@ fn main() {
     println!();
 
     // ============================================================
-    // 4. 結果表示
+    // 4. Show results
     // ============================================================
-    println!("✅ 学習完了!");
+    println!("Training complete!");
     println!();
-    println!("📈 最終結果:");
-    println!("   最終損失: {:.6}", loss_history.last().unwrap());
+    println!("Final results:");
+    println!("  Final loss: {:.6}", loss_history.last().unwrap());
     println!();
 
-    // テスト: いくつかの点で予測と真値を比較
-    println!("📊 予測 vs 真値 (サンプル):");
+    // Test: compare predictions with true values at some points
+    println!("Prediction vs True (samples):");
     println!(
-        "   {:>8} {:>8} │ {:>10} {:>10} │ {:>8}",
-        "x", "y", "予測", "真値", "誤差"
+        "  {:>8} {:>8} | {:>10} {:>10} | {:>8}",
+        "x", "y", "Pred", "True", "Error"
     );
-    println!("   ─────────────────┼───────────────────────┼─────────");
+    println!("  -----------------|-----------------------|---------");
 
     let test_points = [
         (0.0, 0.0),
@@ -280,14 +278,14 @@ fn main() {
         let error = (pred_val - true_val).abs();
 
         println!(
-            "   {:>8.3} {:>8.3} │ {:>10.4} {:>10.4} │ {:>8.4}",
+            "  {:>8.3} {:>8.3} | {:>10.4} {:>10.4} | {:>8.4}",
             x, y, pred_val, true_val, error
         );
     }
     println!();
 
-    // 損失推移グラフ
-    println!("📉 損失の推移:");
+    // Loss history graph
+    println!("Loss history:");
     use textplots::{Chart, Plot, Shape};
 
     let loss_points: Vec<(f32, f32)> = loss_history
@@ -302,5 +300,5 @@ fn main() {
         .nice();
 
     println!();
-    println!("このデモでは ReLU 活性化関数と自動微分を使用しています。");
+    println!("This demo uses ReLU activation and autograd for gradient computation.");
 }
