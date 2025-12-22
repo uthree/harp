@@ -8,7 +8,7 @@
 //! cargo run --example curve_fitting -p autograd
 //! ```
 
-use autograd::Differentiable;
+use harp_autograd::Differentiable;
 use indicatif::{ProgressBar, ProgressStyle};
 use rand::Rng;
 use textplots::{Chart, Plot, Shape};
