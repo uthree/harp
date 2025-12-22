@@ -11,7 +11,7 @@ harp/
 ├── tests/                # 統合テスト（バックエンド機能を使用）
 ├── crates/
 │   ├── core/             # harp-core（コア機能）
-│   ├── array/            # harp-array（ndarray風配列API）
+│   ├── lazy-array/       # harp-lazy-array（ndarray風配列API）
 │   ├── backend-opencl/   # harp-backend-opencl
 │   ├── backend-metal/    # harp-backend-metal (macOS only)
 │   ├── dsl/              # harp-dsl
@@ -138,4 +138,3 @@ let kernel = graph.input("kernel", DType::F32, vec![16, 3, 3, 3]);
 // 2D conv: (3, 32, 32) conv (16, 3, 3, 3) -> (16, 30, 30)
 let output = x.conv(kernel, (1, 1), (1, 1), (0, 0));
 ```
-

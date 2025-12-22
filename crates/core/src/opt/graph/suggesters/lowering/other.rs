@@ -332,14 +332,16 @@ pub fn build_cast_function(
     target_dtype: &GraphDType,
     name: &str,
 ) -> Option<AstNode> {
+    use super::helpers::{build_contiguous_offset_with_shape, wrap_with_loops_with_shape};
+
     let input = node.src.first()?;
     let shape = node.view.shape();
     let ndim = shape.len();
 
     // 入力のViewに基づいてオフセットを計算
     let input_offset = build_strided_offset(&input.view, ndim);
-    // 出力は連続メモリ配置
-    let output_offset = build_contiguous_offset(ndim);
+    // 出力は連続メモリ配置（具体的なshapeを使用）
+    let output_offset = build_contiguous_offset_with_shape(ndim, Some(shape));
 
     let load_dtype = graph_dtype_to_ast(&input.dtype);
     let target_ast_dtype = graph_dtype_to_ast(target_dtype);
@@ -348,7 +350,8 @@ pub fn build_cast_function(
     let cast_expr = cast(load_expr, target_ast_dtype);
     let store_stmt = store(var(ph::OUTPUT), output_offset, cast_expr);
 
-    let body = wrap_with_loops(ndim, vec![store_stmt]);
+    // 具体的なshapeを使用してループを生成
+    let body = wrap_with_loops_with_shape(ndim, vec![store_stmt], Some(shape));
 
     Some(function(
         Some(name.to_string()),
