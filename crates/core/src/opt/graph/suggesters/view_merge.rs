@@ -149,6 +149,17 @@ impl ViewMergeSuggester {
             if new_ndim == 0 {
                 return None;
             }
+
+            // Elementwise演算のような、srcノードを持つ演算ではviewのマージを禁止
+            // 理由: Elementwise等のloweringでは node.view をループ境界（出力形状）に使い、
+            // src.view を入力オフセット計算に使う。viewをマージすると出力形状と入力形状が
+            // 不整合になり、誤ったカーネルが生成される。
+            // 例: [3,2] の入力に対して [2,3] の出力を持つノードになると、
+            //     ループは [2,3] で回るが入力は [3,2] のストライドでアクセスされる。
+            if !input_node.src.is_empty() {
+                // srcを持つノード（Elementwise, Reduce等）ではviewマージしない
+                return None;
+            }
         }
 
         // LoadIndexを含む場合はViewノードを保持（srcが複数必要なため）

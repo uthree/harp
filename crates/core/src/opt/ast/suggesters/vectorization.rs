@@ -171,7 +171,19 @@ impl VectorizationSuggester {
         let mut result = Vec::new();
         for (_ptr_key, base_groups) in groups {
             for (_base_key, (indices, offsets, dtype, value_expr)) in base_groups {
+                // ステートメントインデックスも連続している必要がある
+                // 例: indices = [2, 5] はNG（間に他のステートメントがある）
+                //     indices = [3, 4, 5] はOK（連続している）
+                let indices_contiguous = if indices.len() > 1 {
+                    let mut sorted_indices = indices.clone();
+                    sorted_indices.sort();
+                    sorted_indices.windows(2).all(|w| w[1] == w[0] + 1)
+                } else {
+                    true
+                };
+
                 if indices.len() >= self.min_group_size
+                    && indices_contiguous
                     && Self::are_offsets_contiguous(&offsets)
                     // ptrとbase_offsetを再構築（キーから復元はできないので、最初の文から取得）
                     && let AstNode::Store { ptr, offset, .. } = &statements[indices[0]]

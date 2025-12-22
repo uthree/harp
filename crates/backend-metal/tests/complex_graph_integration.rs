@@ -373,6 +373,15 @@ fn test_reduce_with_two_inputs() {
     let sum = product.reduce_sum(1); // [2, 3] -> [2]
     graph.output("c", sum);
 
+    // Debug: Get the AST before AST optimization
+    use harp_core::lowerer::{create_lowering_optimizer, extract_program};
+    use harp_core::opt::graph::GraphOptimizer;
+
+    let optimizer = create_lowering_optimizer(4, 5000);
+    let (optimized_graph, _) = optimizer.optimize_with_history(graph.clone());
+    let ast_before_opt = extract_program(optimized_graph);
+    println!("AST before AST optimization:\n{:#?}", ast_before_opt);
+
     // Create pipeline
     let renderer = MetalRenderer::new();
     let compiler = MetalCompiler::new();

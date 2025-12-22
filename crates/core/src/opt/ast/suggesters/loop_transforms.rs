@@ -303,6 +303,28 @@ impl LoopInliningSuggester {
             };
 
             if should_inline && let Some(inlined) = inline_small_loop(ast, self.max_iterations) {
+                // DEBUG: Count stores in inlined result
+                fn count_stores(node: &AstNode) -> usize {
+                    match node {
+                        AstNode::Store { .. } => 1,
+                        AstNode::Block { statements, .. } => {
+                            statements.iter().map(count_stores).sum()
+                        }
+                        AstNode::Range { body, .. } => count_stores(body),
+                        _ => 0,
+                    }
+                }
+                fn count_stmts(node: &AstNode) -> usize {
+                    match node {
+                        AstNode::Block { statements, .. } => statements.len(),
+                        _ => 1,
+                    }
+                }
+                eprintln!(
+                    "collect_inlining_candidates: inlined Range has {} stmts, {} Stores",
+                    count_stmts(&inlined),
+                    count_stores(&inlined)
+                );
                 candidates.push(inlined);
             }
         }
@@ -313,11 +335,36 @@ impl LoopInliningSuggester {
                 for (i, stmt) in statements.iter().enumerate() {
                     for inlined_stmt in self.collect_inlining_candidates(stmt) {
                         let mut new_stmts = statements.clone();
-                        new_stmts[i] = inlined_stmt;
-                        candidates.push(AstNode::Block {
+                        new_stmts[i] = inlined_stmt.clone();
+
+                        // DEBUG: Log the replacement
+                        fn count_stores_debug(node: &AstNode) -> usize {
+                            match node {
+                                AstNode::Store { .. } => 1,
+                                AstNode::Block { statements, .. } => {
+                                    statements.iter().map(count_stores_debug).sum()
+                                }
+                                AstNode::Range { body, .. } => count_stores_debug(body),
+                                _ => 0,
+                            }
+                        }
+                        fn count_stmts_debug(node: &AstNode) -> usize {
+                            match node {
+                                AstNode::Block { statements, .. } => statements.len(),
+                                _ => 1,
+                            }
+                        }
+                        let new_block = AstNode::Block {
                             statements: new_stmts,
                             scope: scope.clone(),
-                        });
+                        };
+                        eprintln!(
+                            "collect_inlining_candidates Block: replaced stmt[{}], result has {} stmts, {} Stores",
+                            i,
+                            count_stmts_debug(&new_block),
+                            count_stores_debug(&new_block)
+                        );
+                        candidates.push(new_block);
                     }
                 }
             }

@@ -568,6 +568,8 @@ where
         let mut available_buffers: Vec<String> = Vec::new();
         // Track mapping from kernel name to its output buffer
         let mut kernel_output_map: HashMap<String, String> = HashMap::new();
+        // Track which external inputs have been used by previous kernels
+        let mut used_external_input_idx = 0;
 
         for wave in &raw_waves {
             let mut rewritten_wave = Vec::new();
@@ -578,11 +580,15 @@ where
                 // Determine input buffer names for this kernel
                 let inputs = if kernel_idx == 0 {
                     // First kernel uses external inputs, but only as many as it needs
-                    if num_inputs > 0 && num_inputs < external_inputs.len() {
-                        external_inputs.iter().take(num_inputs).cloned().collect()
-                    } else {
-                        external_inputs.clone()
-                    }
+                    let inputs: Vec<String> =
+                        if num_inputs > 0 && num_inputs < external_inputs.len() {
+                            external_inputs.iter().take(num_inputs).cloned().collect()
+                        } else {
+                            external_inputs.clone()
+                        };
+                    // Track used external inputs
+                    used_external_input_idx = inputs.len();
+                    inputs
                 } else if num_inputs == 0 {
                     // No inputs needed
                     vec![]
@@ -621,20 +627,14 @@ where
                         .map(|(_, buf)| buf.clone())
                         .collect();
 
-                    // If we don't have enough buffers, fall back to external inputs
+                    // If we don't have enough buffers, use remaining (unused) external inputs
                     while multi_inputs.len() < num_inputs {
-                        let remaining = num_inputs - multi_inputs.len();
-                        if !external_inputs.is_empty() && remaining <= external_inputs.len() {
-                            for i in 0..remaining {
-                                if i < external_inputs.len() {
-                                    multi_inputs.push(external_inputs[i].clone());
-                                }
-                            }
+                        if used_external_input_idx < external_inputs.len() {
+                            multi_inputs.push(external_inputs[used_external_input_idx].clone());
+                            used_external_input_idx += 1;
                         } else {
                             // Fallback: add placeholder temp buffers
-                            for i in 0..remaining {
-                                multi_inputs.push(format!("__temp_{}", i));
-                            }
+                            multi_inputs.push(format!("__temp_{}", multi_inputs.len()));
                         }
                     }
 

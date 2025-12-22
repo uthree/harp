@@ -9,8 +9,9 @@ use crate::graph::shape::Expr;
 use crate::graph::{DType as GraphDType, GraphNode};
 
 use super::helpers::{
-    build_contiguous_offset, build_offset_from_coords_with_view, build_strided_offset,
-    build_strided_offset_with_sources, graph_dtype_to_ast, wrap_with_loops,
+    build_contiguous_offset, build_contiguous_offset_with_shape,
+    build_offset_from_coords_with_view, build_strided_offset, build_strided_offset_with_sources,
+    graph_dtype_to_ast, wrap_with_loops, wrap_with_loops_with_shape,
 };
 
 /// Contiguous演算の関数を生成
@@ -40,12 +41,14 @@ pub fn build_contiguous_function(node: &GraphNode, name: &str) -> Option<AstNode
         build_strided_offset(&input.view, ndim)
     };
 
-    let output_offset = build_contiguous_offset(ndim);
+    // 具体的なshapeを使用してオフセットとループを生成
+    // これにより、ループインターチェンジ後もオフセット計算が正しく維持される
+    let output_offset = build_contiguous_offset_with_shape(ndim, Some(shape));
 
     let load_expr = load(var(ph::input(0)), input_offset, load_dtype);
     let store_stmt = store(var(ph::OUTPUT), output_offset, load_expr);
 
-    let body = wrap_with_loops(ndim, vec![store_stmt]);
+    let body = wrap_with_loops_with_shape(ndim, vec![store_stmt], Some(shape));
 
     Some(function(
         Some(name.to_string()),

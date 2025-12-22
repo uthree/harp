@@ -611,7 +611,6 @@ pub trait CLikeRenderer: Renderer {
         }
         self.dec_indent();
         result.push_str(&format!("{}}}\n", self.indent()));
-
         result
     }
 }

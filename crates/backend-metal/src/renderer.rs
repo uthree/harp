@@ -222,12 +222,51 @@ impl MetalKernelRenderer {
             }
             code.push_str(") {\n");
 
+            // DEBUG: Print body structure before rendering
+            fn count_stores(node: &AstNode) -> usize {
+                match node {
+                    AstNode::Store { .. } => 1,
+                    AstNode::Block { statements, .. } => statements.iter().map(count_stores).sum(),
+                    AstNode::Range { body, .. } => count_stores(body),
+                    AstNode::If {
+                        then_body,
+                        else_body,
+                        ..
+                    } => {
+                        count_stores(then_body) + else_body.as_ref().map_or(0, |b| count_stores(b))
+                    }
+                    _ => 0,
+                }
+            }
+            fn count_statements(node: &AstNode) -> usize {
+                match node {
+                    AstNode::Block { statements, .. } => statements.len(),
+                    _ => 1,
+                }
+            }
+            eprintln!(
+                "render_sequential_function_as_kernel: body has {} top-level statements, {} total Stores",
+                count_statements(body),
+                count_stores(body)
+            );
+            if let AstNode::Block { statements, .. } = body.as_ref() {
+                for (i, stmt) in statements.iter().enumerate() {
+                    eprintln!(
+                        "render_sequential_function_as_kernel:   body[{}]: {:?} (Stores: {})",
+                        i,
+                        std::mem::discriminant(stmt),
+                        count_stores(stmt)
+                    );
+                }
+            }
+
             // 関数本体
             self.inc_indent();
             code.push_str(&self.render_statement(body));
             self.dec_indent();
 
             code.push_str("}\n");
+            eprintln!("Generated Metal kernel:\n{}", code);
             code
         } else {
             String::new()

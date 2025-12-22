@@ -230,22 +230,69 @@ pub fn inline_small_loop(loop_node: &AstNode, max_iterations: usize) -> Option<A
             let mut statements = Vec::new();
             let mut current = start_val;
 
+            eprintln!(
+                "inline_small_loop: Unrolling loop {} from {} to {} (step {})",
+                var, start_val, stop_val, step_val
+            );
+
             while current < stop_val {
                 let var_value = const_int(current as i64);
                 let replaced_body = replace_var_in_ast(body, var, &var_value);
+
+                eprintln!(
+                    "inline_small_loop: Iteration {} = {}, replaced_body type: {:?}",
+                    var,
+                    current,
+                    std::mem::discriminant(&replaced_body)
+                );
 
                 // Blockの場合、その中身を直接追加（フラット化）
                 if let AstNode::Block {
                     statements: inner_stmts,
                     ..
-                } = replaced_body
+                } = &replaced_body
                 {
-                    statements.extend(inner_stmts);
+                    eprintln!(
+                        "inline_small_loop: Block with {} statements, extending",
+                        inner_stmts.len()
+                    );
+                    for (i, stmt) in inner_stmts.iter().enumerate() {
+                        eprintln!(
+                            "inline_small_loop:   stmt[{}]: {:?}",
+                            i,
+                            std::mem::discriminant(stmt)
+                        );
+                    }
+                    if let AstNode::Block {
+                        statements: inner_stmts,
+                        ..
+                    } = replaced_body
+                    {
+                        statements.extend(inner_stmts);
+                    }
                 } else {
                     statements.push(replaced_body);
                 }
 
                 current += step_val;
+            }
+
+            eprintln!(
+                "inline_small_loop: Total statements after unrolling: {}",
+                statements.len()
+            );
+
+            // Check for Store nodes specifically
+            let store_count = statements
+                .iter()
+                .filter(|s| matches!(s, AstNode::Store { .. }))
+                .count();
+            eprintln!("inline_small_loop: Store count: {}", store_count);
+            if store_count != iterations {
+                eprintln!(
+                    "WARNING: Expected {} Store nodes but found {}!",
+                    iterations, store_count
+                );
             }
 
             // 元のループ本体のScopeをコピー（変数宣言を保持）
