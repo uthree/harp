@@ -1,3 +1,25 @@
+//! 自動微分のためのトレイト定義
+//!
+//! このモジュールでは以下のトレイトを提供します：
+//!
+//! - `GradNode`: 計算グラフのノードになれる型
+//! - `GradRoot`: 逆伝播の起点になれる型
+//! - `GradFn`: 勾配関数（計算グラフのエッジ）
+//! - `Arithmetic`: 四則演算を持つ型（整数も含む）
+//! - `Transcendental`: 超越関数を持つ型（浮動小数点のみ）
+//! - `Array`: 多次元配列演算を持つ型
+
+use std::ops::{Add, Div, Mul, Neg, Sub};
+
+use crate::primops::{
+    Exp2, Expand, Log2, Maximum, Ones, Permute, Reshape, Shape, Sin, Sqrt, Squeeze, Sum, Unsqueeze,
+    Zeros,
+};
+
+// ============================================================================
+// 基本トレイト
+// ============================================================================
+
 /// 逆伝播の中間点として使用可能な型
 /// Clone を実装する全ての型に自動実装される
 pub trait GradNode: Clone {}
@@ -12,7 +34,7 @@ pub trait GradRoot: GradNode {
 /// 勾配関数を表すトレイト (計算グラフのエッジ)
 /// 逆伝播時に勾配を入力変数に伝播する
 pub trait GradFn<T> {
-    /// 出力側から受け取った勾配を入力側に伝播する
+    /// 出力側から受け取った勾配を入力変数に伝播する
     fn backward(&mut self, grad_y: T);
 }
 
@@ -38,3 +60,101 @@ impl GradRoot for f64 {
         1.0
     }
 }
+
+// ============================================================================
+// 複合トレイト: Arithmetic
+// ============================================================================
+
+/// 四則演算を持つ型
+///
+/// 基本的な算術演算（加減乗除、符号反転）と初期化（zeros, ones）をサポートします。
+/// 整数型も実装可能です。
+///
+/// # 実装型
+///
+/// - `f32`, `f64`: プリミティブ浮動小数点数
+/// - `i32`, `i64`: プリミティブ整数（将来的）
+///
+/// # Example
+///
+/// ```ignore
+/// fn compute<T: Arithmetic>(x: Variable<T>, y: Variable<T>) -> Variable<T> {
+///     &(&x + &y) * &x
+/// }
+/// ```
+pub trait Arithmetic:
+    GradNode
+    + Add<Output = Self>
+    + Sub<Output = Self>
+    + Mul<Output = Self>
+    + Div<Output = Self>
+    + Neg<Output = Self>
+    + Zeros
+    + Ones
+    + Maximum<Output = Self>
+    + 'static
+{
+}
+
+// ============================================================================
+// 複合トレイト: Transcendental
+// ============================================================================
+
+/// 超越関数を持つ型
+///
+/// `Arithmetic` を継承し、超越関数（sin, exp2, log2, sqrt）を追加します。
+/// 浮動小数点型のみが実装可能です。
+///
+/// # 実装型
+///
+/// - `f32`, `f64`: プリミティブ浮動小数点数
+///
+/// # Example
+///
+/// ```ignore
+/// fn compute<T: Transcendental>(x: Variable<T>, y: Variable<T>) -> Variable<T> {
+///     &x.sin() + &y.exp2()
+/// }
+/// ```
+pub trait Transcendental: Arithmetic + Sin + Exp2 + Log2 + Sqrt {}
+
+// ============================================================================
+// 複合トレイト: Array
+// ============================================================================
+
+/// 多次元配列演算を持つ型
+///
+/// `Transcendental` を継承し、構造変更演算（形状変更、縮約、軸操作）を追加します。
+///
+/// # 実装型
+///
+/// - `ndarray::Array<A, D>`: 多次元配列（`ndarray` feature 有効時）
+///
+/// # Example
+///
+/// ```ignore
+/// fn reduce_and_expand<T: Array>(x: Variable<T>) -> Variable<T> {
+///     x.sum(0).expand(0, 10)
+/// }
+/// ```
+pub trait Array:
+    Transcendental
+    + Shape
+    + Sum<Output = Self>
+    + Expand<Output = Self>
+    + Reshape
+    + Squeeze<Output = Self>
+    + Unsqueeze<Output = Self>
+    + Permute
+{
+}
+
+// ============================================================================
+// ブランケット実装
+// ============================================================================
+
+impl Arithmetic for f32 {}
+impl Arithmetic for f64 {}
+
+impl Transcendental for f32 {}
+impl Transcendental for f64 {}

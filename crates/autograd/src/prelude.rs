@@ -16,7 +16,7 @@
 
 pub use crate::Variable;
 pub use crate::shape::IntoShape;
-pub use crate::traits::{GradNode, GradRoot};
+pub use crate::traits::{Arithmetic, Array, GradNode, GradRoot, Transcendental};
 
 // ============================================================================
 // 要素単位演算（トレイト）

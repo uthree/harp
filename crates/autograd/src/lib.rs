@@ -32,7 +32,7 @@ pub mod variable;
 
 // Core
 pub use shape::IntoShape;
-pub use traits::{GradFn, GradNode, GradRoot};
+pub use traits::{Arithmetic, Array, GradFn, GradNode, GradRoot, Transcendental};
 pub use variable::Variable;
 
 // 演算トレイト
