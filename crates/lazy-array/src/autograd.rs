@@ -6,12 +6,12 @@
 use crate::backend::{ArrayElement, ArrayError, LazyArray};
 use crate::dim::Dimension;
 
-use autograd::Variable;
-use autograd::primops::{Exp2, Log2, Sin, Sqrt};
-use autograd::primops::{
-    Expand, Ones, Permute, Rand, Reshape, Shape, Squeeze, Sum, Unsqueeze, Zeros,
+use harp_autograd::Differentiable;
+use harp_autograd::primops::{Exp2, Log2, Sin, Sqrt};
+use harp_autograd::primops::{
+    Expand, Ones, Permute, Rand, Randn, Reshape, Shape, Squeeze, Sum, Unsqueeze, Zeros,
 };
-use autograd::traits::GradRoot;
+use harp_autograd::traits::GradRoot;
 
 // ============================================================================
 // GradRoot 実装
@@ -50,9 +50,27 @@ impl<D: Dimension> Ones for LazyArray<f32, D> {
     }
 }
 
+impl<D: Dimension> Zeros for LazyArray<i32, D> {
+    fn zeros(shape: &[usize]) -> Self {
+        <LazyArray<i32, D>>::zeros(shape.to_vec())
+    }
+}
+
+impl<D: Dimension> Ones for LazyArray<i32, D> {
+    fn ones(shape: &[usize]) -> Self {
+        <LazyArray<i32, D>>::ones(shape.to_vec())
+    }
+}
+
 impl<D: Dimension> Rand for LazyArray<f32, D> {
     fn rand(shape: &[usize]) -> Self {
         <LazyArray<f32, D>>::rand(shape.to_vec())
+    }
+}
+
+impl<D: Dimension> Randn for LazyArray<f32, D> {
+    fn randn(shape: &[usize]) -> Self {
+        <LazyArray<f32, D>>::randn(shape.to_vec())
     }
 }
 
@@ -133,21 +151,21 @@ impl<D: Dimension> Unsqueeze for LazyArray<f32, D> {
 }
 
 // ============================================================================
-// Variable<LazyArray> 拡張トレイト
+// Differentiable<LazyArray> 拡張トレイト
 // ============================================================================
 
-/// Variable<LazyArray> に forward() と to_vec() を追加する拡張トレイト
+/// Differentiable<LazyArray> に forward() と to_vec() を追加する拡張トレイト
 ///
 /// # Example
 /// ```ignore
-/// use harp_lazy_array::autograd::VariableLazyArrayExt;
+/// use harp_lazy_array::autograd::DifferentiableLazyArrayExt;
 ///
-/// let a = Variable::new(LazyArray::<f32, Dim1>::ones([4]));
-/// let b = Variable::new(LazyArray::<f32, Dim1>::full([4], 2.0));
+/// let a = Differentiable::new(LazyArray::<f32, Dim1>::ones([4]));
+/// let b = Differentiable::new(LazyArray::<f32, Dim1>::full([4], 2.0));
 /// let c = &a * &b;
 /// c.forward()?;  // 計算を実行
 /// ```
-pub trait VariableLazyArrayExt<T: ArrayElement> {
+pub trait DifferentiableLazyArrayExt<T: ArrayElement> {
     /// 内部のLazyArrayの遅延評価を実行
     fn forward(&self) -> Result<(), ArrayError>;
 
@@ -155,13 +173,15 @@ pub trait VariableLazyArrayExt<T: ArrayElement> {
     fn to_vec(&self) -> Result<Vec<T>, ArrayError>;
 }
 
-impl<T: ArrayElement, D: Dimension> VariableLazyArrayExt<T> for Variable<LazyArray<T, D>> {
+impl<T: ArrayElement, D: Dimension> DifferentiableLazyArrayExt<T>
+    for Differentiable<LazyArray<T, D>>
+{
     fn forward(&self) -> Result<(), ArrayError> {
-        self.with_value(|arr| arr.forward())
+        self.with_value(|arr: &LazyArray<T, D>| arr.forward())
     }
 
     fn to_vec(&self) -> Result<Vec<T>, ArrayError> {
-        self.with_value(|arr| arr.to_vec())
+        self.with_value(|arr: &LazyArray<T, D>| arr.to_vec())
     }
 }
 

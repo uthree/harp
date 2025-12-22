@@ -60,5 +60,5 @@ pub mod prelude {
 
     // Autograd 拡張トレイト
     #[cfg(feature = "autograd")]
-    pub use crate::autograd::VariableLazyArrayExt;
+    pub use crate::autograd::DifferentiableLazyArrayExt;
 }

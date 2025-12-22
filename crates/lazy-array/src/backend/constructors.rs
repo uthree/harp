@@ -127,4 +127,24 @@ impl<D: Dimension> LazyArray<f32, D> {
     pub fn rand_like<T2: ArrayElement>(other: &LazyArray<T2, D>) -> Self {
         Self::rand_on(other.shape().to_vec(), other.device())
     }
+
+    /// 標準正規分布 N(0, 1) で初期化された配列を生成（遅延）
+    pub fn randn<S: IntoShape>(shape: S) -> Self {
+        Self::randn_on(shape, Device::default_device())
+    }
+
+    /// 指定デバイスで標準正規分布配列を生成（遅延）
+    pub fn randn_on<S: IntoShape>(shape: S, device: Device) -> Self {
+        use harp_core::graph::shape::Expr;
+
+        let shape_vec = shape.into_shape();
+        let shape_exprs: Vec<Expr> = shape_vec.iter().map(|&s| Expr::from(s as isize)).collect();
+        let node = GraphNode::randn(shape_exprs);
+        Self::from_node(node, shape_vec, device)
+    }
+
+    /// 入力配列と同じ形状の標準正規分布配列を生成
+    pub fn randn_like<T2: ArrayElement>(other: &LazyArray<T2, D>) -> Self {
+        Self::randn_on(other.shape().to_vec(), other.device())
+    }
 }

@@ -5,4 +5,4 @@ edition = "2024"
 
 [dependencies]
 harp-autograd = {path="../autograd"}
-harp-lazy-array = {path="../lazy-array"}
+harp-lazy-array = {path="../lazy-array", features = ["autograd"]}
