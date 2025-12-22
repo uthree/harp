@@ -519,3 +519,40 @@ fn collect_inputs_recursive(
         }
     }
 }
+
+/// 座標リストからViewを考慮したオフセットを計算
+///
+/// Pad/Slice演算のように、論理座標から物理オフセットを計算する必要がある場合に使用します。
+/// View::Linearの場合はストライドとオフセットを使用して正しく計算されます。
+///
+/// # Arguments
+/// * `coords` - 論理座標のリスト（AstNode）
+/// * `view` - 入力テンソルのView
+///
+/// # Returns
+/// 物理オフセットを表すAstNode
+///
+/// # Panics
+/// View::IndexExprは座標ベースのオフセット計算に対応していないためpanicします。
+pub fn build_offset_from_coords_with_view(coords: &[AstNode], view: &View) -> AstNode {
+    match view {
+        View::Linear {
+            strides, offset, ..
+        } => {
+            let mut result: AstNode = offset.clone().into();
+            for (coord, stride) in coords.iter().zip(strides.iter()) {
+                let s: AstNode = stride.clone().into();
+                result = result + coord.clone() * s;
+            }
+            result
+        }
+        View::IndexExpr { .. } => {
+            // IndexExprは任意の座標から物理オフセットへの単純なマッピングを持たない
+            // このケースはPad/Sliceでは通常発生しない（IndexExprはGather等の特殊操作で使用）
+            panic!(
+                "IndexExpr view is not supported for coordinate-based offset calculation \
+                 (Pad/Slice). Use Contiguous to materialize the tensor first."
+            );
+        }
+    }
+}

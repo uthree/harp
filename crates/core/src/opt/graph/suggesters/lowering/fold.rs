@@ -5,9 +5,10 @@
 
 use crate::ast::{AstNode, DType as AstDType, Mutability, Scope, helper::*};
 use crate::graph::GraphNode;
+use crate::graph::View;
 use crate::graph::ops::custom_placeholders as ph;
 
-use super::helpers::{graph_dtype_to_ast, wrap_with_loops};
+use super::helpers::{build_offset_from_coords_with_view, graph_dtype_to_ast, wrap_with_loops};
 
 /// Fold操作の関数を生成
 ///
@@ -46,6 +47,7 @@ pub fn build_fold_function(
     // 本体を構築
     let body = build_fold_body(
         input_shape,
+        &input.view,
         output_size,
         kernel_size,
         stride,
@@ -93,6 +95,7 @@ fn compute_patch_sizes(
 #[allow(clippy::too_many_arguments)]
 fn build_fold_body(
     input_shape: &[crate::graph::Expr],
+    input_view: &View,
     output_size: &[usize],
     kernel_size: &[usize],
     stride: &[usize],
@@ -118,6 +121,7 @@ fn build_fold_body(
     // カーネルループを構築
     let kernel_loops = build_fold_kernel_loops(
         input_shape,
+        input_view,
         output_size,
         kernel_size,
         stride,
@@ -158,6 +162,7 @@ fn build_output_offset(output_size: &[usize]) -> AstNode {
 #[allow(clippy::too_many_arguments)]
 fn build_fold_kernel_loops(
     input_shape: &[crate::graph::Expr],
+    input_view: &View,
     output_size: &[usize],
     kernel_size: &[usize],
     stride: &[usize],
@@ -172,6 +177,7 @@ fn build_fold_kernel_loops(
     // 最内部: 入力からの読み込みと加算
     let inner_body = build_fold_inner_body(
         input_shape,
+        input_view,
         output_size,
         kernel_size,
         stride,
@@ -203,7 +209,8 @@ fn build_fold_kernel_loops(
 /// Foldの最内部ボディ: 境界チェックと入力アクセス
 #[allow(clippy::too_many_arguments)]
 fn build_fold_inner_body(
-    input_shape: &[crate::graph::Expr],
+    _input_shape: &[crate::graph::Expr],
+    input_view: &View,
     output_size: &[usize],
     kernel_size: &[usize],
     stride: &[usize],
@@ -260,7 +267,7 @@ fn build_fold_inner_body(
         patch_indices.push(patch_idx);
     }
 
-    // 入力インデックス計算
+    // 入力座標を構築
     // 入力形状: (C, k1, k2, ..., L1', L2', ...) for groups=1
     // または (groups, C/groups, k1, ..., L1', ...) for groups>1
     let c_per_group = if has_groups {
@@ -268,19 +275,19 @@ fn build_fold_inner_body(
     } else {
         output_size[0]
     };
-    let input_idx = build_input_index(
-        input_shape,
+    let input_coords = build_input_coords(
         kernel_size,
-        patch_sizes,
         spatial_dims,
         has_groups,
-        groups,
         c_per_group,
         &patch_indices,
     );
 
+    // 入力オフセットを計算（入力のViewを考慮）
+    let input_offset = build_offset_from_coords_with_view(&input_coords, input_view);
+
     // 入力からロードしてアキュムレート
-    let load_expr = load(var(ph::input(0)), input_idx, load_dtype.clone());
+    let load_expr = load(var(ph::input(0)), input_offset, load_dtype.clone());
     let acc_update = assign("acc", var("acc") + load_expr);
 
     // すべての条件をANDで結合 (BitwiseAnd)
@@ -292,32 +299,26 @@ fn build_fold_inner_body(
     if_then(combined_condition, block(vec![acc_update], Scope::new()))
 }
 
-/// 入力インデックスを計算
+/// 入力座標を構築
+///
+/// 入力テンソルの各次元に対応する論理座標のリストを返します。
 ///
 /// groups=1の場合:
 ///   入力形状: (C, k1, k2, ..., L1', L2', ...)
-///   インデックス: c * (k1*k2*...*L1'*L2'*...) + k1_idx * (k2*...*L1'*...) + ... + l1 * L2' + l2
+///   座標: [c, k0, k1, ..., l0, l1, ...]
 ///
 /// groups>1の場合:
 ///   入力形状: (groups, C/groups, k1, k2, ..., L1', L2', ...)
-///   出力チャネル c から: g = c / c_per_group, c_local = c % c_per_group
-///   インデックス: g * (c_per_group*k1*k2*...*L1'*L2'*...) + c_local * (k1*k2*...*L1'*...) + ...
-#[allow(clippy::too_many_arguments)]
-fn build_input_index(
-    _input_shape: &[crate::graph::Expr],
-    kernel_size: &[usize],
-    patch_sizes: &[usize],
-    _spatial_dims: usize,
+///   座標: [g, c_local, k0, k1, ..., l0, l1, ...]
+fn build_input_coords(
+    _kernel_size: &[usize],
+    spatial_dims: usize,
     has_groups: bool,
-    _groups: usize,
     c_per_group: usize,
     patch_indices: &[AstNode],
-) -> AstNode {
+) -> Vec<AstNode> {
     let channel_coord = var(ph::ridx(0));
-
-    // カーネル次元とパッチ次元のストライドを計算
-    let kernel_total: usize = kernel_size.iter().product();
-    let patch_total: usize = patch_sizes.iter().product();
+    let mut coords = Vec::new();
 
     if has_groups {
         // groups > 1: 入力形状は (groups, C/groups, k1, k2, ..., L1', L2', ...)
@@ -325,49 +326,24 @@ fn build_input_index(
         let group_idx = idiv(channel_coord.clone(), const_int(c_per_group as i64));
         let c_local = rem(channel_coord, const_int(c_per_group as i64));
 
-        // グループ内の要素数
-        let per_group_size = c_per_group * kernel_total * patch_total;
-
-        // インデックス計算
-        let mut idx = group_idx * const_int(per_group_size as i64)
-            + c_local * const_int((kernel_total * patch_total) as i64);
-
-        // カーネル次元部分
-        for (k_axis, _k_size) in kernel_size.iter().enumerate() {
-            let k_var = var(format!("k{}", k_axis));
-            let k_stride: usize =
-                kernel_size[(k_axis + 1)..].iter().product::<usize>() * patch_total;
-            idx = idx + k_var * const_int(k_stride as i64);
-        }
-
-        // パッチ位置部分
-        for (p_axis, patch_idx) in patch_indices.iter().enumerate() {
-            let p_stride: usize = patch_sizes[(p_axis + 1)..].iter().product();
-            idx = idx + patch_idx.clone() * const_int(p_stride as i64);
-        }
-
-        idx
+        coords.push(group_idx);
+        coords.push(c_local);
     } else {
         // groups = 1: 入力形状は (C, k1, k2, ..., L1', L2', ...)
-        // チャネル部分
-        let mut idx = channel_coord * const_int((kernel_total * patch_total) as i64);
-
-        // カーネル次元部分
-        for (k_axis, _k_size) in kernel_size.iter().enumerate() {
-            let k_var = var(format!("k{}", k_axis));
-            let k_stride: usize =
-                kernel_size[(k_axis + 1)..].iter().product::<usize>() * patch_total;
-            idx = idx + k_var * const_int(k_stride as i64);
-        }
-
-        // パッチ位置部分
-        for (p_axis, patch_idx) in patch_indices.iter().enumerate() {
-            let p_stride: usize = patch_sizes[(p_axis + 1)..].iter().product();
-            idx = idx + patch_idx.clone() * const_int(p_stride as i64);
-        }
-
-        idx
+        coords.push(channel_coord);
     }
+
+    // カーネル次元の座標
+    for k_axis in 0..spatial_dims {
+        coords.push(var(format!("k{}", k_axis)));
+    }
+
+    // パッチ位置の座標
+    for patch_idx in patch_indices {
+        coords.push(patch_idx.clone());
+    }
+
+    coords
 }
 
 #[cfg(test)]

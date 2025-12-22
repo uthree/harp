@@ -22,19 +22,19 @@
 //! }
 //! ```
 
+pub mod backend;
 pub mod cache;
 pub mod device;
 pub mod dim;
-pub mod backend;
 pub mod execution;
 pub mod generators;
 
 // Re-exports
-pub use device::Device;
-pub use dim::{Dim0, Dim1, Dim2, Dim3, Dim4, Dim5, Dim6, DimDyn, Dimension};
 pub use backend::{
     Array, Array0, Array1, Array2, Array3, Array4, Array5, Array6, ArrayD, ArrayElement, ArrayError,
 };
+pub use device::Device;
+pub use dim::{Dim0, Dim1, Dim2, Dim3, Dim4, Dim5, Dim6, DimDyn, Dimension};
 pub use generators::IntoShape;
 
 /// Prelude module - 主要な型をまとめてインポート

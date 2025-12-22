@@ -76,6 +76,7 @@ let suggester = PaddingSliceSuggester::default();
   - デフォルトでSequential戦略のみで候補を生成
   - 並列化はAST最適化フェーズ（Global/LocalParallelizationSuggester）で行う
   - テスト用に`with_parallel_strategies()`で複数戦略を有効化可能
+  - 非連続View（転置、ブロードキャスト、タイリング等）を持つ入力を正しく処理
 - **BufferAbsorptionSuggester**: KernelのsrcにあるBufferを`input_buffers`に取り込む
 - **KernelPartitionSuggester**: 1D FlatParallel Kernelを多次元グリッドに分割
 

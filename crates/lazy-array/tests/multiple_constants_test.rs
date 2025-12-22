@@ -361,10 +361,10 @@ mod opencl_tests {
         let e = broadcast_constant(5.0);
         let f = broadcast_constant(6.0);
 
-        let ab = a + b;        // 1 + 2 = 3
-        let cd = c + d;        // 3 + 4 = 7
-        let ef = e * f;        // 5 * 6 = 30
-        let ab_cd = ab * cd;   // 3 * 7 = 21
+        let ab = a + b; // 1 + 2 = 3
+        let cd = c + d; // 3 + 4 = 7
+        let ef = e * f; // 5 * 6 = 30
+        let ab_cd = ab * cd; // 3 * 7 = 21
         let result = ab_cd + ef; // 21 + 30 = 51
 
         let mut graph = Graph::new();
@@ -390,12 +390,7 @@ mod opencl_tests {
 
         // 期待値: ((1+2) * (3+4)) + (5*6) = 3*7 + 30 = 51
         for (i, v) in data.iter().enumerate() {
-            assert!(
-                (v - 51.0).abs() < 1e-5,
-                "[{}] Expected 51.0, got {}",
-                i,
-                v
-            );
+            assert!((v - 51.0).abs() < 1e-5, "[{}] Expected 51.0, got {}", i, v);
         }
         println!("PASS: Six constants complex DAG");
     }
@@ -415,8 +410,8 @@ mod opencl_tests {
         let b = broadcast_constant(3.0);
         let c = broadcast_constant(4.0);
 
-        let ab = &a + b;      // 2 + 3 = 5
-        let ac = a * c;       // 2 * 4 = 8
+        let ab = &a + b; // 2 + 3 = 5
+        let ac = a * c; // 2 * 4 = 8
         let result = ab + ac; // 5 + 8 = 13
 
         let mut graph = Graph::new();
@@ -442,12 +437,7 @@ mod opencl_tests {
 
         // 期待値: (2+3) + (2*4) = 13
         for (i, v) in data.iter().enumerate() {
-            assert!(
-                (v - 13.0).abs() < 1e-5,
-                "[{}] Expected 13.0, got {}",
-                i,
-                v
-            );
+            assert!((v - 13.0).abs() < 1e-5, "[{}] Expected 13.0, got {}", i, v);
         }
         println!("PASS: Diamond DAG");
     }

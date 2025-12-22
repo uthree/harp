@@ -11,8 +11,8 @@ use std::collections::HashMap;
 use super::helpers::{
     build_contiguous_offset_excluding_axes_with_shape,
     build_contiguous_offset_excluding_axis_with_shape, build_contiguous_offset_with_shape,
-    build_cumulative_accumulator, build_reduce_accumulator, graph_dtype_to_ast, shape_dim_to_ast,
-    wrap_with_loops_excluding_axes_with_scope_and_shape,
+    build_cumulative_accumulator, build_reduce_accumulator, build_strided_offset,
+    graph_dtype_to_ast, shape_dim_to_ast, wrap_with_loops_excluding_axes_with_scope_and_shape,
     wrap_with_loops_excluding_axis_with_scope_and_shape,
 };
 
@@ -29,10 +29,12 @@ pub fn build_reduce_function(
 
     let (init_value, accumulate_fn) = build_reduce_accumulator(op, &node.dtype);
 
-    let input_offset = build_contiguous_offset_with_shape(ndim, Some(input_shape));
+    // 入力のViewに基づいてオフセットを計算
+    let input_offset = build_strided_offset(&input.view, ndim);
     let load_dtype = graph_dtype_to_ast(&input.dtype);
     let value_expr = load(var(ph::input(0)), input_offset, load_dtype);
 
+    // 出力は連続メモリ配置
     let output_offset =
         build_contiguous_offset_excluding_axis_with_shape(ndim, axis, Some(input_shape));
 
@@ -86,13 +88,17 @@ pub fn build_cumulative_function(
 
     let (init_value, accumulate_fn) = build_cumulative_accumulator(op, &node.dtype);
 
-    let offset = build_contiguous_offset_with_shape(ndim, Some(input_shape));
+    // 入力のViewに基づいてオフセットを計算
+    let input_offset = build_strided_offset(&input.view, ndim);
     let load_dtype = graph_dtype_to_ast(&input.dtype);
-    let value_expr = load(var(ph::input(0)), offset.clone(), load_dtype);
+    let value_expr = load(var(ph::input(0)), input_offset, load_dtype);
+
+    // 出力は連続メモリ配置
+    let output_offset = build_contiguous_offset_with_shape(ndim, Some(input_shape));
 
     let acc_var = "acc";
     let acc_update = assign(acc_var, accumulate_fn(var(acc_var), value_expr));
-    let store_stmt = store(var(ph::OUTPUT), offset, var(acc_var));
+    let store_stmt = store(var(ph::OUTPUT), output_offset, var(acc_var));
 
     let cum_loop = range(
         ph::ridx(axis),
@@ -144,8 +150,7 @@ pub fn build_fused_elementwise_reduce_function(
     let ndim = input_shape.len();
     let (init_value, accumulate_fn) = build_reduce_accumulator(reduce_op, &node.dtype);
 
-    // 入力のロードを含む式を構築
-    let input_offset = build_contiguous_offset_with_shape(ndim, Some(input_shape));
+    // 入力のロードを含む式を構築（各入力のViewを使用）
     let load_dtype = graph_dtype_to_ast(&input.dtype);
 
     let mut mappings = HashMap::new();
@@ -154,9 +159,11 @@ pub fn build_fused_elementwise_reduce_function(
         if let GraphOp::Const(lit) = &src.op {
             mappings.insert(i.to_string(), AstNode::Const(lit.clone()));
         } else {
+            // 各入力のViewに基づいてオフセットを計算
+            let src_offset = build_strided_offset(&src.view, ndim);
             let load_node = load(
                 var(ph::input(non_const_idx)),
-                input_offset.clone(),
+                src_offset,
                 load_dtype.clone(),
             );
             mappings.insert(i.to_string(), load_node);
@@ -165,6 +172,7 @@ pub fn build_fused_elementwise_reduce_function(
     }
     let value_expr = expr.substitute(&mappings);
 
+    // 出力は連続メモリ配置
     let output_offset =
         build_contiguous_offset_excluding_axes_with_shape(ndim, axes, Some(input_shape));
 
@@ -223,18 +231,22 @@ pub fn build_fused_elementwise_cumulative_function(
 
     let (init_value, accumulate_fn) = build_cumulative_accumulator(cum_op, &node.dtype);
 
-    let offset = build_contiguous_offset_with_shape(ndim, Some(input_shape));
+    // 出力は連続メモリ配置
+    let output_offset = build_contiguous_offset_with_shape(ndim, Some(input_shape));
     let load_dtype = graph_dtype_to_ast(&input.dtype);
 
+    // 入力のロードを含む式を構築（各入力のViewを使用）
     let mut mappings = HashMap::new();
     let mut non_const_idx = 0;
     for (i, src) in node.src.iter().enumerate() {
         if let GraphOp::Const(lit) = &src.op {
             mappings.insert(i.to_string(), AstNode::Const(lit.clone()));
         } else {
+            // 各入力のViewに基づいてオフセットを計算
+            let src_offset = build_strided_offset(&src.view, ndim);
             let load_node = load(
                 var(ph::input(non_const_idx)),
-                offset.clone(),
+                src_offset,
                 load_dtype.clone(),
             );
             mappings.insert(i.to_string(), load_node);
@@ -245,7 +257,7 @@ pub fn build_fused_elementwise_cumulative_function(
 
     let acc_var = "acc";
     let acc_update = assign(acc_var, accumulate_fn(var(acc_var), value_expr));
-    let store_stmt = store(var(ph::OUTPUT), offset, var(acc_var));
+    let store_stmt = store(var(ph::OUTPUT), output_offset, var(acc_var));
 
     let cum_loop = range(
         ph::ridx(axis),

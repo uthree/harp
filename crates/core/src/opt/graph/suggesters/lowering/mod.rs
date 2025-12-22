@@ -184,18 +184,6 @@ impl LoweringSuggester {
             return false;
         }
 
-        // Elementwise演算の場合、すべての入力が連続している必要がある
-        if matches!(node.op, GraphOp::Elementwise { .. }) {
-            for src in &node.src {
-                if !src.view.is_contiguous() {
-                    log::debug!(
-                        "LoweringSuggester: skipping Elementwise due to non-contiguous input view"
-                    );
-                    return false;
-                }
-            }
-        }
-
         // ソースがすべてlowered済み（Buffer, Kernel, View, Const）であることを確認
         // これにより、依存関係の順序でloweringが行われる
         for src in &node.src {

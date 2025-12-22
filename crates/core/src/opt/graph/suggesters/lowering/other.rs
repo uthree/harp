@@ -9,8 +9,8 @@ use crate::graph::shape::Expr;
 use crate::graph::{DType as GraphDType, GraphNode};
 
 use super::helpers::{
-    build_contiguous_offset, build_strided_offset, build_strided_offset_with_sources,
-    graph_dtype_to_ast, wrap_with_loops,
+    build_contiguous_offset, build_offset_from_coords_with_view, build_strided_offset,
+    build_strided_offset_with_sources, graph_dtype_to_ast, wrap_with_loops,
 };
 
 /// Contiguous演算の関数を生成
@@ -116,6 +116,7 @@ fn build_contiguous_from_const(
 ///
 /// パディング領域には指定値を、それ以外は入力テンソルの値をコピーします。
 /// 動的shapeに対応しており、パディング量にExprを使用可能です。
+/// 入力のView（転置等）を考慮してオフセットを計算します。
 ///
 /// 生成されるカーネル:
 /// ```text
@@ -125,7 +126,7 @@ fn build_contiguous_from_const(
 ///         src_idx1 = ridx1 - padding[1].before
 ///         if src_idx0 >= 0 && src_idx0 < input_shape[0]
 ///            && src_idx1 >= 0 && src_idx1 < input_shape[1]:
-///             output[out_offset] = input[in_offset]
+///             output[out_offset] = input[in_offset]  // in_offsetはView考慮
 ///         else:
 ///             output[out_offset] = pad_value
 /// ```
@@ -165,8 +166,8 @@ pub fn build_pad_function(
         src_coords.push(src_coord);
     }
 
-    // 入力オフセットを計算（row-major順）
-    let input_offset = build_input_offset_from_coords(&src_coords, input_shape);
+    // 入力オフセットを計算（入力のViewを考慮）
+    let input_offset = build_offset_from_coords_with_view(&src_coords, &input.view);
 
     // 境界内: 入力から値をロード
     let load_expr = load(var(ph::input(0)), input_offset, load_dtype);
@@ -194,7 +195,11 @@ pub fn build_pad_function(
     ))
 }
 
-/// 座標リストから入力オフセットを計算（row-major順）
+/// 座標リストから入力オフセットを計算（row-major順、連続配置前提）
+///
+/// 注意: この関数は連続メモリ配置を前提としています。
+/// 非連続Viewを考慮する場合は`build_offset_from_coords_with_view`を使用してください。
+#[allow(dead_code)]
 fn build_input_offset_from_coords(coords: &[AstNode], shape: &[Expr]) -> AstNode {
     let ndim = coords.len();
     if ndim == 0 {
@@ -219,6 +224,8 @@ fn build_input_offset_from_coords(coords: &[AstNode], shape: &[Expr]) -> AstNode
 }
 
 /// Slice演算の関数を生成
+///
+/// 入力のView（転置等）を考慮してオフセットを計算します。
 pub fn build_slice_function(
     node: &GraphNode,
     ranges: &[(usize, usize)],
@@ -228,27 +235,18 @@ pub fn build_slice_function(
     let shape = node.view.shape();
     let ndim = shape.len();
 
-    // 出力のオフセット
+    // 出力のオフセット（連続配置）
     let output_offset = build_contiguous_offset(ndim);
 
-    // 入力のオフセット（スライス開始位置を考慮）
-    let mut input_offset_parts = Vec::new();
+    // 入力座標を構築（スライス開始位置を考慮）
+    let mut src_coords = Vec::new();
     for (axis, &(start, _)) in ranges.iter().enumerate().take(ndim) {
-        let idx = var(ph::ridx(axis)) + const_int(start as i64);
-        input_offset_parts.push(idx);
+        let coord = var(ph::ridx(axis)) + const_int(start as i64);
+        src_coords.push(coord);
     }
 
-    // ストライドを計算して入力オフセットを構築
-    let input_shape = input.view.shape();
-    let mut input_offset = input_offset_parts[ndim - 1].clone();
-    for axis in (0..ndim - 1).rev() {
-        let mut stride: AstNode = input_shape[axis + 1].clone().into();
-        for dim in input_shape.iter().take(ndim).skip(axis + 2) {
-            let s: AstNode = dim.clone().into();
-            stride = stride * s;
-        }
-        input_offset = input_offset_parts[axis].clone() * stride + input_offset;
-    }
+    // 入力オフセットを計算（入力のViewを考慮）
+    let input_offset = build_offset_from_coords_with_view(&src_coords, &input.view);
 
     let load_dtype = graph_dtype_to_ast(&input.dtype);
     let load_expr = load(var(ph::input(0)), input_offset, load_dtype);
@@ -327,6 +325,8 @@ pub fn build_arange_function(node: &GraphNode, name: &str) -> Option<AstNode> {
 }
 
 /// Cast演算の関数を生成
+///
+/// 入力のView（転置等）を考慮してオフセットを計算します。
 pub fn build_cast_function(
     node: &GraphNode,
     target_dtype: &GraphDType,
@@ -336,13 +336,17 @@ pub fn build_cast_function(
     let shape = node.view.shape();
     let ndim = shape.len();
 
-    let offset = build_contiguous_offset(ndim);
+    // 入力のViewに基づいてオフセットを計算
+    let input_offset = build_strided_offset(&input.view, ndim);
+    // 出力は連続メモリ配置
+    let output_offset = build_contiguous_offset(ndim);
+
     let load_dtype = graph_dtype_to_ast(&input.dtype);
     let target_ast_dtype = graph_dtype_to_ast(target_dtype);
 
-    let load_expr = load(var(ph::input(0)), offset.clone(), load_dtype);
+    let load_expr = load(var(ph::input(0)), input_offset, load_dtype);
     let cast_expr = cast(load_expr, target_ast_dtype);
-    let store_stmt = store(var(ph::OUTPUT), offset, cast_expr);
+    let store_stmt = store(var(ph::OUTPUT), output_offset, cast_expr);
 
     let body = wrap_with_loops(ndim, vec![store_stmt]);
 

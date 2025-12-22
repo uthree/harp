@@ -253,3 +253,173 @@ fn test_lower_fused_elementwise_reduce_multiple_axes() {
     assert_eq!(output_shape[0], 3.into(), "Output dim 0 should be 3");
     assert_eq!(output_shape[1], 4.into(), "Output dim 1 should be 4");
 }
+
+// ============================================================================
+// 非連続View（Strided View）対応のテスト
+// ============================================================================
+
+#[test]
+fn test_lower_elementwise_with_transposed_input() {
+    use crate::graph::shape::Expr;
+    use crate::opt::graph::BeamSearchGraphOptimizer;
+
+    let suggester = LoweringSuggester::new();
+
+    let mut graph = Graph::new();
+    let a = graph.input("a", DType::F32, vec![10, 20]); // [10, 20]
+    let b = graph.input("b", DType::F32, vec![20, 10]); // [20, 10]
+
+    // aを転置 [10, 20] -> [20, 10]
+    let a_t = a.view(a.view.clone().permute(vec![1, 0]));
+
+    // 転置した入力と通常の入力を加算
+    let c = a_t + b;
+    graph.output("c", c);
+
+    // Lowering候補を生成
+    let suggestions = suggester.suggest(&graph);
+
+    // 転置したViewを持つ入力もloweringできることを確認
+    assert!(
+        !suggestions.is_empty(),
+        "Should generate suggestions for transposed view"
+    );
+
+    // 最終的にKernelノードに変換されることを確認
+    let optimizer = BeamSearchGraphOptimizer::new(crate::opt::graph::CompositeSuggester::new(
+        vec![Box::new(LoweringSuggester::new())],
+    ))
+    .with_beam_width(4)
+    .with_max_steps(20);
+
+    let (optimized, _) = optimizer.optimize_with_history(graph);
+    let output = optimized.outputs().get("c").unwrap();
+
+    assert!(
+        matches!(output.op, GraphOp::Kernel { .. }),
+        "Transposed elementwise should be lowered to Kernel node"
+    );
+}
+
+#[test]
+fn test_lower_reduce_with_transposed_input() {
+    use crate::opt::graph::BeamSearchGraphOptimizer;
+
+    let suggester = LoweringSuggester::new();
+
+    let mut graph = Graph::new();
+    let a = graph.input("a", DType::F32, vec![10, 20]); // [10, 20]
+
+    // 転置して [20, 10] に
+    let a_t = a.view(a.view.clone().permute(vec![1, 0]));
+
+    // 軸0でreduce
+    let b = a_t.reduce_sum(0); // [10]
+    graph.output("b", b);
+
+    // Lowering候補を生成
+    let suggestions = suggester.suggest(&graph);
+
+    // 転置したViewを持つ入力もloweringできることを確認
+    assert!(
+        !suggestions.is_empty(),
+        "Should generate suggestions for transposed view reduce"
+    );
+
+    // 最終的にKernelノードに変換されることを確認
+    let optimizer = BeamSearchGraphOptimizer::new(crate::opt::graph::CompositeSuggester::new(
+        vec![Box::new(LoweringSuggester::new())],
+    ))
+    .with_beam_width(4)
+    .with_max_steps(20);
+
+    let (optimized, _) = optimizer.optimize_with_history(graph);
+    let output = optimized.outputs().get("b").unwrap();
+
+    assert!(
+        matches!(output.op, GraphOp::Kernel { .. }),
+        "Transposed reduce should be lowered to Kernel node"
+    );
+}
+
+#[test]
+fn test_lower_cast_with_transposed_input() {
+    use crate::opt::graph::BeamSearchGraphOptimizer;
+
+    let suggester = LoweringSuggester::new();
+
+    let mut graph = Graph::new();
+    let a = graph.input("a", DType::F32, vec![10, 20]);
+
+    // 転置してからキャスト
+    let a_t = a.view(a.view.clone().permute(vec![1, 0]));
+    let b = a_t.cast(DType::I32);
+    graph.output("b", b);
+
+    // Lowering候補を生成
+    let suggestions = suggester.suggest(&graph);
+
+    // 転置したViewを持つ入力もloweringできることを確認
+    assert!(
+        !suggestions.is_empty(),
+        "Should generate suggestions for transposed view cast"
+    );
+
+    // 最終的にKernelノードに変換されることを確認
+    let optimizer = BeamSearchGraphOptimizer::new(crate::opt::graph::CompositeSuggester::new(
+        vec![Box::new(LoweringSuggester::new())],
+    ))
+    .with_beam_width(4)
+    .with_max_steps(20);
+
+    let (optimized, _) = optimizer.optimize_with_history(graph);
+    let output = optimized.outputs().get("b").unwrap();
+
+    assert!(
+        matches!(output.op, GraphOp::Kernel { .. }),
+        "Transposed cast should be lowered to Kernel node"
+    );
+}
+
+#[test]
+fn test_lower_elementwise_with_broadcast_input() {
+    use crate::graph::shape::Expr;
+    use crate::opt::graph::BeamSearchGraphOptimizer;
+
+    let suggester = LoweringSuggester::new();
+
+    let mut graph = Graph::new();
+    let a = graph.input("a", DType::F32, vec![10, 1]); // [10, 1]
+    let b = graph.input("b", DType::F32, vec![10, 20]); // [10, 20]
+
+    // aをブロードキャスト [10, 1] -> [10, 20]
+    let a_broadcast = a.broadcast_to(vec![Expr::from(10), Expr::from(20)]);
+
+    // ブロードキャストした入力と通常の入力を加算
+    let c = a_broadcast + b;
+    graph.output("c", c);
+
+    // Lowering候補を生成
+    let suggestions = suggester.suggest(&graph);
+
+    // ブロードキャストしたViewを持つ入力もloweringできることを確認
+    assert!(
+        !suggestions.is_empty(),
+        "Should generate suggestions for broadcast view"
+    );
+
+    // 最終的にKernelノードに変換されることを確認
+    let optimizer = BeamSearchGraphOptimizer::new(crate::opt::graph::CompositeSuggester::new(
+        vec![Box::new(LoweringSuggester::new())],
+    ))
+    .with_beam_width(4)
+    .with_max_steps(20);
+
+    let (optimized, _) = optimizer.optimize_with_history(graph);
+    let output = optimized.outputs().get("c").unwrap();
+
+    assert!(
+        matches!(output.op, GraphOp::Kernel { .. }),
+        "Broadcast elementwise should be lowered to Kernel node"
+    );
+}
