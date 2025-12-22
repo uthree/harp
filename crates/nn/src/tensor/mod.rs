@@ -1,6 +1,6 @@
 pub mod initialization;
 
-pub use initialization::TensorInit;
+pub use initialization::{TensorInit, TensorRandInit};
 
 use harp_autograd::Differentiable;
 use harp_lazy_array::LazyArray;

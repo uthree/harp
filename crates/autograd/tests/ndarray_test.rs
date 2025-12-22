@@ -1,8 +1,8 @@
 #![cfg(feature = "ndarray")]
 
 use autograd::{
-    Expand, Matmul, Max, Maximum, Ones, Permute, Prod, Reshape, Squeeze, Sum, Unsqueeze, Differentiable,
-    Zeros,
+    Differentiable, Expand, Matmul, Max, Maximum, Ones, Permute, Prod, Reshape, Squeeze, Sum,
+    Unsqueeze, Zeros,
 };
 use ndarray::{Array1, Array2, ArrayD, IxDyn, array};
 

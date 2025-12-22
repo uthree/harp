@@ -55,6 +55,7 @@ pub use array::{
     PermuteBackward,
     Prod,
     ProdBackward,
+    Rand,
     // 形状変更
     Reshape,
     ReshapeBackward,

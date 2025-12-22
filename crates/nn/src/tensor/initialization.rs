@@ -9,6 +9,12 @@ pub trait TensorInit: Sized {
     fn ones(shape: impl IntoShape) -> Self;
 }
 
+/// 乱数初期化用の拡張トレイト（f32専用）
+pub trait TensorRandInit: Sized {
+    /// 一様乱数 [0, 1) で初期化されたテンソルを作成
+    fn rand(shape: impl IntoShape) -> Self;
+}
+
 macro_rules! impl_tensor_init {
     ($target:ty) => {
         impl<D: Dimension> TensorInit for Differentiable<LazyArray<$target, D>> {
@@ -25,3 +31,10 @@ macro_rules! impl_tensor_init {
 
 impl_tensor_init!(i32);
 impl_tensor_init!(f32);
+
+// TensorRandInit は f32 専用
+impl<D: Dimension> TensorRandInit for Differentiable<LazyArray<f32, D>> {
+    fn rand(shape: impl IntoShape) -> Self {
+        Differentiable::new(LazyArray::<f32, D>::rand(shape))
+    }
+}

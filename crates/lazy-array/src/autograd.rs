@@ -8,7 +8,9 @@ use crate::dim::Dimension;
 
 use autograd::Variable;
 use autograd::primops::{Exp2, Log2, Sin, Sqrt};
-use autograd::primops::{Expand, Ones, Permute, Reshape, Shape, Squeeze, Sum, Unsqueeze, Zeros};
+use autograd::primops::{
+    Expand, Ones, Permute, Rand, Reshape, Shape, Squeeze, Sum, Unsqueeze, Zeros,
+};
 use autograd::traits::GradRoot;
 
 // ============================================================================
@@ -45,6 +47,12 @@ impl<D: Dimension> Zeros for LazyArray<f32, D> {
 impl<D: Dimension> Ones for LazyArray<f32, D> {
     fn ones(shape: &[usize]) -> Self {
         <LazyArray<f32, D>>::ones(shape.to_vec())
+    }
+}
+
+impl<D: Dimension> Rand for LazyArray<f32, D> {
+    fn rand(shape: &[usize]) -> Self {
+        <LazyArray<f32, D>>::rand(shape.to_vec())
     }
 }
 

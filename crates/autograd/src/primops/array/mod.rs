@@ -36,4 +36,4 @@ pub use linalg::{Matmul, MatmulBackward};
 pub use shape::{Ndim, Shape};
 
 // 初期化
-pub use initialization::{Ones, Zeros};
+pub use initialization::{Ones, Rand, Zeros};

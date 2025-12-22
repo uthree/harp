@@ -50,6 +50,28 @@ pub trait Ones {
 }
 
 // ============================================================================
+// Rand トレイト
+// ============================================================================
+
+/// 一様乱数 [0, 1) で満たされた配列を作成するトレイト
+///
+/// # 使用例
+///
+/// ```ignore
+/// use autograd::primops::Rand;
+///
+/// let rand_arr: LazyArray<f32, Dim2> = Rand::rand(&[3, 4]);
+/// ```
+pub trait Rand {
+    /// 指定した形状の一様乱数 [0, 1) 配列を作成
+    ///
+    /// # 引数
+    ///
+    /// * `shape` - 作成する配列の形状
+    fn rand(shape: &[usize]) -> Self;
+}
+
+// ============================================================================
 // スカラー型への実装
 // ============================================================================
 
@@ -217,5 +239,51 @@ impl<T: Clone + Ones + Shape + 'static> Differentiable<T> {
     #[cfg(not(feature = "ndarray"))]
     pub fn ones_like(&self) -> Differentiable<T> {
         Differentiable::new_no_grad(T::ones(&[]))
+    }
+}
+
+// ============================================================================
+// Rand 用の Variable<T> 実装
+// ============================================================================
+
+impl<T: Rand + 'static> Differentiable<T> {
+    /// 指定した形状の一様乱数 [0, 1) 変数を作成
+    ///
+    /// 勾配追跡なしで作成される。
+    ///
+    /// # 使用例
+    ///
+    /// ```ignore
+    /// use autograd::Variable;
+    /// use autograd::primops::Rand;
+    ///
+    /// let rand: Variable<LazyArray<f32, Dim2>> = Variable::rand(&[3, 4]);
+    /// ```
+    pub fn rand(shape: &[usize]) -> Differentiable<T> {
+        Differentiable::new_no_grad(T::rand(shape))
+    }
+
+    /// 指定した形状の一様乱数 [0, 1) 変数を作成（IntoShape版）
+    ///
+    /// 配列、タプル、単一値など様々な形式で形状を指定できます。
+    pub fn rand_shape<S: IntoShape>(shape: S) -> Differentiable<T> {
+        Differentiable::new_no_grad(T::rand(&shape.into_shape()))
+    }
+}
+
+impl<T: Clone + Rand + Shape + 'static> Differentiable<T> {
+    /// 自身と同じ形状の一様乱数 [0, 1) 変数を作成
+    ///
+    /// `torch.rand_like()` に相当する機能。
+    /// 勾配追跡なしで作成される。
+    #[cfg(feature = "ndarray")]
+    pub fn rand_like(&self) -> Differentiable<T> {
+        Differentiable::new_no_grad(T::rand(self.value().shape()))
+    }
+
+    /// 自身と同じ形状の一様乱数変数を作成（スカラー用）
+    #[cfg(not(feature = "ndarray"))]
+    pub fn rand_like(&self) -> Differentiable<T> {
+        Differentiable::new_no_grad(T::rand(&[]))
     }
 }

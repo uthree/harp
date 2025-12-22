@@ -102,3 +102,29 @@ macro_rules! impl_constructors {
 // 各数値型の実装
 impl_constructors!(f32, 0.0, 1.0);
 impl_constructors!(i32, 0, 1);
+
+// ============================================================================
+// 乱数生成（f32のみ）
+// ============================================================================
+
+impl<D: Dimension> LazyArray<f32, D> {
+    /// 一様乱数 [0, 1) で初期化された配列を生成（遅延）
+    pub fn rand<S: IntoShape>(shape: S) -> Self {
+        Self::rand_on(shape, Device::default_device())
+    }
+
+    /// 指定デバイスで一様乱数配列を生成（遅延）
+    pub fn rand_on<S: IntoShape>(shape: S, device: Device) -> Self {
+        use harp_core::graph::shape::Expr;
+
+        let shape_vec = shape.into_shape();
+        let shape_exprs: Vec<Expr> = shape_vec.iter().map(|&s| Expr::from(s as isize)).collect();
+        let node = GraphNode::rand(shape_exprs);
+        Self::from_node(node, shape_vec, device)
+    }
+
+    /// 入力配列と同じ形状の一様乱数配列を生成
+    pub fn rand_like<T2: ArrayElement>(other: &LazyArray<T2, D>) -> Self {
+        Self::rand_on(other.shape().to_vec(), other.device())
+    }
+}
