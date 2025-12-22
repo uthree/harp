@@ -1,7 +1,7 @@
 //! 配列型（遅延評価）
 //!
 //! 実行時にデバイスを選択できる配列型を提供します。
-//! 演算は遅延評価され、`eval()`または`to_vec()`呼び出し時に実行されます。
+//! 演算は遅延評価され、`forward()`または`to_vec()`呼び出し時に実行されます。
 
 use crate::device::Device;
 use crate::dim::Dimension;
@@ -202,7 +202,7 @@ enum ArrayState {
 
 /// 配列型（遅延評価）
 ///
-/// 演算はGraphNodeとして構築され、`eval()`または`to_vec()`呼び出し時に
+/// 演算はGraphNodeとして構築され、`forward()`または`to_vec()`呼び出し時に
 /// 実際の計算が実行されます。
 ///
 /// # 例
@@ -322,7 +322,7 @@ impl<T: ArrayElement, D: Dimension> LazyArray<T, D> {
     }
 
     /// 明示的に評価を実行
-    pub fn eval(&self) -> Result<(), ArrayError> {
+    pub fn forward(&self) -> Result<(), ArrayError> {
         // 既に評価済みなら何もしない
         if self.is_materialized() {
             return Ok(());
@@ -419,7 +419,7 @@ impl<T: ArrayElement, D: Dimension> LazyArray<T, D> {
 
     /// データをベクタとして取得（遅延評価を実行）
     pub fn to_vec(&self) -> Result<Vec<T>, ArrayError> {
-        self.eval()?;
+        self.forward()?;
 
         match &*self.state.borrow() {
             ArrayState::Materialized { buffer, .. } => buffer.read_vec(),
@@ -862,7 +862,7 @@ mod opencl_tests {
     fn test_eval_constant_scalar() {
         // スカラー定数のeval
         let arr: Array2<f32> = <LazyArray<f32, Dim2>>::full([4, 4], 2.5);
-        arr.eval().expect("eval failed");
+        arr.forward().expect("eval failed");
         assert!(arr.is_materialized());
 
         let data = arr.to_vec().expect("to_vec failed");
@@ -876,7 +876,7 @@ mod opencl_tests {
     fn test_eval_zeros() {
         // zeros配列のeval
         let arr: Array1<f32> = <LazyArray<f32, Dim1>>::zeros([64]);
-        arr.eval().expect("eval failed");
+        arr.forward().expect("eval failed");
         assert!(arr.is_materialized());
 
         let data = arr.to_vec().expect("to_vec failed");
@@ -890,7 +890,7 @@ mod opencl_tests {
     fn test_eval_ones() {
         // ones配列のeval
         let arr: Array2<f32> = <LazyArray<f32, Dim2>>::ones([8, 8]);
-        arr.eval().expect("eval failed");
+        arr.forward().expect("eval failed");
         assert!(arr.is_materialized());
 
         let data = arr.to_vec().expect("to_vec failed");
@@ -906,7 +906,7 @@ mod opencl_tests {
         let a: Array2<f32> = <LazyArray<f32, Dim2>>::full([4, 4], 1.0);
         let c = &a + 2.0f32;
 
-        c.eval().expect("eval failed");
+        c.forward().expect("eval failed");
         assert!(c.is_materialized());
 
         let data = c.to_vec().expect("to_vec failed");
@@ -922,7 +922,7 @@ mod opencl_tests {
         let a: Array2<f32> = <LazyArray<f32, Dim2>>::full([4, 4], 3.0);
         let b = &a * 2.0f32;
 
-        b.eval().expect("eval failed");
+        b.forward().expect("eval failed");
         let data = b.to_vec().expect("to_vec failed");
         for v in data {
             assert!((v - 6.0).abs() < 1e-5, "Expected 6.0, got {}", v);
@@ -935,7 +935,7 @@ mod opencl_tests {
         let a: Array2<f32> = <LazyArray<f32, Dim2>>::full([4, 4], 16.0);
         let b = &a / 2.0f32;
 
-        b.eval().expect("eval failed");
+        b.forward().expect("eval failed");
         let data = b.to_vec().expect("to_vec failed");
         for v in data {
             assert!((v - 8.0).abs() < 1e-5, "Expected 8.0, got {}", v);
@@ -951,7 +951,7 @@ mod opencl_tests {
         let result = &c * 0.5f32;
 
         // 16 * 0.5 * 0.5 * 0.5 = 2
-        result.eval().expect("eval failed");
+        result.forward().expect("eval failed");
         let data = result.to_vec().expect("to_vec failed");
         assert_eq!(data.len(), 16);
         for v in data {
@@ -965,7 +965,7 @@ mod opencl_tests {
         let a: Array2<f32> = <LazyArray<f32, Dim2>>::full([4, 4], 1.0);
         let c = &(&a + 1.0f32) * 2.0f32;
 
-        c.eval().expect("eval failed");
+        c.forward().expect("eval failed");
         let data = c.to_vec().expect("to_vec failed");
         for v in data {
             assert!((v - 4.0).abs() < 1e-5, "Expected 4.0, got {}", v);
@@ -976,11 +976,11 @@ mod opencl_tests {
     fn test_eval_already_materialized() {
         // 既に評価済みの場合は何もしない
         let arr: Array2<f32> = <LazyArray<f32, Dim2>>::full([4, 4], 1.0);
-        arr.eval().expect("first eval failed");
+        arr.forward().expect("first eval failed");
         assert!(arr.is_materialized());
 
         // 再度evalしてもエラーにならない
-        arr.eval().expect("second eval failed");
+        arr.forward().expect("second eval failed");
         assert!(arr.is_materialized());
     }
 
@@ -997,7 +997,7 @@ mod opencl_tests {
         let d = &c + 3.0f32;
         let result = &d + 4.0f32;
 
-        result.eval().expect("eval failed");
+        result.forward().expect("eval failed");
         let data = result.to_vec().expect("to_vec failed");
         assert_eq!(data.len(), 16);
         for v in data {
@@ -1014,7 +1014,7 @@ mod opencl_tests {
         let result = &c - 0.5f32;
 
         // (3 + 1) * 2 - 0.5 = 8 - 0.5 = 7.5
-        result.eval().expect("eval failed");
+        result.forward().expect("eval failed");
         let data = result.to_vec().expect("to_vec failed");
         assert_eq!(data.len(), 16);
         for v in data {
@@ -1048,7 +1048,7 @@ mod opencl_tests {
         .expect("context failed");
 
         // 16 / 2 / 2 = 4
-        result.eval().expect("eval failed");
+        result.forward().expect("eval failed");
         let data = result.to_vec().expect("to_vec failed");
         println!("=== [2-step] Result data: {:?} ===", data);
 
@@ -1083,7 +1083,7 @@ mod opencl_tests {
         .expect("context failed");
 
         // 実際の実行
-        result.eval().expect("eval failed");
+        result.forward().expect("eval failed");
         let data = result.to_vec().expect("to_vec failed");
         println!("=== Result data: {:?} ===", data);
 
@@ -1102,7 +1102,7 @@ mod opencl_tests {
         let result = &c / 2.0f32;
 
         // 16 / 2 / 2 / 2 = 2
-        result.eval().expect("eval failed");
+        result.forward().expect("eval failed");
         let data = result.to_vec().expect("to_vec failed");
         assert_eq!(data.len(), 16);
         for v in data {
@@ -1116,7 +1116,7 @@ mod opencl_tests {
         let a: Array2<f32> = <LazyArray<f32, Dim2>>::full([4, 4], 5.0);
         let result = -&a;
 
-        result.eval().expect("eval failed");
+        result.forward().expect("eval failed");
         let data = result.to_vec().expect("to_vec failed");
         assert_eq!(data.len(), 16);
         for v in data {
@@ -1129,7 +1129,7 @@ mod opencl_tests {
         // 整数型の基本テスト
         let a: Array1<i32> = <LazyArray<i32, Dim1>>::full([16], 42);
 
-        a.eval().expect("eval failed");
+        a.forward().expect("eval failed");
         let data = a.to_vec().expect("to_vec failed");
         assert_eq!(data.len(), 16);
         for v in data {
@@ -1144,7 +1144,7 @@ mod opencl_tests {
         let result = &(&a + 1.0f32) * 3.0f32;
 
         // (2 + 1) * 3 = 9
-        result.eval().expect("eval failed");
+        result.forward().expect("eval failed");
         let data = result.to_vec().expect("to_vec failed");
         assert_eq!(data.len(), 1024);
         for v in data {
@@ -1165,7 +1165,7 @@ mod opencl_tests {
         let c = &a + &b;
 
         // 0 + 1 = 1
-        c.eval().expect("eval failed");
+        c.forward().expect("eval failed");
         let data = c.to_vec().expect("to_vec failed");
         assert_eq!(data.len(), 16);
         for v in data {
@@ -1180,7 +1180,7 @@ mod opencl_tests {
         let c: Array2<f32> = <LazyArray<f32, Dim2>>::ones([4, 4]);
         let result = &a * &c;
 
-        result.eval().expect("eval failed");
+        result.forward().expect("eval failed");
         let data = result.to_vec().expect("to_vec failed");
         println!("a * c (2 * 1) = {:?}", &data[..4]);
         assert!(
@@ -1200,7 +1200,7 @@ mod opencl_tests {
         let ab = &a + &b;
         let result = &ab * &c;
 
-        result.eval().expect("eval failed");
+        result.forward().expect("eval failed");
         let data = result.to_vec().expect("to_vec failed");
         println!("(a + b) * c = {:?}", &data[..4]);
 
