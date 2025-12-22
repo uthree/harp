@@ -484,17 +484,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
-name = "autograd"
-version = "0.1.0"
-dependencies = [
- "indicatif 0.17.11",
- "ndarray",
- "num-traits 0.2.19",
- "rand",
- "textplots",
-]
-
-[[package]]
 name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1784,6 +1773,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "harp-autograd"
+version = "0.1.0"
+dependencies = [
+ "indicatif 0.17.11",
+ "ndarray",
+ "num-traits 0.2.19",
+ "rand",
+ "textplots",
+]
+
+[[package]]
 name = "harp-backend-metal"
 version = "0.1.0"
 dependencies = [
@@ -1844,7 +1844,7 @@ dependencies = [
 name = "harp-lazy-array"
 version = "0.1.0"
 dependencies = [
- "autograd",
+ "harp-autograd",
  "harp-backend-metal",
  "harp-backend-opencl",
  "harp-core",
@@ -1856,6 +1856,7 @@ dependencies = [
 name = "harp-nn"
 version = "0.1.0"
 dependencies = [
+ "harp-autograd",
  "harp-lazy-array",
 ]
 
