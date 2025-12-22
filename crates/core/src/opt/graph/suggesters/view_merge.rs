@@ -354,19 +354,9 @@ mod tests {
 
         let suggestions = suggester.suggest(&graph);
 
-        // Viewノードが1つあるので、1つの提案が生成される
-        assert_eq!(suggestions.len(), 1);
-
-        // 提案されたグラフを確認
-        let new_graph = &suggestions[0].graph;
-        let outputs = new_graph.outputs();
-        let result = outputs.get("result").unwrap();
-
-        // 結果ノードがViewノードではなく、Elementwise(Add)ノードであることを確認
-        assert!(matches!(result.op, GraphOp::Elementwise { .. }));
-
-        // Addノードのviewがpermuteされていることを確認
-        assert_eq!(result.view.shape(), &[20.into(), 10.into()]);
+        // Elementwiseへのマージは禁止されている（loweringとの整合性のため）
+        // Viewノードは保持される
+        assert_eq!(suggestions.len(), 0);
     }
 
     #[test]
@@ -387,8 +377,11 @@ mod tests {
 
         let suggestions = suggester.suggest(&graph);
 
-        // 2つのViewノードがあるので、2つの提案が生成される
-        assert_eq!(suggestions.len(), 2);
+        // view1はElementwiseへのマージが禁止されている
+        // view2 -> view1 の連鎖はマージ可能（1つの提案）
+        // ただし、最終的にElementwiseへはマージできないので、
+        // view1のマージも行われない
+        assert_eq!(suggestions.len(), 0);
     }
 
     #[test]

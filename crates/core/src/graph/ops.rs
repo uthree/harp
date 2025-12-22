@@ -237,11 +237,9 @@ pub fn infer_dtype(dtype1: &DType, dtype2: &DType) -> DType {
 pub fn infer_view(view1: &View, view2: &View) -> View {
     let shape1 = view1.shape();
     let shape2 = view2.shape();
-    eprintln!("infer_view: shape1={:?}, shape2={:?}", shape1, shape2);
 
     // 両方が同じshapeの場合のみ許可
     if shape1 == shape2 {
-        eprintln!("  -> returning contiguous with shape {:?}", shape1);
         return View::contiguous(shape1.to_vec());
     }
 
