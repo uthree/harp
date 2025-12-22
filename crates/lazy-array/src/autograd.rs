@@ -3,9 +3,10 @@
 //! LazyArray に autograd クレートの primops トレイトを実装し、
 //! Variable<LazyArray> で自動微分を可能にします。
 
-use crate::backend::{ArrayElement, LazyArray};
+use crate::backend::{ArrayElement, ArrayError, LazyArray};
 use crate::dim::Dimension;
 
+use autograd::Variable;
 use autograd::primops::{Exp2, Log2, Sin, Sqrt};
 use autograd::primops::{Expand, Ones, Permute, Reshape, Shape, Squeeze, Sum, Unsqueeze, Zeros};
 use autograd::traits::GradRoot;
@@ -120,6 +121,39 @@ impl<D: Dimension> Unsqueeze for LazyArray<f32, D> {
 
     fn unsqueeze(&self, axis: usize) -> Self::Output {
         LazyArray::unsqueeze(self, axis)
+    }
+}
+
+// ============================================================================
+// Variable<LazyArray> 拡張トレイト
+// ============================================================================
+
+/// Variable<LazyArray> に forward() と to_vec() を追加する拡張トレイト
+///
+/// # Example
+/// ```ignore
+/// use harp_lazy_array::autograd::VariableLazyArrayExt;
+///
+/// let a = Variable::new(LazyArray::<f32, Dim1>::ones([4]));
+/// let b = Variable::new(LazyArray::<f32, Dim1>::full([4], 2.0));
+/// let c = &a * &b;
+/// c.forward()?;  // 計算を実行
+/// ```
+pub trait VariableLazyArrayExt<T: ArrayElement> {
+    /// 内部のLazyArrayの遅延評価を実行
+    fn forward(&self) -> Result<(), ArrayError>;
+
+    /// 内部のLazyArrayをベクタとして取得（遅延評価も実行）
+    fn to_vec(&self) -> Result<Vec<T>, ArrayError>;
+}
+
+impl<T: ArrayElement, D: Dimension> VariableLazyArrayExt<T> for Variable<LazyArray<T, D>> {
+    fn forward(&self) -> Result<(), ArrayError> {
+        self.with_value(|arr| arr.forward())
+    }
+
+    fn to_vec(&self) -> Result<Vec<T>, ArrayError> {
+        self.with_value(|arr| arr.to_vec())
     }
 }
 

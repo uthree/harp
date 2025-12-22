@@ -57,4 +57,8 @@ pub mod prelude {
     pub use crate::dim::{Dim0, Dim1, Dim2, Dim3, Dim4, Dim5, Dim6, DimDyn, Dimension};
     pub use crate::dim::{DimensionMismatch, IntoDimensionality, IntoDyn};
     pub use crate::generators::IntoShape;
+
+    // Autograd 拡張トレイト
+    #[cfg(feature = "autograd")]
+    pub use crate::autograd::VariableLazyArrayExt;
 }
