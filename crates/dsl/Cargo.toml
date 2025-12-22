@@ -5,7 +5,7 @@ edition = "2024"
 description = "Domain Specific Language for Harp computation graphs"
 
 [dependencies]
-harp = { path = "../.." }
+harp-core = { path = "../core" }
 pest = "2.7"
 pest_derive = "2.7"
 thiserror = "2.0"

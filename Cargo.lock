@@ -1833,7 +1833,7 @@ name = "harp-dsl"
 version = "0.1.0"
 dependencies = [
  "ariadne",
- "harp",
+ "harp-core",
  "insta",
  "pest",
  "pest_derive",
@@ -1855,6 +1855,9 @@ dependencies = [
 [[package]]
 name = "harp-nn"
 version = "0.1.0"
+dependencies = [
+ "harp-lazy-array",
+]
 
 [[package]]
 name = "harp-viz"

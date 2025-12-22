@@ -22,7 +22,7 @@ pub mod error;
 pub mod parser;
 
 use error::DslError;
-use harp::graph::Graph;
+use harp_core::graph::Graph;
 
 /// Parse DSL source code into a DSL AST
 pub fn parse(source: &str) -> Result<parser::ast::DslModule, DslError> {

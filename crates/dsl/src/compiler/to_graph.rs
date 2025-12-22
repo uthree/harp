@@ -2,10 +2,10 @@
 
 use std::collections::HashMap;
 
-use harp::ast::AstNode;
-use harp::ast::helper::wildcard;
-use harp::graph::ops::{CumulativeOp, ReduceOp};
-use harp::graph::{Graph, GraphNode, GraphOp, View};
+use harp_core::ast::AstNode;
+use harp_core::ast::helper::wildcard;
+use harp_core::graph::ops::{CumulativeOp, ReduceOp};
+use harp_core::graph::{Graph, GraphNode, GraphOp, View};
 
 use crate::error::DslError;
 use crate::parser::ast::*;
@@ -121,7 +121,7 @@ fn compile_graph_with_context(
     // Register inputs
     for input in &dsl_graph.inputs {
         let dtype = input.dtype.clone();
-        let shape: Vec<harp::graph::shape::Expr> =
+        let shape: Vec<harp_core::graph::shape::Expr> =
             input.shape.iter().map(|s| s.to_harp_expr()).collect();
         let node = graph
             .input(&input.name, dtype, shape)
@@ -198,7 +198,7 @@ fn compile_subgraph(dsl_graph: &DslGraph, ctx: &mut CompileContext) -> Result<Gr
     // Register inputs
     for input in &dsl_graph.inputs {
         let dtype = input.dtype.clone();
-        let shape: Vec<harp::graph::shape::Expr> =
+        let shape: Vec<harp_core::graph::shape::Expr> =
             input.shape.iter().map(|s| s.to_harp_expr()).collect();
         let node = graph
             .input(&input.name, dtype, shape)
@@ -325,7 +325,7 @@ fn compile_tuple_assign(
             // Create the SubgraphCall node (using the first output's type for the call itself)
             let first_output = &subgraph_def.outputs[0];
             let first_dtype = first_output.dtype.clone();
-            let first_shape: Vec<harp::graph::shape::Expr> = first_output
+            let first_shape: Vec<harp_core::graph::shape::Expr> = first_output
                 .shape
                 .iter()
                 .map(|s| s.to_harp_expr())
@@ -338,7 +338,7 @@ fn compile_tuple_assign(
             for (i, (var_name, output)) in names.iter().zip(subgraph_def.outputs.iter()).enumerate()
             {
                 let output_dtype = output.dtype.clone();
-                let output_shape: Vec<harp::graph::shape::Expr> =
+                let output_shape: Vec<harp_core::graph::shape::Expr> =
                     output.shape.iter().map(|s| s.to_harp_expr()).collect();
                 let output_view = View::contiguous(output_shape);
 
@@ -589,7 +589,7 @@ fn compile_function_call_with_context(
         }
         "concat" => {
             let (tensors, axis) = get_concat_args_with_context(args, env, graph, ctx)?;
-            return Ok(harp::graph::ops::concat(tensors, axis));
+            return Ok(harp_core::graph::ops::concat(tensors, axis));
         }
         "max" => {
             if args.len() != 2 {
@@ -673,7 +673,7 @@ fn compile_subgraph_call(
         // Single output: return SubgraphCall directly
         let output = &subgraph_def.outputs[0];
         let output_dtype = output.dtype.clone();
-        let output_shape: Vec<harp::graph::shape::Expr> =
+        let output_shape: Vec<harp_core::graph::shape::Expr> =
             output.shape.iter().map(|s| s.to_harp_expr()).collect();
         let output_view = View::contiguous(output_shape);
 
@@ -689,7 +689,7 @@ fn compile_subgraph_call(
         // TODO: Implement proper tuple unpacking support
         let output = &subgraph_def.outputs[0];
         let output_dtype = output.dtype.clone();
-        let output_shape: Vec<harp::graph::shape::Expr> =
+        let output_shape: Vec<harp_core::graph::shape::Expr> =
             output.shape.iter().map(|s| s.to_harp_expr()).collect();
         let output_view = View::contiguous(output_shape);
 
@@ -767,7 +767,7 @@ fn compile_fused_reduce(
     let view = input_nodes[0].view.clone();
     let mut new_shape = view.shape().to_vec();
     new_shape.remove(axis);
-    let reduced_view = harp::graph::shape::View::contiguous(new_shape);
+    let reduced_view = harp_core::graph::shape::View::contiguous(new_shape);
 
     Ok(GraphNode::new(
         dtype,
@@ -836,8 +836,8 @@ fn build_fused_ast_expr(expr: &DslExpr, inputs: &[String]) -> Result<AstNode, Ds
                 )))
             }
         }
-        DslExpr::IntLit(v) => Ok(AstNode::Const(harp::ast::Literal::I64(*v))),
-        DslExpr::FloatLit(v) => Ok(AstNode::Const(harp::ast::Literal::F32(*v as f32))),
+        DslExpr::IntLit(v) => Ok(AstNode::Const(harp_core::ast::Literal::I64(*v))),
+        DslExpr::FloatLit(v) => Ok(AstNode::Const(harp_core::ast::Literal::F32(*v as f32))),
         DslExpr::BinOp { op, lhs, rhs } => {
             let l = build_fused_ast_expr(lhs, inputs)?;
             let r = build_fused_ast_expr(rhs, inputs)?;
@@ -915,11 +915,11 @@ fn get_axes_arg(args: &[DslArg]) -> Result<Vec<usize>, DslError> {
 }
 
 /// Get a single Expr argument (for times parameter in repeat)
-fn get_expr_arg(arg: &DslArg) -> Result<harp::graph::shape::Expr, DslError> {
+fn get_expr_arg(arg: &DslArg) -> Result<harp_core::graph::shape::Expr, DslError> {
     match arg {
         DslArg::Positional(expr) => match expr {
-            DslExpr::IntLit(v) => Ok(harp::graph::shape::Expr::Const(*v)),
-            DslExpr::Var(name) => Ok(harp::graph::shape::Expr::Var(name.clone())),
+            DslExpr::IntLit(v) => Ok(harp_core::graph::shape::Expr::Const(*v)),
+            DslExpr::Var(name) => Ok(harp_core::graph::shape::Expr::Var(name.clone())),
             _ => Err(DslError::InvalidArgument(
                 "Expected integer or var for times argument".to_string(),
             )),
@@ -934,7 +934,7 @@ fn get_shape_arg(
     args: &[DslArg],
     _env: &HashMap<String, GraphNode>,
     _graph: &mut Graph,
-) -> Result<Vec<harp::graph::shape::Expr>, DslError> {
+) -> Result<Vec<harp_core::graph::shape::Expr>, DslError> {
     if args.is_empty() {
         return Err(DslError::InvalidArgument("Expected shape".to_string()));
     }
@@ -942,8 +942,8 @@ fn get_shape_arg(
         DslArg::Array(exprs) => exprs
             .iter()
             .map(|e| match e {
-                DslExpr::IntLit(v) => Ok(harp::graph::shape::Expr::Const(*v)),
-                DslExpr::Var(name) => Ok(harp::graph::shape::Expr::Var(name.clone())),
+                DslExpr::IntLit(v) => Ok(harp_core::graph::shape::Expr::Const(*v)),
+                DslExpr::Var(name) => Ok(harp_core::graph::shape::Expr::Var(name.clone())),
                 _ => Err(DslError::InvalidArgument(
                     "Expected integer or var in shape".to_string(),
                 )),
@@ -957,7 +957,7 @@ fn get_shape_arg(
 
 /// Get an index expression argument for view_expr
 /// Converts idx0, idx1, etc. to Expr::Idx(i)
-fn get_index_expr_arg(arg: &DslArg) -> Result<harp::graph::shape::Expr, DslError> {
+fn get_index_expr_arg(arg: &DslArg) -> Result<harp_core::graph::shape::Expr, DslError> {
     match arg {
         DslArg::Positional(expr) => dsl_expr_to_index_expr(expr),
         _ => Err(DslError::InvalidArgument(
@@ -967,8 +967,8 @@ fn get_index_expr_arg(arg: &DslArg) -> Result<harp::graph::shape::Expr, DslError
 }
 
 /// Convert DSL expression to Harp shape Expr, converting idx0, idx1, etc. to Expr::Idx
-fn dsl_expr_to_index_expr(expr: &DslExpr) -> Result<harp::graph::shape::Expr, DslError> {
-    use harp::graph::shape::Expr;
+fn dsl_expr_to_index_expr(expr: &DslExpr) -> Result<harp_core::graph::shape::Expr, DslError> {
+    use harp_core::graph::shape::Expr;
 
     match expr {
         DslExpr::IntLit(v) => Ok(Expr::Const(*v)),
@@ -1074,7 +1074,7 @@ fn get_padding_arg(
     env: &mut HashMap<String, GraphNode>,
     _graph: &mut Graph,
     _ctx: &mut CompileContext,
-) -> Result<Vec<(harp::graph::shape::Expr, harp::graph::shape::Expr)>, DslError> {
+) -> Result<Vec<(harp_core::graph::shape::Expr, harp_core::graph::shape::Expr)>, DslError> {
     let array = match arg {
         DslArg::Array(exprs) => exprs,
         _ => {
@@ -1107,9 +1107,9 @@ fn get_padding_arg(
 fn expr_to_shape_expr(
     expr: &DslExpr,
     env: &HashMap<String, GraphNode>,
-) -> Result<harp::graph::shape::Expr, DslError> {
+) -> Result<harp_core::graph::shape::Expr, DslError> {
     match expr {
-        DslExpr::IntLit(v) => Ok(harp::graph::shape::Expr::Const(*v)),
+        DslExpr::IntLit(v) => Ok(harp_core::graph::shape::Expr::Const(*v)),
         DslExpr::Var(name) => {
             // Check if it's a shape variable or a tensor
             if env.contains_key(name) {
@@ -1120,7 +1120,7 @@ fn expr_to_shape_expr(
                 )))
             } else {
                 // Assume it's a shape variable
-                Ok(harp::graph::shape::Expr::Var(name.clone()))
+                Ok(harp_core::graph::shape::Expr::Var(name.clone()))
             }
         }
         DslExpr::BinOp { lhs, op, rhs } => {
@@ -1484,8 +1484,8 @@ mod tests {
         assert_eq!(
             output.view.shape(),
             &[
-                harp::graph::shape::Expr::from(6),
-                harp::graph::shape::Expr::from(4)
+                harp_core::graph::shape::Expr::from(6),
+                harp_core::graph::shape::Expr::from(4)
             ]
         );
     }

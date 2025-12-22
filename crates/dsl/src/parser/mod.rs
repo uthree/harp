@@ -3,7 +3,7 @@
 pub mod ast;
 
 use ast::*;
-use harp::graph::DType;
+use harp_core::graph::DType;
 use pest::Parser;
 use pest_derive::Parser;
 

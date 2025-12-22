@@ -1,6 +1,6 @@
 //! DSL Abstract Syntax Tree definitions
 
-use harp::graph::DType;
+use harp_core::graph::DType;
 
 /// A module containing multiple graph definitions
 #[derive(Debug, Clone)]
@@ -29,7 +29,7 @@ pub struct DslGraph {
 pub struct DslParam {
     /// Parameter name
     pub name: String,
-    /// Data type (uses harp::graph::DType directly)
+    /// Data type (uses harp_core::graph::DType directly)
     pub dtype: DType,
     /// Shape as expressions
     pub shape: Vec<ShapeExpr>,
@@ -208,8 +208,8 @@ impl DslExpr {
 
 impl ShapeExpr {
     /// Convert to Harp's Expr
-    pub fn to_harp_expr(&self) -> harp::graph::shape::Expr {
-        use harp::graph::shape::Expr;
+    pub fn to_harp_expr(&self) -> harp_core::graph::shape::Expr {
+        use harp_core::graph::shape::Expr;
         match self {
             ShapeExpr::Const(v) => Expr::Const(*v),
             ShapeExpr::Var(name) => Expr::Var(name.clone()),

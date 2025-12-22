@@ -3,9 +3,9 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
-use harp::graph::ops::{CumulativeOp, ElementwiseOp, GraphOp, ReduceOp};
-use harp::graph::shape::Expr;
-use harp::graph::{DType, Graph, GraphNode, GraphNodeData};
+use harp_core::graph::ops::{CumulativeOp, ElementwiseOp, GraphOp, ReduceOp};
+use harp_core::graph::shape::Expr;
+use harp_core::graph::{DType, Graph, GraphNode, GraphNodeData};
 
 /// Decompile a Harp Graph to DSL source code
 /// エントリーポイントとなるグラフは常に"main"という名前で出力される
@@ -249,7 +249,8 @@ impl<'a> Decompiler<'a> {
 
                 if let Some(meta) = meta {
                     // Create a contiguous view from the original shape to compare
-                    let original_view = harp::graph::shape::View::contiguous(meta.shape.clone());
+                    let original_view =
+                        harp_core::graph::shape::View::contiguous(meta.shape.clone());
 
                     // If the node's view differs from the contiguous original, emit view ops
                     if node.view != original_view {
@@ -266,10 +267,10 @@ impl<'a> Decompiler<'a> {
             GraphOp::Const(lit) => {
                 let name = self.get_or_create_name(node);
                 let code = match lit {
-                    harp::ast::Literal::F32(v) => format!("{}", v),
-                    harp::ast::Literal::I64(v) => format!("{}", v),
-                    harp::ast::Literal::I32(v) => format!("{}", v),
-                    harp::ast::Literal::Bool(v) => format!("{}", v),
+                    harp_core::ast::Literal::F32(v) => format!("{}", v),
+                    harp_core::ast::Literal::I64(v) => format!("{}", v),
+                    harp_core::ast::Literal::I32(v) => format!("{}", v),
+                    harp_core::ast::Literal::Bool(v) => format!("{}", v),
                 };
                 (name, Some(code))
             }
@@ -457,7 +458,7 @@ impl<'a> Decompiler<'a> {
         &self,
         src_name: &str,
         src_node: &GraphNode,
-        view: &harp::graph::shape::View,
+        view: &harp_core::graph::shape::View,
     ) -> String {
         self.view_to_dsl_with_shape(src_name, src_node.view.shape(), view)
     }
@@ -466,9 +467,9 @@ impl<'a> Decompiler<'a> {
         &self,
         src_name: &str,
         src_shape: &[Expr],
-        view: &harp::graph::shape::View,
+        view: &harp_core::graph::shape::View,
     ) -> String {
-        use harp::graph::shape::View;
+        use harp_core::graph::shape::View;
         let new_shape = view.shape();
 
         // Handle IndexExpr view
@@ -613,8 +614,8 @@ fn cumulative_op_to_name(op: &CumulativeOp) -> &'static str {
     }
 }
 
-fn ast_expr_to_dsl(expr: &harp::ast::AstNode, inputs: &[String]) -> String {
-    use harp::ast::{AstNode, Literal};
+fn ast_expr_to_dsl(expr: &harp_core::ast::AstNode, inputs: &[String]) -> String {
+    use harp_core::ast::{AstNode, Literal};
 
     match expr {
         AstNode::Wildcard(name) => {
@@ -717,8 +718,8 @@ mod tests {
     fn test_decompile_with_shape_vars() {
         let mut graph = Graph::new();
         let shape = vec![
-            harp::graph::shape::Expr::Var("N".to_string()),
-            harp::graph::shape::Expr::Var("M".to_string()),
+            harp_core::graph::shape::Expr::Var("N".to_string()),
+            harp_core::graph::shape::Expr::Var("M".to_string()),
         ];
         let a = graph.input("a", DType::F32, shape.clone());
         let b = graph.input("b", DType::F32, shape);
