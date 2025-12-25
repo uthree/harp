@@ -7,7 +7,6 @@ use crate::ast::{AstNode, DType, Literal};
 use crate::backend::KernelSignature;
 use crate::backend::sequence::ExecutionQuery;
 use crate::backend::traits::{Buffer, Compiler, Device, Kernel, KernelConfig};
-use crate::graph::Graph;
 use crate::opt::ast::rules::rules_for_capabilities;
 use crate::opt::ast::{
     AstSuggester, BeamSearchOptimizer as AstBeamSearchOptimizer,
@@ -16,7 +15,6 @@ use crate::opt::ast::{
     OptimizationHistory as AstOptimizationHistory, RuleBaseSuggester, VectorizationSuggester,
 };
 use crate::opt::context::DeviceCapabilities;
-use crate::opt::graph::{GraphOptimizer, OptimizationHistory as GraphOptimizationHistory};
 use crate::renderer::c_like::CLikeRenderer;
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -36,8 +34,6 @@ pub trait KernelSourceRenderer: CLikeRenderer {
 /// Pipeline configuration
 #[derive(Debug, Clone)]
 pub struct PipelineConfig {
-    /// Beam width for graph optimization
-    pub graph_beam_width: usize,
     /// Beam width for AST optimization
     pub ast_beam_width: usize,
     /// Maximum optimization steps per phase
@@ -57,7 +53,6 @@ pub struct PipelineConfig {
 impl Default for PipelineConfig {
     fn default() -> Self {
         Self {
-            graph_beam_width: 4,
             ast_beam_width: 4,
             max_steps: 5000,
             show_progress: false,
@@ -78,8 +73,6 @@ impl PipelineConfig {
 /// Optimization histories for pipeline
 #[derive(Debug, Clone, Default)]
 pub struct OptimizationHistories {
-    /// Graph optimization history
-    pub graph: Option<GraphOptimizationHistory>,
     /// AST optimization history
     pub ast: Option<AstOptimizationHistory>,
 }
@@ -136,20 +129,14 @@ where
         &mut self.config
     }
 
-    /// Compile a graph to a kernel
-    pub fn compile_graph(
+    /// Compile an AST program to a kernel
+    ///
+    /// This method compiles an AST generated from TensorLowerer.
+    pub fn compile_ast(
         &mut self,
-        graph: Graph,
+        program: AstNode,
+        signature: KernelSignature,
     ) -> Result<CompiledKernel<Comp::Kernel, Buf>, Comp::Error> {
-        // Create signature from original graph
-        let signature = crate::lowerer::create_signature(&graph);
-
-        // Optimize graph
-        let optimized_graph = self.optimize_graph(graph);
-
-        // Extract program from graph
-        let program = crate::lowerer::extract_program(optimized_graph);
-
         // Optimize AST
         let optimized_program = self.optimize_ast(program);
 
@@ -157,7 +144,7 @@ where
         let kernel_source = self.renderer.render_kernel_source(&optimized_program);
 
         // Debug: log the kernel source
-        log::debug!("Generated kernel source:\n{}", kernel_source);
+        log::debug!("Generated kernel source (from AST):\n{}", kernel_source);
 
         // Extract dispatch size config (for dynamic shape support)
         let dispatch_config = self.extract_dispatch_config(&optimized_program, &signature);
@@ -166,8 +153,7 @@ where
         let entry_point = self.extract_entry_point_name(&optimized_program);
         let base_config = self.extract_kernel_config(&optimized_program, &signature);
 
-        // Compute compatible local_work_size:
-        // local_work_size[i] must be <= global_work_size[i] and must divide evenly
+        // Compute compatible local_work_size
         let gws = base_config.global_work_size;
         let lws_base = base_config.local_work_size.unwrap_or([1, 1, 1]);
         let lws = [
@@ -196,30 +182,6 @@ where
     /// Allocate a buffer on the GPU
     pub fn allocate_buffer(&self, shape: Vec<usize>, dtype: DType) -> Result<Buf, Buf::Error> {
         Buf::allocate(&self.device, shape, dtype)
-    }
-
-    // Internal: optimize graph
-    fn optimize_graph(&mut self, graph: Graph) -> Graph {
-        use crate::opt::graph::{MultiPhaseConfig, create_multi_phase_optimizer};
-
-        // デバイスからDeviceCapabilitiesを作成
-        let opt_context = DeviceCapabilities::from_device(&self.device);
-
-        let config = MultiPhaseConfig::new()
-            .with_beam_width(self.config.graph_beam_width)
-            .with_max_steps(self.config.max_steps)
-            .with_progress(self.config.show_progress)
-            .with_collect_logs(self.config.collect_history)
-            .with_capabilities(opt_context);
-
-        let optimizer = create_multi_phase_optimizer(config);
-        let (optimized_graph, history) = optimizer.optimize_with_history(graph);
-
-        if self.config.collect_history {
-            self.histories.graph = Some(history);
-        }
-
-        optimized_graph
     }
 
     // Internal: optimize AST
@@ -313,7 +275,7 @@ where
             .iter()
             .flat_map(|s| {
                 s.shape.iter().filter_map(|e| {
-                    if let crate::graph::shape::Expr::Const(n) = e {
+                    if let crate::core::shape::Expr::Const(n) = e {
                         Some(*n as usize)
                     } else {
                         None
@@ -377,7 +339,7 @@ where
             .iter()
             .flat_map(|s| {
                 s.shape.iter().filter_map(|e| {
-                    if let crate::graph::shape::Expr::Const(n) = e {
+                    if let crate::core::shape::Expr::Const(n) = e {
                         Some(*n as usize)
                     } else {
                         None
@@ -696,18 +658,6 @@ where
     /// The signature is used to map buffer names to the correct positions.
     /// Shape variables from the query override those from the signature for
     /// dynamic dispatch size computation.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let query = ExecutionQuery::new()
-    ///     .input("a", &buf_a)
-    ///     .input("b", &buf_b)
-    ///     .output("out", &mut buf_out)
-    ///     .shape_var("batch_size", 32);
-    ///
-    /// compiled_kernel.execute_with(query)?;
-    /// ```
     pub fn execute_with(
         &self,
         mut query: ExecutionQuery<'_, B>,
@@ -835,20 +785,6 @@ where
     }
 
     /// Create a bound execution query with default shape variables
-    ///
-    /// This method provides a fluent API for executing the kernel.
-    /// Default shape variables from the signature are pre-populated,
-    /// so you only need to specify inputs, outputs, and any overrides.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// compiled_kernel.query()
-    ///     .input("x", &input_buf)
-    ///     .output("y", &mut output_buf)
-    ///     .shape_var("batch_size", 32)  // Override default
-    ///     .execute()?;
-    /// ```
     pub fn query(&self) -> BoundExecutionQuery<'_, K, B> {
         BoundExecutionQuery {
             kernel: self,
@@ -858,18 +794,6 @@ where
 }
 
 /// A bound execution query that holds a reference to the kernel
-///
-/// This struct provides a fluent API for specifying buffers and shape
-/// variables, then executing the kernel in a single method chain.
-///
-/// # Example
-///
-/// ```ignore
-/// compiled_kernel.query()
-///     .input("x", &input_buf)
-///     .output("y", &mut output_buf)
-///     .execute()?;
-/// ```
 pub struct BoundExecutionQuery<'a, K, B>
 where
     K: Kernel<Buffer = B>,
@@ -897,8 +821,6 @@ where
     }
 
     /// Set or override a shape variable
-    ///
-    /// If not called, the default value from the kernel signature is used.
     pub fn shape_var(mut self, name: impl Into<String>, value: i64) -> Self {
         self.query = self.query.shape_var(name, value);
         self
@@ -930,7 +852,6 @@ mod tests {
     #[test]
     fn test_pipeline_config_default() {
         let config = PipelineConfig::default();
-        assert_eq!(config.graph_beam_width, 4);
         assert_eq!(config.ast_beam_width, 4);
     }
 
@@ -972,112 +893,10 @@ mod tests {
     }
 
     #[test]
-    fn test_evaluate_dispatch_size() {
-        let shape_vars = HashMap::new();
-        let size: [Box<AstNode>; 3] = [
-            Box::new(const_int(256)),
-            Box::new(const_int(1)),
-            Box::new(const_int(1)),
-        ];
-
-        let result = evaluate_dispatch_size(&size, &shape_vars);
-        assert_eq!(result, [256, 1, 1]);
-    }
-
-    #[test]
-    fn test_evaluate_dispatch_size_with_vars() {
-        let mut shape_vars = HashMap::new();
-        shape_vars.insert("total".to_string(), 1024);
-
-        // grid_size = ceil(total / 64) * 64
-        // Represented as: Mul(Idiv(Add(total, 63), 64), 64)
-        let grid_x = AstNode::Mul(
-            Box::new(AstNode::Idiv(
-                Box::new(AstNode::Add(
-                    Box::new(AstNode::Var("total".to_string())),
-                    Box::new(const_int(63)),
-                )),
-                Box::new(const_int(64)),
-            )),
-            Box::new(const_int(64)),
-        );
-
-        let size: [Box<AstNode>; 3] = [
-            Box::new(grid_x),
-            Box::new(const_int(1)),
-            Box::new(const_int(1)),
-        ];
-
-        let result = evaluate_dispatch_size(&size, &shape_vars);
-        // (1024 + 63) / 64 = 16, 16 * 64 = 1024
-        assert_eq!(result, [1024, 1, 1]);
-    }
-
-    #[test]
     fn test_dispatch_size_expr_const() {
         let expr = DispatchSizeExpr::Const(42);
         let shape_vars = HashMap::new();
         assert_eq!(expr.evaluate(&shape_vars), 42);
-    }
-
-    #[test]
-    fn test_dispatch_size_expr_var() {
-        let expr = DispatchSizeExpr::Var("batch_size".to_string());
-        let mut shape_vars = HashMap::new();
-        shape_vars.insert("batch_size".to_string(), 32);
-
-        assert_eq!(expr.evaluate(&shape_vars), 32);
-
-        // Unknown variable defaults to 1
-        let unknown = DispatchSizeExpr::Var("unknown".to_string());
-        assert_eq!(unknown.evaluate(&shape_vars), 1);
-    }
-
-    #[test]
-    fn test_dispatch_size_expr_arithmetic() {
-        let shape_vars = HashMap::new();
-
-        // 10 + 20 = 30
-        let add = DispatchSizeExpr::Add(
-            Box::new(DispatchSizeExpr::Const(10)),
-            Box::new(DispatchSizeExpr::Const(20)),
-        );
-        assert_eq!(add.evaluate(&shape_vars), 30);
-
-        // 10 * 5 = 50
-        let mul = DispatchSizeExpr::Mul(
-            Box::new(DispatchSizeExpr::Const(10)),
-            Box::new(DispatchSizeExpr::Const(5)),
-        );
-        assert_eq!(mul.evaluate(&shape_vars), 50);
-
-        // 100 / 10 = 10
-        let div = DispatchSizeExpr::Div(
-            Box::new(DispatchSizeExpr::Const(100)),
-            Box::new(DispatchSizeExpr::Const(10)),
-        );
-        assert_eq!(div.evaluate(&shape_vars), 10);
-
-        // max(5, 10) = 10
-        let max = DispatchSizeExpr::Max(
-            Box::new(DispatchSizeExpr::Const(5)),
-            Box::new(DispatchSizeExpr::Const(10)),
-        );
-        assert_eq!(max.evaluate(&shape_vars), 10);
-    }
-
-    #[test]
-    fn test_dispatch_size_expr_with_vars() {
-        let mut shape_vars = HashMap::new();
-        shape_vars.insert("n".to_string(), 1024);
-        shape_vars.insert("block_size".to_string(), 64);
-
-        // grid_size = n / block_size
-        let expr = DispatchSizeExpr::Div(
-            Box::new(DispatchSizeExpr::Var("n".to_string())),
-            Box::new(DispatchSizeExpr::Var("block_size".to_string())),
-        );
-        assert_eq!(expr.evaluate(&shape_vars), 16);
     }
 
     #[test]
@@ -1087,47 +906,5 @@ mod tests {
 
         assert_eq!(config.evaluate_grid_size(&shape_vars), [256, 1, 1]);
         assert_eq!(config.evaluate_local_size(&shape_vars), [64, 1, 1]);
-    }
-
-    #[test]
-    fn test_dispatch_size_config_dynamic() {
-        // Create config with variable-based expressions
-        let config = DispatchSizeConfig {
-            grid_size: [
-                DispatchSizeExpr::Var("total_elements".to_string()),
-                DispatchSizeExpr::Const(1),
-                DispatchSizeExpr::Const(1),
-            ],
-            local_size: [
-                DispatchSizeExpr::Const(64),
-                DispatchSizeExpr::Const(1),
-                DispatchSizeExpr::Const(1),
-            ],
-        };
-
-        // Different shape_vars produce different sizes
-        let mut vars1 = HashMap::new();
-        vars1.insert("total_elements".to_string(), 1024);
-        assert_eq!(config.evaluate_grid_size(&vars1), [1024, 1, 1]);
-
-        let mut vars2 = HashMap::new();
-        vars2.insert("total_elements".to_string(), 2048);
-        assert_eq!(config.evaluate_grid_size(&vars2), [2048, 1, 1]);
-    }
-
-    #[test]
-    fn test_dispatch_size_expr_from_ast() {
-        // Test conversion from AstNode
-        let ast = AstNode::Mul(
-            Box::new(AstNode::Var("n".to_string())),
-            Box::new(const_int(2)),
-        );
-
-        let expr = DispatchSizeExpr::from_ast(&ast);
-
-        let mut shape_vars = HashMap::new();
-        shape_vars.insert("n".to_string(), 100);
-
-        assert_eq!(expr.evaluate(&shape_vars), 200);
     }
 }

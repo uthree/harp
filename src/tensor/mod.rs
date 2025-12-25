@@ -82,7 +82,6 @@
 //! let grad = x.grad();
 //! ```
 
-pub mod convert;
 pub mod dimension;
 pub mod forward;
 pub mod fusion;
@@ -99,8 +98,8 @@ pub use dimension::{Dim, Dim0, Dim1, Dim2, Dim3, Dim4, Dim5, Dim6, DimDyn, Dimen
 pub use forward::ForwardError;
 pub use ops::{ElementwiseOp, ReduceOp, TensorOp};
 
-use crate::graph::shape::View;
-use crate::graph::{DType, GraphNode};
+use crate::core::DType;
+use crate::core::shape::View;
 
 /// Gradient function trait for backpropagation
 ///
@@ -222,16 +221,8 @@ impl TensorNode {
 /// let dynamic = Tensor::<DimDyn>::zeros_dyn(&[3, 4, 5]);
 /// ```
 pub struct Tensor<D: Dimension = DimDyn> {
-    // ---- Transition period: keeping both old and new structures ----
-    // TODO: Remove `node` field after full migration to TensorOp
-    /// The computation graph node (legacy - forms a DAG through `src` references)
-    pub(crate) node: GraphNode,
-
-    // ---- New structure (TensorOp-based) ----
     /// Internal tensor node (reference counted for efficient sharing)
-    /// During transition, this is built alongside `node` from the same data
     pub(crate) inner: Rc<TensorNode>,
-
     /// Shape of the tensor (cached from view for convenience)
     pub(crate) shape: Vec<usize>,
     /// Data type
@@ -247,7 +238,6 @@ pub struct Tensor<D: Dimension = DimDyn> {
 impl<D: Dimension> Clone for Tensor<D> {
     fn clone(&self) -> Self {
         Self {
-            node: self.node.clone(),
             inner: self.inner.clone(),
             shape: self.shape.clone(),
             dtype: self.dtype.clone(),
@@ -272,9 +262,7 @@ impl<D: Dimension> Tensor<D> {
     /// let c = a2 * 2.0;        // a2 is separate path
     /// ```
     pub fn fork(&self) -> Tensor<D> {
-        // Create a Clone operation in the computation graph
-        let cloned_node = self.node.graph_clone();
-        // Create corresponding TensorNode with Clone op
+        // Create TensorNode with Clone op
         let tensor_node = TensorNode::new(
             TensorOp::Clone,
             vec![self.clone().into_dyn()],
@@ -282,7 +270,6 @@ impl<D: Dimension> Tensor<D> {
             self.dtype.clone(),
         );
         Tensor {
-            node: cloned_node,
             inner: Rc::new(tensor_node),
             shape: self.shape.clone(),
             dtype: self.dtype.clone(),
@@ -334,15 +321,9 @@ impl<D: Dimension> Tensor<D> {
         self
     }
 
-    /// Get a reference to the underlying graph node
-    pub fn node(&self) -> &GraphNode {
-        &self.node
-    }
-
     /// Convert to a dynamic dimension tensor
     pub fn into_dyn(self) -> Tensor<DimDyn> {
         Tensor {
-            node: self.node,
             inner: self.inner,
             shape: self.shape,
             dtype: self.dtype,
@@ -354,7 +335,7 @@ impl<D: Dimension> Tensor<D> {
 
     /// Get the view of this tensor's memory layout
     pub fn view(&self) -> &View {
-        &self.node.view
+        &self.inner.view
     }
 
     /// Check if this tensor has been executed (buffer is populated)
@@ -438,7 +419,6 @@ impl<D: Dimension> Tensor<D> {
     /// Returns a new tensor with the same data but no gradient tracking.
     pub fn detach(&self) -> Tensor<D> {
         Tensor {
-            node: self.node.clone(),
             inner: self.inner.clone(),
             shape: self.shape.clone(),
             dtype: self.dtype.clone(),
@@ -531,8 +511,7 @@ mod tests {
         let forked_grad = t_grad.fork();
         assert!(!forked_grad.requires_grad());
 
-        // The forked tensor should have a Clone operation in its graph
-        use crate::graph::ops::GraphOp;
-        assert!(matches!(forked.node.op, GraphOp::Clone));
+        // The forked tensor should have a Clone operation in its inner node
+        assert!(matches!(forked.inner.op, TensorOp::Clone));
     }
 }

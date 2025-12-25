@@ -24,11 +24,6 @@
 //! let computed = result.realize().unwrap();
 //! ```
 //!
-//! # Graph API（上級者向け）
-//!
-//! 低レベルのGraph APIも利用可能です。計算グラフを直接操作したい場合に使用します。
-//! `harp::graph`モジュールからGraph, GraphNode等をインポートしてください。
-//!
 //! # バックエンド
 //!
 //! バックエンドはfeature flagで有効化します:
@@ -44,24 +39,18 @@
 pub mod ast;
 pub mod backend;
 pub mod core;
-pub mod graph;
-pub mod lowerer;
 pub mod opt;
 pub mod renderer;
 pub mod tensor;
 
-// Re-export commonly used types from graph module
-// Note: GraphNode is available via `harp::graph::GraphNode` for advanced usage
-pub use graph::{DType, Graph, ReduceStrategy};
+// Re-export core types
+pub use core::DType;
 
 // Re-export renderer traits
 pub use renderer::Renderer;
 
 // Re-export backend traits
 pub use backend::{Buffer, Compiler, Device, Kernel, KernelConfig, Pipeline};
-
-// Re-export lowerer
-pub use lowerer::{create_lowering_optimizer, create_signature, create_simple_lowering_optimizer};
 
 /// Prelude module with commonly used types and traits
 ///
@@ -71,10 +60,6 @@ pub use lowerer::{create_lowering_optimizer, create_signature, create_simple_low
 /// # 推奨: Tensor API
 ///
 /// Tensorはharpの主要なAPIです。遅延評価、自動微分、演算融合をサポートします。
-///
-/// # 上級者向け: Graph API
-///
-/// 低レベルのGraph APIが必要な場合は、`harp::graph`モジュールを直接使用してください。
 ///
 /// # Example
 ///
@@ -88,11 +73,7 @@ pub mod prelude {
     };
 
     // Data types
-    pub use crate::graph::DType;
-
-    // Graph types (for advanced usage - prefer Tensor API for most use cases)
-    // GraphNode is intentionally excluded; use harp::graph::GraphNode if needed
-    pub use crate::graph::{Graph, ReduceStrategy};
+    pub use crate::core::DType;
 
     // Backend traits
     pub use crate::backend::{
@@ -100,5 +81,5 @@ pub mod prelude {
     };
 
     // Shape expressions (for advanced tensor operations)
-    pub use crate::graph::shape::{Expr, View};
+    pub use crate::core::shape::{Expr, View};
 }

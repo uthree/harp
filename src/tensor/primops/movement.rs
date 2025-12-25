@@ -6,8 +6,8 @@
 //! - Reshape: change shape (same total elements)
 //! - Contiguous: ensure contiguous memory layout
 
-use crate::graph::DType;
-use crate::graph::shape::{Expr, View};
+use crate::core::DType;
+use crate::core::shape::{Expr, View};
 use crate::tensor::{Dim, DimDyn, Dimension, Tensor, TensorNode, TensorOp};
 
 /// Helper to create View from usize shape

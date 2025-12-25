@@ -18,8 +18,8 @@
 //! 3. **単一消費**: 親テンソルが子演算のみに使用される（所有権ベース設計で保証）
 
 use crate::ast::{AstNode, Literal, helper::*};
-use crate::graph::DType;
-use crate::graph::shape::View;
+use crate::core::DType;
+use crate::core::shape::View;
 #[allow(unused_imports)]
 use crate::tensor::ops::{ElementwiseOp, ReduceOp, TensorOp};
 use crate::tensor::{DimDyn, Tensor, TensorNode};

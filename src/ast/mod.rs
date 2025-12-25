@@ -11,7 +11,7 @@ pub mod types;
 pub use scope::{Mutability, Scope, VarDecl, VarKind};
 pub use types::{DType, Literal};
 
-use crate::graph::shape::Expr;
+use crate::core::shape::Expr;
 
 /// カーネル呼び出し情報（AST層）
 ///

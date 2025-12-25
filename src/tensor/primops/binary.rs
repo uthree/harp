@@ -12,8 +12,8 @@ use std::ops::Mul;
 use std::rc::Rc;
 
 use crate::ast::Literal;
-use crate::graph::DType;
-use crate::graph::shape::{Expr, View};
+use crate::core::DType;
+use crate::core::shape::{Expr, View};
 use crate::tensor::{
     DimDyn, Dimension, ElementwiseOp, GradFn, Tensor, TensorData, TensorNode, TensorOp,
 };
@@ -39,7 +39,6 @@ pub(crate) fn with_grad_fn<D: Dimension>(
 ) -> Tensor<D> {
     if grad_fn.is_some() {
         Tensor {
-            node: tensor.node,
             inner: tensor.inner,
             shape: tensor.shape,
             dtype: tensor.dtype,

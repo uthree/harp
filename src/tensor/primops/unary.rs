@@ -10,8 +10,8 @@
 use std::ops::Neg;
 use std::rc::Rc;
 
-use crate::graph::DType;
-use crate::graph::shape::{Expr, View};
+use crate::core::DType;
+use crate::core::shape::{Expr, View};
 use crate::tensor::fusion::try_fuse_and_create;
 use crate::tensor::{Dimension, ElementwiseOp, Tensor, TensorNode, TensorOp};
 

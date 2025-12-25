@@ -1,12 +1,11 @@
 //! TensorOp - Tensor演算の定義
 //!
-//! GraphNodeを廃止し、TensorがGraphNodeの役割を直接担うための演算定義。
+//! TensorがGraphNodeの役割を直接担うための演算定義。
 //! Eager Fusionにより、演算呼び出し時に融合判定が行われる。
 
 use crate::ast::{AstNode, Literal};
-use crate::graph::DType;
-use crate::graph::ops::{ElementwiseOp as GraphElementwiseOp, GraphOp, ReduceOp as GraphReduceOp};
-use crate::graph::shape::Expr;
+use crate::core::DType;
+use crate::core::shape::Expr;
 
 /// Tensor演算の種類
 ///
@@ -134,63 +133,6 @@ pub enum ReduceOp {
 }
 
 impl TensorOp {
-    /// GraphOpからTensorOpへの変換
-    ///
-    /// 移行期間中に使用。GraphOpの一部のバリアント（Kernel, SubgraphCall等）は
-    /// TensorOpに対応がないため、ダミーのExecutedを返す。
-    pub fn from_graph_op(op: &GraphOp) -> Self {
-        match op {
-            GraphOp::Buffer { name } => TensorOp::Buffer { name: name.clone() },
-            GraphOp::Const(lit) => TensorOp::Const(lit.clone()),
-            GraphOp::ConstFill(lit) => TensorOp::ConstFill(lit.clone()),
-            GraphOp::Rand => TensorOp::Rand,
-            GraphOp::Arange => TensorOp::Arange,
-            GraphOp::Cast { target_dtype } => TensorOp::Cast {
-                target_dtype: target_dtype.clone(),
-            },
-            GraphOp::Clone => TensorOp::Clone,
-            GraphOp::View(_) => TensorOp::View,
-            GraphOp::Contiguous => TensorOp::Contiguous,
-            GraphOp::Elementwise { op } => TensorOp::Elementwise {
-                op: ElementwiseOp::from_graph_op(op),
-            },
-            GraphOp::FusedElementwise { expr } => TensorOp::FusedElementwise { expr: expr.clone() },
-            GraphOp::Reduce {
-                op,
-                axis,
-                reduce_strategy: _,
-            } => TensorOp::Reduce {
-                op: ReduceOp::from_graph_op(op),
-                axes: vec![*axis],
-                keepdim: false, // GraphOpではkeepdimはViewで表現される
-            },
-            GraphOp::FusedElementwiseReduce {
-                expr,
-                reduce_op,
-                axes,
-                reduce_strategy: _,
-            } => TensorOp::FusedElementwiseReduce {
-                expr: expr.clone(),
-                reduce_op: ReduceOp::from_graph_op(reduce_op),
-                axes: axes.clone(),
-                keepdim: false,
-            },
-            GraphOp::Pad { padding, value } => TensorOp::Pad {
-                padding: padding.clone(),
-                value: *value,
-            },
-            GraphOp::Slice { ranges } => TensorOp::Slice {
-                ranges: ranges.clone(),
-            },
-            GraphOp::Concat { axis } => TensorOp::Concat { axis: *axis },
-            // GraphOp固有のバリアント: Tensorでは対応なし
-            GraphOp::Fold { .. }
-            | GraphOp::Kernel { .. }
-            | GraphOp::SubgraphCall { .. }
-            | GraphOp::SubgraphOutput { .. } => TensorOp::Executed, // ダミー
-        }
-    }
-
     /// この演算がElementwiseかどうか
     pub fn is_elementwise(&self) -> bool {
         matches!(
@@ -224,24 +166,6 @@ impl TensorOp {
 }
 
 impl ElementwiseOp {
-    /// GraphElementwiseOpからの変換
-    pub fn from_graph_op(op: &GraphElementwiseOp) -> Self {
-        match op {
-            GraphElementwiseOp::Add => Self::Add,
-            GraphElementwiseOp::Mul => Self::Mul,
-            GraphElementwiseOp::Max => Self::Max,
-            GraphElementwiseOp::Rem => Self::Rem,
-            GraphElementwiseOp::Idiv => Self::Idiv,
-            GraphElementwiseOp::Neg => Self::Neg,
-            GraphElementwiseOp::Recip => Self::Recip,
-            GraphElementwiseOp::Log2 => Self::Log2,
-            GraphElementwiseOp::Exp2 => Self::Exp2,
-            GraphElementwiseOp::Sin => Self::Sin,
-            GraphElementwiseOp::Sqrt => Self::Sqrt,
-            GraphElementwiseOp::Floor => Self::Floor,
-        }
-    }
-
     /// この演算が二項演算かどうか
     pub fn is_binary(&self) -> bool {
         matches!(
@@ -275,15 +199,6 @@ impl ElementwiseOp {
 }
 
 impl ReduceOp {
-    /// GraphReduceOpからの変換
-    pub fn from_graph_op(op: &GraphReduceOp) -> Self {
-        match op {
-            GraphReduceOp::Sum => Self::Sum,
-            GraphReduceOp::Prod => Self::Prod,
-            GraphReduceOp::Max => Self::Max,
-        }
-    }
-
     /// 演算の名前を取得
     pub fn name(&self) -> &'static str {
         match self {

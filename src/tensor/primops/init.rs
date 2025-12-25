@@ -6,8 +6,8 @@
 use std::marker::PhantomData;
 
 use crate::ast::Literal;
-use crate::graph::shape::{Expr, View};
-use crate::graph::{DType, GraphNode, GraphOp};
+use crate::core::DType;
+use crate::core::shape::{Expr, View};
 use crate::tensor::{Dim, DimDyn, Dimension, Tensor, TensorNode, TensorOp};
 
 /// Helper to create View from usize shape
@@ -130,60 +130,13 @@ impl Tensor<DimDyn> {
 // ============================================================================
 
 impl<D: Dimension> Tensor<D> {
-    /// Create a new tensor from a graph node (internal use)
-    ///
-    /// During transition period, this also creates a TensorNode from the GraphNode.
-    /// The TensorNode.src is empty as we don't have access to source Tensors here.
-    /// This will be fixed in Phase 3 when primops are updated to pass source Tensors.
-    pub(crate) fn from_node(node: GraphNode, shape: Vec<usize>, dtype: DType) -> Self {
-        use std::cell::RefCell;
-        use std::rc::Rc;
-
-        // Create TensorNode from GraphNode (transition period)
-        let tensor_op = TensorOp::from_graph_op(&node.op);
-        let tensor_node = TensorNode::new(
-            tensor_op,
-            vec![], // Empty src during transition - will be fixed in Phase 3
-            node.view.clone(),
-            dtype.clone(),
-        );
-
-        Self {
-            node,
-            inner: Rc::new(tensor_node),
-            shape,
-            dtype,
-            autograd: None,
-            buffer: RefCell::new(None),
-            _dim: PhantomData,
-        }
-    }
-
-    /// Create a new tensor from a TensorNode directly (new API)
-    ///
-    /// This is the preferred method for Phase 3+ migration.
-    /// The GraphNode is still created for backward compatibility but will be removed later.
+    /// Create a new tensor from a TensorNode directly
     pub(crate) fn from_tensor_node(tensor_node: TensorNode, shape: Vec<usize>) -> Self {
         use std::cell::RefCell;
         use std::rc::Rc;
 
-        // Extract GraphNode sources from TensorNode sources
-        let graph_sources: Vec<GraphNode> =
-            tensor_node.src.iter().map(|t| t.node.clone()).collect();
-
-        // Convert TensorOp to GraphOp for backward compatibility
-        let graph_op = tensor_op_to_graph_op(&tensor_node.op, &tensor_node.view);
-
-        let node = GraphNode::new(
-            tensor_node.dtype.clone(),
-            graph_op,
-            graph_sources,
-            tensor_node.view.clone(),
-        );
-
         let dtype = tensor_node.dtype.clone();
         Self {
-            node,
             inner: Rc::new(tensor_node),
             shape,
             dtype,
@@ -191,78 +144,6 @@ impl<D: Dimension> Tensor<D> {
             buffer: RefCell::new(None),
             _dim: PhantomData,
         }
-    }
-}
-
-/// Convert TensorOp to GraphOp for backward compatibility
-///
-/// This function is used during the transition period to create GraphNodes
-/// from TensorNodes. It will be removed when graphモジュール is deleted.
-fn tensor_op_to_graph_op(op: &TensorOp, view: &View) -> GraphOp {
-    use crate::graph::ops::{ElementwiseOp as GE, ReduceOp as GR};
-
-    match op {
-        TensorOp::Buffer { name } => GraphOp::Buffer { name: name.clone() },
-        TensorOp::Const(lit) => GraphOp::Const(lit.clone()),
-        TensorOp::ConstFill(lit) => GraphOp::ConstFill(lit.clone()),
-        TensorOp::Rand => GraphOp::Rand,
-        TensorOp::Arange => GraphOp::Arange,
-        TensorOp::Cast { target_dtype } => GraphOp::Cast {
-            target_dtype: target_dtype.clone(),
-        },
-        TensorOp::Clone => GraphOp::Clone,
-        TensorOp::View => GraphOp::View(view.clone()),
-        TensorOp::Contiguous => GraphOp::Contiguous,
-        TensorOp::Elementwise { op } => GraphOp::Elementwise {
-            op: match op {
-                crate::tensor::ElementwiseOp::Add => GE::Add,
-                crate::tensor::ElementwiseOp::Mul => GE::Mul,
-                crate::tensor::ElementwiseOp::Max => GE::Max,
-                crate::tensor::ElementwiseOp::Rem => GE::Rem,
-                crate::tensor::ElementwiseOp::Idiv => GE::Idiv,
-                crate::tensor::ElementwiseOp::Neg => GE::Neg,
-                crate::tensor::ElementwiseOp::Recip => GE::Recip,
-                crate::tensor::ElementwiseOp::Log2 => GE::Log2,
-                crate::tensor::ElementwiseOp::Exp2 => GE::Exp2,
-                crate::tensor::ElementwiseOp::Sin => GE::Sin,
-                crate::tensor::ElementwiseOp::Sqrt => GE::Sqrt,
-                crate::tensor::ElementwiseOp::Floor => GE::Floor,
-            },
-        },
-        TensorOp::FusedElementwise { expr } => GraphOp::FusedElementwise { expr: expr.clone() },
-        TensorOp::Reduce { op, axes, .. } => GraphOp::Reduce {
-            op: match op {
-                crate::tensor::ReduceOp::Sum => GR::Sum,
-                crate::tensor::ReduceOp::Prod => GR::Prod,
-                crate::tensor::ReduceOp::Max => GR::Max,
-            },
-            axis: axes.first().copied().unwrap_or(0),
-            reduce_strategy: None,
-        },
-        TensorOp::FusedElementwiseReduce {
-            expr,
-            reduce_op,
-            axes,
-            ..
-        } => GraphOp::FusedElementwiseReduce {
-            expr: expr.clone(),
-            reduce_op: match reduce_op {
-                crate::tensor::ReduceOp::Sum => GR::Sum,
-                crate::tensor::ReduceOp::Prod => GR::Prod,
-                crate::tensor::ReduceOp::Max => GR::Max,
-            },
-            axes: axes.clone(),
-            reduce_strategy: None,
-        },
-        TensorOp::Pad { padding, value } => GraphOp::Pad {
-            padding: padding.clone(),
-            value: *value,
-        },
-        TensorOp::Slice { ranges } => GraphOp::Slice {
-            ranges: ranges.clone(),
-        },
-        TensorOp::Concat { axis } => GraphOp::Concat { axis: *axis },
-        TensorOp::Executed => GraphOp::Contiguous, // Placeholder
     }
 }
 

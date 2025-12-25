@@ -1,4 +1,4 @@
-use crate::graph::shape::Expr;
+use super::Expr;
 use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -102,7 +102,7 @@ impl View {
     ///
     /// # Example
     /// ```
-    /// use harp::graph::shape::{View, Expr};
+    /// use harp::core::shape::{View, Expr};
     ///
     /// // permute([1, 0]) ∘ contiguous([3, 4])
     /// let inner = View::contiguous(vec![3, 4]);
@@ -402,7 +402,7 @@ impl View {
     ///
     /// # Example
     /// ```
-    /// use harp::graph::shape::{View, Expr};
+    /// use harp::core::shape::{View, Expr};
     ///
     /// let view = View::contiguous(vec![3, 4]); // shape: [3, 4]
     /// let tiled = view.tile(0, 2); // shape: [6, 4], idx0を%3で循環
@@ -537,7 +537,7 @@ impl View {
     ///
     /// # Examples
     /// ```
-    /// use harp::graph::shape::View;
+    /// use harp::core::shape::View;
     ///
     /// // 連続したViewは最内軸も連続
     /// let view = View::contiguous(vec![3, 4]);
@@ -571,7 +571,7 @@ impl View {
     ///
     /// # Examples
     /// ```
-    /// use harp::graph::shape::{View, Expr};
+    /// use harp::core::shape::{View, Expr};
     ///
     /// // 転置を式で表現: offset = idx1 * 4 + idx0
     /// let view = View::from_index_expr(

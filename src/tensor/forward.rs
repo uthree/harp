@@ -14,7 +14,7 @@
 
 use super::{DimDyn, Dimension, Tensor};
 use crate::backend::global::{DeviceKind, get_default_device_kind};
-use crate::graph::DType;
+use crate::core::DType;
 use std::fmt;
 use std::marker::PhantomData;
 
@@ -137,29 +137,37 @@ impl<D: Dimension> Tensor<D> {
     /// Internal: Execute realize on Metal device
     #[cfg(all(feature = "metal", target_os = "macos"))]
     fn realize_metal(&self) -> Result<Tensor<D>, ForwardError> {
-        use crate::backend::Pipeline;
         use crate::backend::global::get_default_device;
         use crate::backend::metal::{MetalBuffer, MetalCompiler, MetalDevice};
-        use crate::graph::Graph;
+        use crate::backend::{BufferSignature, KernelSignature, Pipeline};
+        use crate::core::shape::Expr;
         use crate::renderer::MetalRenderer;
+        use crate::tensor::lowerer::TensorLowerer;
         use std::cell::RefCell;
 
         // Get the Metal device
         let device: std::sync::Arc<MetalDevice> = get_default_device::<MetalDevice>()
             .ok_or_else(|| ForwardError::DeviceUnavailable("Metal device not found".to_string()))?;
 
-        // Build graph from tensor's node
-        let mut graph = Graph::new();
-        graph.output("output".to_string(), self.node.clone());
+        // Lower Tensor to AST directly
+        let mut lowerer = TensorLowerer::new();
+        let ast = lowerer.lower(&self.clone().into_dyn());
 
-        // Create pipeline and compile
+        // Create signature from tensor metadata
+        let output_shape: Vec<Expr> = self.shape().iter().map(|&s| Expr::from(s as i64)).collect();
+        let signature = KernelSignature::new(
+            vec![], // TODO: Collect input signatures
+            vec![BufferSignature::new("output".to_string(), output_shape)],
+        );
+
+        // Create pipeline and compile from AST
         let renderer = MetalRenderer::default();
         let compiler = MetalCompiler::new(device.as_ref().clone());
         let mut pipeline: Pipeline<MetalRenderer, MetalDevice, MetalCompiler> =
             Pipeline::new(renderer, compiler, device.as_ref().clone());
 
         let compiled = pipeline
-            .compile_graph(graph)
+            .compile_ast(ast, signature)
             .map_err(|e| ForwardError::CompilationError(format!("Failed to compile: {:?}", e)))?;
 
         // Allocate buffers and execute
@@ -182,7 +190,6 @@ impl<D: Dimension> Tensor<D> {
 
         // Create new tensor with executed buffer
         Ok(Tensor {
-            node: self.node.clone(),
             inner: self.inner.clone(),
             shape: self.shape.clone(),
             dtype: self.dtype.clone(),
@@ -195,11 +202,12 @@ impl<D: Dimension> Tensor<D> {
     /// Internal: Execute realize on OpenCL device
     #[cfg(feature = "opencl")]
     fn realize_opencl(&self) -> Result<Tensor<D>, ForwardError> {
-        use crate::backend::Pipeline;
         use crate::backend::global::get_default_device;
         use crate::backend::opencl::{OpenCLBuffer, OpenCLCompiler, OpenCLDevice};
-        use crate::graph::Graph;
+        use crate::backend::{BufferSignature, KernelSignature, Pipeline};
+        use crate::core::shape::Expr;
         use crate::renderer::OpenCLRenderer;
+        use crate::tensor::lowerer::TensorLowerer;
         use std::cell::RefCell;
 
         // Get the OpenCL device
@@ -208,18 +216,25 @@ impl<D: Dimension> Tensor<D> {
                 ForwardError::DeviceUnavailable("OpenCL device not found".to_string())
             })?;
 
-        // Build graph from tensor's node
-        let mut graph = Graph::new();
-        graph.output("output".to_string(), self.node.clone());
+        // Lower Tensor to AST directly
+        let mut lowerer = TensorLowerer::new();
+        let ast = lowerer.lower(&self.clone().into_dyn());
 
-        // Create pipeline and compile
+        // Create signature from tensor metadata
+        let output_shape: Vec<Expr> = self.shape().iter().map(|&s| Expr::from(s as i64)).collect();
+        let signature = KernelSignature::new(
+            vec![], // TODO: Collect input signatures
+            vec![BufferSignature::new("output".to_string(), output_shape)],
+        );
+
+        // Create pipeline and compile from AST
         let renderer = OpenCLRenderer::default();
         let compiler = OpenCLCompiler::new(device.as_ref().clone());
         let mut pipeline: Pipeline<OpenCLRenderer, OpenCLDevice, OpenCLCompiler> =
             Pipeline::new(renderer, compiler, device.as_ref().clone());
 
         let compiled = pipeline
-            .compile_graph(graph)
+            .compile_ast(ast, signature)
             .map_err(|e| ForwardError::CompilationError(format!("Failed to compile: {:?}", e)))?;
 
         // Allocate buffers and execute
@@ -242,7 +257,6 @@ impl<D: Dimension> Tensor<D> {
 
         // Create new tensor with executed buffer
         Ok(Tensor {
-            node: self.node.clone(),
             inner: self.inner.clone(),
             shape: self.shape.clone(),
             dtype: self.dtype.clone(),
@@ -257,25 +271,15 @@ impl<D: Dimension> Tensor<D> {
     /// This creates a tensor with the buffer already populated,
     /// bypassing the computation graph.
     pub fn from_data(data: Vec<f32>, shape: Vec<usize>) -> Tensor<DimDyn> {
-        use crate::ast::Literal;
-        use crate::graph::shape::View;
-        use crate::graph::{GraphNode, GraphOp};
+        use crate::core::shape::View;
         use crate::tensor::{TensorNode, TensorOp};
         use std::cell::RefCell;
         use std::rc::Rc;
 
         let view = View::contiguous(shape.iter().map(|&s| s as isize).collect::<Vec<_>>());
-        let node = GraphNode::new(
-            DType::F32,
-            GraphOp::ConstFill(Literal::F32(0.0)), // placeholder
-            vec![],
-            view.clone(),
-        );
-
         let tensor_node = TensorNode::new(TensorOp::Executed, vec![], view, DType::F32);
 
         Tensor {
-            node,
             inner: Rc::new(tensor_node),
             shape,
             dtype: DType::F32,
@@ -367,30 +371,36 @@ impl<D: Dimension> Tensor<D> {
     /// Internal: Execute forward on Metal device
     #[cfg(all(feature = "metal", target_os = "macos"))]
     fn forward_metal(&self) -> Result<(), ForwardError> {
-        use crate::backend::Pipeline;
         use crate::backend::global::get_default_device;
-        use crate::backend::metal::{MetalBuffer, MetalCompiler, MetalDevice, MetalKernel};
-        use crate::graph::Graph;
+        use crate::backend::metal::{MetalBuffer, MetalCompiler, MetalDevice};
+        use crate::backend::{BufferSignature, KernelSignature, Pipeline};
+        use crate::core::shape::Expr;
         use crate::renderer::MetalRenderer;
+        use crate::tensor::lowerer::TensorLowerer;
 
         // Get the Metal device
         let device: std::sync::Arc<MetalDevice> = get_default_device::<MetalDevice>()
             .ok_or_else(|| ForwardError::DeviceUnavailable("Metal device not found".to_string()))?;
 
-        // Build graph from tensor's node
-        let mut graph = Graph::new();
-        // TODO: Properly trace the graph from this tensor's node
-        // For now, this is a placeholder - we need to implement graph building from GraphNode
-        graph.output("output".to_string(), self.node.clone());
+        // Lower Tensor to AST directly
+        let mut lowerer = TensorLowerer::new();
+        let ast = lowerer.lower(&self.clone().into_dyn());
 
-        // Create pipeline and compile
+        // Create signature from tensor metadata
+        let output_shape: Vec<Expr> = self.shape().iter().map(|&s| Expr::from(s as i64)).collect();
+        let signature = KernelSignature::new(
+            vec![], // TODO: Collect input signatures
+            vec![BufferSignature::new("output".to_string(), output_shape)],
+        );
+
+        // Create pipeline and compile from AST
         let renderer = MetalRenderer::default();
         let compiler = MetalCompiler::new(device.as_ref().clone());
         let mut pipeline: Pipeline<MetalRenderer, MetalDevice, MetalCompiler> =
-            Pipeline::new(renderer, device.as_ref().clone(), compiler);
+            Pipeline::new(renderer, compiler, device.as_ref().clone());
 
         let compiled = pipeline
-            .compile(graph)
+            .compile_ast(ast, signature)
             .map_err(|e| ForwardError::CompilationError(format!("Failed to compile: {:?}", e)))?;
 
         // Allocate buffers and execute
@@ -399,7 +409,6 @@ impl<D: Dimension> Tensor<D> {
             .map_err(|e| ForwardError::ExecutionError(format!("Failed to create buffer: {}", e)))?;
 
         // TODO: Properly handle input buffers
-        // For now, we assume no inputs (constant tensors only)
         let inputs: Vec<&MetalBuffer> = vec![];
         let mut outputs: Vec<&mut MetalBuffer> = vec![&mut output_buffer];
 
@@ -423,11 +432,12 @@ impl<D: Dimension> Tensor<D> {
     /// Internal: Execute forward on OpenCL device
     #[cfg(feature = "opencl")]
     fn forward_opencl(&self) -> Result<(), ForwardError> {
-        use crate::backend::Pipeline;
         use crate::backend::global::get_default_device;
-        use crate::backend::opencl::{OpenCLBuffer, OpenCLCompiler, OpenCLDevice, OpenCLKernel};
-        use crate::graph::Graph;
+        use crate::backend::opencl::{OpenCLBuffer, OpenCLCompiler, OpenCLDevice};
+        use crate::backend::{BufferSignature, KernelSignature, Pipeline};
+        use crate::core::shape::Expr;
         use crate::renderer::OpenCLRenderer;
+        use crate::tensor::lowerer::TensorLowerer;
 
         // Get the OpenCL device
         let device: std::sync::Arc<OpenCLDevice> = get_default_device::<OpenCLDevice>()
@@ -435,19 +445,25 @@ impl<D: Dimension> Tensor<D> {
                 ForwardError::DeviceUnavailable("OpenCL device not found".to_string())
             })?;
 
-        // Build graph from tensor's node
-        let mut graph = Graph::new();
-        // TODO: Properly trace the graph from this tensor's node
-        graph.output("output".to_string(), self.node.clone());
+        // Lower Tensor to AST directly
+        let mut lowerer = TensorLowerer::new();
+        let ast = lowerer.lower(&self.clone().into_dyn());
 
-        // Create pipeline and compile
+        // Create signature from tensor metadata
+        let output_shape: Vec<Expr> = self.shape().iter().map(|&s| Expr::from(s as i64)).collect();
+        let signature = KernelSignature::new(
+            vec![], // TODO: Collect input signatures
+            vec![BufferSignature::new("output".to_string(), output_shape)],
+        );
+
+        // Create pipeline and compile from AST
         let renderer = OpenCLRenderer::default();
         let compiler = OpenCLCompiler::new(device.as_ref().clone());
         let mut pipeline: Pipeline<OpenCLRenderer, OpenCLDevice, OpenCLCompiler> =
-            Pipeline::new(renderer, device.as_ref().clone(), compiler);
+            Pipeline::new(renderer, compiler, device.as_ref().clone());
 
         let compiled = pipeline
-            .compile(graph)
+            .compile_ast(ast, signature)
             .map_err(|e| ForwardError::CompilationError(format!("Failed to compile: {:?}", e)))?;
 
         // Allocate buffers and execute

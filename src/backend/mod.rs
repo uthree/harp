@@ -51,13 +51,6 @@ pub use pipeline::{
 // Re-export sequence types
 pub use sequence::{ExecutionQuery, ProgramExecutionError};
 
-// Re-export graph optimizer factory functions from opt::graph
-pub use crate::opt::graph::{
-    IdentityOptimizer, MultiPhaseConfig, SubgraphMode, create_greedy_optimizer,
-    create_multi_phase_optimizer, create_multi_phase_optimizer_with_selector,
-    optimize_graph_greedy, optimize_graph_multi_phase,
-};
-
 // Re-export Renderer trait from renderer module for backwards compatibility
 pub use crate::renderer::Renderer;
 
@@ -93,12 +86,12 @@ impl KernelSignature {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BufferSignature {
     pub name: String,
-    pub shape: Vec<crate::graph::shape::Expr>,
+    pub shape: Vec<crate::core::shape::Expr>,
 }
 
 impl BufferSignature {
     /// 新しいBufferSignatureを作成
-    pub fn new(name: String, shape: Vec<crate::graph::shape::Expr>) -> Self {
+    pub fn new(name: String, shape: Vec<crate::core::shape::Expr>) -> Self {
         Self { name, shape }
     }
 }
