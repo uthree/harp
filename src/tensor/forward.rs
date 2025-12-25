@@ -388,42 +388,45 @@ impl<D: Dimension> Tensor<D> {
     /// ```ignore
     /// let t = Tensor::<Dim2>::full([2, 3], 1.0);
     /// t.forward()?;
-    /// let arr = t.to_ndarray().unwrap();
+    /// let arr = t.to_ndarray_dyn().unwrap();
     /// assert_eq!(arr.shape(), &[2, 3]);
     /// ```
-    pub fn to_ndarray(&self) -> Option<ArrayD<f32>> {
+    pub fn to_ndarray_dyn(&self) -> Option<ArrayD<f32>> {
         let data = self.data()?;
         let shape = IxDyn(self.shape());
-        Some(Array::from_shape_vec(shape, data).expect("Shape mismatch in to_ndarray"))
+        Some(Array::from_shape_vec(shape, data).expect("Shape mismatch in to_ndarray_dyn"))
     }
 
-    /// Convert the tensor to an ndarray with static dimensions
+    /// Convert the tensor to an ndarray with type-safe dimensions
     ///
-    /// Returns the data as an ndarray with the specified dimension type if executed.
+    /// Returns the data as an ndarray with the dimension type matching the tensor's
+    /// dimension type. This is type-safe: Tensor<Dim2> returns Array<f32, Ix2>, etc.
+    ///
     /// Returns None if the tensor has not been executed yet.
-    ///
-    /// # Type Parameters
-    /// * `ND` - The ndarray dimension type (e.g., `Ix2` for 2D arrays)
     ///
     /// # Example
     /// ```ignore
     /// use ndarray::Ix2;
+    ///
     /// let t = Tensor::<Dim2>::full([2, 3], 1.0);
     /// t.forward()?;
-    /// let arr: ndarray::Array<f32, Ix2> = t.to_ndarray_d().unwrap();
+    ///
+    /// // Type-safe: returns Array<f32, Ix2> automatically
+    /// let arr = t.to_ndarray().unwrap();
+    /// assert_eq!(arr.shape(), &[2, 3]);
     /// ```
-    pub fn to_ndarray_d<ND: NdDimension>(&self) -> Option<Array<f32, ND>> {
+    pub fn to_ndarray(&self) -> Option<Array<f32, D::NdArrayDim>> {
         let data = self.data()?;
-        let shape =
-            ND::from_dimension(&IxDyn(self.shape())).expect("Dimension mismatch in to_ndarray_d");
-        Some(Array::from_shape_vec(shape, data).expect("Shape mismatch in to_ndarray_d"))
+        let shape = D::NdArrayDim::from_dimension(&IxDyn(self.shape()))
+            .expect("Dimension mismatch in to_ndarray");
+        Some(Array::from_shape_vec(shape, data).expect("Shape mismatch in to_ndarray"))
     }
 }
 
 impl Tensor<DimDyn> {
-    /// Create a tensor from an ndarray with dynamic dimensions
+    /// Create a tensor from an ndarray with any dimensions
     ///
-    /// This creates a tensor with the buffer already populated,
+    /// This creates a DimDyn tensor with the buffer already populated,
     /// bypassing the computation graph.
     ///
     /// # Example
@@ -441,19 +444,69 @@ impl Tensor<DimDyn> {
             .unwrap_or_else(|| array.iter().cloned().collect());
         Self::from_data(data, shape)
     }
+}
 
-    /// Create a tensor from a dynamic ndarray
-    ///
-    /// Convenience method for creating a tensor from ArrayD<f32>.
-    pub fn from_ndarray_dyn(array: &ArrayD<f32>) -> Tensor<DimDyn> {
-        let shape = array.shape().to_vec();
-        let data: Vec<f32> = array
-            .as_slice()
-            .map(|s| s.to_vec())
-            .unwrap_or_else(|| array.iter().cloned().collect());
-        Self::from_data(data, shape)
-    }
+// Type-safe from_ndarray implementations using macro
+macro_rules! impl_from_ndarray {
+    ($dim:ty, $ix:ty, $n:expr) => {
+        impl Tensor<$dim> {
+            /// Create a tensor from an ndarray with type-safe dimensions
+            ///
+            /// This creates a tensor with the buffer already populated,
+            /// bypassing the computation graph. The ndarray dimension type
+            /// must match the tensor dimension type.
+            pub fn from_ndarray(array: &Array<f32, $ix>) -> Tensor<$dim> {
+                use super::{TensorInner, TensorOp};
+                use crate::tensor::shape::{Expr, View};
+                use std::sync::RwLock;
 
+                let shape: Vec<usize> = array.shape().to_vec();
+                assert_eq!(
+                    shape.len(),
+                    $n,
+                    "Array dimension mismatch: expected {}, got {}",
+                    $n,
+                    shape.len()
+                );
+
+                let data: Vec<f32> = array
+                    .as_slice()
+                    .map(|s| s.to_vec())
+                    .unwrap_or_else(|| array.iter().cloned().collect());
+
+                let shape_exprs: Vec<Expr> = shape.iter().map(|&s| Expr::from(s as i64)).collect();
+                let view = View::contiguous(shape_exprs);
+                let inner = TensorInner {
+                    op: TensorOp::Executed,
+                    view,
+                    shape,
+                    dtype: DType::F32,
+                    name: None,
+                    autograd: None,
+                    buffer: RwLock::new(Some(data)),
+                };
+
+                Tensor {
+                    inner: Arc::new(inner),
+                    _dim: PhantomData,
+                }
+            }
+        }
+    };
+}
+
+use super::{Dim0, Dim1, Dim2, Dim3, Dim4, Dim5, Dim6};
+use ndarray::{Ix0, Ix1, Ix2, Ix3, Ix4, Ix5, Ix6};
+
+impl_from_ndarray!(Dim0, Ix0, 0);
+impl_from_ndarray!(Dim1, Ix1, 1);
+impl_from_ndarray!(Dim2, Ix2, 2);
+impl_from_ndarray!(Dim3, Ix3, 3);
+impl_from_ndarray!(Dim4, Ix4, 4);
+impl_from_ndarray!(Dim5, Ix5, 5);
+impl_from_ndarray!(Dim6, Ix6, 6);
+
+impl Tensor<DimDyn> {
     /// Internal: Execute forward on Metal device
     #[cfg(all(feature = "metal", target_os = "macos"))]
     fn forward_metal(&self) -> Result<(), ForwardError> {
@@ -580,10 +633,69 @@ impl Tensor<DimDyn> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ndarray::{Array2, Ix2, array};
+    use crate::tensor::{Dim1, Dim2, Dim3};
+    use ndarray::{Array1, Array2, Array3, array};
+
+    // ========================================================================
+    // Type-safe conversion tests
+    // ========================================================================
 
     #[test]
-    fn test_from_ndarray_2d() {
+    fn test_from_ndarray_dim1_type_safe() {
+        let arr: Array1<f32> = array![1.0, 2.0, 3.0];
+        let tensor = Tensor::<Dim1>::from_ndarray(&arr);
+        assert_eq!(tensor.shape(), &[3]);
+        assert_eq!(tensor.data(), Some(vec![1.0, 2.0, 3.0]));
+    }
+
+    #[test]
+    fn test_from_ndarray_dim2_type_safe() {
+        let arr: Array2<f32> = array![[1.0, 2.0], [3.0, 4.0]];
+        let tensor = Tensor::<Dim2>::from_ndarray(&arr);
+        assert_eq!(tensor.shape(), &[2, 2]);
+        assert_eq!(tensor.data(), Some(vec![1.0, 2.0, 3.0, 4.0]));
+    }
+
+    #[test]
+    fn test_from_ndarray_dim3_type_safe() {
+        let arr: Array3<f32> = Array3::zeros((2, 3, 4));
+        let tensor = Tensor::<Dim3>::from_ndarray(&arr);
+        assert_eq!(tensor.shape(), &[2, 3, 4]);
+        assert_eq!(tensor.numel(), 24);
+    }
+
+    #[test]
+    fn test_to_ndarray_dim2_type_safe() {
+        let arr: Array2<f32> = array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
+        let tensor = Tensor::<Dim2>::from_ndarray(&arr);
+
+        // Type-safe: returns Array2<f32> automatically
+        let recovered: Array2<f32> = tensor.to_ndarray().unwrap();
+        assert_eq!(recovered.shape(), &[2, 3]);
+        assert_eq!(recovered[[0, 0]], 1.0);
+        assert_eq!(recovered[[1, 2]], 6.0);
+    }
+
+    #[test]
+    fn test_roundtrip_dim2_type_safe() {
+        let original: Array2<f32> = array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
+
+        // Convert to Tensor<Dim2>
+        let tensor = Tensor::<Dim2>::from_ndarray(&original);
+
+        // Convert back - type-safe!
+        let recovered: Array2<f32> = tensor.to_ndarray().unwrap();
+
+        // Verify they match
+        assert_eq!(original, recovered);
+    }
+
+    // ========================================================================
+    // DimDyn (dynamic dimension) tests
+    // ========================================================================
+
+    #[test]
+    fn test_from_ndarray_dimdyn() {
         let arr = array![[1.0_f32, 2.0], [3.0, 4.0]];
         let tensor = Tensor::<DimDyn>::from_ndarray(&arr);
         assert_eq!(tensor.shape(), &[2, 2]);
@@ -591,64 +703,27 @@ mod tests {
     }
 
     #[test]
-    fn test_from_ndarray_3d() {
-        let arr = ndarray::Array3::<f32>::zeros((2, 3, 4));
-        let tensor = Tensor::<DimDyn>::from_ndarray(&arr);
-        assert_eq!(tensor.shape(), &[2, 3, 4]);
-        assert_eq!(tensor.numel(), 24);
-    }
-
-    #[test]
-    fn test_to_ndarray() {
+    fn test_to_ndarray_dimdyn() {
         let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
         let tensor = Tensor::<DimDyn>::from_data(data.clone(), vec![2, 3]);
 
+        // DimDyn returns ArrayD (IxDyn)
         let arr = tensor.to_ndarray().unwrap();
         assert_eq!(arr.shape(), &[2, 3]);
-        assert_eq!(arr[[0, 0]], 1.0);
-        assert_eq!(arr[[0, 1]], 2.0);
-        assert_eq!(arr[[1, 2]], 6.0);
     }
 
     #[test]
-    fn test_to_ndarray_d() {
-        let data = vec![1.0, 2.0, 3.0, 4.0];
-        let tensor = Tensor::<DimDyn>::from_data(data, vec![2, 2]);
+    fn test_to_ndarray_dyn_explicit() {
+        let arr: Array2<f32> = array![[1.0, 2.0], [3.0, 4.0]];
+        let tensor = Tensor::<Dim2>::from_ndarray(&arr);
 
-        let arr: Array2<f32> = tensor.to_ndarray_d::<Ix2>().unwrap();
-        assert_eq!(arr.shape(), &[2, 2]);
-        assert_eq!(arr[[0, 0]], 1.0);
-        assert_eq!(arr[[1, 1]], 4.0);
-    }
-
-    #[test]
-    fn test_roundtrip_ndarray() {
-        // Create original ndarray
-        let original = array![[1.0_f32, 2.0, 3.0], [4.0, 5.0, 6.0]];
-
-        // Convert to Tensor
-        let tensor = Tensor::<DimDyn>::from_ndarray(&original);
-
-        // Convert back to ndarray
-        let recovered = tensor.to_ndarray().unwrap();
-
-        // Verify they match
-        assert_eq!(original.shape(), recovered.shape());
-        for (a, b) in original.iter().zip(recovered.iter()) {
-            assert!((a - b).abs() < 1e-6);
-        }
-    }
-
-    #[test]
-    fn test_from_ndarray_dyn() {
-        let arr = ndarray::ArrayD::<f32>::zeros(vec![2, 3, 4]);
-        let tensor = Tensor::<DimDyn>::from_ndarray_dyn(&arr);
-        assert_eq!(tensor.shape(), &[2, 3, 4]);
+        // Can also get dynamic array from static tensor
+        let dyn_arr = tensor.to_ndarray_dyn().unwrap();
+        assert_eq!(dyn_arr.shape(), &[2, 2]);
     }
 
     #[test]
     fn test_to_ndarray_not_executed() {
-        use crate::tensor::Dim2;
         // Create a tensor that hasn't been executed
         let tensor = Tensor::<Dim2>::input("x", [2, 3]);
         // Should return None since it's not executed

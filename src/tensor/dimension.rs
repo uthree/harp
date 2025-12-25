@@ -2,6 +2,7 @@
 //!
 //! This module provides compile-time dimension checking for tensors using const generics.
 
+use ndarray::{Ix0, Ix1, Ix2, Ix3, Ix4, Ix5, Ix6, IxDyn};
 use std::fmt::Debug;
 
 /// Trait for tensor dimensions
@@ -33,6 +34,16 @@ pub trait Dimension: Clone + Debug + Send + Sync + 'static {
 
     /// The dimension type with one more dimension (for unsqueeze/expand operations)
     type Larger: Dimension;
+
+    /// The corresponding ndarray dimension type
+    ///
+    /// This enables type-safe conversion between Tensor and ndarray:
+    /// - Dim0 ↔ Ix0
+    /// - Dim1 ↔ Ix1
+    /// - Dim2 ↔ Ix2
+    /// - etc.
+    /// - DimDyn ↔ IxDyn
+    type NdArrayDim: ndarray::Dimension;
 
     /// Get the number of dimensions at runtime
     fn ndim(&self) -> usize;
@@ -66,6 +77,7 @@ impl Dimension for Dim<0> {
     const NDIM: Option<usize> = Some(0);
     type Smaller = DimDyn; // No smaller than scalar
     type Larger = Dim<1>;
+    type NdArrayDim = Ix0;
 
     fn ndim(&self) -> usize {
         0
@@ -76,6 +88,7 @@ impl Dimension for Dim<1> {
     const NDIM: Option<usize> = Some(1);
     type Smaller = Dim<0>;
     type Larger = Dim<2>;
+    type NdArrayDim = Ix1;
 
     fn ndim(&self) -> usize {
         1
@@ -86,6 +99,7 @@ impl Dimension for Dim<2> {
     const NDIM: Option<usize> = Some(2);
     type Smaller = Dim<1>;
     type Larger = Dim<3>;
+    type NdArrayDim = Ix2;
 
     fn ndim(&self) -> usize {
         2
@@ -96,6 +110,7 @@ impl Dimension for Dim<3> {
     const NDIM: Option<usize> = Some(3);
     type Smaller = Dim<2>;
     type Larger = Dim<4>;
+    type NdArrayDim = Ix3;
 
     fn ndim(&self) -> usize {
         3
@@ -106,6 +121,7 @@ impl Dimension for Dim<4> {
     const NDIM: Option<usize> = Some(4);
     type Smaller = Dim<3>;
     type Larger = Dim<5>;
+    type NdArrayDim = Ix4;
 
     fn ndim(&self) -> usize {
         4
@@ -116,6 +132,7 @@ impl Dimension for Dim<5> {
     const NDIM: Option<usize> = Some(5);
     type Smaller = Dim<4>;
     type Larger = Dim<6>;
+    type NdArrayDim = Ix5;
 
     fn ndim(&self) -> usize {
         5
@@ -126,6 +143,7 @@ impl Dimension for Dim<6> {
     const NDIM: Option<usize> = Some(6);
     type Smaller = Dim<5>;
     type Larger = DimDyn; // No larger defined
+    type NdArrayDim = Ix6;
 
     fn ndim(&self) -> usize {
         6
@@ -164,6 +182,7 @@ impl Dimension for DimDyn {
     const NDIM: Option<usize> = None;
     type Smaller = DimDyn; // Dynamic stays dynamic
     type Larger = DimDyn;
+    type NdArrayDim = IxDyn;
 
     fn ndim(&self) -> usize {
         self.0
