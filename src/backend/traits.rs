@@ -4,6 +4,7 @@
 //! native GPU APIs (OpenCL, Metal) through Rust bindings.
 
 use crate::ast::DType;
+use ndarray::{Array, ArrayD, Dimension as NdDimension, IxDyn};
 use std::collections::HashMap;
 
 /// Device type classification
@@ -301,6 +302,75 @@ pub trait Buffer: Sized + Clone + Send + Sync {
 
     /// Create an alignment error (for default implementation)
     fn buffer_alignment_error(buffer_size: usize, type_size: usize) -> Self::Error;
+
+    // ========================================================================
+    // ndarray conversion methods
+    // ========================================================================
+
+    /// Convert buffer to ndarray with dynamic dimensions
+    ///
+    /// # Type Parameters
+    /// * `T` - The element type (must match the buffer's dtype)
+    ///
+    /// # Returns
+    /// An ndarray with the same shape as the buffer
+    fn to_ndarray<T: Clone + 'static>(&self) -> Result<ArrayD<T>, Self::Error> {
+        let data = self.read_vec::<T>()?;
+        let shape = IxDyn(self.shape());
+        Ok(Array::from_shape_vec(shape, data).expect("Shape mismatch in to_ndarray"))
+    }
+
+    /// Convert buffer to ndarray with static dimensions
+    ///
+    /// # Type Parameters
+    /// * `T` - The element type (must match the buffer's dtype)
+    /// * `D` - The dimension type from ndarray
+    ///
+    /// # Returns
+    /// An ndarray with the specified dimension type
+    fn to_ndarray_d<T: Clone + 'static, D: NdDimension>(&self) -> Result<Array<T, D>, Self::Error> {
+        let data = self.read_vec::<T>()?;
+        let shape =
+            D::from_dimension(&IxDyn(self.shape())).expect("Dimension mismatch in to_ndarray_d");
+        Ok(Array::from_shape_vec(shape, data).expect("Shape mismatch in to_ndarray_d"))
+    }
+
+    /// Write ndarray data to the buffer
+    ///
+    /// # Arguments
+    /// * `array` - The ndarray to write (must have the same shape)
+    fn write_ndarray<T: Clone, D: NdDimension>(
+        &mut self,
+        array: &Array<T, D>,
+    ) -> Result<(), Self::Error> {
+        // Ensure contiguous layout
+        let contiguous = array
+            .as_slice()
+            .map(|s| s.to_vec())
+            .unwrap_or_else(|| array.iter().cloned().collect());
+        self.write_vec(&contiguous)
+    }
+
+    /// Create buffer from ndarray on the given device
+    ///
+    /// # Arguments
+    /// * `device` - The device to allocate on
+    /// * `array` - The source ndarray
+    /// * `dtype` - The data type for the buffer
+    fn from_ndarray<T: Clone, D: NdDimension>(
+        device: &Self::Dev,
+        array: &Array<T, D>,
+        dtype: DType,
+    ) -> Result<Self, Self::Error> {
+        let shape = array.shape().to_vec();
+        let mut buffer = Self::allocate(device, shape, dtype)?;
+        let data: Vec<T> = array
+            .as_slice()
+            .map(|s| s.to_vec())
+            .unwrap_or_else(|| array.iter().cloned().collect());
+        buffer.write_vec(&data)?;
+        Ok(buffer)
+    }
 }
 
 /// Kernel execution configuration
