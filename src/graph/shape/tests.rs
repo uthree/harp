@@ -7,9 +7,9 @@ fn test_const_creation() {
 }
 
 #[test]
-fn test_var_creation() {
-    let expr = Expr::Var("x".to_string());
-    assert_eq!(expr, Expr::Var("x".to_string()));
+fn test_idx_creation() {
+    let expr = Expr::Idx(0);
+    assert_eq!(expr, Expr::Idx(0));
 }
 
 #[test]
@@ -22,26 +22,17 @@ fn test_from_integer() {
 }
 
 #[test]
-fn test_from_str() {
-    let expr = Expr::from("x");
-    assert_eq!(expr, Expr::Var("x".to_string()));
-
-    let expr = Expr::from("batch_size".to_string());
-    assert_eq!(expr, Expr::Var("batch_size".to_string()));
-}
-
-#[test]
 fn test_is_zero() {
     assert!(Expr::Const(0).is_zero());
     assert!(!Expr::Const(1).is_zero());
-    assert!(!Expr::Var("x".to_string()).is_zero());
+    assert!(!Expr::Idx(0).is_zero());
 }
 
 #[test]
 fn test_is_one() {
     assert!(Expr::Const(1).is_one());
     assert!(!Expr::Const(0).is_one());
-    assert!(!Expr::Var("x".to_string()).is_one());
+    assert!(!Expr::Idx(0).is_one());
 }
 
 #[test]
@@ -111,15 +102,16 @@ fn test_neg_operator() {
 
 #[test]
 fn test_simplify_add_zero() {
-    // 0 + x = x
-    let expr = Expr::Const(0) + Expr::Var("x".to_string());
+    // 0 + x = x (using Idx as non-constant expression)
+    let x = Expr::Idx(0);
+    let expr = Expr::Const(0) + x.clone();
     let simplified = expr.simplify();
-    assert_eq!(simplified, Expr::Var("x".to_string()));
+    assert_eq!(simplified, x);
 
     // x + 0 = x
-    let expr = Expr::Var("x".to_string()) + Expr::Const(0);
+    let expr = Expr::Idx(0) + Expr::Const(0);
     let simplified = expr.simplify();
-    assert_eq!(simplified, Expr::Var("x".to_string()));
+    assert_eq!(simplified, Expr::Idx(0));
 }
 
 #[test]
@@ -133,15 +125,16 @@ fn test_simplify_add_const() {
 #[test]
 fn test_simplify_sub_zero() {
     // x - 0 = x
-    let expr = Expr::Var("x".to_string()) - Expr::Const(0);
+    let x = Expr::Idx(0);
+    let expr = x.clone() - Expr::Const(0);
     let simplified = expr.simplify();
-    assert_eq!(simplified, Expr::Var("x".to_string()));
+    assert_eq!(simplified, x);
 }
 
 #[test]
 fn test_simplify_sub_self() {
     // x - x = 0
-    let x = Expr::Var("x".to_string());
+    let x = Expr::Idx(0);
     let expr = x.clone() - x;
     let simplified = expr.simplify();
     assert_eq!(simplified, Expr::Const(0));
@@ -158,12 +151,13 @@ fn test_simplify_sub_const() {
 #[test]
 fn test_simplify_mul_zero() {
     // 0 * x = 0
-    let expr = Expr::Const(0) * Expr::Var("x".to_string());
+    let x = Expr::Idx(0);
+    let expr = Expr::Const(0) * x;
     let simplified = expr.simplify();
     assert_eq!(simplified, Expr::Const(0));
 
     // x * 0 = 0
-    let expr = Expr::Var("x".to_string()) * Expr::Const(0);
+    let expr = Expr::Idx(0) * Expr::Const(0);
     let simplified = expr.simplify();
     assert_eq!(simplified, Expr::Const(0));
 }
@@ -171,14 +165,15 @@ fn test_simplify_mul_zero() {
 #[test]
 fn test_simplify_mul_one() {
     // 1 * x = x
-    let expr = Expr::Const(1) * Expr::Var("x".to_string());
+    let x = Expr::Idx(0);
+    let expr = Expr::Const(1) * x.clone();
     let simplified = expr.simplify();
-    assert_eq!(simplified, Expr::Var("x".to_string()));
+    assert_eq!(simplified, x);
 
     // x * 1 = x
-    let expr = Expr::Var("x".to_string()) * Expr::Const(1);
+    let expr = Expr::Idx(0) * Expr::Const(1);
     let simplified = expr.simplify();
-    assert_eq!(simplified, Expr::Var("x".to_string()));
+    assert_eq!(simplified, Expr::Idx(0));
 }
 
 #[test]
@@ -192,15 +187,16 @@ fn test_simplify_mul_const() {
 #[test]
 fn test_simplify_div_one() {
     // x / 1 = x
-    let expr = Expr::Var("x".to_string()) / Expr::Const(1);
+    let x = Expr::Idx(0);
+    let expr = x.clone() / Expr::Const(1);
     let simplified = expr.simplify();
-    assert_eq!(simplified, Expr::Var("x".to_string()));
+    assert_eq!(simplified, x);
 }
 
 #[test]
 fn test_simplify_div_self() {
     // x / x = 1
-    let x = Expr::Var("x".to_string());
+    let x = Expr::Idx(0);
     let expr = x.clone() / x;
     let simplified = expr.simplify();
     assert_eq!(simplified, Expr::Const(1));
@@ -209,7 +205,8 @@ fn test_simplify_div_self() {
 #[test]
 fn test_simplify_div_zero_numerator() {
     // 0 / x = 0
-    let expr = Expr::Const(0) / Expr::Var("x".to_string());
+    let x = Expr::Idx(0);
+    let expr = Expr::Const(0) / x;
     let simplified = expr.simplify();
     assert_eq!(simplified, Expr::Const(0));
 }
@@ -218,7 +215,8 @@ fn test_simplify_div_zero_numerator() {
 #[should_panic(expected = "division by zero")]
 fn test_simplify_div_zero_denominator() {
     // x / 0 should panic
-    let expr = Expr::Var("x".to_string()) / Expr::Const(0);
+    let x = Expr::Idx(0);
+    let expr = x / Expr::Const(0);
     let _ = expr.simplify();
 }
 
@@ -233,7 +231,8 @@ fn test_simplify_div_const() {
 #[test]
 fn test_simplify_rem_one() {
     // x % 1 = 0
-    let expr = Expr::Var("x".to_string()) % Expr::Const(1);
+    let x = Expr::Idx(0);
+    let expr = x % Expr::Const(1);
     let simplified = expr.simplify();
     assert_eq!(simplified, Expr::Const(0));
 }
@@ -241,7 +240,7 @@ fn test_simplify_rem_one() {
 #[test]
 fn test_simplify_rem_self() {
     // x % x = 0
-    let x = Expr::Var("x".to_string());
+    let x = Expr::Idx(0);
     let expr = x.clone() % x;
     let simplified = expr.simplify();
     assert_eq!(simplified, Expr::Const(0));
@@ -258,7 +257,7 @@ fn test_simplify_rem_const() {
 #[test]
 fn test_simplify_complex_expr() {
     // (x + 0) * 1 = x
-    let x = Expr::Var("x".to_string());
+    let x = Expr::Idx(0);
     let expr = (x.clone() + 0) * 1;
     let simplified = expr.simplify();
     assert_eq!(simplified, x);
@@ -271,9 +270,9 @@ fn test_display_const() {
 }
 
 #[test]
-fn test_display_var() {
-    let expr = Expr::Var("x".to_string());
-    assert_eq!(format!("{}", expr), "x");
+fn test_display_idx() {
+    let expr = Expr::Idx(0);
+    assert_eq!(format!("{}", expr), "idx0");
 }
 
 #[test]
@@ -366,18 +365,19 @@ fn test_to_astnode_add() {
         _ => panic!("Expected Const(5) after simplification"),
     }
 
-    // 変数の加算もサポートされるようになった
-    let a = Expr::Var("a".to_string());
-    let b = Expr::Var("b".to_string());
+    // Idxを使った加算
+    let a = Expr::Idx(0);
+    let b = Expr::Idx(1);
     let expr = Expr::Add(Box::new(a), Box::new(b));
     let ast: AstNode = expr.into();
 
-    // 変数を含む加算はAdd nodeとして変換される
+    // Idxを含む加算はAdd nodeとして変換される
+    // Expr::Idx(i) は AstNode::Var("ridxN") に変換される
     match ast {
         AstNode::Add(left, right) => match (*left, *right) {
-            (AstNode::Var(name_a), AstNode::Var(name_b)) => {
-                assert_eq!(name_a, "a");
-                assert_eq!(name_b, "b");
+            (AstNode::Var(ref name0), AstNode::Var(ref name1)) => {
+                assert_eq!(name0, "ridx0");
+                assert_eq!(name1, "ridx1");
             }
             _ => panic!("Expected Var nodes"),
         },
@@ -470,28 +470,17 @@ fn test_to_astnode_with_simplify() {
 }
 
 #[test]
-fn test_to_astnode_var() {
+fn test_to_astnode_idx() {
     use crate::ast::AstNode;
 
-    let expr = Expr::Var("x".to_string());
+    let expr = Expr::Idx(2);
     let ast: AstNode = expr.into();
 
-    // Varは正常に変換されるはず
+    // Idxは AstNode::Var("ridxN") に変換される
     match ast {
-        AstNode::Var(name) => assert_eq!(name, "x"),
-        _ => panic!("Expected Var node"),
+        AstNode::Var(ref name) => assert_eq!(name, "ridx2"),
+        _ => panic!("Expected Var node with name ridx2"),
     }
-}
-
-// ===== From<char> tests =====
-
-#[test]
-fn test_from_char() {
-    let expr = Expr::from('A');
-    assert_eq!(expr, Expr::Var("A".to_string()));
-
-    let expr = Expr::from('N');
-    assert_eq!(expr, Expr::Var("N".to_string()));
 }
 
 // ===== shape! macro tests =====
@@ -509,29 +498,6 @@ fn test_shape_macro_all_const() {
 }
 
 #[test]
-fn test_shape_macro_all_var() {
-    let shape = shape!['B', 'H', 'W', 'C'];
-    assert_eq!(
-        shape,
-        vec![
-            Expr::Var("B".to_string()),
-            Expr::Var("H".to_string()),
-            Expr::Var("W".to_string()),
-            Expr::Var("C".to_string()),
-        ]
-    );
-}
-
-#[test]
-fn test_shape_macro_mixed() {
-    let shape = shape![2, 'N', 4];
-    assert_eq!(
-        shape,
-        vec![Expr::Const(2), Expr::Var("N".to_string()), Expr::Const(4),]
-    );
-}
-
-#[test]
 fn test_shape_macro_trailing_comma() {
     let shape = shape![1, 2, 3,];
     assert_eq!(shape, vec![Expr::Const(1), Expr::Const(2), Expr::Const(3)]);
@@ -541,48 +507,6 @@ fn test_shape_macro_trailing_comma() {
 fn test_shape_macro_single_element() {
     let shape = shape![10];
     assert_eq!(shape, vec![Expr::Const(10)]);
-
-    let shape = shape!['X'];
-    assert_eq!(shape, vec![Expr::Var("X".to_string())]);
-}
-
-#[test]
-fn test_shape_macro_with_str() {
-    // &str型も変数名として扱われる
-    let shape = shape![2, "batch", 4];
-    assert_eq!(
-        shape,
-        vec![
-            Expr::Const(2),
-            Expr::Var("batch".to_string()),
-            Expr::Const(4),
-        ]
-    );
-
-    // 複数文字の変数名
-    let shape = shape!["batch_size", "seq_len", "hidden_dim"];
-    assert_eq!(
-        shape,
-        vec![
-            Expr::Var("batch_size".to_string()),
-            Expr::Var("seq_len".to_string()),
-            Expr::Var("hidden_dim".to_string()),
-        ]
-    );
-}
-
-#[test]
-fn test_shape_macro_mixed_all_types() {
-    // 数値、char、&strを全て混在
-    let shape = shape![32, 'N', "hidden"];
-    assert_eq!(
-        shape,
-        vec![
-            Expr::Const(32),
-            Expr::Var("N".to_string()),
-            Expr::Var("hidden".to_string()),
-        ]
-    );
 }
 
 // =============================================================================
@@ -591,97 +515,61 @@ fn test_shape_macro_mixed_all_types() {
 
 #[test]
 fn test_evaluate_const() {
-    let vars = std::collections::HashMap::new();
-    assert_eq!(Expr::Const(42).evaluate(&vars), Ok(42));
-    assert_eq!(Expr::Const(-10).evaluate(&vars), Ok(-10));
-    assert_eq!(Expr::Const(0).evaluate(&vars), Ok(0));
-}
-
-#[test]
-fn test_evaluate_var() {
-    let mut vars = std::collections::HashMap::new();
-    vars.insert("N".to_string(), 128);
-    vars.insert("M".to_string(), 256);
-
-    assert_eq!(Expr::Var("N".to_string()).evaluate(&vars), Ok(128));
-    assert_eq!(Expr::Var("M".to_string()).evaluate(&vars), Ok(256));
-
-    // Undefined variable should return error
-    assert!(Expr::Var("undefined".to_string()).evaluate(&vars).is_err());
+    assert_eq!(Expr::Const(42).evaluate(), Ok(42));
+    assert_eq!(Expr::Const(-10).evaluate(), Ok(-10));
+    assert_eq!(Expr::Const(0).evaluate(), Ok(0));
 }
 
 #[test]
 fn test_evaluate_arithmetic() {
-    let mut vars = std::collections::HashMap::new();
-    vars.insert("x".to_string(), 10);
-    vars.insert("y".to_string(), 3);
-
     // 10 + 3 = 13
-    let add = Expr::Var("x".to_string()) + Expr::Var("y".to_string());
-    assert_eq!(add.evaluate(&vars), Ok(13));
+    let add = Expr::Const(10) + Expr::Const(3);
+    assert_eq!(add.evaluate(), Ok(13));
 
     // 10 - 3 = 7
-    let sub = Expr::Var("x".to_string()) - Expr::Var("y".to_string());
-    assert_eq!(sub.evaluate(&vars), Ok(7));
+    let sub = Expr::Const(10) - Expr::Const(3);
+    assert_eq!(sub.evaluate(), Ok(7));
 
     // 10 * 3 = 30
-    let mul = Expr::Var("x".to_string()) * Expr::Var("y".to_string());
-    assert_eq!(mul.evaluate(&vars), Ok(30));
+    let mul = Expr::Const(10) * Expr::Const(3);
+    assert_eq!(mul.evaluate(), Ok(30));
 
     // 10 / 3 = 3
-    let div = Expr::Var("x".to_string()) / Expr::Var("y".to_string());
-    assert_eq!(div.evaluate(&vars), Ok(3));
+    let div = Expr::Const(10) / Expr::Const(3);
+    assert_eq!(div.evaluate(), Ok(3));
 
     // 10 % 3 = 1
-    let rem = Expr::Var("x".to_string()) % Expr::Var("y".to_string());
-    assert_eq!(rem.evaluate(&vars), Ok(1));
+    let rem = Expr::Const(10) % Expr::Const(3);
+    assert_eq!(rem.evaluate(), Ok(1));
 }
 
 #[test]
 fn test_evaluate_complex_expr() {
-    let mut vars = std::collections::HashMap::new();
-    vars.insert("batch".to_string(), 32);
-    vars.insert("seq_len".to_string(), 128);
-    vars.insert("hidden".to_string(), 512);
-
-    // batch * seq_len * hidden = 32 * 128 * 512 = 2097152
-    let expr = Expr::Var("batch".to_string())
-        * Expr::Var("seq_len".to_string())
-        * Expr::Var("hidden".to_string());
-    assert_eq!(expr.evaluate(&vars), Ok(2097152));
+    // 32 * 128 * 512 = 2097152
+    let expr = Expr::Const(32) * Expr::Const(128) * Expr::Const(512);
+    assert_eq!(expr.evaluate(), Ok(2097152));
 }
 
 #[test]
 fn test_evaluate_division_by_zero() {
-    let vars = std::collections::HashMap::new();
-
     let div = Expr::Const(10) / Expr::Const(0);
-    assert!(div.evaluate(&vars).is_err());
+    assert!(div.evaluate().is_err());
 
     let rem = Expr::Const(10) % Expr::Const(0);
-    assert!(rem.evaluate(&vars).is_err());
+    assert!(rem.evaluate().is_err());
 }
 
 #[test]
 fn test_evaluate_idx_error() {
-    let vars = std::collections::HashMap::new();
     let idx = Expr::Idx(0);
-    assert!(idx.evaluate(&vars).is_err());
+    assert!(idx.evaluate().is_err());
 }
 
 #[test]
 fn test_evaluate_usize() {
-    let mut vars = std::collections::HashMap::new();
-    vars.insert("N".to_string(), 128);
-
-    assert_eq!(Expr::Const(42).evaluate_usize(&vars), Ok(42));
-    assert_eq!(Expr::Var("N".to_string()).evaluate_usize(&vars), Ok(128));
+    assert_eq!(Expr::Const(42).evaluate_usize(), Ok(42));
 
     // Negative result should error
-    assert!(Expr::Const(-1).evaluate_usize(&vars).is_err());
-    assert!(
-        (Expr::Const(0) - Expr::Const(10))
-            .evaluate_usize(&vars)
-            .is_err()
-    );
+    assert!(Expr::Const(-1).evaluate_usize().is_err());
+    assert!((Expr::Const(0) - Expr::Const(10)).evaluate_usize().is_err());
 }

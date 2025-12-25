@@ -28,36 +28,5 @@ fn test_create_signature_simple() {
     assert_eq!(signature.shape_vars.len(), 0);
 }
 
-#[test]
-fn test_create_signature_with_dynamic_shape() {
-    use crate::graph::shape::Expr;
-
-    // 動的なshapeを持つグラフ: a (shape=[N, M])
-    let mut graph = Graph::new();
-    let n = Expr::Var("N".to_string());
-    let m = Expr::Var("M".to_string());
-
-    // shape変数のデフォルト値を設定（必須）
-    graph.set_shape_var_default("N", 100);
-    graph.set_shape_var_default("M", 200);
-
-    let a = graph.input("a", GraphDType::F32, vec![n.clone(), m.clone()]);
-    graph.output("result", a);
-
-    let signature = create_signature(&graph);
-
-    // 入力が1つ
-    assert_eq!(signature.inputs.len(), 1);
-    assert_eq!(signature.inputs[0].name, "a");
-    assert_eq!(signature.inputs[0].shape.len(), 2);
-    assert_eq!(signature.inputs[0].shape[0], n);
-    assert_eq!(signature.inputs[0].shape[1], m);
-
-    // 動的なshape変数が2つ、デフォルト値付き
-    assert_eq!(signature.shape_vars.len(), 2);
-    assert_eq!(signature.shape_vars.get("M"), Some(&200));
-    assert_eq!(signature.shape_vars.get("N"), Some(&100));
-}
-
-// Note: test_create_signature_multiple_inputs_outputs は複数出力が
-// 現在サポートされていないため削除されました。
+// Note: Dynamic shape tests were removed as Expr::Var was removed
+// in favor of static shapes for simplicity.

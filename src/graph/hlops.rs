@@ -652,9 +652,8 @@ impl GraphNode {
     /// // 静的な形状: 2x3の正規乱数テンソル
     /// let randn_node = GraphNode::randn(vec![2, 3]);
     ///
-    /// // 動的な形状
-    /// let batch_size = Expr::Var("batch".to_string());
-    /// let randn_node = GraphNode::randn(vec![batch_size, 64.into()]);
+    /// // Expr型を使用した形状指定
+    /// let randn_node = GraphNode::randn(vec![Expr::from(32), Expr::from(64)]);
     /// ```
     pub fn randn<E: Into<crate::graph::shape::Expr> + Clone, I: IntoIterator<Item = E>>(
         shape: I,
@@ -1063,21 +1062,8 @@ mod tests {
         assert_eq!(result.view.shape()[1], Expr::from(20));
     }
 
-    #[test]
-    fn test_randn_dynamic_shape() {
-        // 動的な形状で正規乱数テンソルを生成
-        let batch = Expr::Var("batch".to_string());
-        let result = GraphNode::randn(vec![batch.clone(), Expr::from(64)]);
-
-        match result.dtype {
-            DType::F32 => {}
-            _ => panic!("Expected DType::F32"),
-        }
-
-        assert_eq!(result.view.ndim(), 2);
-        assert_eq!(result.view.shape()[0], batch);
-        assert_eq!(result.view.shape()[1], Expr::from(64));
-    }
+    // Note: test_randn_dynamic_shape was removed as Expr::Var was removed
+    // in favor of static shapes for simplicity.
 
     #[test]
     fn test_randn_1d() {

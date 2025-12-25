@@ -5,9 +5,8 @@ use std::ops::{
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Expr {
-    // 定数と変数
+    // 定数
     Const(i64),
-    Var(String),
 
     // ループインデックス変数 (IndexExpr View用)
     // Idx(0) = ridx0, Idx(1) = ridx1, ...
@@ -49,10 +48,6 @@ impl From<Expr> for crate::ast::AstNode {
         let expr = expr.simplify();
         match expr {
             Expr::Const(c) => AstNode::Const(Literal::I64(c)),
-            Expr::Var(s) => {
-                // 変数を直接ASTのVarに変換
-                AstNode::Var(s)
-            }
             Expr::Idx(i) => {
                 // ループインデックス変数をridx変数に変換
                 use crate::graph::ops::custom_placeholders as ph;
@@ -93,7 +88,15 @@ impl TryFrom<&crate::ast::AstNode> for Expr {
             AstNode::Const(Literal::I64(v)) => Ok(Expr::Const(*v)),
             AstNode::Const(Literal::I32(v)) => Ok(Expr::Const(*v as i64)),
             AstNode::Const(Literal::F32(v)) => Ok(Expr::Const(*v as i64)),
-            AstNode::Var(name) => Ok(Expr::Var(name.clone())),
+            AstNode::Var(name) => {
+                // ridx形式の変数名をIdxに変換
+                if let Some(stripped) = name.strip_prefix("ridx")
+                    && let Ok(idx) = stripped.parse::<usize>()
+                {
+                    return Ok(Expr::Idx(idx));
+                }
+                Err("Variable expressions are not supported; only loop indices (ridxN) are allowed")
+            }
             AstNode::Add(l, r) => {
                 let left = Expr::try_from(l.as_ref())?;
                 let right = Expr::try_from(r.as_ref())?;
@@ -138,8 +141,8 @@ impl Expr {
     /// let expr = Expr::Const(42);
     /// assert_eq!(expr.as_const(), Some(42));
     ///
-    /// let var = Expr::Var("x".to_string());
-    /// assert_eq!(var.as_const(), None);
+    /// let idx = Expr::Idx(0);
+    /// assert_eq!(idx.as_const(), None);
     /// ```
     pub fn as_const(&self) -> Option<i64> {
         match self {
@@ -179,8 +182,8 @@ impl Expr {
     /// ```should_panic
     /// use harp::graph::shape::Expr;
     ///
-    /// let var = Expr::Var("x".to_string());
-    /// var.expect_const("variable not allowed"); // パニック
+    /// let idx = Expr::Idx(0);
+    /// idx.expect_const("loop index not allowed"); // パニック
     /// ```
     pub fn expect_const(&self, msg: &str) -> i64 {
         self.as_const()
@@ -197,51 +200,44 @@ impl Expr {
             .unwrap_or_else(|| panic!("Expected non-negative constant: {}", msg))
     }
 
-    /// 変数の値を与えて式を評価する
-    ///
-    /// # Arguments
-    /// * `vars` - 変数名と値のマッピング
+    /// 定数式を評価する
     ///
     /// # Returns
     /// * `Ok(i64)` - 評価結果
-    /// * `Err(String)` - 未定義の変数があった場合
+    /// * `Err(String)` - 評価できない式（ループインデックスなど）の場合
     ///
     /// # Examples
     ///
     /// ```
     /// use harp::graph::shape::Expr;
-    /// use std::collections::HashMap;
     ///
-    /// let expr = Expr::Var("N".to_string()) * Expr::Const(4);
-    /// let mut vars = HashMap::new();
-    /// vars.insert("N".to_string(), 32);
-    /// assert_eq!(expr.evaluate(&vars), Ok(128));
+    /// let expr = Expr::Const(8) * Expr::Const(4);
+    /// assert_eq!(expr.evaluate(), Ok(32));
+    ///
+    /// let idx_expr = Expr::Idx(0) + Expr::Const(1);
+    /// assert!(idx_expr.evaluate().is_err());
     /// ```
-    pub fn evaluate(&self, vars: &std::collections::HashMap<String, i64>) -> Result<i64, String> {
+    pub fn evaluate(&self) -> Result<i64, String> {
         match self {
             Expr::Const(v) => Ok(*v),
-            Expr::Var(name) => vars
-                .get(name)
-                .copied()
-                .ok_or_else(|| format!("Undefined variable: {}", name)),
             Expr::Idx(i) => Err(format!("Cannot evaluate loop index Idx({})", i)),
-            Expr::Add(l, r) => Ok(l.evaluate(vars)? + r.evaluate(vars)?),
-            Expr::Sub(l, r) => Ok(l.evaluate(vars)? - r.evaluate(vars)?),
-            Expr::Mul(l, r) => Ok(l.evaluate(vars)? * r.evaluate(vars)?),
+            Expr::Add(l, r) => Ok(l.evaluate()? + r.evaluate()?),
+            Expr::Sub(l, r) => Ok(l.evaluate()? - r.evaluate()?),
+            Expr::Mul(l, r) => Ok(l.evaluate()? * r.evaluate()?),
             Expr::Div(l, r) => {
-                let rv = r.evaluate(vars)?;
+                let rv = r.evaluate()?;
                 if rv == 0 {
                     Err("Division by zero".to_string())
                 } else {
-                    Ok(l.evaluate(vars)? / rv)
+                    Ok(l.evaluate()? / rv)
                 }
             }
             Expr::Rem(l, r) => {
-                let rv = r.evaluate(vars)?;
+                let rv = r.evaluate()?;
                 if rv == 0 {
                     Err("Division by zero".to_string())
                 } else {
-                    Ok(l.evaluate(vars)? % rv)
+                    Ok(l.evaluate()? % rv)
                 }
             }
             Expr::LoadIndex { src_index, .. } => Err(format!(
@@ -251,52 +247,17 @@ impl Expr {
         }
     }
 
-    /// 変数の値を与えて式をusizeとして評価する
-    ///
-    /// # Arguments
-    /// * `vars` - 変数名と値のマッピング
+    /// 定数式をusizeとして評価する
     ///
     /// # Returns
     /// * `Ok(usize)` - 評価結果（非負の場合）
-    /// * `Err(String)` - 未定義の変数があった場合、または結果が負の場合
-    pub fn evaluate_usize(
-        &self,
-        vars: &std::collections::HashMap<String, i64>,
-    ) -> Result<usize, String> {
-        let result = self.evaluate(vars)?;
+    /// * `Err(String)` - 評価できない式、または結果が負の場合
+    pub fn evaluate_usize(&self) -> Result<usize, String> {
+        let result = self.evaluate()?;
         if result < 0 {
             Err(format!("Expected non-negative value, got {}", result))
         } else {
             Ok(result as usize)
-        }
-    }
-
-    /// この式で使用されている全ての変数名を収集
-    pub fn collect_vars(&self) -> std::collections::BTreeSet<String> {
-        use std::collections::BTreeSet;
-
-        let mut vars = BTreeSet::new();
-        self.collect_vars_recursive(&mut vars);
-        vars
-    }
-
-    fn collect_vars_recursive(&self, vars: &mut std::collections::BTreeSet<String>) {
-        match self {
-            Expr::Const(_) | Expr::Idx(_) => {}
-            Expr::Var(name) => {
-                vars.insert(name.clone());
-            }
-            Expr::Add(l, r)
-            | Expr::Sub(l, r)
-            | Expr::Mul(l, r)
-            | Expr::Div(l, r)
-            | Expr::Rem(l, r) => {
-                l.collect_vars_recursive(vars);
-                r.collect_vars_recursive(vars);
-            }
-            Expr::LoadIndex { offset_expr, .. } => {
-                offset_expr.collect_vars_recursive(vars);
-            }
         }
     }
 
@@ -593,7 +554,7 @@ impl Expr {
                 Box::new(l.shift_load_index(delta)),
                 Box::new(r.shift_load_index(delta)),
             ),
-            // Const, Var, Idxはそのまま
+            // Const, Idxはそのまま
             _ => self,
         }
     }
@@ -613,29 +574,9 @@ macro_rules! impl_from_integer_for_expr {
 
 impl_from_integer_for_expr!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
 
-impl From<&str> for Expr {
-    fn from(s: &str) -> Self {
-        Expr::Var(s.to_string())
-    }
-}
-
-impl From<String> for Expr {
-    fn from(s: String) -> Self {
-        Expr::Var(s)
-    }
-}
-
-impl From<char> for Expr {
-    fn from(c: char) -> Self {
-        Expr::Var(c.to_string())
-    }
-}
-
-/// 数値型、文字型、文字列型を混在させてVec<Expr>を初期化するマクロ
+/// 数値型からVec<Expr>を初期化するマクロ
 ///
 /// - 数値型（i32, usize等）→ `Expr::Const`
-/// - char型（'N'など）→ `Expr::Var`（1文字の変数名）
-/// - &str型（"batch"など）→ `Expr::Var`（複数文字の変数名）
 ///
 /// # 使用例
 ///
@@ -647,25 +588,9 @@ impl From<char> for Expr {
 /// let shape = shape![2, 3, 4];
 /// assert_eq!(shape, vec![Expr::Const(2), Expr::Const(3), Expr::Const(4)]);
 ///
-/// // 動的な形状（char型は変数名として扱われる）
-/// let shape = shape![2, 'N', 4];
-/// assert_eq!(shape, vec![Expr::Const(2), Expr::Var("N".to_string()), Expr::Const(4)]);
-///
-/// // &str型で複数文字の変数名を使用
-/// let shape = shape![32, "batch", "seq_len"];
-/// assert_eq!(shape, vec![
-///     Expr::Const(32),
-///     Expr::Var("batch".to_string()),
-///     Expr::Var("seq_len".to_string()),
-/// ]);
-///
-/// // 数値、char、&strを混在
-/// let shape = shape![32, 'N', "hidden"];
-/// assert_eq!(shape, vec![
-///     Expr::Const(32),
-///     Expr::Var("N".to_string()),
-///     Expr::Var("hidden".to_string()),
-/// ]);
+/// // 1次元
+/// let shape = shape![32];
+/// assert_eq!(shape, vec![Expr::Const(32)]);
 /// ```
 #[macro_export]
 macro_rules! shape {
@@ -722,7 +647,6 @@ impl fmt::Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Expr::Const(n) => write!(f, "{}", n),
-            Expr::Var(s) => write!(f, "{}", s),
             Expr::Idx(i) => write!(f, "idx{}", i),
             Expr::Add(lhs, rhs) => {
                 // Add parentheses only when necessary
@@ -742,8 +666,7 @@ impl fmt::Display for Expr {
                 }
             }
             Expr::Sub(lhs, rhs) => {
-                let needs_parens_rhs =
-                    !matches!(**rhs, Expr::Const(_) | Expr::Var(_) | Expr::Idx(_));
+                let needs_parens_rhs = !matches!(**rhs, Expr::Const(_) | Expr::Idx(_));
 
                 write!(f, "{}", lhs)?;
                 write!(f, " - ")?;
@@ -771,8 +694,7 @@ impl fmt::Display for Expr {
             }
             Expr::Div(lhs, rhs) => {
                 let needs_parens_lhs = matches!(**lhs, Expr::Add(_, _) | Expr::Sub(_, _));
-                let needs_parens_rhs =
-                    !matches!(**rhs, Expr::Const(_) | Expr::Var(_) | Expr::Idx(_));
+                let needs_parens_rhs = !matches!(**rhs, Expr::Const(_) | Expr::Idx(_));
 
                 if needs_parens_lhs {
                     write!(f, "({})", lhs)?;
@@ -788,8 +710,7 @@ impl fmt::Display for Expr {
             }
             Expr::Rem(lhs, rhs) => {
                 let needs_parens_lhs = matches!(**lhs, Expr::Add(_, _) | Expr::Sub(_, _));
-                let needs_parens_rhs =
-                    !matches!(**rhs, Expr::Const(_) | Expr::Var(_) | Expr::Idx(_));
+                let needs_parens_rhs = !matches!(**rhs, Expr::Const(_) | Expr::Idx(_));
 
                 if needs_parens_lhs {
                     write!(f, "({})", lhs)?;

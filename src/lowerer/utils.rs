@@ -68,19 +68,20 @@ pub fn create_signature(graph: &Graph) -> KernelSignature {
 }
 
 /// Exprから変数名を再帰的に収集
-fn collect_shape_vars(expr: &crate::graph::shape::Expr, vars: &mut HashSet<String>) {
+///
+/// 注意: Expr::Varは削除されたため、この関数は常に何も収集しません。
+/// 将来的に削除を検討してください。
+#[allow(dead_code)]
+fn collect_shape_vars(expr: &crate::graph::shape::Expr, _vars: &mut HashSet<String>) {
     use crate::graph::shape::Expr;
 
     match expr {
-        Expr::Var(name) => {
-            vars.insert(name.clone());
-        }
         Expr::Add(a, b) | Expr::Sub(a, b) | Expr::Mul(a, b) | Expr::Div(a, b) | Expr::Rem(a, b) => {
-            collect_shape_vars(a, vars);
-            collect_shape_vars(b, vars);
+            collect_shape_vars(a, _vars);
+            collect_shape_vars(b, _vars);
         }
         Expr::LoadIndex { offset_expr, .. } => {
-            collect_shape_vars(offset_expr, vars);
+            collect_shape_vars(offset_expr, _vars);
         }
         Expr::Const(_) | Expr::Idx(_) => {}
     }

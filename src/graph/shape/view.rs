@@ -856,29 +856,6 @@ mod tests {
     }
 
     #[test]
-    fn test_with_symbolic_shapes() {
-        // Test with symbolic expressions
-        let batch = Expr::Var("batch".to_string());
-        let seq_len = Expr::Var("seq_len".to_string());
-
-        let view = View::contiguous(vec![batch.clone(), seq_len.clone()]);
-
-        let View::Linear {
-            shape,
-            strides,
-            offset,
-        } = view
-        else {
-            panic!("Expected Linear view")
-        };
-        assert_eq!(shape[0], batch);
-        assert_eq!(shape[1], seq_len.clone());
-        assert_eq!(strides[0], seq_len);
-        assert_eq!(strides[1], Expr::from(1));
-        assert_eq!(offset, Expr::from(0));
-    }
-
-    #[test]
     fn test_reshape_basic() {
         // (2, 3, 4) -> (6, 4)
         let view = View::contiguous(vec![2, 3, 4]);

@@ -37,7 +37,6 @@ pub fn expr_to_ast_with_sources(expr: &Expr, src_vars: &[String], dtype: AstDTyp
     let expr = expr.clone().simplify();
     match expr {
         Expr::Const(c) => AstNode::Const(Literal::I64(c)),
-        Expr::Var(s) => AstNode::Var(s),
         Expr::Idx(i) => AstNode::Var(ph::ridx(i)),
         Expr::Add(l, r) => {
             let left = expr_to_ast_with_sources(&l, src_vars, dtype.clone());

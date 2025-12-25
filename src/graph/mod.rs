@@ -408,9 +408,8 @@ impl GraphNode {
     /// // 静的な形状: 2x3の乱数テンソル
     /// let rand_node = GraphNode::rand(vec![2, 3]);
     ///
-    /// // 動的な形状: Expr型を使用
-    /// let batch_size = Expr::Var("batch".to_string());
-    /// let rand_node = GraphNode::rand(vec![batch_size, 64.into()]);
+    /// // Expr型を使用した形状指定
+    /// let rand_node = GraphNode::rand(vec![Expr::from(32), Expr::from(64)]);
     /// ```
     pub fn rand<E: Into<shape::Expr> + Clone, I: IntoIterator<Item = E>>(shape: I) -> Self {
         let shape_exprs: Vec<shape::Expr> = shape.into_iter().map(|e| e.into()).collect();

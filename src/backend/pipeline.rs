@@ -1281,11 +1281,8 @@ where
         for sig in &self.signature.inputs {
             let buffer = query.inputs().get(&sig.name).unwrap();
             let actual_shape: Vec<usize> = buffer.shape().to_vec();
-            let expected_shape: Result<Vec<usize>, String> = sig
-                .shape
-                .iter()
-                .map(|expr| expr.evaluate_usize(&shape_vars))
-                .collect();
+            let expected_shape: Result<Vec<usize>, String> =
+                sig.shape.iter().map(|expr| expr.evaluate_usize()).collect();
             let expected_shape =
                 expected_shape.map_err(KernelExecutionError::ShapeEvaluationError)?;
 
@@ -1303,11 +1300,8 @@ where
             // SAFETY: We already validated that all outputs exist
             let buffer = unsafe { &**query.outputs().get(&sig.name).unwrap() };
             let actual_shape: Vec<usize> = buffer.shape().to_vec();
-            let expected_shape: Result<Vec<usize>, String> = sig
-                .shape
-                .iter()
-                .map(|expr| expr.evaluate_usize(&shape_vars))
-                .collect();
+            let expected_shape: Result<Vec<usize>, String> =
+                sig.shape.iter().map(|expr| expr.evaluate_usize()).collect();
             let expected_shape =
                 expected_shape.map_err(KernelExecutionError::ShapeEvaluationError)?;
 

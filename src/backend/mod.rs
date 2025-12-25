@@ -25,6 +25,7 @@
 
 use std::collections::HashMap;
 
+pub mod global;
 pub mod pipeline;
 pub mod sequence;
 pub mod traits;
@@ -66,6 +67,12 @@ pub use crate::opt::graph::{
 
 // Re-export Renderer trait from renderer module for backwards compatibility
 pub use crate::renderer::Renderer;
+
+// Re-export global device management
+pub use global::{
+    DeviceKind, clear_default_device, get_default_device, get_default_device_kind,
+    has_default_device, set_default_device, with_device,
+};
 
 /// カーネルのシグネチャ（入出力バッファの形状情報）
 #[derive(Debug, Clone, PartialEq, Eq)]

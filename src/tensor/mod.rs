@@ -41,6 +41,7 @@
 //! ```
 
 pub mod dimension;
+pub mod forward;
 pub mod ops;
 
 use std::cell::RefCell;
@@ -48,6 +49,7 @@ use std::marker::PhantomData;
 use std::rc::Rc;
 
 pub use dimension::{Dim, Dim0, Dim1, Dim2, Dim3, Dim4, Dim5, Dim6, DimDyn, Dimension};
+pub use forward::ForwardError;
 
 use crate::graph::{DType, GraphNode};
 
@@ -352,7 +354,7 @@ mod tests {
 
     #[test]
     fn test_tensor_full_static() {
-        let t = Tensor::<Dim1>::full([10], 3.14);
+        let t = Tensor::<Dim1>::full([10], 2.5);
         assert_eq!(t.shape(), &[10]);
         assert_eq!(t.ndim(), 1);
     }

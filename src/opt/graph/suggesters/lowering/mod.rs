@@ -106,10 +106,8 @@ impl LoweringSuggester {
                 crate::graph::shape::Expr::Const(val) => {
                     name.push_str(&val.to_string());
                 }
-                crate::graph::shape::Expr::Var(var_name) => {
-                    name.push_str(var_name);
-                }
                 _ => {
+                    // Idx or complex expressions
                     name.push_str("dyn");
                 }
             }

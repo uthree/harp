@@ -394,17 +394,8 @@ impl KernelMergeSuggester {
             kind: VarKind::Normal,
         });
 
-        // Shape変数
-        for expr in input_shape.iter() {
-            if let crate::graph::shape::Expr::Var(var_name) = expr {
-                params.push(VarDecl {
-                    name: var_name.clone(),
-                    dtype: AstDType::I64,
-                    mutability: Mutability::Immutable,
-                    kind: VarKind::Normal,
-                });
-            }
-        }
+        // Note: Expr::Var was removed, so shape variables are no longer added as parameters.
+        // All shapes are now static constants.
 
         // ボディを取得
         let body = if let AstNode::Function { body, .. } = func_ast {
