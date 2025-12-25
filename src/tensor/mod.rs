@@ -47,9 +47,7 @@ use std::cell::RefCell;
 use std::marker::PhantomData;
 use std::rc::Rc;
 
-pub use dimension::{
-    Dim, Dim0, Dim1, Dim2, Dim3, Dim4, Dim5, Dim6, DimDyn, Dimension, HasLarger, HasSmaller,
-};
+pub use dimension::{Dim, Dim0, Dim1, Dim2, Dim3, Dim4, Dim5, Dim6, DimDyn, Dimension};
 
 use crate::graph::{DType, GraphNode};
 
@@ -227,8 +225,11 @@ impl<D: Dimension> Tensor<D> {
     }
 }
 
-// Static dimension constructors
-impl<const N: usize> Tensor<Dim<N>> {
+// Static dimension constructors (for Dim<0> through Dim<6>)
+impl<const N: usize> Tensor<Dim<N>>
+where
+    Dim<N>: Dimension,
+{
     /// Create a tensor filled with zeros
     ///
     /// # Arguments

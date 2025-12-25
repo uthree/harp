@@ -90,7 +90,6 @@ pub mod prelude {
 
     // Tensor types
     pub use crate::tensor::{
-        Dim, Dim0, Dim1, Dim2, Dim3, Dim4, Dim5, Dim6, DimDyn, Dimension, HasLarger, HasSmaller,
-        Tensor,
+        Dim, Dim0, Dim1, Dim2, Dim3, Dim4, Dim5, Dim6, DimDyn, Dimension, Tensor,
     };
 }

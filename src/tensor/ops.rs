@@ -52,14 +52,14 @@ fn broadcast_shapes(a: &[usize], b: &[usize]) -> Vec<usize> {
 }
 
 // ============================================================================
-// Binary Operations
+// Binary Operations (same dimension type preserved)
 // ============================================================================
 
-// Add: Tensor + Tensor
+// Add: Tensor + Tensor (same dimension)
 impl<D: Dimension> Add for &Tensor<D> {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn add(self, rhs: Self) -> Tensor<DimDyn> {
+    fn add(self, rhs: Self) -> Tensor<D> {
         let result_shape = broadcast_shapes(self.shape(), rhs.shape());
         let result_node = &self.node + &rhs.node;
         Tensor::from_node(result_node, result_shape, DType::F32)
@@ -67,70 +67,70 @@ impl<D: Dimension> Add for &Tensor<D> {
 }
 
 impl<D: Dimension> Add<Tensor<D>> for &Tensor<D> {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn add(self, rhs: Tensor<D>) -> Tensor<DimDyn> {
+    fn add(self, rhs: Tensor<D>) -> Tensor<D> {
         self + &rhs
     }
 }
 
 impl<D: Dimension> Add<&Tensor<D>> for Tensor<D> {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn add(self, rhs: &Tensor<D>) -> Tensor<DimDyn> {
+    fn add(self, rhs: &Tensor<D>) -> Tensor<D> {
         &self + rhs
     }
 }
 
 impl<D: Dimension> Add for Tensor<D> {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn add(self, rhs: Self) -> Tensor<DimDyn> {
+    fn add(self, rhs: Self) -> Tensor<D> {
         &self + &rhs
     }
 }
 
 // Add: Tensor + f32
 impl<D: Dimension> Add<f32> for &Tensor<D> {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn add(self, rhs: f32) -> Tensor<DimDyn> {
+    fn add(self, rhs: f32) -> Tensor<D> {
         let result_node = &self.node + rhs;
         Tensor::from_node(result_node, self.shape().to_vec(), DType::F32)
     }
 }
 
 impl<D: Dimension> Add<f32> for Tensor<D> {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn add(self, rhs: f32) -> Tensor<DimDyn> {
+    fn add(self, rhs: f32) -> Tensor<D> {
         &self + rhs
     }
 }
 
 // Add: f32 + Tensor
 impl<D: Dimension> Add<&Tensor<D>> for f32 {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn add(self, rhs: &Tensor<D>) -> Tensor<DimDyn> {
+    fn add(self, rhs: &Tensor<D>) -> Tensor<D> {
         let result_node = self + &rhs.node;
         Tensor::from_node(result_node, rhs.shape().to_vec(), DType::F32)
     }
 }
 
 impl<D: Dimension> Add<Tensor<D>> for f32 {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn add(self, rhs: Tensor<D>) -> Tensor<DimDyn> {
+    fn add(self, rhs: Tensor<D>) -> Tensor<D> {
         self + &rhs
     }
 }
 
-// Sub: Tensor - Tensor
+// Sub: Tensor - Tensor (same dimension)
 impl<D: Dimension> Sub for &Tensor<D> {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn sub(self, rhs: Self) -> Tensor<DimDyn> {
+    fn sub(self, rhs: Self) -> Tensor<D> {
         let result_shape = broadcast_shapes(self.shape(), rhs.shape());
         let result_node = &self.node - &rhs.node;
         Tensor::from_node(result_node, result_shape, DType::F32)
@@ -138,70 +138,70 @@ impl<D: Dimension> Sub for &Tensor<D> {
 }
 
 impl<D: Dimension> Sub<Tensor<D>> for &Tensor<D> {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn sub(self, rhs: Tensor<D>) -> Tensor<DimDyn> {
+    fn sub(self, rhs: Tensor<D>) -> Tensor<D> {
         self - &rhs
     }
 }
 
 impl<D: Dimension> Sub<&Tensor<D>> for Tensor<D> {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn sub(self, rhs: &Tensor<D>) -> Tensor<DimDyn> {
+    fn sub(self, rhs: &Tensor<D>) -> Tensor<D> {
         &self - rhs
     }
 }
 
 impl<D: Dimension> Sub for Tensor<D> {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn sub(self, rhs: Self) -> Tensor<DimDyn> {
+    fn sub(self, rhs: Self) -> Tensor<D> {
         &self - &rhs
     }
 }
 
 // Sub: Tensor - f32
 impl<D: Dimension> Sub<f32> for &Tensor<D> {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn sub(self, rhs: f32) -> Tensor<DimDyn> {
+    fn sub(self, rhs: f32) -> Tensor<D> {
         let result_node = &self.node - rhs;
         Tensor::from_node(result_node, self.shape().to_vec(), DType::F32)
     }
 }
 
 impl<D: Dimension> Sub<f32> for Tensor<D> {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn sub(self, rhs: f32) -> Tensor<DimDyn> {
+    fn sub(self, rhs: f32) -> Tensor<D> {
         &self - rhs
     }
 }
 
 // Sub: f32 - Tensor
 impl<D: Dimension> Sub<&Tensor<D>> for f32 {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn sub(self, rhs: &Tensor<D>) -> Tensor<DimDyn> {
+    fn sub(self, rhs: &Tensor<D>) -> Tensor<D> {
         let result_node = self - &rhs.node;
         Tensor::from_node(result_node, rhs.shape().to_vec(), DType::F32)
     }
 }
 
 impl<D: Dimension> Sub<Tensor<D>> for f32 {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn sub(self, rhs: Tensor<D>) -> Tensor<DimDyn> {
+    fn sub(self, rhs: Tensor<D>) -> Tensor<D> {
         self - &rhs
     }
 }
 
-// Mul: Tensor * Tensor
+// Mul: Tensor * Tensor (same dimension)
 impl<D: Dimension> Mul for &Tensor<D> {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn mul(self, rhs: Self) -> Tensor<DimDyn> {
+    fn mul(self, rhs: Self) -> Tensor<D> {
         let result_shape = broadcast_shapes(self.shape(), rhs.shape());
         let result_node = &self.node * &rhs.node;
         Tensor::from_node(result_node, result_shape, DType::F32)
@@ -209,70 +209,70 @@ impl<D: Dimension> Mul for &Tensor<D> {
 }
 
 impl<D: Dimension> Mul<Tensor<D>> for &Tensor<D> {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn mul(self, rhs: Tensor<D>) -> Tensor<DimDyn> {
+    fn mul(self, rhs: Tensor<D>) -> Tensor<D> {
         self * &rhs
     }
 }
 
 impl<D: Dimension> Mul<&Tensor<D>> for Tensor<D> {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn mul(self, rhs: &Tensor<D>) -> Tensor<DimDyn> {
+    fn mul(self, rhs: &Tensor<D>) -> Tensor<D> {
         &self * rhs
     }
 }
 
 impl<D: Dimension> Mul for Tensor<D> {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn mul(self, rhs: Self) -> Tensor<DimDyn> {
+    fn mul(self, rhs: Self) -> Tensor<D> {
         &self * &rhs
     }
 }
 
 // Mul: Tensor * f32
 impl<D: Dimension> Mul<f32> for &Tensor<D> {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn mul(self, rhs: f32) -> Tensor<DimDyn> {
+    fn mul(self, rhs: f32) -> Tensor<D> {
         let result_node = &self.node * rhs;
         Tensor::from_node(result_node, self.shape().to_vec(), DType::F32)
     }
 }
 
 impl<D: Dimension> Mul<f32> for Tensor<D> {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn mul(self, rhs: f32) -> Tensor<DimDyn> {
+    fn mul(self, rhs: f32) -> Tensor<D> {
         &self * rhs
     }
 }
 
 // Mul: f32 * Tensor
 impl<D: Dimension> Mul<&Tensor<D>> for f32 {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn mul(self, rhs: &Tensor<D>) -> Tensor<DimDyn> {
+    fn mul(self, rhs: &Tensor<D>) -> Tensor<D> {
         let result_node = self * &rhs.node;
         Tensor::from_node(result_node, rhs.shape().to_vec(), DType::F32)
     }
 }
 
 impl<D: Dimension> Mul<Tensor<D>> for f32 {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn mul(self, rhs: Tensor<D>) -> Tensor<DimDyn> {
+    fn mul(self, rhs: Tensor<D>) -> Tensor<D> {
         self * &rhs
     }
 }
 
-// Div: Tensor / Tensor
+// Div: Tensor / Tensor (same dimension)
 impl<D: Dimension> Div for &Tensor<D> {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn div(self, rhs: Self) -> Tensor<DimDyn> {
+    fn div(self, rhs: Self) -> Tensor<D> {
         let result_shape = broadcast_shapes(self.shape(), rhs.shape());
         let result_node = &self.node / &rhs.node;
         Tensor::from_node(result_node, result_shape, DType::F32)
@@ -280,79 +280,79 @@ impl<D: Dimension> Div for &Tensor<D> {
 }
 
 impl<D: Dimension> Div<Tensor<D>> for &Tensor<D> {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn div(self, rhs: Tensor<D>) -> Tensor<DimDyn> {
+    fn div(self, rhs: Tensor<D>) -> Tensor<D> {
         self / &rhs
     }
 }
 
 impl<D: Dimension> Div<&Tensor<D>> for Tensor<D> {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn div(self, rhs: &Tensor<D>) -> Tensor<DimDyn> {
+    fn div(self, rhs: &Tensor<D>) -> Tensor<D> {
         &self / rhs
     }
 }
 
 impl<D: Dimension> Div for Tensor<D> {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn div(self, rhs: Self) -> Tensor<DimDyn> {
+    fn div(self, rhs: Self) -> Tensor<D> {
         &self / &rhs
     }
 }
 
 // Div: Tensor / f32
 impl<D: Dimension> Div<f32> for &Tensor<D> {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn div(self, rhs: f32) -> Tensor<DimDyn> {
+    fn div(self, rhs: f32) -> Tensor<D> {
         let result_node = &self.node / rhs;
         Tensor::from_node(result_node, self.shape().to_vec(), DType::F32)
     }
 }
 
 impl<D: Dimension> Div<f32> for Tensor<D> {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn div(self, rhs: f32) -> Tensor<DimDyn> {
+    fn div(self, rhs: f32) -> Tensor<D> {
         &self / rhs
     }
 }
 
 // Div: f32 / Tensor
 impl<D: Dimension> Div<&Tensor<D>> for f32 {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn div(self, rhs: &Tensor<D>) -> Tensor<DimDyn> {
+    fn div(self, rhs: &Tensor<D>) -> Tensor<D> {
         let result_node = self / &rhs.node;
         Tensor::from_node(result_node, rhs.shape().to_vec(), DType::F32)
     }
 }
 
 impl<D: Dimension> Div<Tensor<D>> for f32 {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn div(self, rhs: Tensor<D>) -> Tensor<DimDyn> {
+    fn div(self, rhs: Tensor<D>) -> Tensor<D> {
         self / &rhs
     }
 }
 
-// Neg: -Tensor
+// Neg: -Tensor (preserves dimension)
 impl<D: Dimension> Neg for &Tensor<D> {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn neg(self) -> Tensor<DimDyn> {
+    fn neg(self) -> Tensor<D> {
         let result_node = -&self.node;
         Tensor::from_node(result_node, self.shape().to_vec(), DType::F32)
     }
 }
 
 impl<D: Dimension> Neg for Tensor<D> {
-    type Output = Tensor<DimDyn>;
+    type Output = Tensor<D>;
 
-    fn neg(self) -> Tensor<DimDyn> {
+    fn neg(self) -> Tensor<D> {
         -&self
     }
 }
@@ -363,56 +363,56 @@ impl<D: Dimension> Neg for Tensor<D> {
 
 impl<D: Dimension> Tensor<D> {
     /// Compute the reciprocal (1/x) of each element
-    pub fn recip(&self) -> Tensor<DimDyn> {
+    pub fn recip(&self) -> Tensor<D> {
         let result_node = graph_ops::recip(self.node.clone());
         Tensor::from_node(result_node, self.shape().to_vec(), DType::F32)
     }
 
     /// Compute exp2(x) = 2^x for each element
-    pub fn exp2(&self) -> Tensor<DimDyn> {
+    pub fn exp2(&self) -> Tensor<D> {
         let node = self.node.clone().exp2();
         Tensor::from_node(node, self.shape().to_vec(), DType::F32)
     }
 
     /// Compute log2(x) for each element
-    pub fn log2(&self) -> Tensor<DimDyn> {
+    pub fn log2(&self) -> Tensor<D> {
         let node = self.node.clone().log2();
         Tensor::from_node(node, self.shape().to_vec(), DType::F32)
     }
 
     /// Compute sin(x) for each element
-    pub fn sin(&self) -> Tensor<DimDyn> {
+    pub fn sin(&self) -> Tensor<D> {
         let node = self.node.clone().sin();
         Tensor::from_node(node, self.shape().to_vec(), DType::F32)
     }
 
     /// Compute sqrt(x) for each element
-    pub fn sqrt(&self) -> Tensor<DimDyn> {
+    pub fn sqrt(&self) -> Tensor<D> {
         let node = self.node.clone().sqrt();
         Tensor::from_node(node, self.shape().to_vec(), DType::F32)
     }
 
     /// Compute exp(x) = e^x for each element
-    pub fn exp(&self) -> Tensor<DimDyn> {
+    pub fn exp(&self) -> Tensor<D> {
         let node = self.node.clone().exp();
         Tensor::from_node(node, self.shape().to_vec(), DType::F32)
     }
 
     /// Compute natural logarithm ln(x) for each element
-    pub fn ln(&self) -> Tensor<DimDyn> {
+    pub fn ln(&self) -> Tensor<D> {
         let node = self.node.clone().log();
         Tensor::from_node(node, self.shape().to_vec(), DType::F32)
     }
 
     /// Compute element-wise maximum with another tensor
-    pub fn max_with<E: Dimension>(&self, other: &Tensor<E>) -> Tensor<DimDyn> {
+    pub fn max_with<E: Dimension>(&self, other: &Tensor<E>) -> Tensor<D> {
         let result_shape = broadcast_shapes(self.shape(), other.shape());
         let result_node = graph_ops::max(self.node.clone(), other.node.clone());
         Tensor::from_node(result_node, result_shape, DType::F32)
     }
 
     /// ReLU activation: max(0, x)
-    pub fn relu(&self) -> Tensor<DimDyn> {
+    pub fn relu(&self) -> Tensor<D> {
         let zero = Tensor::<DimDyn>::full_dyn(self.shape(), 0.0);
         self.max_with(&zero)
     }
@@ -496,7 +496,10 @@ impl<D: Dimension> Tensor<D> {
     /// Reshape the tensor to a new shape
     ///
     /// Total number of elements must remain the same.
-    pub fn reshape<const M: usize>(&self, new_shape: [usize; M]) -> Tensor<Dim<M>> {
+    pub fn reshape<const M: usize>(&self, new_shape: [usize; M]) -> Tensor<Dim<M>>
+    where
+        Dim<M>: Dimension,
+    {
         let new_numel: usize = new_shape.iter().product();
         assert_eq!(
             self.numel(),

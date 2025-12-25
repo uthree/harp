@@ -61,70 +61,75 @@ pub trait Dimension: Clone + Debug + Send + Sync + 'static {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Dim<const N: usize>;
 
-// Blanket implementation for all Dim<N>
-// Smaller and Larger use DimDyn as fallback since we can't do N-1/N+1 in stable Rust
-impl<const N: usize> Dimension for Dim<N> {
-    const NDIM: Option<usize> = Some(N);
-    type Smaller = DimDyn; // Can't compute N-1 at type level in stable Rust
-    type Larger = DimDyn; // Can't compute N+1 at type level in stable Rust
+// Specific implementations for Dim<0> through Dim<6> with correct Smaller/Larger types
+impl Dimension for Dim<0> {
+    const NDIM: Option<usize> = Some(0);
+    type Smaller = DimDyn; // No smaller than scalar
+    type Larger = Dim<1>;
 
     fn ndim(&self) -> usize {
-        N
+        0
     }
 }
 
-/// Trait for dimensions that have a statically known smaller dimension
-///
-/// This enables type-safe dimension reduction operations.
-pub trait HasSmaller: Dimension {
-    type Smaller: Dimension;
-}
-
-/// Trait for dimensions that have a statically known larger dimension
-///
-/// This enables type-safe dimension expansion operations.
-pub trait HasLarger: Dimension {
-    type Larger: Dimension;
-}
-
-// Implement HasSmaller for Dim<1> through Dim<6>
-impl HasSmaller for Dim<1> {
+impl Dimension for Dim<1> {
+    const NDIM: Option<usize> = Some(1);
     type Smaller = Dim<0>;
-}
-impl HasSmaller for Dim<2> {
-    type Smaller = Dim<1>;
-}
-impl HasSmaller for Dim<3> {
-    type Smaller = Dim<2>;
-}
-impl HasSmaller for Dim<4> {
-    type Smaller = Dim<3>;
-}
-impl HasSmaller for Dim<5> {
-    type Smaller = Dim<4>;
-}
-impl HasSmaller for Dim<6> {
-    type Smaller = Dim<5>;
+    type Larger = Dim<2>;
+
+    fn ndim(&self) -> usize {
+        1
+    }
 }
 
-// Implement HasLarger for Dim<0> through Dim<5>
-impl HasLarger for Dim<0> {
-    type Larger = Dim<1>;
-}
-impl HasLarger for Dim<1> {
-    type Larger = Dim<2>;
-}
-impl HasLarger for Dim<2> {
+impl Dimension for Dim<2> {
+    const NDIM: Option<usize> = Some(2);
+    type Smaller = Dim<1>;
     type Larger = Dim<3>;
+
+    fn ndim(&self) -> usize {
+        2
+    }
 }
-impl HasLarger for Dim<3> {
+
+impl Dimension for Dim<3> {
+    const NDIM: Option<usize> = Some(3);
+    type Smaller = Dim<2>;
     type Larger = Dim<4>;
+
+    fn ndim(&self) -> usize {
+        3
+    }
 }
-impl HasLarger for Dim<4> {
+
+impl Dimension for Dim<4> {
+    const NDIM: Option<usize> = Some(4);
+    type Smaller = Dim<3>;
     type Larger = Dim<5>;
+
+    fn ndim(&self) -> usize {
+        4
+    }
 }
-impl HasLarger for Dim<5> {
+
+impl Dimension for Dim<5> {
+    const NDIM: Option<usize> = Some(5);
+    type Smaller = Dim<4>;
     type Larger = Dim<6>;
+
+    fn ndim(&self) -> usize {
+        5
+    }
+}
+
+impl Dimension for Dim<6> {
+    const NDIM: Option<usize> = Some(6);
+    type Smaller = Dim<5>;
+    type Larger = DimDyn; // No larger defined
+
+    fn ndim(&self) -> usize {
+        6
+    }
 }
 
 /// Dynamic dimension type for runtime-determined dimensionality
