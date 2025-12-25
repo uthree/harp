@@ -598,14 +598,21 @@ impl AstNode {
             | AstNode::Ne(_, _) => DType::Bool,
 
             // Unary operations that preserve type
-            AstNode::Recip(operand) | AstNode::BitwiseNot(operand) => operand.infer_type(),
-
-            // Mathematical operations that typically return F32
-            AstNode::Sqrt(_)
-            | AstNode::Log2(_)
-            | AstNode::Exp2(_)
-            | AstNode::Sin(_)
-            | AstNode::Floor(_) => DType::F32,
+            AstNode::Recip(operand)
+            | AstNode::BitwiseNot(operand)
+            | AstNode::Sqrt(operand)
+            | AstNode::Log2(operand)
+            | AstNode::Exp2(operand)
+            | AstNode::Sin(operand)
+            | AstNode::Floor(operand) => {
+                // 数学的演算は入力の型を保持する（スカラーならF32、ベクトルならベクトル）
+                let input_type = operand.infer_type();
+                if input_type == DType::Unknown {
+                    DType::F32 // 入力が不明の場合はF32を仮定
+                } else {
+                    input_type
+                }
+            }
 
             // Fused Multiply-Add - returns same type as operands (typically F32)
             AstNode::Fma { a, .. } => a.infer_type(),

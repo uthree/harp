@@ -466,9 +466,10 @@ impl<D: Dimension> Tensor<D> {
 
         // Copy the result buffer back to self
         if let Some(result_data) = result.data()
-            && let Ok(mut guard) = self.inner.buffer.write() {
-                *guard = Some(result_data);
-            }
+            && let Ok(mut guard) = self.inner.buffer.write()
+        {
+            *guard = Some(result_data);
+        }
 
         Ok(())
     }

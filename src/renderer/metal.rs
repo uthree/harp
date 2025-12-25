@@ -389,8 +389,28 @@ impl CLikeRenderer for MetalKernelRenderer {
         render_math_func_metal(name, args)
     }
 
-    fn render_vector_load(&self, ptr_expr: &str, offset_expr: &str, _dtype: &str) -> String {
-        format!("{}[{}]", ptr_expr, offset_expr)
+    fn render_vector_load(&self, ptr_expr: &str, offset_expr: &str, dtype: &str) -> String {
+        // Metalではポインタキャストを使用してベクトルロード
+        // *((device float2*)(ptr + offset))
+        format!(
+            "*((device const {}*)({} + {}))",
+            dtype, ptr_expr, offset_expr
+        )
+    }
+
+    fn render_vector_store(
+        &self,
+        ptr_expr: &str,
+        offset_expr: &str,
+        value_expr: &str,
+        dtype: &str,
+    ) -> String {
+        // Metalではポインタキャストを使用してベクトルストア
+        // *((device float2*)(ptr + offset)) = value
+        format!(
+            "*((device {}*)({} + {})) = {}",
+            dtype, ptr_expr, offset_expr, value_expr
+        )
     }
 
     fn render_atomic_add(&self, ptr: &str, offset: &str, value: &str, dtype: &DType) -> String {
@@ -475,9 +495,28 @@ impl CLikeRenderer for MetalRenderer {
         render_math_func_metal(name, args)
     }
 
-    fn render_vector_load(&self, ptr_expr: &str, offset_expr: &str, _dtype: &str) -> String {
-        // Metalではポインタアクセスを使用
-        format!("{}[{}]", ptr_expr, offset_expr)
+    fn render_vector_load(&self, ptr_expr: &str, offset_expr: &str, dtype: &str) -> String {
+        // Metalではポインタキャストを使用してベクトルロード
+        // *((device float2*)(ptr + offset))
+        format!(
+            "*((device const {}*)({} + {}))",
+            dtype, ptr_expr, offset_expr
+        )
+    }
+
+    fn render_vector_store(
+        &self,
+        ptr_expr: &str,
+        offset_expr: &str,
+        value_expr: &str,
+        dtype: &str,
+    ) -> String {
+        // Metalではポインタキャストを使用してベクトルストア
+        // *((device float2*)(ptr + offset)) = value
+        format!(
+            "*((device {}*)({} + {})) = {}",
+            dtype, ptr_expr, offset_expr, value_expr
+        )
     }
 
     fn render_atomic_add(&self, ptr: &str, offset: &str, value: &str, dtype: &DType) -> String {

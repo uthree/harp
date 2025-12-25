@@ -208,7 +208,14 @@ impl VectorizationSuggester {
     ///
     /// スカラー式をベクトル式に変換します。
     /// Load → load_vec, Const → broadcast, 演算 → そのまま（要素ごとに適用）
-    fn vectorize_expr(&self, expr: &AstNode, width: usize, base_offset: &AstNode) -> AstNode {
+    ///
+    /// ベクトル化できない場合（Loadのオフセットが一致しない等）はNoneを返す。
+    fn try_vectorize_expr(
+        &self,
+        expr: &AstNode,
+        width: usize,
+        base_offset: &AstNode,
+    ) -> Option<AstNode> {
         match expr {
             // 定数 → broadcast
             AstNode::Const(lit) => {
@@ -219,7 +226,7 @@ impl VectorizationSuggester {
                     Literal::Bool(_) => DType::Bool,
                 };
                 let vec_type = scalar_type.to_vec(width);
-                AstNode::Cast(Box::new(expr.clone()), vec_type)
+                Some(AstNode::Cast(Box::new(expr.clone()), vec_type))
             }
 
             // Load → load_vec（連続アクセスの場合のみ）
@@ -234,97 +241,161 @@ impl VectorizationSuggester {
                     // ベースが一致すれば連続アクセスとみなしてベクトル化
                     if Self::are_bases_equivalent(&load_base, base_offset) {
                         let vec_type = dtype.to_vec(width);
-                        return AstNode::Load {
+                        return Some(AstNode::Load {
                             ptr: ptr.clone(),
                             offset: Box::new(base_offset.clone()),
                             count: width,
                             dtype: vec_type,
-                        };
+                        });
                     }
                 }
-                // 連続でない場合はそのまま（scalarをbroadcast）
-                let vec_type = dtype.to_vec(width);
-                AstNode::Cast(Box::new(expr.clone()), vec_type)
+                // 連続でない場合はベクトル化失敗
+                // スカラーLoadをベクトルにキャストするのは不正なコードになる
+                None
             }
 
             // 二項演算 → 再帰的にベクトル化
-            AstNode::Add(a, b) => AstNode::Add(
-                Box::new(self.vectorize_expr(a, width, base_offset)),
-                Box::new(self.vectorize_expr(b, width, base_offset)),
-            ),
-            AstNode::Mul(a, b) => AstNode::Mul(
-                Box::new(self.vectorize_expr(a, width, base_offset)),
-                Box::new(self.vectorize_expr(b, width, base_offset)),
-            ),
-            AstNode::Max(a, b) => AstNode::Max(
-                Box::new(self.vectorize_expr(a, width, base_offset)),
-                Box::new(self.vectorize_expr(b, width, base_offset)),
-            ),
-            AstNode::Idiv(a, b) => AstNode::Idiv(
-                Box::new(self.vectorize_expr(a, width, base_offset)),
-                Box::new(self.vectorize_expr(b, width, base_offset)),
-            ),
-            AstNode::Rem(a, b) => AstNode::Rem(
-                Box::new(self.vectorize_expr(a, width, base_offset)),
-                Box::new(self.vectorize_expr(b, width, base_offset)),
-            ),
+            AstNode::Add(a, b) => {
+                let a_vec = self.try_vectorize_expr(a, width, base_offset)?;
+                let b_vec = self.try_vectorize_expr(b, width, base_offset)?;
+                Some(AstNode::Add(Box::new(a_vec), Box::new(b_vec)))
+            }
+            AstNode::Mul(a, b) => {
+                let a_vec = self.try_vectorize_expr(a, width, base_offset)?;
+                let b_vec = self.try_vectorize_expr(b, width, base_offset)?;
+                Some(AstNode::Mul(Box::new(a_vec), Box::new(b_vec)))
+            }
+            AstNode::Max(a, b) => {
+                let a_vec = self.try_vectorize_expr(a, width, base_offset)?;
+                let b_vec = self.try_vectorize_expr(b, width, base_offset)?;
+                Some(AstNode::Max(Box::new(a_vec), Box::new(b_vec)))
+            }
+            AstNode::Idiv(a, b) => {
+                let a_vec = self.try_vectorize_expr(a, width, base_offset)?;
+                let b_vec = self.try_vectorize_expr(b, width, base_offset)?;
+                Some(AstNode::Idiv(Box::new(a_vec), Box::new(b_vec)))
+            }
+            AstNode::Rem(a, b) => {
+                let a_vec = self.try_vectorize_expr(a, width, base_offset)?;
+                let b_vec = self.try_vectorize_expr(b, width, base_offset)?;
+                Some(AstNode::Rem(Box::new(a_vec), Box::new(b_vec)))
+            }
 
             // 比較演算
-            AstNode::Lt(a, b) => AstNode::Lt(
-                Box::new(self.vectorize_expr(a, width, base_offset)),
-                Box::new(self.vectorize_expr(b, width, base_offset)),
-            ),
-            AstNode::Le(a, b) => AstNode::Le(
-                Box::new(self.vectorize_expr(a, width, base_offset)),
-                Box::new(self.vectorize_expr(b, width, base_offset)),
-            ),
-            AstNode::Gt(a, b) => AstNode::Gt(
-                Box::new(self.vectorize_expr(a, width, base_offset)),
-                Box::new(self.vectorize_expr(b, width, base_offset)),
-            ),
-            AstNode::Ge(a, b) => AstNode::Ge(
-                Box::new(self.vectorize_expr(a, width, base_offset)),
-                Box::new(self.vectorize_expr(b, width, base_offset)),
-            ),
-            AstNode::Eq(a, b) => AstNode::Eq(
-                Box::new(self.vectorize_expr(a, width, base_offset)),
-                Box::new(self.vectorize_expr(b, width, base_offset)),
-            ),
-            AstNode::Ne(a, b) => AstNode::Ne(
-                Box::new(self.vectorize_expr(a, width, base_offset)),
-                Box::new(self.vectorize_expr(b, width, base_offset)),
-            ),
+            AstNode::Lt(a, b) => {
+                let a_vec = self.try_vectorize_expr(a, width, base_offset)?;
+                let b_vec = self.try_vectorize_expr(b, width, base_offset)?;
+                Some(AstNode::Lt(Box::new(a_vec), Box::new(b_vec)))
+            }
+            AstNode::Le(a, b) => {
+                let a_vec = self.try_vectorize_expr(a, width, base_offset)?;
+                let b_vec = self.try_vectorize_expr(b, width, base_offset)?;
+                Some(AstNode::Le(Box::new(a_vec), Box::new(b_vec)))
+            }
+            AstNode::Gt(a, b) => {
+                let a_vec = self.try_vectorize_expr(a, width, base_offset)?;
+                let b_vec = self.try_vectorize_expr(b, width, base_offset)?;
+                Some(AstNode::Gt(Box::new(a_vec), Box::new(b_vec)))
+            }
+            AstNode::Ge(a, b) => {
+                let a_vec = self.try_vectorize_expr(a, width, base_offset)?;
+                let b_vec = self.try_vectorize_expr(b, width, base_offset)?;
+                Some(AstNode::Ge(Box::new(a_vec), Box::new(b_vec)))
+            }
+            AstNode::Eq(a, b) => {
+                let a_vec = self.try_vectorize_expr(a, width, base_offset)?;
+                let b_vec = self.try_vectorize_expr(b, width, base_offset)?;
+                Some(AstNode::Eq(Box::new(a_vec), Box::new(b_vec)))
+            }
+            AstNode::Ne(a, b) => {
+                let a_vec = self.try_vectorize_expr(a, width, base_offset)?;
+                let b_vec = self.try_vectorize_expr(b, width, base_offset)?;
+                Some(AstNode::Ne(Box::new(a_vec), Box::new(b_vec)))
+            }
 
             // 単項演算 → 再帰的にベクトル化
             AstNode::Recip(a) => {
-                AstNode::Recip(Box::new(self.vectorize_expr(a, width, base_offset)))
+                let a_vec = self.try_vectorize_expr(a, width, base_offset)?;
+                Some(AstNode::Recip(Box::new(a_vec)))
             }
-            AstNode::Sqrt(a) => AstNode::Sqrt(Box::new(self.vectorize_expr(a, width, base_offset))),
-            AstNode::Log2(a) => AstNode::Log2(Box::new(self.vectorize_expr(a, width, base_offset))),
-            AstNode::Exp2(a) => AstNode::Exp2(Box::new(self.vectorize_expr(a, width, base_offset))),
-            AstNode::Sin(a) => AstNode::Sin(Box::new(self.vectorize_expr(a, width, base_offset))),
+            AstNode::Sqrt(a) => {
+                let a_vec = self.try_vectorize_expr(a, width, base_offset)?;
+                Some(AstNode::Sqrt(Box::new(a_vec)))
+            }
+            AstNode::Log2(a) => {
+                let a_vec = self.try_vectorize_expr(a, width, base_offset)?;
+                Some(AstNode::Log2(Box::new(a_vec)))
+            }
+            AstNode::Exp2(a) => {
+                let a_vec = self.try_vectorize_expr(a, width, base_offset)?;
+                Some(AstNode::Exp2(Box::new(a_vec)))
+            }
+            AstNode::Sin(a) => {
+                let a_vec = self.try_vectorize_expr(a, width, base_offset)?;
+                Some(AstNode::Sin(Box::new(a_vec)))
+            }
 
             // Fma
-            AstNode::Fma { a, b, c } => AstNode::Fma {
-                a: Box::new(self.vectorize_expr(a, width, base_offset)),
-                b: Box::new(self.vectorize_expr(b, width, base_offset)),
-                c: Box::new(self.vectorize_expr(c, width, base_offset)),
-            },
+            AstNode::Fma { a, b, c } => {
+                let a_vec = self.try_vectorize_expr(a, width, base_offset)?;
+                let b_vec = self.try_vectorize_expr(b, width, base_offset)?;
+                let c_vec = self.try_vectorize_expr(c, width, base_offset)?;
+                Some(AstNode::Fma {
+                    a: Box::new(a_vec),
+                    b: Box::new(b_vec),
+                    c: Box::new(c_vec),
+                })
+            }
 
             // Cast
             AstNode::Cast(inner, dtype) => {
+                let inner_vec = self.try_vectorize_expr(inner, width, base_offset)?;
                 let vec_type = dtype.to_vec(width);
-                AstNode::Cast(
-                    Box::new(self.vectorize_expr(inner, width, base_offset)),
-                    vec_type,
-                )
+                Some(AstNode::Cast(Box::new(inner_vec), vec_type))
             }
 
             // 変数はそのまま（ループ変数など、スカラーのまま）
-            AstNode::Var(_) => expr.clone(),
+            // ベクトル化できないのでNoneを返す
+            AstNode::Var(_) => None,
 
-            // その他はそのまま
-            _ => expr.clone(),
+            // その他はベクトル化できない
+            _ => None,
+        }
+    }
+
+    /// 式にLoadノードが含まれているかチェック
+    ///
+    /// Loadを含まない式（純粋な定数やスカラー変数のみ）はベクトル化しても
+    /// パフォーマンス向上にならない上、不正なコードを生成する可能性がある。
+    fn contains_load(expr: &AstNode) -> bool {
+        match expr {
+            AstNode::Load { .. } => true,
+            // 二項演算
+            AstNode::Add(a, b)
+            | AstNode::Mul(a, b)
+            | AstNode::Max(a, b)
+            | AstNode::Idiv(a, b)
+            | AstNode::Rem(a, b)
+            | AstNode::Lt(a, b)
+            | AstNode::Le(a, b)
+            | AstNode::Gt(a, b)
+            | AstNode::Ge(a, b)
+            | AstNode::Eq(a, b)
+            | AstNode::Ne(a, b) => Self::contains_load(a) || Self::contains_load(b),
+            // 単項演算
+            AstNode::Recip(a)
+            | AstNode::Sqrt(a)
+            | AstNode::Log2(a)
+            | AstNode::Exp2(a)
+            | AstNode::Sin(a) => Self::contains_load(a),
+            // Fma
+            AstNode::Fma { a, b, c } => {
+                Self::contains_load(a) || Self::contains_load(b) || Self::contains_load(c)
+            }
+            // Cast
+            AstNode::Cast(inner, _) => Self::contains_load(inner),
+            // その他（定数、変数など）はLoadを含まない
+            _ => false,
         }
     }
 
@@ -429,6 +500,11 @@ impl VectorizationSuggester {
                 if let AstNode::Store { value, .. } = &statements[first_idx] {
                     let first_value = value.as_ref();
 
+                    trace!(
+                        "vectorize_block: group_size={}, width={}, base_offset={:?}, first_value={:?}",
+                        group_size, width, group.base_offset, first_value
+                    );
+
                     let all_equivalent = group.statement_indices.iter().all(|&idx| {
                         if let AstNode::Store { value, .. } = &statements[idx] {
                             Self::is_structurally_equivalent(first_value, value)
@@ -437,27 +513,43 @@ impl VectorizationSuggester {
                         }
                     });
 
-                    if all_equivalent {
-                        // ベクトル化実行
-                        let vectorized_value =
-                            self.vectorize_expr(first_value, width, &group.base_offset);
-                        let vectorized_store = AstNode::Store {
-                            ptr: Box::new(group.ptr.clone()),
-                            offset: Box::new(group.base_offset.clone()),
-                            value: Box::new(vectorized_value),
-                        };
+                    let has_load = Self::contains_load(first_value);
+                    trace!(
+                        "vectorize_block: all_equivalent={}, has_load={}",
+                        all_equivalent, has_load
+                    );
 
-                        // 最初の文を置き換え、残りを削除リストに追加
-                        new_statements[first_idx] = vectorized_store;
-                        for &idx in group.statement_indices.iter().skip(1).take(width - 1) {
-                            indices_to_remove.push(idx);
-                        }
-
-                        vectorized_any = true;
+                    // Loadを含まない式（純粋な定数など）はベクトル化しない
+                    // これらはベクトル化してもパフォーマンス向上にならず、
+                    // 不正なコード（float2をfloat*に代入など）を生成する可能性がある
+                    if all_equivalent && has_load {
+                        // ベクトル化を試行（失敗した場合はスキップ）
+                        let result =
+                            self.try_vectorize_expr(first_value, width, &group.base_offset);
                         trace!(
-                            "VectorizationSuggester: Vectorized {} statements with width {}",
-                            width, width
+                            "vectorize_block: try_vectorize_expr result={:?}",
+                            result.is_some()
                         );
+                        if let Some(vectorized_value) = result {
+                            trace!("vectorize_block: vectorized_value={:?}", vectorized_value);
+                            let vectorized_store = AstNode::Store {
+                                ptr: Box::new(group.ptr.clone()),
+                                offset: Box::new(group.base_offset.clone()),
+                                value: Box::new(vectorized_value),
+                            };
+
+                            // 最初の文を置き換え、残りを削除リストに追加
+                            new_statements[first_idx] = vectorized_store;
+                            for &idx in group.statement_indices.iter().skip(1).take(width - 1) {
+                                indices_to_remove.push(idx);
+                            }
+
+                            vectorized_any = true;
+                            trace!(
+                                "VectorizationSuggester: Vectorized {} statements with width {}",
+                                width, width
+                            );
+                        }
                     }
                 }
             }

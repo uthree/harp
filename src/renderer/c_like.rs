@@ -83,6 +83,20 @@ pub trait CLikeRenderer: Renderer {
         )
     }
 
+    /// ベクトルストアをレンダリング（デフォルトはreinterpret_cast）
+    fn render_vector_store(
+        &self,
+        ptr_expr: &str,
+        offset_expr: &str,
+        value_expr: &str,
+        dtype: &str,
+    ) -> String {
+        format!(
+            "*reinterpret_cast<{} *>(&{}[{}]) = {}",
+            dtype, ptr_expr, offset_expr, value_expr
+        )
+    }
+
     // ========== 共通実装（デフォルト実装） ==========
 
     /// インデント文字列を取得
@@ -305,13 +319,28 @@ pub trait CLikeRenderer: Renderer {
     fn render_statement(&mut self, node: &AstNode) -> String {
         match node {
             AstNode::Store { ptr, offset, value } => {
-                format!(
-                    "{}{}[{}] = {};",
-                    self.indent(),
-                    self.render_expr(ptr),
-                    self.render_expr(offset),
-                    self.render_expr(value)
-                )
+                let value_type = value.infer_type();
+                if value_type.is_vec() {
+                    // ベクトルストア
+                    let ptr_expr = self.render_expr(ptr);
+                    let offset_expr = self.render_expr(offset);
+                    let value_expr = self.render_expr(value);
+                    let dtype_str = self.render_dtype_backend(&value_type);
+                    format!(
+                        "{}{};",
+                        self.indent(),
+                        self.render_vector_store(&ptr_expr, &offset_expr, &value_expr, &dtype_str)
+                    )
+                } else {
+                    // スカラーストア
+                    format!(
+                        "{}{}[{}] = {};",
+                        self.indent(),
+                        self.render_expr(ptr),
+                        self.render_expr(offset),
+                        self.render_expr(value)
+                    )
+                }
             }
             AstNode::Assign { var, value } => {
                 // 単なる代入として扱う（変数宣言はBlockで行われる）
