@@ -93,6 +93,7 @@ use std::sync::{Arc, RwLock};
 pub use dimension::{Dim, Dim0, Dim1, Dim2, Dim3, Dim4, Dim5, Dim6, DimDyn, Dimension};
 pub use forward::ForwardError;
 pub use ops::{ElementwiseOp, ReduceOp, TensorOp, TensorRef};
+pub use primops::{Exp2, Floor, Log2, Recip, Sin, Sqrt};
 pub use shape::{Expr, View};
 
 use crate::ast::DType;

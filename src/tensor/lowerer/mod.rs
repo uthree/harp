@@ -703,7 +703,7 @@ pub fn lower_tensor(tensor: &Tensor<DimDyn>) -> AstNode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tensor::Dim2;
+    use crate::tensor::{Dim2, Recip, Sqrt};
 
     #[test]
     fn test_lower_simple_add() {

@@ -1,11 +1,14 @@
 //! Unary primitive operations
 //!
-//! - Neg: negation (-x)
+//! Each operation is defined as a separate trait for flexibility.
+//!
+//! - Neg: negation (-x) - uses std::ops::Neg
 //! - Recip: reciprocal (1/x)
 //! - Sqrt: square root
 //! - Log2: base-2 logarithm
 //! - Exp2: base-2 exponential
 //! - Sin: sine
+//! - Floor: floor function
 
 use std::marker::PhantomData;
 use std::ops::Neg;
@@ -19,6 +22,50 @@ use super::binary::with_grad_fn;
 use super::grad::{
     Exp2Backward, Log2Backward, NegBackward, RecipBackward, SinBackward, SqrtBackward,
 };
+
+// ============================================================================
+// Unary operation traits
+// ============================================================================
+
+/// Reciprocal operation (1/x)
+pub trait Recip {
+    type Output;
+    fn recip(self) -> Self::Output;
+}
+
+/// Square root operation
+pub trait Sqrt {
+    type Output;
+    fn sqrt(self) -> Self::Output;
+}
+
+/// Base-2 logarithm operation
+pub trait Log2 {
+    type Output;
+    fn log2(self) -> Self::Output;
+}
+
+/// Base-2 exponential operation (2^x)
+pub trait Exp2 {
+    type Output;
+    fn exp2(self) -> Self::Output;
+}
+
+/// Sine operation
+pub trait Sin {
+    type Output;
+    fn sin(self) -> Self::Output;
+}
+
+/// Floor operation
+pub trait Floor {
+    type Output;
+    fn floor(self) -> Self::Output;
+}
+
+// ============================================================================
+// Helper functions
+// ============================================================================
 
 /// Helper to create View from usize shape
 fn view_from_shape(shape: &[usize]) -> View {
@@ -44,7 +91,7 @@ fn create_unary_elementwise<D: Dimension>(op: ElementwiseOp, input: &Tensor<D>) 
 }
 
 // ============================================================================
-// Neg: -Tensor
+// Neg implementation (std::ops::Neg)
 // ============================================================================
 
 impl<D: Dimension> Neg for &Tensor<D> {
@@ -70,12 +117,13 @@ impl<D: Dimension> Neg for Tensor<D> {
 }
 
 // ============================================================================
-// Unary primops as methods
+// Recip implementation
 // ============================================================================
 
-impl<D: Dimension> Tensor<D> {
-    /// Compute the reciprocal (1/x) of each element (primop)
-    pub fn recip(&self) -> Tensor<D> {
+impl<D: Dimension> Recip for &Tensor<D> {
+    type Output = Tensor<D>;
+
+    fn recip(self) -> Tensor<D> {
         let result = create_unary_elementwise(ElementwiseOp::Recip, self);
 
         if self.requires_grad() {
@@ -85,9 +133,23 @@ impl<D: Dimension> Tensor<D> {
             result
         }
     }
+}
 
-    /// Compute sqrt(x) for each element (primop)
-    pub fn sqrt(&self) -> Tensor<D> {
+impl<D: Dimension> Recip for Tensor<D> {
+    type Output = Tensor<D>;
+    fn recip(self) -> Tensor<D> {
+        (&self).recip()
+    }
+}
+
+// ============================================================================
+// Sqrt implementation
+// ============================================================================
+
+impl<D: Dimension> Sqrt for &Tensor<D> {
+    type Output = Tensor<D>;
+
+    fn sqrt(self) -> Tensor<D> {
         let result = create_unary_elementwise(ElementwiseOp::Sqrt, self);
 
         if self.requires_grad() {
@@ -97,9 +159,23 @@ impl<D: Dimension> Tensor<D> {
             result
         }
     }
+}
 
-    /// Compute log2(x) for each element (primop)
-    pub fn log2(&self) -> Tensor<D> {
+impl<D: Dimension> Sqrt for Tensor<D> {
+    type Output = Tensor<D>;
+    fn sqrt(self) -> Tensor<D> {
+        (&self).sqrt()
+    }
+}
+
+// ============================================================================
+// Log2 implementation
+// ============================================================================
+
+impl<D: Dimension> Log2 for &Tensor<D> {
+    type Output = Tensor<D>;
+
+    fn log2(self) -> Tensor<D> {
         let result = create_unary_elementwise(ElementwiseOp::Log2, self);
 
         if self.requires_grad() {
@@ -109,9 +185,23 @@ impl<D: Dimension> Tensor<D> {
             result
         }
     }
+}
 
-    /// Compute exp2(x) = 2^x for each element (primop)
-    pub fn exp2(&self) -> Tensor<D> {
+impl<D: Dimension> Log2 for Tensor<D> {
+    type Output = Tensor<D>;
+    fn log2(self) -> Tensor<D> {
+        (&self).log2()
+    }
+}
+
+// ============================================================================
+// Exp2 implementation
+// ============================================================================
+
+impl<D: Dimension> Exp2 for &Tensor<D> {
+    type Output = Tensor<D>;
+
+    fn exp2(self) -> Tensor<D> {
         let result = create_unary_elementwise(ElementwiseOp::Exp2, self);
 
         if self.requires_grad() {
@@ -121,9 +211,23 @@ impl<D: Dimension> Tensor<D> {
             result
         }
     }
+}
 
-    /// Compute sin(x) for each element (primop)
-    pub fn sin(&self) -> Tensor<D> {
+impl<D: Dimension> Exp2 for Tensor<D> {
+    type Output = Tensor<D>;
+    fn exp2(self) -> Tensor<D> {
+        (&self).exp2()
+    }
+}
+
+// ============================================================================
+// Sin implementation
+// ============================================================================
+
+impl<D: Dimension> Sin for &Tensor<D> {
+    type Output = Tensor<D>;
+
+    fn sin(self) -> Tensor<D> {
         let result = create_unary_elementwise(ElementwiseOp::Sin, self);
 
         if self.requires_grad() {
@@ -133,14 +237,33 @@ impl<D: Dimension> Tensor<D> {
             result
         }
     }
+}
 
-    /// Compute floor(x) for each element (primop)
-    ///
+impl<D: Dimension> Sin for Tensor<D> {
+    type Output = Tensor<D>;
+    fn sin(self) -> Tensor<D> {
+        (&self).sin()
+    }
+}
+
+// ============================================================================
+// Floor implementation
+// ============================================================================
+
+impl<D: Dimension> Floor for &Tensor<D> {
+    type Output = Tensor<D>;
+
     /// Floor is non-differentiable (gradient is 0 almost everywhere).
     /// Therefore, gradient tracking is not preserved for this operation.
-    pub fn floor(&self) -> Tensor<D> {
-        // floor is non-differentiable, so we don't track gradients
+    fn floor(self) -> Tensor<D> {
         create_unary_elementwise(ElementwiseOp::Floor, self)
+    }
+}
+
+impl<D: Dimension> Floor for Tensor<D> {
+    type Output = Tensor<D>;
+    fn floor(self) -> Tensor<D> {
+        (&self).floor()
     }
 }
 

@@ -23,6 +23,9 @@ mod movement;
 mod reduce;
 mod unary;
 
+// Re-export unary operation traits
+pub use unary::{Exp2, Floor, Log2, Recip, Sin, Sqrt};
+
 // Re-export gradient functions for use in backward pass
 pub use grad::{
     // Basic gradients

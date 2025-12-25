@@ -5,7 +5,7 @@
 
 use crate::ast::{AstNode, Literal};
 use crate::tensor::ops::ReduceOp;
-use crate::tensor::{DimDyn, GradFn, Tensor};
+use crate::tensor::{DimDyn, Exp2, Floor, GradFn, Log2, Recip, Sin, Sqrt, Tensor};
 use std::collections::HashMap;
 
 // ============================================================================

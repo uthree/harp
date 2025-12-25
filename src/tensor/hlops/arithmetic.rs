@@ -5,7 +5,7 @@
 
 use std::ops::{Div, Sub};
 
-use crate::tensor::{Dimension, Tensor};
+use crate::tensor::{Dimension, Recip, Tensor};
 
 // ============================================================================
 // Sub: Tensor - Tensor = Add(a, Neg(b))

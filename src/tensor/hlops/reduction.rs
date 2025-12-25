@@ -6,7 +6,7 @@
 //! - Softmax(x) = Exp(x - max) / Sum(Exp(x - max))
 //! - LogSoftmax(x) = x - max - Log(Sum(Exp(x - max)))
 
-use crate::tensor::{DimDyn, Dimension, Tensor};
+use crate::tensor::{DimDyn, Dimension, Recip, Sqrt, Tensor};
 
 impl<D: Dimension> Tensor<D> {
     /// Alias for reduce_sum (for convenience)

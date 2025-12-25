@@ -4,7 +4,7 @@
 //! - Ln(x) = Log2(x) * ln(2)
 //! - Cos(x) = Sin(x + π/2)
 
-use crate::tensor::{Dimension, Tensor};
+use crate::tensor::{Dimension, Exp2, Log2, Sin, Tensor};
 
 impl<D: Dimension> Tensor<D> {
     /// Compute exp(x) = e^x for each element (hlop)

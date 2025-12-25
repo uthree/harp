@@ -6,7 +6,7 @@
 //! - GELU(x) = x * Sigmoid(1.702 * x)  (fast approximation)
 //! - SiLU(x) = x * Sigmoid(x)  (Swish)
 
-use crate::tensor::{Dimension, Tensor};
+use crate::tensor::{Dimension, Recip, Tensor};
 
 impl<D: Dimension> Tensor<D> {
     /// ReLU activation: max(0, x) (hlop)
