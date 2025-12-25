@@ -69,6 +69,31 @@ impl GraphNode {
         }
     }
 
+    /// 分岐点を作成（Clone演算）
+    ///
+    /// 同じテンソルを複数の計算パスで使用する場合に使用します。
+    /// Contiguous時に実際のバッファコピーが実行されます。
+    ///
+    /// # 例
+    /// ```no_run
+    /// use harp::prelude::*;
+    ///
+    /// let mut graph = Graph::new();
+    /// let a = graph.input("a", DType::F32, vec![3, 4]);
+    ///
+    /// // 分岐点を作成
+    /// let a_cloned = a.graph_clone();
+    /// // a と a_cloned は独立した計算パスで使用可能
+    /// ```
+    pub fn graph_clone(&self) -> Self {
+        Self::new(
+            self.dtype.clone(),
+            GraphOp::Clone,
+            vec![self.clone()],
+            self.view.clone(),
+        )
+    }
+
     /// テンソルの形状を変更（reshape）
     ///
     /// 要素数が同じ場合に使用可能です。

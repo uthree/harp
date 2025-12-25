@@ -85,9 +85,8 @@ pub fn elementwise_to_ast(op: &ElementwiseOp, input_indices: &[usize]) -> AstNod
             sqrt(input)
         }
         ElementwiseOp::Floor => {
-            // TODO: AstNodeにFloorを追加後に修正
-            // 現在は単純にidentityとして扱う（暫定）
-            wildcard(input_indices[0].to_string())
+            let input = wildcard(input_indices[0].to_string());
+            AstNode::Floor(Box::new(input))
         }
     }
 }
@@ -163,6 +162,10 @@ fn substitute_wildcard(expr: &AstNode, name: &str, replacement: &AstNode) -> Ast
         AstNode::Sqrt(inner) => {
             let new_inner = substitute_wildcard(inner, name, replacement);
             AstNode::Sqrt(Box::new(new_inner))
+        }
+        AstNode::Floor(inner) => {
+            let new_inner = substitute_wildcard(inner, name, replacement);
+            AstNode::Floor(Box::new(new_inner))
         }
         AstNode::Max(lhs, rhs) => {
             let new_lhs = substitute_wildcard(lhs, name, replacement);
@@ -262,7 +265,8 @@ fn find_max_wildcard_index(expr: &AstNode) -> usize {
         | AstNode::Log2(inner)
         | AstNode::Exp2(inner)
         | AstNode::Sin(inner)
-        | AstNode::Sqrt(inner) => find_max_wildcard_index(inner),
+        | AstNode::Sqrt(inner)
+        | AstNode::Floor(inner) => find_max_wildcard_index(inner),
         _ => 0,
     }
 }

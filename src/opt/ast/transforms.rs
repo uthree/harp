@@ -83,6 +83,7 @@ fn collect_var_names_recursive(ast: &AstNode, names: &mut HashSet<String>) {
         | AstNode::Log2(a)
         | AstNode::Exp2(a)
         | AstNode::Sin(a)
+        | AstNode::Floor(a)
         | AstNode::BitwiseNot(a)
         | AstNode::Cast(a, _) => {
             collect_var_names_recursive(a, names);
@@ -623,6 +624,7 @@ fn replace_var_in_ast(ast: &AstNode, var_name: &str, replacement: &AstNode) -> A
         AstNode::Log2(a) => AstNode::Log2(Box::new(replace_var_in_ast(a, var_name, replacement))),
         AstNode::Exp2(a) => AstNode::Exp2(Box::new(replace_var_in_ast(a, var_name, replacement))),
         AstNode::Sin(a) => AstNode::Sin(Box::new(replace_var_in_ast(a, var_name, replacement))),
+        AstNode::Floor(a) => AstNode::Floor(Box::new(replace_var_in_ast(a, var_name, replacement))),
         AstNode::BitwiseAnd(a, b) => AstNode::BitwiseAnd(
             Box::new(replace_var_in_ast(a, var_name, replacement)),
             Box::new(replace_var_in_ast(b, var_name, replacement)),

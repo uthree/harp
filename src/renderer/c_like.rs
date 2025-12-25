@@ -165,6 +165,10 @@ pub trait CLikeRenderer: Renderer {
                 let args = vec![self.render_expr(operand)];
                 self.render_math_func("sin", &args)
             }
+            AstNode::Floor(operand) => {
+                let args = vec![self.render_expr(operand)];
+                self.render_math_func("floor", &args)
+            }
             // 0〜1の一様乱数を生成
             AstNode::Rand => "((float)rand() / (float)RAND_MAX)".to_string(),
             AstNode::BitwiseAnd(left, right) => {
@@ -670,6 +674,7 @@ pub fn extract_buffer_placeholders(body: &AstNode) -> (Vec<String>, bool) {
             | AstNode::Log2(x)
             | AstNode::Exp2(x)
             | AstNode::Sin(x)
+            | AstNode::Floor(x)
             | AstNode::BitwiseNot(x) => {
                 visit(x, inputs, has_output);
             }

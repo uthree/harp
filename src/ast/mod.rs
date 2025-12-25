@@ -82,6 +82,7 @@ pub enum AstNode {
     Log2(Box<AstNode>),
     Exp2(Box<AstNode>),
     Sin(Box<AstNode>),
+    Floor(Box<AstNode>),
     Cast(Box<AstNode>, DType),
 
     /// Fused Multiply-Add: fma(a, b, c) = a * b + c
@@ -278,6 +279,7 @@ impl AstNode {
             | AstNode::Log2(operand)
             | AstNode::Exp2(operand)
             | AstNode::Sin(operand)
+            | AstNode::Floor(operand)
             | AstNode::BitwiseNot(operand)
             | AstNode::Cast(operand, _) => vec![operand.as_ref()],
             AstNode::Fma { a, b, c } => vec![a.as_ref(), b.as_ref(), c.as_ref()],
@@ -400,6 +402,7 @@ impl AstNode {
             AstNode::Log2(operand) => AstNode::Log2(Box::new(f(operand))),
             AstNode::Exp2(operand) => AstNode::Exp2(Box::new(f(operand))),
             AstNode::Sin(operand) => AstNode::Sin(Box::new(f(operand))),
+            AstNode::Floor(operand) => AstNode::Floor(Box::new(f(operand))),
             AstNode::BitwiseNot(operand) => AstNode::BitwiseNot(Box::new(f(operand))),
             AstNode::Cast(operand, dtype) => AstNode::Cast(Box::new(f(operand)), dtype.clone()),
             AstNode::Fma { a, b, c } => AstNode::Fma {
@@ -598,7 +601,11 @@ impl AstNode {
             AstNode::Recip(operand) | AstNode::BitwiseNot(operand) => operand.infer_type(),
 
             // Mathematical operations that typically return F32
-            AstNode::Sqrt(_) | AstNode::Log2(_) | AstNode::Exp2(_) | AstNode::Sin(_) => DType::F32,
+            AstNode::Sqrt(_)
+            | AstNode::Log2(_)
+            | AstNode::Exp2(_)
+            | AstNode::Sin(_)
+            | AstNode::Floor(_) => DType::F32,
 
             // Fused Multiply-Add - returns same type as operands (typically F32)
             AstNode::Fma { a, .. } => a.infer_type(),
@@ -717,6 +724,7 @@ impl AstNode {
             | AstNode::Log2(operand)
             | AstNode::Exp2(operand)
             | AstNode::Sin(operand)
+            | AstNode::Floor(operand)
             | AstNode::BitwiseNot(operand)
             | AstNode::Cast(operand, _) => {
                 operand.check_scope(scope)?;

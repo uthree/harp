@@ -316,6 +316,20 @@ impl GraphNode {
         )
     }
 
+    /// 床関数: floor(x) - 小数点以下を切り捨て
+    pub fn floor(self) -> GraphNode {
+        let dtype = self.dtype.clone();
+        let view = self.view.clone();
+        GraphNode::new(
+            dtype,
+            GraphOp::Elementwise {
+                op: ElementwiseOp::Floor,
+            },
+            vec![self],
+            view,
+        )
+    }
+
     /// 平方根の逆数: rsqrt(x) = 1/sqrt(x)
     ///
     /// sqrtとrecipを使って実装します。

@@ -148,6 +148,33 @@ impl GradFn for MaxBackward {
 // Unary Gradients
 // ============================================================================
 
+/// Gradient for Clone (fork): z = clone(a)
+/// ∂L/∂a = ∂L/∂z (identity - gradient passes through)
+pub struct CloneBackward {
+    input: Tensor<DimDyn>,
+}
+
+impl CloneBackward {
+    pub fn new(input: Tensor<DimDyn>) -> Self {
+        Self { input }
+    }
+}
+
+impl GradFn for CloneBackward {
+    fn backward(&self, grad_output: &Tensor<DimDyn>) -> Vec<Tensor<DimDyn>> {
+        // Clone is identity for gradients - just pass through
+        vec![grad_output.clone()]
+    }
+
+    fn inputs(&self) -> Vec<Tensor<DimDyn>> {
+        vec![self.input.clone()]
+    }
+
+    fn name(&self) -> &'static str {
+        "CloneBackward"
+    }
+}
+
 /// Gradient for Neg: z = -a
 /// ∂L/∂a = -∂L/∂z
 pub struct NegBackward {
@@ -547,7 +574,10 @@ fn differentiate_ast(expr: &AstNode, wrt: &str) -> AstNode {
                 Box::new(AstNode::Const(Literal::F32(2.0))),
                 Box::new(AstNode::Sqrt(inner.clone())),
             );
-            AstNode::Mul(Box::new(d_inner), Box::new(AstNode::Recip(Box::new(two_sqrt))))
+            AstNode::Mul(
+                Box::new(d_inner),
+                Box::new(AstNode::Recip(Box::new(two_sqrt))),
+            )
         }
 
         // Log2: ∂log₂(a)/∂x = ∂a/∂x / (a * ln(2))
@@ -559,7 +589,10 @@ fn differentiate_ast(expr: &AstNode, wrt: &str) -> AstNode {
                 Box::new((**inner).clone()),
                 Box::new(AstNode::Const(Literal::F32(ln2))),
             );
-            AstNode::Mul(Box::new(d_inner), Box::new(AstNode::Recip(Box::new(denominator))))
+            AstNode::Mul(
+                Box::new(d_inner),
+                Box::new(AstNode::Recip(Box::new(denominator))),
+            )
         }
 
         // Exp2: ∂2^a/∂x = ∂a/∂x * 2^a * ln(2)
@@ -587,6 +620,9 @@ fn differentiate_ast(expr: &AstNode, wrt: &str) -> AstNode {
             )));
             AstNode::Mul(Box::new(d_inner), Box::new(cos_inner))
         }
+
+        // Floor: floor is non-differentiable (gradient is 0 almost everywhere)
+        AstNode::Floor(_) => AstNode::Const(Literal::F32(0.0)),
 
         // Max: subdifferential - we approximate by assuming left operand dominates
         // This is a simplification; proper implementation needs comparison ops
@@ -696,7 +732,9 @@ impl GradFn for FusedElementwiseBackward {
             let full_grad = grad_output * &grad;
 
             // Reduce for broadcasting if needed
-            if let Ok(idx) = wc_name.parse::<usize>() && idx < self.inputs.len() {
+            if let Ok(idx) = wc_name.parse::<usize>()
+                && idx < self.inputs.len()
+            {
                 let input_grad = reduce_grad_for_broadcast(&full_grad, self.inputs[idx].shape());
                 grads.push(input_grad);
             }
@@ -801,7 +839,9 @@ impl GradFn for FusedElementwiseReduceBackward {
             let full_grad = &grad_expanded * &local_grad;
 
             // Reduce for broadcasting if needed
-            if let Ok(idx) = wc_name.parse::<usize>() && idx < self.inputs.len() {
+            if let Ok(idx) = wc_name.parse::<usize>()
+                && idx < self.inputs.len()
+            {
                 let input_grad = reduce_grad_for_broadcast(&full_grad, self.inputs[idx].shape());
                 grads.push(input_grad);
             }
@@ -837,12 +877,10 @@ fn evaluate_ast_with_tensors(
         }
         AstNode::Const(Literal::I32(val)) => Tensor::<DimDyn>::full_dyn(&[1], *val as f32),
 
-        AstNode::Wildcard(name) => {
-            substitution
-                .get(name)
-                .cloned()
-                .unwrap_or_else(|| Tensor::<DimDyn>::zeros_dyn(&[1]))
-        }
+        AstNode::Wildcard(name) => substitution
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| Tensor::<DimDyn>::zeros_dyn(&[1])),
 
         AstNode::Add(lhs, rhs) => {
             let l = evaluate_ast_with_tensors(lhs, substitution);
@@ -879,6 +917,11 @@ fn evaluate_ast_with_tensors(
         AstNode::Sin(inner) => {
             let i = evaluate_ast_with_tensors(inner, substitution);
             i.sin()
+        }
+
+        AstNode::Floor(inner) => {
+            let i = evaluate_ast_with_tensors(inner, substitution);
+            i.floor()
         }
 
         AstNode::Max(lhs, rhs) => {
@@ -964,15 +1007,13 @@ mod tests {
         let grad = differentiate_ast(&expr, "0");
         // Should be Add(Const(1.0), Const(0.0))
         match grad {
-            AstNode::Add(lhs, rhs) => {
-                match (*lhs, *rhs) {
-                    (AstNode::Const(Literal::F32(l)), AstNode::Const(Literal::F32(r))) => {
-                        assert_eq!(l, 1.0);
-                        assert_eq!(r, 0.0);
-                    }
-                    _ => panic!("Expected Const values"),
+            AstNode::Add(lhs, rhs) => match (*lhs, *rhs) {
+                (AstNode::Const(Literal::F32(l)), AstNode::Const(Literal::F32(r))) => {
+                    assert_eq!(l, 1.0);
+                    assert_eq!(r, 0.0);
                 }
-            }
+                _ => panic!("Expected Const values"),
+            },
             _ => panic!("Expected Add node"),
         }
     }
@@ -995,7 +1036,10 @@ mod tests {
         // Expression: x + y * z
         let expr = AstNode::Add(
             Box::new(wildcard("0")),
-            Box::new(AstNode::Mul(Box::new(wildcard("1")), Box::new(wildcard("2")))),
+            Box::new(AstNode::Mul(
+                Box::new(wildcard("1")),
+                Box::new(wildcard("2")),
+            )),
         );
         let wildcards = find_wildcards(&expr);
         assert_eq!(wildcards, vec!["0", "1", "2"]);
@@ -1006,7 +1050,10 @@ mod tests {
         // Expression: x + x * y
         let expr = AstNode::Add(
             Box::new(wildcard("0")),
-            Box::new(AstNode::Mul(Box::new(wildcard("0")), Box::new(wildcard("1")))),
+            Box::new(AstNode::Mul(
+                Box::new(wildcard("0")),
+                Box::new(wildcard("1")),
+            )),
         );
         let wildcards = find_wildcards(&expr);
         assert_eq!(wildcards, vec!["0", "1"]); // Duplicates removed
@@ -1034,13 +1081,8 @@ mod tests {
         let t2 = Tensor::<DimDyn>::ones_dyn(&[2, 3]);
         let expr = AstNode::Mul(Box::new(wildcard("0")), Box::new(wildcard("1")));
 
-        let backward = FusedElementwiseReduceBackward::new(
-            vec![t1, t2],
-            expr,
-            ReduceOp::Sum,
-            vec![1],
-            false,
-        );
+        let backward =
+            FusedElementwiseReduceBackward::new(vec![t1, t2], expr, ReduceOp::Sum, vec![1], false);
         assert_eq!(backward.name(), "FusedElementwiseReduceBackward");
         assert_eq!(backward.inputs().len(), 2);
         assert_eq!(backward.axes, vec![1]);

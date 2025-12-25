@@ -88,6 +88,11 @@ pub enum GraphOp {
     Cast {
         target_dtype: DType,
     },
+    /// 分岐点を作成（バッファコピー）
+    ///
+    /// 同じテンソルを複数の計算パスで使用する場合に使用。
+    /// Contiguous時に実際のバッファコピーが実行される。
+    Clone,
     /// カーネル演算（単一カーネル関数）
     ///
     /// `AstNode::Function`または`AstNode::Kernel`を保持します。
@@ -172,10 +177,11 @@ pub enum ElementwiseOp {
     Idiv,
     Neg,
     Recip,
-    Log2, // 底が2の対数
-    Exp2, // 2の累乗
-    Sin,  // 正弦
-    Sqrt, // 平方根
+    Log2,  // 底が2の対数
+    Exp2,  // 2の累乗
+    Sin,   // 正弦
+    Sqrt,  // 平方根
+    Floor, // 床関数
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

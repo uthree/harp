@@ -23,6 +23,7 @@ pub fn build_elementwise_expr(op: &ElementwiseOp) -> AstNode {
         ElementwiseOp::Exp2 => exp2(wildcard("0")),
         ElementwiseOp::Sin => sin(wildcard("0")),
         ElementwiseOp::Sqrt => sqrt(wildcard("0")),
+        ElementwiseOp::Floor => AstNode::Floor(Box::new(wildcard("0"))),
     }
 }
 

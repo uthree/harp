@@ -117,6 +117,7 @@ impl LoopAnalyzer {
             | AstNode::Log2(a)
             | AstNode::Exp2(a)
             | AstNode::Sin(a)
+            | AstNode::Floor(a)
             | AstNode::BitwiseNot(a)
             | AstNode::Cast(a, _) => {
                 self.analyze_recursive(a);
@@ -191,6 +192,7 @@ impl LoopAnalyzer {
             | AstNode::Log2(a)
             | AstNode::Exp2(a)
             | AstNode::Sin(a)
+            | AstNode::Floor(a)
             | AstNode::BitwiseNot(a)
             | AstNode::Cast(a, _) => self.depends_on_loop_var(a),
             _ => false,
@@ -369,6 +371,7 @@ pub fn substitute_var(ast: &AstNode, var_name: &str, replacement: &AstNode) -> A
         AstNode::Log2(a) => AstNode::Log2(Box::new(substitute_var(a, var_name, replacement))),
         AstNode::Exp2(a) => AstNode::Exp2(Box::new(substitute_var(a, var_name, replacement))),
         AstNode::Sin(a) => AstNode::Sin(Box::new(substitute_var(a, var_name, replacement))),
+        AstNode::Floor(a) => AstNode::Floor(Box::new(substitute_var(a, var_name, replacement))),
         AstNode::BitwiseNot(a) => {
             AstNode::BitwiseNot(Box::new(substitute_var(a, var_name, replacement)))
         }
@@ -763,6 +766,7 @@ impl FreeVariableCollector {
             | AstNode::Log2(a)
             | AstNode::Exp2(a)
             | AstNode::Sin(a)
+            | AstNode::Floor(a)
             | AstNode::BitwiseNot(a)
             | AstNode::Cast(a, _) => {
                 self.collect_recursive(a);

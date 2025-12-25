@@ -26,11 +26,21 @@ mod unary;
 // Re-export gradient functions for use in backward pass
 pub use grad::{
     // Basic gradients
-    AddBackward, MulBackward, MaxBackward,
-    NegBackward, RecipBackward, SqrtBackward,
-    Log2Backward, Exp2Backward, SinBackward,
-    // Reduce gradients
-    ReduceSumBackward, ReduceMulBackward, ReduceMaxBackward,
+    AddBackward,
+    CloneBackward,
+    Exp2Backward,
     // Fused operation gradients
-    FusedElementwiseBackward, FusedElementwiseReduceBackward,
+    FusedElementwiseBackward,
+    FusedElementwiseReduceBackward,
+    Log2Backward,
+    MaxBackward,
+    MulBackward,
+    NegBackward,
+    RecipBackward,
+    ReduceMaxBackward,
+    ReduceMulBackward,
+    // Reduce gradients
+    ReduceSumBackward,
+    SinBackward,
+    SqrtBackward,
 };

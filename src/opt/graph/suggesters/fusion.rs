@@ -186,6 +186,10 @@ impl FusionSuggester {
                 assert_eq!(args.len(), 1);
                 AstNode::Sqrt(Box::new(args[0].clone()))
             }
+            ElementwiseOp::Floor => {
+                assert_eq!(args.len(), 1);
+                AstNode::Floor(Box::new(args[0].clone()))
+            }
         }
     }
 

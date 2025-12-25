@@ -185,6 +185,7 @@ impl SimpleCostEstimator {
             ElementwiseOp::Log2 => 40.0_f32.ln(),
             ElementwiseOp::Exp2 => 40.0_f32.ln(),
             ElementwiseOp::Sin => 50.0_f32.ln(),
+            ElementwiseOp::Floor => 5.0_f32.ln(), // floatをintにキャストして戻すだけ
         }
     }
 
@@ -370,6 +371,12 @@ impl SimpleCostEstimator {
                 // 非常に軽量（読み込み + キャスト + 書き込み）
                 let num_elements = self.compute_num_elements(node);
                 // CastもKernelにloweringされるべきなのでペナルティを追加
+                let lowering_penalty = self.kernel_launch_overhead.ln();
+                num_elements.ln() + (2.0 * self.memory_access_cost).ln() + lowering_penalty
+            }
+            GraphOp::Clone => {
+                // Clone: バッファコピー（Contiguousと同様のコスト）
+                let num_elements = self.compute_num_elements(node);
                 let lowering_penalty = self.kernel_launch_overhead.ln();
                 num_elements.ln() + (2.0 * self.memory_access_cost).ln() + lowering_penalty
             }

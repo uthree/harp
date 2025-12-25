@@ -272,9 +272,16 @@ impl<D: Dimension> Tensor<D> {
     /// let c = a2 * 2.0;        // a2 is separate path
     /// ```
     pub fn fork(&self) -> Tensor<D> {
-        // For now, just clone (will be updated to create Clone operation)
-        // TODO: Create TensorOp::Clone operation when fully migrated
-        self.clone()
+        // Create a Clone operation in the computation graph
+        let cloned_node = self.node.graph_clone();
+        Tensor {
+            node: cloned_node,
+            shape: self.shape.clone(),
+            dtype: self.dtype.clone(),
+            autograd: None, // Fork does not preserve gradient tracking
+            buffer: RefCell::new(None),
+            _dim: PhantomData,
+        }
     }
 }
 
@@ -498,5 +505,24 @@ mod tests {
     fn test_rand() {
         let t = Tensor::<Dim2>::rand([3, 4]);
         assert_eq!(t.shape(), &[3, 4]);
+    }
+
+    #[test]
+    fn test_fork() {
+        let t = Tensor::<Dim2>::ones([2, 3]);
+        let forked = t.fork();
+
+        // fork() creates a new tensor with the same shape
+        assert_eq!(forked.shape(), t.shape());
+        assert_eq!(forked.dtype(), t.dtype());
+
+        // fork() does not preserve gradient tracking
+        let t_grad = Tensor::<Dim2>::ones([2, 3]).set_requires_grad(true);
+        let forked_grad = t_grad.fork();
+        assert!(!forked_grad.requires_grad());
+
+        // The forked tensor should have a Clone operation in its graph
+        use crate::graph::ops::GraphOp;
+        assert!(matches!(forked.node.op, GraphOp::Clone));
     }
 }

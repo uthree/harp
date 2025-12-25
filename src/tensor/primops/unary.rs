@@ -114,6 +114,16 @@ impl<D: Dimension> Tensor<D> {
             result
         }
     }
+
+    /// Compute floor(x) for each element (primop)
+    ///
+    /// Floor is non-differentiable (gradient is 0 almost everywhere).
+    /// Therefore, gradient tracking is not preserved for this operation.
+    pub fn floor(&self) -> Tensor<D> {
+        let result_node = self.node.clone().floor();
+        // floor is non-differentiable, so we don't track gradients
+        Tensor::from_node(result_node, self.shape().to_vec(), DType::F32)
+    }
 }
 
 #[cfg(test)]
@@ -160,6 +170,13 @@ mod tests {
     fn test_sin() {
         let a = Tensor::<Dim2>::ones([2, 3]);
         let c = a.sin();
+        assert_eq!(c.shape(), &[2, 3]);
+    }
+
+    #[test]
+    fn test_floor() {
+        let a = Tensor::<Dim2>::ones([2, 3]);
+        let c = a.floor();
         assert_eq!(c.shape(), &[2, 3]);
     }
 }

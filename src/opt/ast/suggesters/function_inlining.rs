@@ -379,6 +379,7 @@ impl FunctionInliningSuggester {
             AstNode::Log2(_) => AstNode::Log2(Box::new(children[0].clone())),
             AstNode::Exp2(_) => AstNode::Exp2(Box::new(children[0].clone())),
             AstNode::Sin(_) => AstNode::Sin(Box::new(children[0].clone())),
+            AstNode::Floor(_) => AstNode::Floor(Box::new(children[0].clone())),
             AstNode::BitwiseNot(_) => AstNode::BitwiseNot(Box::new(children[0].clone())),
             AstNode::Cast(_, dtype) => AstNode::Cast(Box::new(children[0].clone()), dtype.clone()),
 
