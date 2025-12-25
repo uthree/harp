@@ -142,6 +142,19 @@ pub fn build_contiguous_offset_excluding_axes_with_shape(
     offset
 }
 
+/// 線形インデックスのオフセット計算式を構築
+///
+/// ndim次元のループインデックスから単一の線形インデックスを計算
+/// 計算: ridx0 * (s1 * s2 * ...) + ridx1 * (s2 * s3 * ...) + ... + ridxN
+/// reshapeで形状が変わっても要素数が同じなら同じ線形インデックスになる
+pub fn build_linear_offset_with_shape(ndim: usize, shape: &[Expr]) -> AstNode {
+    if ndim == 0 {
+        return const_int(0);
+    }
+    // 線形インデックス = 各ridxの連続オフセット
+    build_contiguous_offset_with_shape(ndim, Some(shape))
+}
+
 /// Viewを考慮したストライドベースのオフセット計算式を構築
 pub fn build_strided_offset(view: &View, ndim: usize) -> AstNode {
     if ndim == 0 {

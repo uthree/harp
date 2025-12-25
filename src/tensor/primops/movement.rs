@@ -207,6 +207,7 @@ impl<D: Dimension> Tensor<D> {
     /// Expand tensor to a larger shape (broadcast)
     ///
     /// Dimensions of size 1 can be expanded to larger sizes.
+    /// The stride for expanded dimensions is set to 0 to enable broadcasting.
     pub fn expand(&self, new_shape: &[usize]) -> Tensor<DimDyn> {
         assert_eq!(
             new_shape.len(),
@@ -224,7 +225,47 @@ impl<D: Dimension> Tensor<D> {
             );
         }
 
-        let view = view_from_shape(new_shape);
+        // Build broadcast strides: stride = 0 for expanded dimensions (size 1 → size N)
+        let old_shape = self.shape();
+        let new_shape_exprs: Vec<Expr> = new_shape.iter().map(|&s| Expr::from(s as i64)).collect();
+
+        // Get input strides
+        let input_strides: Vec<Expr> = match &self.inner.view {
+            View::Linear { strides, .. } => strides.clone(),
+            View::IndexExpr { .. } => {
+                // For IndexExpr, fall back to contiguous strides computation
+                let mut strides = vec![Expr::from(1); old_shape.len()];
+                for i in (0..old_shape.len() - 1).rev() {
+                    strides[i] = Expr::from((old_shape[i + 1..].iter().product::<usize>()) as i64);
+                }
+                strides
+            }
+        };
+
+        // Create new strides with broadcast handling
+        let mut new_strides = Vec::with_capacity(new_shape.len());
+        for (i, (&old_dim, &new_dim)) in old_shape.iter().zip(new_shape.iter()).enumerate() {
+            if old_dim == 1 && new_dim > 1 {
+                // Broadcast dimension: stride = 0
+                new_strides.push(Expr::from(0));
+            } else {
+                // Keep original stride
+                new_strides.push(input_strides[i].clone());
+            }
+        }
+
+        // Get input offset
+        let input_offset = match &self.inner.view {
+            View::Linear { offset, .. } => offset.clone(),
+            View::IndexExpr { .. } => Expr::from(0),
+        };
+
+        let view = View::Linear {
+            shape: new_shape_exprs,
+            strides: new_strides,
+            offset: input_offset,
+        };
+
         let input = Arc::new(self.clone().into_dyn());
         let inner = TensorInner::new(
             TensorOp::View { input },

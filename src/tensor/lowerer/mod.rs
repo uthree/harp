@@ -49,6 +49,10 @@ pub struct TensorLowerer {
     input_buffer_names: Vec<String>,
     /// 処理済みTensorInnerキャッシュ (ptr -> processed flag)
     visited: HashMap<*const TensorInner, bool>,
+    /// Executedテンソルの名前マッピング (ptr -> name)
+    executed_names: HashMap<*const TensorInner, String>,
+    /// Executedテンソルカウンタ
+    executed_counter: usize,
 }
 
 impl TensorLowerer {
@@ -58,6 +62,8 @@ impl TensorLowerer {
             kernel_counter: 0,
             input_buffer_names: Vec::new(),
             visited: HashMap::new(),
+            executed_names: HashMap::new(),
+            executed_counter: 0,
         }
     }
 
@@ -98,6 +104,15 @@ impl TensorLowerer {
                     self.input_buffer_names.push(name.clone());
                 }
             }
+            TensorOp::Executed => {
+                // Executedテンソルは既存データを持つので入力バッファとして扱う
+                if !self.executed_names.contains_key(&ptr) {
+                    let name = format!("data{}", self.executed_counter);
+                    self.executed_counter += 1;
+                    self.executed_names.insert(ptr, name.clone());
+                    self.input_buffer_names.push(name);
+                }
+            }
             _ => {
                 // 再帰的に子ノードを処理
                 for input in inner.op.inputs() {
@@ -116,17 +131,228 @@ impl TensorLowerer {
 
     /// TensorInnerをASTにlower
     fn lower_node(&self, inner: &Arc<TensorInner>, name: &str) -> AstNode {
-        // 正規化形式に変換
-        let (expr, reduce_op, axes) = self.normalize_op(inner);
-        let ndim = inner.view.shape().len();
-        let shape = inner.view.shape();
+        // View/Contiguousの場合は入力を辿って実際の計算ノードを処理
+        // 最終的な出力形状はルートノードの形状を使用
+        let (compute_inner, output_shape) = self.find_compute_node(inner);
 
-        if axes.is_empty() {
+        // 正規化形式に変換
+        let (expr, reduce_op, axes) = self.normalize_op(&compute_inner);
+        let compute_ndim = compute_inner.view.shape().len();
+        let compute_shape = compute_inner.view.shape();
+
+        // 出力形状が異なる場合はViewコピーを生成
+        let output_ndim = output_shape.len();
+        let needs_reshape = output_ndim != compute_ndim;
+
+        if needs_reshape {
+            // View経由で形状が変わる場合は、計算ノードの形状でカーネルを生成し、
+            // 出力時にreshape相当の処理を行う
+            // ただし、最終出力形状に合わせたループ構造にする必要がある
+            self.lower_with_reshape(
+                &compute_inner,
+                &expr,
+                reduce_op.as_ref(),
+                &axes,
+                compute_shape,
+                &output_shape,
+                name,
+            )
+        } else if axes.is_empty() {
             // Elementwiseパス
-            self.lower_elementwise_path(inner, &expr, ndim, shape, name)
+            self.lower_elementwise_path(&compute_inner, &expr, compute_ndim, compute_shape, name)
         } else {
             // Reduceパス
-            self.lower_reduce_path(inner, &expr, reduce_op.as_ref().unwrap(), &axes, ndim, name)
+            self.lower_reduce_path(
+                &compute_inner,
+                &expr,
+                reduce_op.as_ref().unwrap(),
+                &axes,
+                compute_ndim,
+                name,
+            )
+        }
+    }
+
+    /// View/Contiguousを辿って実際の計算ノードを見つける
+    fn find_compute_node(&self, inner: &Arc<TensorInner>) -> (Arc<TensorInner>, Vec<Expr>) {
+        let output_shape = inner.view.shape().to_vec();
+
+        match &inner.op {
+            TensorOp::View { input } | TensorOp::Contiguous { input } => {
+                // 入力を辿る（出力形状は保持）
+                let (compute_inner, _) = self.find_compute_node(&input.inner);
+                (compute_inner, output_shape)
+            }
+            _ => (inner.clone(), output_shape),
+        }
+    }
+
+    /// 形状変換を伴うlower
+    fn lower_with_reshape(
+        &self,
+        inner: &Arc<TensorInner>,
+        expr: &AstNode,
+        reduce_op: Option<&ReduceOp>,
+        axes: &[usize],
+        _compute_shape: &[Expr],
+        output_shape: &[Expr],
+        name: &str,
+    ) -> AstNode {
+        // 形状変換を伴う場合、出力形状でループを生成し、
+        // 入力オフセットは線形インデックスで計算
+
+        let load_dtype = dtype_to_ast(&inner.dtype);
+        let output_ndim = output_shape.len();
+
+        if reduce_op.is_some() || !axes.is_empty() {
+            // Reduce演算は形状変換と組み合わせない（現時点では未対応）
+            panic!("Reduce with reshape is not supported yet");
+        }
+
+        // 各入力の式を再帰的に構築
+        // ただし、線形インデックスでアクセス
+        let mut mappings = HashMap::new();
+        let mut buffer_index = 0;
+
+        let inputs = inner.op.inputs();
+        for (i, input) in inputs.iter().enumerate() {
+            let input_node = self.build_input_expr_linear(
+                input,
+                output_ndim,
+                output_shape,
+                &mut buffer_index,
+                &load_dtype,
+            );
+            mappings.insert(i.to_string(), input_node);
+        }
+
+        // Wildcardを置換して値式を作成
+        let value_expr = expr.substitute(&mappings);
+
+        // Store文を作成（出力形状で）
+        let output_offset = build_contiguous_offset_with_shape(output_ndim, Some(output_shape));
+        let store_stmt = store(var(ph::OUTPUT), output_offset, value_expr);
+
+        // 出力形状でループ
+        let body = wrap_with_loops_with_shape(output_ndim, vec![store_stmt], Some(output_shape));
+
+        function(
+            Some(name.to_string()),
+            vec![],
+            AstDType::Tuple(vec![]),
+            body,
+        )
+    }
+
+    /// 線形インデックスで入力テンソルの式を構築
+    fn build_input_expr_linear(
+        &self,
+        input: &Tensor<DimDyn>,
+        output_ndim: usize,
+        output_shape: &[Expr],
+        buffer_index: &mut usize,
+        load_dtype: &AstDType,
+    ) -> AstNode {
+        match &input.inner.op {
+            TensorOp::Const(lit) | TensorOp::ConstFill(lit) => AstNode::Const(lit.clone()),
+            TensorOp::Compute {
+                inputs: nested_inputs,
+                expr: nested_expr,
+                reduce_op: None,
+                axes,
+                ..
+            } if axes.is_empty() => {
+                // Elementwise Compute演算の場合、式を再帰的に展開
+                let mut nested_mappings = HashMap::new();
+                for (j, nested_input) in nested_inputs.iter().enumerate() {
+                    let nested_node = self.build_input_expr_linear(
+                        nested_input,
+                        output_ndim,
+                        output_shape,
+                        buffer_index,
+                        load_dtype,
+                    );
+                    nested_mappings.insert(j.to_string(), nested_node);
+                }
+                nested_expr.substitute(&nested_mappings)
+            }
+            TensorOp::View { input: view_input } => {
+                // Viewの次元数とループの次元数が一致するか確認
+                let view_ndim = input.inner.view.ndim();
+                if view_ndim == output_ndim {
+                    // 次元数が一致する場合はストライドを使用
+                    let strided_offset = build_strided_offset(&input.inner.view, output_ndim);
+                    self.build_input_expr_with_view(
+                        view_input,
+                        strided_offset,
+                        buffer_index,
+                        load_dtype,
+                    )
+                } else {
+                    // 次元数が異なる場合（reshape）は線形インデックスで再帰
+                    // 出力の線形インデックスがそのまま入力の線形インデックスになる
+                    self.build_input_expr_linear(
+                        view_input,
+                        output_ndim,
+                        output_shape,
+                        buffer_index,
+                        load_dtype,
+                    )
+                }
+            }
+            TensorOp::Contiguous {
+                input: contiguous_input,
+            } => {
+                // Contiguousは入力のView情報を考慮してコピー
+                // 入力がViewの場合、そのstride情報を使う
+                self.build_input_expr_linear(
+                    contiguous_input,
+                    output_ndim,
+                    output_shape,
+                    buffer_index,
+                    load_dtype,
+                )
+            }
+            TensorOp::Buffer { .. } => {
+                // Bufferからload（線形インデックス使用）
+                let linear_offset = build_linear_offset_with_shape(output_ndim, output_shape);
+                let idx = *buffer_index;
+                *buffer_index += 1;
+                load(var(ph::input(idx)), linear_offset, load_dtype.clone())
+            }
+            _ => {
+                // その他は線形オフセットでload
+                let linear_offset = build_linear_offset_with_shape(output_ndim, output_shape);
+                let idx = *buffer_index;
+                *buffer_index += 1;
+                load(var(ph::input(idx)), linear_offset, load_dtype.clone())
+            }
+        }
+    }
+
+    /// View経由でBufferにアクセスする式を構築
+    fn build_input_expr_with_view(
+        &self,
+        input: &Tensor<DimDyn>,
+        offset: AstNode,
+        buffer_index: &mut usize,
+        load_dtype: &AstDType,
+    ) -> AstNode {
+        match &input.inner.op {
+            TensorOp::Buffer { .. } => {
+                let idx = *buffer_index;
+                *buffer_index += 1;
+                load(var(ph::input(idx)), offset, load_dtype.clone())
+            }
+            TensorOp::View { input: nested } | TensorOp::Contiguous { input: nested } => {
+                // さらにViewがネストしている場合は入力を辿る
+                self.build_input_expr_with_view(nested, offset, buffer_index, load_dtype)
+            }
+            _ => {
+                let idx = *buffer_index;
+                *buffer_index += 1;
+                load(var(ph::input(idx)), offset, load_dtype.clone())
+            }
         }
     }
 
@@ -156,10 +382,18 @@ impl TensorLowerer {
                 (var(ph::ridx(0)), None, vec![])
             }
 
-            // Buffer, View, Clone, Contiguous等は直接lowerしない
+            // View, Reshape, Contiguous等は「コピー」演算として処理
+            // 入力要素をそのまま出力にコピーする
+            TensorOp::View { .. } | TensorOp::Contiguous { .. } => {
+                // identity copy: Wildcard("0") を使用して入力をそのまま出力
+                (wildcard("0"), None, vec![])
+            }
+
+            // Bufferは入力のコピーとして処理
+            TensorOp::Buffer { .. } => (wildcard("0"), None, vec![]),
+
+            // 未対応の演算
             _ => {
-                // これらのケースはlower_nodeで到達すべきでない
-                // 通常は入力を辿って計算ノードに到達する
                 panic!("Cannot normalize op: {:?}", inner.op);
             }
         }
@@ -276,28 +510,14 @@ impl TensorLowerer {
 
         let load_dtype = dtype_to_ast(&inner.dtype);
 
-        // 各入力のload式を構築
+        // 各入力のload式を構築（elementwise Computeは展開）
         let mut mappings = HashMap::new();
-        let mut non_const_idx = 0;
+        let mut buffer_index = 0;
 
         for (i, input) in inputs.iter().enumerate() {
-            match &input.inner.op {
-                TensorOp::Const(lit) | TensorOp::ConstFill(lit) => {
-                    // 定数は直接埋め込み
-                    mappings.insert(i.to_string(), AstNode::Const(lit.clone()));
-                }
-                _ => {
-                    // 入力オフセットには入力テンソルの次元数を使用
-                    let src_offset = self.build_input_offset(input, input_ndim);
-                    let load_node = load(
-                        var(ph::input(non_const_idx)),
-                        src_offset,
-                        load_dtype.clone(),
-                    );
-                    mappings.insert(i.to_string(), load_node);
-                    non_const_idx += 1;
-                }
-            }
+            let input_node =
+                self.build_input_expr(input, input_ndim, &mut buffer_index, &load_dtype);
+            mappings.insert(i.to_string(), input_node);
         }
 
         let value_expr = expr.substitute(&mappings);
@@ -353,9 +573,57 @@ impl TensorLowerer {
     }
 
     /// 入力テンソルのオフセットを構築
-    fn build_input_offset(&self, src: &Tensor<DimDyn>, ndim: usize) -> AstNode {
-        // srcのviewを辿ってBufferまで到達
-        self.build_offset_for_tensor(&src.inner, ndim)
+    ///
+    /// ブロードキャストを考慮：入力の次元数がループ次元数より小さい場合、
+    /// 先頭の軸を無視してオフセットを計算する
+    fn build_input_offset(&self, src: &Tensor<DimDyn>, loop_ndim: usize) -> AstNode {
+        let src_ndim = src.inner.view.shape().len();
+
+        if src_ndim == loop_ndim {
+            // 次元数が同じ場合はそのまま
+            self.build_offset_for_tensor(&src.inner, loop_ndim)
+        } else if src_ndim < loop_ndim {
+            // ブロードキャスト: 入力の次元数 < ループの次元数
+            // 入力は後ろの軸にマッピング（先頭の軸は無視）
+            self.build_broadcast_offset(&src.inner, src_ndim, loop_ndim)
+        } else {
+            // src_ndim > loop_ndim: 通常発生しないが、念のためそのまま
+            self.build_offset_for_tensor(&src.inner, src_ndim)
+        }
+    }
+
+    /// ブロードキャスト用オフセットを構築
+    ///
+    /// 入力の次元数 < ループの次元数の場合、
+    /// 入力は最後のsrc_ndim軸にマッピングされる
+    fn build_broadcast_offset(
+        &self,
+        inner: &Arc<TensorInner>,
+        src_ndim: usize,
+        loop_ndim: usize,
+    ) -> AstNode {
+        let axis_offset = loop_ndim - src_ndim;
+        let shape = inner.view.shape();
+
+        // 入力の各軸を、ループの対応する軸にマッピング
+        // 例: 入力[3]、ループ[2,3] → ridx1のみ使用
+        if src_ndim == 0 {
+            return const_int(0);
+        }
+
+        // strideを計算（後ろからの連続アクセス）
+        let mut offset = var(ph::ridx(axis_offset + src_ndim - 1));
+
+        for axis in (0..src_ndim - 1).rev() {
+            let loop_axis = axis_offset + axis;
+            let mut stride = shape_dim_to_ast(Some(shape), axis + 1);
+            for inner_axis in (axis + 2)..src_ndim {
+                stride = stride * shape_dim_to_ast(Some(shape), inner_axis);
+            }
+            offset = var(ph::ridx(loop_axis)) * stride + offset;
+        }
+
+        offset
     }
 
     /// TensorInnerのオフセットを構築
@@ -369,8 +637,13 @@ impl TensorLowerer {
                 // Viewノードは自身のviewを使用
                 build_strided_offset(&inner.view, ndim)
             }
-            TensorOp::Contiguous { .. } => {
-                // Contiguousは連続メモリアクセス
+            TensorOp::Contiguous { input } => {
+                // Contiguousは入力のオフセットを使用（まだ実体化されていない）
+                // 入力がViewの場合、そのstride情報を使ってアクセス
+                self.build_offset_for_tensor(&input.inner, ndim)
+            }
+            TensorOp::Compute { .. } => {
+                // Compute演算の結果は連続メモリ
                 let shape = inner.view.shape();
                 build_contiguous_offset_with_shape(ndim, Some(shape))
             }

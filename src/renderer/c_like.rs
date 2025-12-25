@@ -125,12 +125,23 @@ pub trait CLikeRenderer: Renderer {
                 if *v { "1".to_string() } else { "0".to_string() }
             }
             Literal::F32(v) => {
-                let s = format!("{}", v);
-                // 小数点が含まれていない場合は .0 を追加（0f → 0.0f）
-                if !s.contains('.') && !s.contains('e') && !s.contains('E') {
-                    format!("{}.0f", s)
+                // 特殊な浮動小数点値の処理
+                if v.is_nan() {
+                    "NAN".to_string()
+                } else if v.is_infinite() {
+                    if v.is_sign_positive() {
+                        "INFINITY".to_string()
+                    } else {
+                        "(-INFINITY)".to_string()
+                    }
                 } else {
-                    format!("{}f", s)
+                    let s = format!("{}", v);
+                    // 小数点が含まれていない場合は .0 を追加（0f → 0.0f）
+                    if !s.contains('.') && !s.contains('e') && !s.contains('E') {
+                        format!("{}.0f", s)
+                    } else {
+                        format!("{}f", s)
+                    }
                 }
             }
             Literal::I64(v) => format!("{}", v),
