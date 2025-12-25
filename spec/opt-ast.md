@@ -237,4 +237,4 @@ let (optimized_ast, ast_history) = ast_optimizer.optimize_with_history(ast);
 app.load_ast_optimization_history(ast_history);
 ```
 
-詳細は`crates/viz/src/code_viewer.rs`を参照。
+※可視化ツール(viz)は現在削除されています。

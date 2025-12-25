@@ -54,7 +54,7 @@ SIMD化やタイリング最適化のために、演算の入出力をアライ�
 
 **使用例:**
 ```rust
-use harp_core::opt::graph::suggesters::PaddingSliceSuggester;
+use harp::opt::graph::suggesters::PaddingSliceSuggester;
 
 // 単一のアライメント値
 let suggester = PaddingSliceSuggester::new(vec![4]);
@@ -470,4 +470,4 @@ let mut app = HarpVizApp::new();
 app.load_from_pipeline(&pipeline);  // Graph履歴も自動で読み込まれる
 ```
 
-詳細は`crates/viz/src/graph_viewer.rs`を参照。
+※可視化ツール(viz)は現在削除されています。

@@ -711,9 +711,9 @@ pub enum ReduceStrategy {
 2. **Stage 2 (グローバル集約)**: `AtomicAddFloat`サポート時はatomic_add、非サポート時は中間バッファ経由
 
 **実装に必要なファイル:**
-- `crates/core/src/graph/strategy.rs`: `ReduceStrategy::Parallel`追加
-- `crates/core/src/opt/graph/suggesters/lowering/reduce.rs`: `build_parallel_reduce_function()`実装
-- `crates/core/src/lowerer/reduce.rs`: 並列Reduce用カーネル生成
+- `src/graph/strategy.rs`: `ReduceStrategy::Parallel`追加
+- `src/opt/graph/suggesters/lowering/reduce.rs`: `build_parallel_reduce_function()`実装
+- `src/lowerer/`: 並列Reduce用カーネル生成（実装時に追加）
 
 **前提条件（実装済み）:**
 - `AstNode::AtomicAdd`, `AstNode::AtomicMax`バリアント

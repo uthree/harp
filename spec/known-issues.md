@@ -27,7 +27,7 @@ lazy-arrayで3つ以上の独立した定数配列（`zeros()`, `ones()`, `full(
 - `establish_data_flow`のデータフロー追跡を修正
 
 **関連テスト**:
-- `crates/lazy-array/src/backend.rs`: `test_eval_three_arrays_add_then_mul`（現在はパス）
+- 関連テストは統合後のコードベースに移行済み
 
 ---
 
