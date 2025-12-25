@@ -13,10 +13,37 @@
 //! **Reduce**: ReduceSum, ReduceMax
 
 use std::ops::{Add, Div, Mul, Neg, Sub};
+use std::rc::Rc;
 
 use crate::graph::{DType, ops as graph_ops, shape::Expr};
 
-use super::{Dim, DimDyn, Dimension, Tensor};
+use super::grad::{AddBackward, DivBackward, MulBackward, NegBackward, SubBackward};
+use super::{Dim, DimDyn, Dimension, GradFn, Tensor, TensorData};
+
+/// Check if any input requires gradients
+fn any_requires_grad<D1: Dimension, D2: Dimension>(a: &Tensor<D1>, b: &Tensor<D2>) -> bool {
+    a.requires_grad() || b.requires_grad()
+}
+
+/// Create a tensor with gradient tracking if needed
+fn with_grad_fn<D: Dimension>(tensor: Tensor<D>, grad_fn: Option<Rc<dyn GradFn>>) -> Tensor<D> {
+    if grad_fn.is_some() {
+        Tensor {
+            node: tensor.node,
+            shape: tensor.shape,
+            dtype: tensor.dtype,
+            autograd: Some(Rc::new(TensorData {
+                requires_grad: true,
+                grad: std::cell::RefCell::new(None),
+                grad_fn,
+                cached_data: std::cell::RefCell::new(None),
+            })),
+            _dim: std::marker::PhantomData,
+        }
+    } else {
+        tensor
+    }
+}
 
 /// Helper to compute result shape for binary operations with broadcasting
 fn broadcast_shapes(a: &[usize], b: &[usize]) -> Vec<usize> {
@@ -62,7 +89,14 @@ impl<D: Dimension> Add for &Tensor<D> {
     fn add(self, rhs: Self) -> Tensor<D> {
         let result_shape = broadcast_shapes(self.shape(), rhs.shape());
         let result_node = &self.node + &rhs.node;
-        Tensor::from_node(result_node, result_shape, DType::F32)
+        let result = Tensor::from_node(result_node, result_shape, DType::F32);
+
+        if any_requires_grad(self, rhs) {
+            let grad_fn = AddBackward::new(self.clone().into_dyn(), rhs.clone().into_dyn());
+            with_grad_fn(result, Some(Rc::new(grad_fn)))
+        } else {
+            result
+        }
     }
 }
 
@@ -133,7 +167,14 @@ impl<D: Dimension> Sub for &Tensor<D> {
     fn sub(self, rhs: Self) -> Tensor<D> {
         let result_shape = broadcast_shapes(self.shape(), rhs.shape());
         let result_node = &self.node - &rhs.node;
-        Tensor::from_node(result_node, result_shape, DType::F32)
+        let result = Tensor::from_node(result_node, result_shape, DType::F32);
+
+        if any_requires_grad(self, rhs) {
+            let grad_fn = SubBackward::new(self.clone().into_dyn(), rhs.clone().into_dyn());
+            with_grad_fn(result, Some(Rc::new(grad_fn)))
+        } else {
+            result
+        }
     }
 }
 
@@ -204,7 +245,14 @@ impl<D: Dimension> Mul for &Tensor<D> {
     fn mul(self, rhs: Self) -> Tensor<D> {
         let result_shape = broadcast_shapes(self.shape(), rhs.shape());
         let result_node = &self.node * &rhs.node;
-        Tensor::from_node(result_node, result_shape, DType::F32)
+        let result = Tensor::from_node(result_node, result_shape, DType::F32);
+
+        if any_requires_grad(self, rhs) {
+            let grad_fn = MulBackward::new(self.clone().into_dyn(), rhs.clone().into_dyn());
+            with_grad_fn(result, Some(Rc::new(grad_fn)))
+        } else {
+            result
+        }
     }
 }
 
@@ -275,7 +323,14 @@ impl<D: Dimension> Div for &Tensor<D> {
     fn div(self, rhs: Self) -> Tensor<D> {
         let result_shape = broadcast_shapes(self.shape(), rhs.shape());
         let result_node = &self.node / &rhs.node;
-        Tensor::from_node(result_node, result_shape, DType::F32)
+        let result = Tensor::from_node(result_node, result_shape, DType::F32);
+
+        if any_requires_grad(self, rhs) {
+            let grad_fn = DivBackward::new(self.clone().into_dyn(), rhs.clone().into_dyn());
+            with_grad_fn(result, Some(Rc::new(grad_fn)))
+        } else {
+            result
+        }
     }
 }
 
@@ -345,7 +400,14 @@ impl<D: Dimension> Neg for &Tensor<D> {
 
     fn neg(self) -> Tensor<D> {
         let result_node = -&self.node;
-        Tensor::from_node(result_node, self.shape().to_vec(), DType::F32)
+        let result = Tensor::from_node(result_node, self.shape().to_vec(), DType::F32);
+
+        if self.requires_grad() {
+            let grad_fn = NegBackward::new(self.clone().into_dyn());
+            with_grad_fn(result, Some(Rc::new(grad_fn)))
+        } else {
+            result
+        }
     }
 }
 

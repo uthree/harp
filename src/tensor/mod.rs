@@ -42,6 +42,7 @@
 
 pub mod dimension;
 pub mod forward;
+pub mod grad;
 pub mod ops;
 
 use std::cell::RefCell;
@@ -56,7 +57,7 @@ use crate::graph::{DType, GraphNode};
 /// Gradient function trait for backpropagation
 ///
 /// This trait is implemented by operations that can compute gradients.
-pub trait GradFn: Send + Sync {
+pub trait GradFn {
     /// Compute gradients with respect to inputs
     ///
     /// # Arguments
@@ -65,6 +66,11 @@ pub trait GradFn: Send + Sync {
     /// # Returns
     /// Gradients for each input tensor
     fn backward(&self, grad_output: &Tensor<DimDyn>) -> Vec<Tensor<DimDyn>>;
+
+    /// Get the input tensors that this gradient function operates on
+    ///
+    /// This is used to propagate gradients back through the computation graph.
+    fn inputs(&self) -> Vec<Tensor<DimDyn>>;
 
     /// Get the name of this gradient function (for debugging)
     fn name(&self) -> &'static str;
