@@ -871,7 +871,7 @@ impl CLikeRenderer for GenericRenderer {
             DType::U64 => "unsigned long long".to_string(),
             DType::F32 => "float".to_string(),
             DType::F64 => "double".to_string(),
-            DType::Int => "long".to_string(), // Default index type
+            DType::Int => "long long".to_string(), // Index type: 64-bit for CPU
             DType::Ptr(inner) => format!("{}*", self.render_dtype_backend(inner)),
             DType::Vec(inner, size) => format!("{}[{}]", self.render_dtype_backend(inner), size),
             DType::Tuple(_) => "/* tuple */".to_string(),

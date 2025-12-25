@@ -238,7 +238,7 @@ impl CLikeRenderer for OpenCLRenderer {
             DType::U64 => "ulong".to_string(),
             DType::F32 => "float".to_string(),
             DType::F64 => "double".to_string(),
-            DType::Int => "long".to_string(), // Index type: use long for OpenCL
+            DType::Int => "int".to_string(), // Index type: 32-bit for GPU efficiency
             DType::Ptr(inner) => {
                 let base = self.render_dtype_backend(inner);
                 format!("__global {}*", base)

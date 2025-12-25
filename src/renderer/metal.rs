@@ -84,7 +84,7 @@ fn render_dtype_metal(dtype: &DType) -> String {
         DType::U64 => "ulong".to_string(),
         DType::F32 => "float".to_string(),
         DType::F64 => "double".to_string(), // Note: Metal has limited double support
-        DType::Int => "long".to_string(),   // Index type: use long for Metal
+        DType::Int => "int".to_string(),    // Index type: 32-bit for GPU efficiency
         DType::Ptr(inner) => format!("device {}*", render_dtype_metal(inner)),
         DType::Vec(inner, size) => {
             let base = render_dtype_metal(inner);
