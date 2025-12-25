@@ -165,6 +165,55 @@ impl TensorLowerer {
         }
     }
 
+    /// 入力テンソルの式を再帰的に構築
+    ///
+    /// Compute演算の入力を辿り、Bufferに達するまで式を展開する。
+    /// 入力インデックスを適切に再マッピングする。
+    fn build_input_expr(
+        &self,
+        input: &Tensor<DimDyn>,
+        ndim: usize,
+        buffer_index: &mut usize,
+        load_dtype: &AstDType,
+    ) -> AstNode {
+        match &input.inner.op {
+            TensorOp::Const(lit) | TensorOp::ConstFill(lit) => {
+                // 定数は直接埋め込み
+                AstNode::Const(lit.clone())
+            }
+            TensorOp::Compute {
+                inputs: nested_inputs,
+                expr: nested_expr,
+                reduce_op: None,
+                axes,
+                ..
+            } if axes.is_empty() => {
+                // Elementwise Compute演算の場合、式を再帰的に展開
+                let mut nested_mappings = HashMap::new();
+                for (j, nested_input) in nested_inputs.iter().enumerate() {
+                    let nested_node =
+                        self.build_input_expr(nested_input, ndim, buffer_index, load_dtype);
+                    nested_mappings.insert(j.to_string(), nested_node);
+                }
+                nested_expr.substitute(&nested_mappings)
+            }
+            TensorOp::Buffer { .. } | TensorOp::View { .. } | TensorOp::Contiguous { .. } => {
+                // Bufferまたはメモリ操作の場合、loadを生成
+                let src_offset = self.build_input_offset(input, ndim);
+                let idx = *buffer_index;
+                *buffer_index += 1;
+                load(var(ph::input(idx)), src_offset, load_dtype.clone())
+            }
+            _ => {
+                // その他の演算（Reduce結果など）もloadで処理
+                let src_offset = self.build_input_offset(input, ndim);
+                let idx = *buffer_index;
+                *buffer_index += 1;
+                load(var(ph::input(idx)), src_offset, load_dtype.clone())
+            }
+        }
+    }
+
     /// Elementwiseパスでlower
     fn lower_elementwise_path(
         &self,
@@ -176,26 +225,14 @@ impl TensorLowerer {
     ) -> AstNode {
         let load_dtype = dtype_to_ast(&inner.dtype);
 
-        // 各入力のload式を構築
+        // 各入力の式を再帰的に構築
         let mut mappings = HashMap::new();
-        let mut non_const_idx = 0;
+        let mut buffer_index = 0;
 
         let inputs = inner.op.inputs();
         for (i, input) in inputs.iter().enumerate() {
-            if let TensorOp::Const(lit) = &input.inner.op {
-                // 定数は直接埋め込み
-                mappings.insert(i.to_string(), AstNode::Const(lit.clone()));
-            } else {
-                // 入力バッファからload
-                let src_offset = self.build_input_offset(input, ndim);
-                let load_node = load(
-                    var(ph::input(non_const_idx)),
-                    src_offset,
-                    load_dtype.clone(),
-                );
-                mappings.insert(i.to_string(), load_node);
-                non_const_idx += 1;
-            }
+            let input_node = self.build_input_expr(input, ndim, &mut buffer_index, &load_dtype);
+            mappings.insert(i.to_string(), input_node);
         }
 
         // Wildcardを置換して値式を作成
@@ -223,7 +260,7 @@ impl TensorLowerer {
         expr: &AstNode,
         reduce_op: &ReduceOp,
         axes: &[usize],
-        ndim: usize,
+        _ndim: usize,
         name: &str,
     ) -> AstNode {
         // 入力ノードの形状を取得
@@ -234,6 +271,9 @@ impl TensorLowerer {
             inner.view.shape()
         };
 
+        // 入力テンソルの次元数を使用（出力テンソルの次元数ではなく）
+        let input_ndim = input_shape.len();
+
         let load_dtype = dtype_to_ast(&inner.dtype);
 
         // 各入力のload式を構築
@@ -241,17 +281,22 @@ impl TensorLowerer {
         let mut non_const_idx = 0;
 
         for (i, input) in inputs.iter().enumerate() {
-            if let TensorOp::Const(lit) = &input.inner.op {
-                mappings.insert(i.to_string(), AstNode::Const(lit.clone()));
-            } else {
-                let src_offset = self.build_input_offset(input, ndim);
-                let load_node = load(
-                    var(ph::input(non_const_idx)),
-                    src_offset,
-                    load_dtype.clone(),
-                );
-                mappings.insert(i.to_string(), load_node);
-                non_const_idx += 1;
+            match &input.inner.op {
+                TensorOp::Const(lit) | TensorOp::ConstFill(lit) => {
+                    // 定数は直接埋め込み
+                    mappings.insert(i.to_string(), AstNode::Const(lit.clone()));
+                }
+                _ => {
+                    // 入力オフセットには入力テンソルの次元数を使用
+                    let src_offset = self.build_input_offset(input, input_ndim);
+                    let load_node = load(
+                        var(ph::input(non_const_idx)),
+                        src_offset,
+                        load_dtype.clone(),
+                    );
+                    mappings.insert(i.to_string(), load_node);
+                    non_const_idx += 1;
+                }
             }
         }
 
@@ -262,7 +307,7 @@ impl TensorLowerer {
 
         // 出力オフセット（縮約軸を除く）
         let output_offset =
-            build_contiguous_offset_excluding_axes_with_shape(ndim, axes, Some(input_shape));
+            build_contiguous_offset_excluding_axes_with_shape(input_ndim, axes, Some(input_shape));
 
         let acc_var = "acc";
         let acc_update = assign(acc_var, accumulate_fn(var(acc_var), value_expr));
@@ -292,7 +337,7 @@ impl TensorLowerer {
 
         let inner_body = vec![acc_init, reduce_loops, store_stmt];
         let body = wrap_with_loops_excluding_axes_with_scope_and_shape(
-            ndim,
+            input_ndim,
             axes,
             inner_body,
             scope,
