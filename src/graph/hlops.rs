@@ -7,7 +7,7 @@
 use crate::graph::GraphNode;
 use crate::graph::custom_builder;
 use crate::graph::ops::{
-    CumulativeOp, ElementwiseOp, GraphOp, ReduceOp, infer_dtype, infer_view, max, recip, reduce_sum,
+    ElementwiseOp, GraphOp, ReduceOp, infer_dtype, infer_view, max, recip, reduce_sum,
 };
 
 impl GraphNode {
@@ -500,6 +500,7 @@ impl GraphNode {
     /// # Example
     /// ```
     /// use harp::prelude::*;
+    /// use harp::graph::GraphNode;
     /// use harp::ast::AstNode;
     ///
     /// let mut graph = Graph::new();
@@ -548,6 +549,7 @@ impl GraphNode {
     /// # Example
     /// ```
     /// use harp::prelude::*;
+    /// use harp::graph::GraphNode;
     /// use harp::ast::helper::wildcard;
     /// use harp::graph::ReduceOp;
     ///
@@ -583,53 +585,6 @@ impl GraphNode {
 
         let function =
             custom_builder::build_reduce_function(ndim, num_inputs, axis, &reduce_op, expr);
-
-        GraphNode::new(
-            dtype,
-            GraphOp::Kernel {
-                ast: function,
-                input_buffers: None,
-            },
-            inputs,
-            view,
-        )
-    }
-
-    /// カスタムAST Cumulative演算を作成
-    ///
-    /// Elementwise演算 → Cumulative演算のパターンを単一ノードで表現します。
-    /// AST内の`Wildcard("0")`, `Wildcard("1")`, ... が対応する入力に置換されます。
-    ///
-    /// # Example
-    /// ```
-    /// use harp::prelude::*;
-    /// use harp::ast::helper::wildcard;
-    /// use harp::graph::CumulativeOp;
-    ///
-    /// let mut graph = Graph::new();
-    /// let x = graph.input("x", DType::F32, vec![10, 20]);
-    ///
-    /// // cumsum(x * x, axis=1) をカスタム演算として表現
-    /// let expr = wildcard("0") * wildcard("0");
-    /// let result = GraphNode::custom_cumulative(vec![x], expr, CumulativeOp::Sum, 1);
-    /// ```
-    pub fn custom_cumulative(
-        inputs: Vec<Self>,
-        expr: crate::ast::AstNode,
-        cumulative_op: CumulativeOp,
-        axis: usize,
-    ) -> Self {
-        if inputs.is_empty() {
-            panic!("custom_cumulative requires at least one input");
-        }
-
-        let dtype = inputs[0].dtype.clone();
-        let view = inputs[0].view.clone();
-        let ndim = view.shape().len();
-        let num_inputs = inputs.len();
-
-        let function =
-            custom_builder::build_cumulative_function(ndim, num_inputs, axis, &cumulative_op, expr);
 
         GraphNode::new(
             dtype,

@@ -68,7 +68,6 @@ let suggester = PaddingSliceSuggester::default();
 
 **制約:**
 - 静的shapeのみ対応（slice()が静的のため）
-- Cumulative演算は現時点で対象外
 - スカラー入力はスキップ
 
 ### 正規化

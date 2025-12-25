@@ -18,8 +18,11 @@
 //! 3. **単一消費**: 親テンソルが子演算のみに使用される（所有権ベース設計で保証）
 
 use crate::ast::{AstNode, Literal, helper::*};
+use crate::graph::DType;
+use crate::graph::shape::View;
 #[allow(unused_imports)]
 use crate::tensor::ops::{ElementwiseOp, ReduceOp, TensorOp};
+use crate::tensor::{DimDyn, Tensor, TensorNode};
 
 /// ElementwiseOpをAstNodeに変換する
 ///
@@ -185,6 +188,46 @@ fn substitute_wildcard(expr: &AstNode, name: &str, replacement: &AstNode) -> Ast
         // その他のノードはそのまま返す
         _ => expr.clone(),
     }
+}
+
+/// Try to fuse and create a TensorNode with eager fusion
+///
+/// If the source has exactly one input and the parent op can be fused with the child op,
+/// returns a fused TensorNode. Otherwise, returns a regular TensorNode.
+///
+/// # Arguments
+/// * `op` - The operation to apply
+/// * `src` - Source tensors
+/// * `view` - Result view
+/// * `dtype` - Result data type
+///
+/// # Returns
+/// A TensorNode (possibly fused)
+pub(crate) fn try_fuse_and_create(
+    op: TensorOp,
+    src: Vec<Tensor<DimDyn>>,
+    view: View,
+    dtype: DType,
+) -> TensorNode {
+    // Only try fusion for single-input operations
+    if src.len() == 1 {
+        let parent_op = &src[0].inner.op;
+
+        if let Some(fused_op) = try_fuse(parent_op, &op) {
+            // Fusion successful - inherit parent's sources
+            let parent_sources = src[0].inner.src.clone();
+            return TensorNode {
+                op: fused_op,
+                src: parent_sources,
+                view,
+                dtype,
+                name: None,
+            };
+        }
+    }
+
+    // No fusion - create regular TensorNode
+    TensorNode::new(op, src, view, dtype)
 }
 
 /// 2つのTensorOpの融合を試みる
@@ -408,5 +451,53 @@ mod tests {
         assert!(can_fuse(&elem, &elem));
         assert!(can_fuse(&elem, &reduce));
         assert!(!can_fuse(&reduce, &elem)); // Reduce + Elementwise は融合不可
+    }
+
+    #[test]
+    fn test_eager_fusion_unary_chain() {
+        use crate::tensor::Dim2;
+
+        // Create a chain: input -> recip -> sqrt
+        // Should be fused into a single FusedElementwise
+        let a = Tensor::<Dim2>::ones([2, 3]);
+        let b = a.recip(); // First elementwise op
+        let c = b.sqrt(); // Second elementwise op - should fuse
+
+        // Check that the op is FusedElementwise, not plain Elementwise
+        match &c.inner.op {
+            TensorOp::FusedElementwise { expr: _ } => {
+                // Expected - fusion worked
+            }
+            TensorOp::Elementwise { .. } => {
+                panic!("Expected FusedElementwise, but got Elementwise (fusion failed)");
+            }
+            other => {
+                panic!("Unexpected op type: {:?}", other);
+            }
+        }
+    }
+
+    #[test]
+    fn test_eager_fusion_elementwise_reduce() {
+        use crate::tensor::Dim2;
+
+        // Create: input -> recip -> reduce_sum
+        // Should be fused into FusedElementwiseReduce
+        let a = Tensor::<Dim2>::ones([2, 3]);
+        let b = a.recip(); // Elementwise op
+        let c = b.reduce_sum(&[1], false); // Reduce - should fuse with parent
+
+        // Check that the op is FusedElementwiseReduce
+        match &c.inner.op {
+            TensorOp::FusedElementwiseReduce { reduce_op, .. } => {
+                assert_eq!(*reduce_op, ReduceOp::Sum);
+            }
+            TensorOp::Reduce { .. } => {
+                panic!("Expected FusedElementwiseReduce, but got Reduce (fusion failed)");
+            }
+            other => {
+                panic!("Unexpected op type: {:?}", other);
+            }
+        }
     }
 }

@@ -47,8 +47,6 @@ enum KernelKind {
     Elementwise,
     /// ElementwiseReduce演算 (FusedElementwiseReduceを含む)
     ElementwiseReduce,
-    /// Cumulative演算 (FusedElementwiseCumulativeを含む)
-    Cumulative,
     /// Reduce演算
     Reduce,
     /// その他の演算 (Contiguous, Cast, etc.)
@@ -61,7 +59,6 @@ impl KernelKind {
         match self {
             KernelKind::Elementwise => "E",
             KernelKind::ElementwiseReduce => "ER",
-            KernelKind::Cumulative => "C",
             KernelKind::Reduce => "R",
             KernelKind::Other => "O",
         }
@@ -86,7 +83,7 @@ impl LoweringSuggester {
     /// ノードの種類とshapeからカーネル/関数名を生成
     ///
     /// 命名規則:
-    /// - プレフィックス: E (Elementwise), ER (ElementwiseReduce), C (Cumulative), R (Reduce), O (Other)
+    /// - プレフィックス: E (Elementwise), ER (ElementwiseReduce), R (Reduce), O (Other)
     /// - 出力shape: `_`区切りで追加
     /// - 一意のID: カーネルごとに一意のIDを付加
     /// - 例: shape [2, 4] のElementwise演算 → `E_2_4_123`
@@ -126,9 +123,6 @@ impl LoweringSuggester {
                 KernelKind::Elementwise
             }
             GraphOp::FusedElementwiseReduce { .. } => KernelKind::ElementwiseReduce,
-            GraphOp::Cumulative { .. } | GraphOp::FusedElementwiseCumulative { .. } => {
-                KernelKind::Cumulative
-            }
             GraphOp::Reduce { .. } => KernelKind::Reduce,
             _ => KernelKind::Other,
         }
@@ -238,9 +232,6 @@ impl LoweringSuggester {
                 );
                 return None;
             }
-            GraphOp::Cumulative { op, axis, .. } => {
-                reduce::build_cumulative_function(node, op, *axis, &name)
-            }
             GraphOp::Contiguous => other::build_contiguous_function(node, &name),
             GraphOp::FusedElementwiseReduce {
                 expr,
@@ -250,18 +241,6 @@ impl LoweringSuggester {
             } => {
                 reduce::build_fused_elementwise_reduce_function(node, expr, reduce_op, axes, &name)
             }
-            GraphOp::FusedElementwiseCumulative {
-                expr,
-                cumulative_op,
-                axis,
-                ..
-            } => reduce::build_fused_elementwise_cumulative_function(
-                node,
-                expr,
-                cumulative_op,
-                *axis,
-                &name,
-            ),
             GraphOp::Pad { padding, value } => {
                 other::build_pad_function(node, padding, *value, &name)
             }

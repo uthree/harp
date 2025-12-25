@@ -1,28 +1,36 @@
 # Tensor モジュール仕様
 
-統合Tensor型を提供するモジュール。遅延評価、自動微分、Eager Fusionをサポート。
+**Tensorはharpの主要なAPIです。** 統合Tensor型を提供し、遅延評価、自動微分、Eager Fusionをサポートします。
+
+> **Note**: 低レベルのGraph APIは移行期間中のみ利用可能です。通常のユースケースではTensor APIを推奨します。
 
 ## 設計思想
 
 tinygrad/microgradの設計哲学に基づき、最小のプリミティブ演算の組み合わせで複雑な機能を実現。
 
-## アーキテクチャ（移行中）
+## アーキテクチャ
 
-### 新設計: TensorOp直接保持
+### 内部構造
 
-Tensorが計算グラフを直接保持し、GraphNodeレイヤーを廃止する設計へ移行中。
+TensorはTensorNodeを内部で使用し、TensorOpで演算を管理します。
 
 ```rust
-// 新構造（Phase 6で完全移行予定）
 pub struct Tensor<D: Dimension = DimDyn> {
+    node: GraphNode,               // 後方互換性のため（移行期間中）
+    inner: Rc<TensorNode>,         // 新しいTensorNode表現
+    shape: Vec<usize>,             // テンソル形状
+    dtype: DType,                  // データ型
+    autograd: Option<Rc<TensorData>>,  // 勾配追跡データ
+    buffer: RefCell<Option<Vec<f32>>>, // 実行結果バッファ
+    _dim: PhantomData<D>,
+}
+
+pub struct TensorNode {
     op: TensorOp,                  // 演算種類
     src: Vec<Tensor<DimDyn>>,      // 入力テンソル（DAG構造）
     view: View,                    // メモリレイアウト
     dtype: DType,                  // データ型
-    shape: Vec<usize>,             // テンソル形状
-    autograd: Option<Rc<TensorData>>,  // 勾配追跡データ
-    buffer: RefCell<Option<Vec<f32>>>, // 実行結果バッファ
-    _dim: PhantomData<D>,
+    name: Option<String>,          // バッファ名（オプション）
 }
 ```
 
@@ -57,8 +65,6 @@ pub enum TensorOp {
     Pad { padding: Vec<(Expr, Expr)>, value: f32 },
     Slice { ranges: Vec<(usize, usize)> },
     Concat { axis: usize },
-    Fold { ... },
-    Unfold { ... },
 
     // 実行済み
     Executed,
@@ -163,8 +169,6 @@ pub trait GradFn {
 | `Contiguous` | メモリレイアウト正規化・実行トリガー |
 | `Pad` | パディング |
 | `Slice` | スライス |
-| `Fold` | col2im相当 |
-| `Unfold` | im2col相当 |
 
 #### 特殊
 | 演算 | 説明 |
@@ -315,8 +319,9 @@ src/tensor/
 ├── mod.rs          # Tensor構造体、GradFn、TensorNode
 ├── dimension.rs    # Dimension トレイト
 ├── ops.rs          # TensorOp、ElementwiseOp、ReduceOp
-├── fusion.rs       # Eager Fusion ロジック
+├── fusion.rs       # Eager Fusion ロジック（try_fuse、try_fuse_and_create）
 ├── forward.rs      # forward()、realize() 実行
+├── lowerer.rs      # TensorLowerer（Tensor → AST変換）
 ├── hlops/          # 高級演算
 │   ├── activation.rs
 │   ├── arithmetic.rs
@@ -330,4 +335,23 @@ src/tensor/
     ├── movement.rs
     ├── reduce.rs
     └── unary.rs
+```
+
+## TensorLowerer
+
+TensorからASTへの変換を行うLowerer。
+
+```rust
+use harp::tensor::lowerer::{TensorLowerer, lower_tensor};
+
+let a = Tensor::<Dim2>::input("a", [2, 3]);
+let b = Tensor::<Dim2>::input("b", [2, 3]);
+let c = &a + &b;
+
+// TensorLowererを使用
+let mut lowerer = TensorLowerer::new();
+let ast = lowerer.lower(&c.clone().into_dyn());
+
+// または簡易関数を使用
+let ast = lower_tensor(&c.clone().into_dyn());
 ```

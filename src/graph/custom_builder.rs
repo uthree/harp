@@ -115,59 +115,6 @@ pub fn build_reduce_function(
     function(None::<String>, vec![], DType::Tuple(vec![]), body)
 }
 
-/// Cumulative演算の関数テンプレートを生成
-pub fn build_cumulative_function(
-    ndim: usize,
-    num_inputs: usize,
-    cum_axis: usize,
-    cum_op: &crate::graph::CumulativeOp,
-    expr: AstNode,
-) -> AstNode {
-    use crate::graph::CumulativeOp;
-
-    // 初期値とaccumulate演算を決定
-    let (init_value, accumulate_fn): (AstNode, Box<dyn Fn(AstNode, AstNode) -> AstNode>) =
-        match cum_op {
-            CumulativeOp::Sum => (const_f32(0.0), Box::new(|acc, val| acc + val)),
-            CumulativeOp::Prod => (const_f32(1.0), Box::new(|acc, val| acc * val)),
-        };
-
-    // 入力のロードを含む式を構築
-    let offset = build_contiguous_offset(ndim);
-    let mut mappings = std::collections::HashMap::new();
-    for i in 0..num_inputs {
-        let load_node = load(var(ph::input(i)), offset.clone(), DType::F32);
-        mappings.insert(i.to_string(), load_node);
-    }
-    let value_expr = expr.substitute(&mappings);
-
-    // Cumulative内部: acc = acc op value; output[offset] = acc
-    let acc_var = "acc";
-    let acc_update = assign(acc_var, accumulate_fn(var(acc_var), value_expr));
-    let store_stmt = store(var(ph::OUTPUT), offset, var(acc_var));
-
-    // Cumulative軸のループ
-    let cum_loop = range(
-        ph::ridx(cum_axis),
-        const_int(0),
-        const_int(1),
-        var(ph::shape(cum_axis)),
-        block(vec![acc_update, store_stmt], Scope::new()),
-    );
-
-    // acc初期化 + cumulativeループ
-    // スコープに変数を宣言
-    let mut scope = Scope::new();
-    let _ = scope.declare(acc_var.to_string(), DType::F32, Mutability::Mutable);
-    let acc_init = assign(acc_var, init_value);
-
-    // 外側ループ（cumulative軸以外、累積軸より後の軸は内側）
-    let inner_body = vec![acc_init, cum_loop];
-    let body = wrap_with_loops_excluding_axis_with_scope(ndim, cum_axis, inner_body, scope);
-
-    function(None::<String>, vec![], DType::Tuple(vec![]), body)
-}
-
 // ============================================================================
 // ヘルパー関数
 // ============================================================================

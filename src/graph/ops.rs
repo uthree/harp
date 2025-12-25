@@ -1,6 +1,6 @@
 use crate::ast::Literal;
 use crate::graph::shape::{Expr, View};
-use crate::graph::{CumulativeStrategy, DType, GraphNode, ReduceStrategy};
+use crate::graph::{DType, GraphNode, ReduceStrategy};
 use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 
 /// Kernelノードに取り込まれた入力バッファの情報
@@ -37,11 +37,6 @@ pub enum GraphOp {
         axis: usize,
         reduce_strategy: Option<ReduceStrategy>,
     }, // 縮約
-    Cumulative {
-        op: CumulativeOp,
-        axis: usize,
-        cumulative_strategy: Option<CumulativeStrategy>,
-    }, // 累積
     // 融合演算
     // expr内のWildcard("0"), Wildcard("1")等がsrc[0], src[1]に対応
     FusedElementwise {
@@ -53,12 +48,6 @@ pub enum GraphOp {
         axes: Vec<usize>,
         reduce_strategy: Option<ReduceStrategy>,
     }, // elementwise -> reduce パターンを融合（複数軸対応）
-    FusedElementwiseCumulative {
-        expr: crate::ast::AstNode,
-        cumulative_op: CumulativeOp,
-        axis: usize,
-        cumulative_strategy: Option<CumulativeStrategy>,
-    }, // elementwise -> cumulative パターンを融合
     Pad {
         padding: Vec<(Expr, Expr)>, // 各軸の(前, 後)パディング量（動的shape対応）
         value: f32,                 // パディング値
@@ -189,13 +178,6 @@ pub enum ReduceOp {
     Sum,  // 合計
     Prod, // 積
     Max,  // 最大値
-}
-
-/// 累積演算の種類
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CumulativeOp {
-    Sum,  // 累積和（cumsum）
-    Prod, // 累積積（cumprod）
 }
 
 /// カスタム関数で使用するプレースホルダー変数の規約
@@ -569,42 +551,6 @@ pub fn reduce_mul(node: GraphNode, axis: usize) -> GraphNode {
 // ヘルパー関数: Reduce Max（指定軸の最大値）
 pub fn reduce_max(node: GraphNode, axis: usize) -> GraphNode {
     reduce(node, ReduceOp::Max, axis)
-}
-
-// ヘルパー関数: Cumulative（汎用累積演算）
-pub fn cumulative(node: GraphNode, op: CumulativeOp, axis: usize) -> GraphNode {
-    let dtype = node.dtype.clone();
-    let view = node.view.clone();
-
-    // 累積演算はshapeを変更しない（軸を保持）
-    if axis >= view.shape().len() {
-        panic!(
-            "Cumulative: axis {} is out of bounds for shape {:?}",
-            axis,
-            view.shape()
-        );
-    }
-
-    GraphNode::new(
-        dtype,
-        GraphOp::Cumulative {
-            op,
-            axis,
-            cumulative_strategy: None,
-        },
-        vec![node],
-        view,
-    )
-}
-
-// ヘルパー関数: Cumulative Sum（累積和）
-pub fn cumsum(node: GraphNode, axis: usize) -> GraphNode {
-    cumulative(node, CumulativeOp::Sum, axis)
-}
-
-// ヘルパー関数: Cumulative Prod（累積積）
-pub fn cumprod(node: GraphNode, axis: usize) -> GraphNode {
-    cumulative(node, CumulativeOp::Prod, axis)
 }
 
 /// 複数のテンソルを指定した軸で結合する

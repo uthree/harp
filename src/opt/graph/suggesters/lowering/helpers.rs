@@ -5,9 +5,7 @@
 use crate::ast::{AstNode, DType as AstDType, Scope, helper::*};
 use crate::graph::ops::custom_placeholders as ph;
 use crate::graph::shape::Expr;
-use crate::graph::{
-    CumulativeOp, DType as GraphDType, GraphNode, GraphNodeData, GraphOp, ReduceOp, View,
-};
+use crate::graph::{DType as GraphDType, GraphNode, GraphNodeData, GraphOp, ReduceOp, View};
 use std::collections::HashSet;
 
 /// Shape式をAstNodeに変換する
@@ -140,36 +138,6 @@ pub fn build_reduce_accumulator(op: &ReduceOp, dtype: &GraphDType) -> (AstNode, 
         ReduceOp::Sum => (get_reduce_init(dtype, op), Box::new(|acc, val| acc + val)),
         ReduceOp::Prod => (get_reduce_init(dtype, op), Box::new(|acc, val| acc * val)),
         ReduceOp::Max => (get_reduce_init(dtype, op), Box::new(max)),
-    }
-}
-
-/// Cumulative演算のアキュムレータ（初期値と更新関数）を生成
-///
-/// # Arguments
-/// * `op` - Cumulative演算の種類
-/// * `dtype` - 出力の型
-///
-/// # Returns
-/// (初期値, 更新関数) のタプル
-pub fn build_cumulative_accumulator(
-    op: &CumulativeOp,
-    dtype: &GraphDType,
-) -> (AstNode, AccumulateFn) {
-    match op {
-        CumulativeOp::Sum => {
-            let init = match dtype {
-                GraphDType::I32 => const_int(0),
-                _ => const_f32(0.0),
-            };
-            (init, Box::new(|acc, val| acc + val))
-        }
-        CumulativeOp::Prod => {
-            let init = match dtype {
-                GraphDType::I32 => const_int(1),
-                _ => const_f32(1.0),
-            };
-            (init, Box::new(|acc, val| acc * val))
-        }
     }
 }
 
@@ -333,23 +301,6 @@ pub fn wrap_with_loops_with_shape(
     }
 
     block(vec![body], Scope::new())
-}
-
-/// 特定軸を除いたネストされたループで本体をラップ（スコープ付き、具体的なshapeを使用）
-pub fn wrap_with_loops_excluding_axis_with_scope_and_shape(
-    ndim: usize,
-    exclude_axis: usize,
-    inner_body: Vec<AstNode>,
-    scope: Scope,
-    shape: Option<&[Expr]>,
-) -> AstNode {
-    wrap_with_loops_excluding_axes_with_scope_and_shape(
-        ndim,
-        &[exclude_axis],
-        inner_body,
-        scope,
-        shape,
-    )
 }
 
 /// 複数軸を除いたネストされたループで本体をラップ（スコープ付き、複数軸対応、具体的なshapeを使用）

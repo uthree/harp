@@ -14,10 +14,13 @@ pub mod strategy;
 
 // Re-export commonly used types
 pub use conv::IntoSpatialParams;
-pub use ops::{CumulativeOp, ElementwiseOp, GraphOp, ReduceOp, custom_placeholders};
+pub use ops::{ElementwiseOp, GraphOp, ReduceOp, custom_placeholders};
 pub use shape::{Expr, View};
 // Note: ElementwiseStrategy was removed - parallelization is now handled at AST level
-pub use strategy::{CumulativeStrategy, ReduceStrategy};
+pub use strategy::ReduceStrategy;
+
+// Re-export DType from core module
+pub use crate::core::DType;
 
 /// 入力バッファのメタデータ
 #[derive(Debug, Clone)]
@@ -54,16 +57,6 @@ pub struct GraphNodeData {
 
 #[derive(Debug, Clone)]
 pub struct GraphNode(Rc<GraphNodeData>);
-
-// AstNoderのDTypeとは異なり、VecやPtrは扱わない。
-#[derive(Debug, Clone, PartialEq)]
-pub enum DType {
-    Unknown, // 未定または未知, プレースホルダー
-    Bool,    // boolean (internally u8: 0 = false, non-zero = true)
-    I64,     // 64-bit signed integer (for indexing/counters)
-    I32,     // 32-bit signed integer
-    F32,     // 32-bit floating point
-}
 
 impl Default for Graph {
     fn default() -> Self {
@@ -310,7 +303,7 @@ impl GraphNode {
     ///
     /// # 例
     /// ```
-    /// use harp::prelude::*;
+    /// use harp::graph::GraphNode;
     ///
     /// // F32のスカラー定数
     /// let const_node = GraphNode::constant(2.5f32);
@@ -477,27 +470,6 @@ impl GraphNode {
         ops::reduce_max(self.clone(), axis)
     }
 
-    /// 累積演算（汎用）
-    pub fn cumulative(&self, op: ops::CumulativeOp, axis: usize) -> Self {
-        ops::cumulative(self.clone(), op, axis)
-    }
-
-    /// 累積和（cumulative sum）
-    ///
-    /// 指定軸に沿って累積和を計算します。
-    /// 例: [1, 2, 3, 4] -> [1, 3, 6, 10]
-    pub fn cumsum(&self, axis: usize) -> Self {
-        ops::cumsum(self.clone(), axis)
-    }
-
-    /// 累積積（cumulative product）
-    ///
-    /// 指定軸に沿って累積積を計算します。
-    /// 例: [1, 2, 3, 4] -> [1, 2, 6, 24]
-    pub fn cumprod(&self, axis: usize) -> Self {
-        ops::cumprod(self.clone(), axis)
-    }
-
     /// 逆数を計算（1/x）
     pub fn recip(self) -> Self {
         let view = self.view.clone();
@@ -535,6 +507,7 @@ impl GraphNode {
     /// # 例
     /// ```no_run
     /// use harp::prelude::*;
+    /// use harp::graph::GraphNode;
     ///
     /// let mut graph = Graph::new();
     /// let a = graph.input("a", DType::F32, [2, 3]);

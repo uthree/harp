@@ -53,22 +53,24 @@ harp = { version = "0.1", features = ["metal"] }
 
 ## 主要モジュール
 
-### tensor（統合Tensor型）
+### tensor（統合Tensor型）【推奨API】
 
-PyTorchライクなTensor APIを提供。遅延評価と自動微分をサポート。
+**Tensorはharpの主要なAPIです。** PyTorchライクなインターフェースで、遅延評価、演算融合（Eager Fusion）、自動微分をサポートします。
 
 **主要機能:**
 - 静的次元管理（`Dim<N>`: `Dim0`-`Dim6`）と動的次元（`DimDyn`）
 - 遅延評価による計算グラフ構築
-- `forward()`: デフォルトデバイスでの計算実行
+- **Eager Fusion**: 演算呼び出し時に自動融合（Elementwise→Elementwise, Elementwise→Reduce）
+- `realize()`: 計算実行（1回の呼び出し = 1カーネル実行）
 - `backward()`: 自動微分（勾配計算）
-- `requires_grad()`: 勾配追跡の有効化
+- `fork()`: 明示的な分岐点作成
 
-**仕様書:** [tensor.md](tensor.md)（新規作成予定）
+**仕様書:** [tensor.md](tensor.md)
 
-### graph
+### graph（上級者向け）
 
-計算グラフ表現（GraphNode, Graph, DType）
+計算グラフの低レベルAPI。直接的なグラフ操作が必要な場合に使用します。
+通常のユースケースではTensor APIを推奨します。
 
 **仕様書:** [graph.md](graph.md)
 
@@ -106,7 +108,7 @@ Graph→AST変換
 
 ## 使用例
 
-### 基本的な計算（遅延評価）
+### 基本的な計算（遅延評価 + Eager Fusion）
 
 ```rust
 use harp::tensor::{Tensor, Dim2};
@@ -115,13 +117,13 @@ use harp::tensor::{Tensor, Dim2};
 let x = Tensor::<Dim2>::full([3, 4], 2.0);
 let y = Tensor::<Dim2>::full([3, 4], 3.0);
 
-// 演算（計算グラフを構築）
+// 演算（計算グラフを構築 + Eager Fusion）
 let z = &x + &y;  // z = x + y
-let w = &z * &z;  // w = z^2
+let w = &z * &z;  // w = z^2 → 自動的にFusedElementwiseに融合
 
-// forward()で計算実行
-w.forward().unwrap();
-let result = w.data().unwrap();
+// realize()で計算実行（1カーネルとして実行）
+let result = w.realize().unwrap();
+let data = result.data().unwrap();
 ```
 
 ### 自動微分（backward）
@@ -160,10 +162,13 @@ let y = &x + &x;
 y.forward().unwrap();
 ```
 
-### 低レベルAPI（計算グラフ直接操作）
+### 低レベルAPI（上級者向け：計算グラフ直接操作）
+
+通常はTensor APIを使用してください。直接的なグラフ操作が必要な場合のみ使用します。
 
 ```rust
 use harp::prelude::*;
+use harp::graph::GraphNode;  // GraphNodeは明示的インポートが必要
 
 let mut graph = Graph::new();
 let a = graph.input("a", DType::F32, vec![10, 20]);

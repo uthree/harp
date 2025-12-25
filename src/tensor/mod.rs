@@ -82,10 +82,12 @@
 //! let grad = x.grad();
 //! ```
 
+pub mod convert;
 pub mod dimension;
 pub mod forward;
 pub mod fusion;
 pub mod hlops;
+pub mod lowerer;
 pub mod ops;
 pub mod primops;
 
@@ -146,9 +148,6 @@ pub(crate) struct TensorData {
 ///
 /// This replaces GraphNodeData, embedding the computation graph directly in Tensor.
 /// The structure is reference-counted via Rc for efficient sharing.
-///
-/// Note: Currently unused - prepared for Phase 6 (GraphNode abolition)
-#[allow(dead_code)]
 #[derive(Clone)]
 pub(crate) struct TensorNode {
     /// The operation that produces this tensor
@@ -163,7 +162,6 @@ pub(crate) struct TensorNode {
     pub(crate) name: Option<String>,
 }
 
-#[allow(dead_code)]
 impl TensorNode {
     /// Create a new tensor node
     pub fn new(op: TensorOp, src: Vec<Tensor<DimDyn>>, view: View, dtype: DType) -> Self {
@@ -230,9 +228,10 @@ pub struct Tensor<D: Dimension = DimDyn> {
     pub(crate) node: GraphNode,
 
     // ---- New structure (TensorOp-based) ----
-    // These fields will replace `node` after migration
-    // /// Internal tensor node (reference counted for efficient sharing)
-    // pub(crate) inner: Rc<TensorNode>,
+    /// Internal tensor node (reference counted for efficient sharing)
+    /// During transition, this is built alongside `node` from the same data
+    pub(crate) inner: Rc<TensorNode>,
+
     /// Shape of the tensor (cached from view for convenience)
     pub(crate) shape: Vec<usize>,
     /// Data type
@@ -249,6 +248,7 @@ impl<D: Dimension> Clone for Tensor<D> {
     fn clone(&self) -> Self {
         Self {
             node: self.node.clone(),
+            inner: self.inner.clone(),
             shape: self.shape.clone(),
             dtype: self.dtype.clone(),
             autograd: self.autograd.clone(),
@@ -274,8 +274,16 @@ impl<D: Dimension> Tensor<D> {
     pub fn fork(&self) -> Tensor<D> {
         // Create a Clone operation in the computation graph
         let cloned_node = self.node.graph_clone();
+        // Create corresponding TensorNode with Clone op
+        let tensor_node = TensorNode::new(
+            TensorOp::Clone,
+            vec![self.clone().into_dyn()],
+            self.inner.view.clone(),
+            self.dtype.clone(),
+        );
         Tensor {
             node: cloned_node,
+            inner: Rc::new(tensor_node),
             shape: self.shape.clone(),
             dtype: self.dtype.clone(),
             autograd: None, // Fork does not preserve gradient tracking
@@ -335,6 +343,7 @@ impl<D: Dimension> Tensor<D> {
     pub fn into_dyn(self) -> Tensor<DimDyn> {
         Tensor {
             node: self.node,
+            inner: self.inner,
             shape: self.shape,
             dtype: self.dtype,
             autograd: self.autograd,
@@ -430,6 +439,7 @@ impl<D: Dimension> Tensor<D> {
     pub fn detach(&self) -> Tensor<D> {
         Tensor {
             node: self.node.clone(),
+            inner: self.inner.clone(),
             shape: self.shape.clone(),
             dtype: self.dtype.clone(),
             autograd: None,

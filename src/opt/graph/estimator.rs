@@ -247,19 +247,6 @@ impl SimpleCostEstimator {
                     + log_sum_exp(self.memory_access_cost.ln(), log_reduce_cost)
                     + lowering_penalty
             }
-            GraphOp::Cumulative { .. } => {
-                // Cumulativeは逐次依存性が高い（並列化が困難）
-                // 累積和を想定（Sumのコスト）
-                let num_elements = self.compute_num_elements(node);
-                let log_cumulative_cost = 3.0_f32.ln(); // Sumのコスト
-                // 各要素で読み取り + 演算 + 書き込み
-                // log(num_elements * (2 * self.memory_access_cost + cumulative_cost))
-                // CumulativeもKernelにloweringされるべきなのでペナルティを追加
-                let lowering_penalty = self.kernel_launch_overhead.ln();
-                num_elements.ln()
-                    + log_sum_exp((2.0 * self.memory_access_cost).ln(), log_cumulative_cost)
-                    + lowering_penalty
-            }
             GraphOp::FusedElementwise { expr, .. } => {
                 // 融合演算は中間バッファを節約
                 let num_elements = self.compute_num_elements(node);
@@ -287,23 +274,6 @@ impl SimpleCostEstimator {
                         self.memory_access_cost.ln(),
                         log_elementwise_cost,
                         log_reduce_cost,
-                    ])
-                    + lowering_penalty
-            }
-            GraphOp::FusedElementwiseCumulative { expr, .. } => {
-                // FusedElementwiseCumulativeはCumulativeと同様の逐次依存性
-                // + elementwise演算のコスト
-                let num_elements = self.compute_num_elements(node);
-                let log_elementwise_cost = self.ast_expr_cost(expr);
-                let log_cumulative_cost = 3.0_f32.ln(); // Sumのコスト
-                // 各要素で読み取り + elementwise演算 + 累積演算 + 書き込み
-                // FusedElementwiseCumulativeもKernelにloweringされるべきなのでペナルティを追加
-                let lowering_penalty = self.kernel_launch_overhead.ln();
-                num_elements.ln()
-                    + log_sum_exp_iter(vec![
-                        (2.0 * self.memory_access_cost).ln(),
-                        log_elementwise_cost,
-                        log_cumulative_cost,
                     ])
                     + lowering_penalty
             }
@@ -826,10 +796,8 @@ impl GraphCostEstimator for SimpleCostEstimator {
                 // lowering対象のノードもカーネルとしてカウント
                 // これにより、lowering前後でオーバーヘッドが変わらない
                 GraphOp::FusedElementwiseReduce { .. }
-                | GraphOp::FusedElementwiseCumulative { .. }
                 | GraphOp::FusedElementwise { .. }
                 | GraphOp::Reduce { .. }
-                | GraphOp::Cumulative { .. }
                 | GraphOp::Contiguous
                 | GraphOp::Pad { .. }
                 | GraphOp::Slice { .. }

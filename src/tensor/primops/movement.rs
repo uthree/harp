@@ -6,12 +6,14 @@
 //! - Reshape: change shape (same total elements)
 //! - Contiguous: ensure contiguous memory layout
 
-use crate::graph::shape::Expr;
-use crate::tensor::{Dim, DimDyn, Dimension, Tensor};
+use crate::graph::DType;
+use crate::graph::shape::{Expr, View};
+use crate::tensor::{Dim, DimDyn, Dimension, Tensor, TensorNode, TensorOp};
 
-/// Convert usize slice to Expr vector
-fn to_expr_vec(shape: &[usize]) -> Vec<Expr> {
-    shape.iter().map(|&s| Expr::from(s as i64)).collect()
+/// Helper to create View from usize shape
+fn view_from_shape(shape: &[usize]) -> View {
+    let shape_exprs: Vec<Expr> = shape.iter().map(|&s| Expr::from(s as i64)).collect();
+    View::contiguous(shape_exprs)
 }
 
 impl<D: Dimension> Tensor<D> {
@@ -81,9 +83,14 @@ impl<D: Dimension> Tensor<D> {
             new_numel
         );
 
-        let expr_shape = to_expr_vec(&new_shape);
-        let node = self.node.reshape(expr_shape);
-        Tensor::from_node(node, new_shape.to_vec(), self.dtype.clone())
+        let view = view_from_shape(&new_shape);
+        let tensor_node = TensorNode::new(
+            TensorOp::View,
+            vec![self.clone().into_dyn()],
+            view,
+            DType::F32,
+        );
+        Tensor::from_tensor_node(tensor_node, new_shape.to_vec())
     }
 
     /// Reshape to dynamic shape (primop)
@@ -98,9 +105,14 @@ impl<D: Dimension> Tensor<D> {
             new_numel
         );
 
-        let expr_shape = to_expr_vec(new_shape);
-        let node = self.node.reshape(expr_shape);
-        Tensor::from_node(node, new_shape.to_vec(), self.dtype.clone())
+        let view = view_from_shape(new_shape);
+        let tensor_node = TensorNode::new(
+            TensorOp::View,
+            vec![self.clone().into_dyn()],
+            view,
+            DType::F32,
+        );
+        Tensor::from_tensor_node(tensor_node, new_shape.to_vec())
     }
 
     /// Repeat tensor along each dimension (primop)
@@ -122,33 +134,29 @@ impl<D: Dimension> Tensor<D> {
             .map(|(&s, &r)| s * r)
             .collect();
 
-        // Implement repeat using expand and reshape
-        // First unsqueeze alternating dimensions, then expand, then reshape
-        let current = self.clone().into_dyn();
-        let mut intermediate_shape = Vec::new();
-
-        for (&size, &rep) in self.shape().iter().zip(repeats.iter()) {
-            intermediate_shape.push(size);
-            if rep > 1 {
-                // Insert dimension for repeat
-                intermediate_shape.push(rep);
-            }
-        }
-        let _ = intermediate_shape; // Used for complex repeat implementation
-
-        // For simplicity, use the graph-level broadcast_to
-        let target_expr = to_expr_vec(&new_shape);
-        let node = current.node.broadcast_to(target_expr);
-        Tensor::from_node(node, new_shape, self.dtype.clone())
+        // Create a view with broadcast to the new shape
+        let view = view_from_shape(&new_shape);
+        let tensor_node = TensorNode::new(
+            TensorOp::View,
+            vec![self.clone().into_dyn()],
+            view,
+            DType::F32,
+        );
+        Tensor::from_tensor_node(tensor_node, new_shape)
     }
 
     /// Ensure contiguous memory layout (primop)
     ///
     /// Returns a tensor with the same data but guaranteed contiguous memory.
     pub fn contiguous(&self) -> Tensor<D> {
-        // The contiguous operation creates a copy with standard strides
-        let node = self.node.contiguous();
-        Tensor::from_node(node, self.shape().to_vec(), self.dtype.clone())
+        let view = view_from_shape(self.shape());
+        let tensor_node = TensorNode::new(
+            TensorOp::Contiguous,
+            vec![self.clone().into_dyn()],
+            view,
+            DType::F32,
+        );
+        Tensor::from_tensor_node(tensor_node, self.shape().to_vec())
     }
 
     /// Permute tensor dimensions
@@ -163,9 +171,14 @@ impl<D: Dimension> Tensor<D> {
         );
 
         let new_shape: Vec<usize> = axes.iter().map(|&i| self.shape()[i]).collect();
-        let new_view = self.node.view.clone().permute(axes.to_vec());
-        let node = self.node.view(new_view);
-        Tensor::from_node(node, new_shape, self.dtype.clone())
+        let new_view = self.inner.view.clone().permute(axes.to_vec());
+        let tensor_node = TensorNode::new(
+            TensorOp::View,
+            vec![self.clone().into_dyn()],
+            new_view,
+            DType::F32,
+        );
+        Tensor::from_tensor_node(tensor_node, new_shape)
     }
 
     /// Transpose the tensor (swap last two dimensions)
@@ -198,9 +211,14 @@ impl<D: Dimension> Tensor<D> {
             );
         }
 
-        let target_expr = to_expr_vec(new_shape);
-        let node = self.node.broadcast_to(target_expr);
-        Tensor::from_node(node, new_shape.to_vec(), self.dtype.clone())
+        let view = view_from_shape(new_shape);
+        let tensor_node = TensorNode::new(
+            TensorOp::View,
+            vec![self.clone().into_dyn()],
+            view,
+            DType::F32,
+        );
+        Tensor::from_tensor_node(tensor_node, new_shape.to_vec())
     }
 
     /// Flatten tensor to 1D

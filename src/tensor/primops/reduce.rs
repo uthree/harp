@@ -6,11 +6,61 @@
 
 use std::rc::Rc;
 
-use crate::graph::{DType, ops as graph_ops};
-use crate::tensor::{DimDyn, Dimension, Tensor};
+use crate::graph::DType;
+use crate::graph::shape::{Expr, View};
+use crate::tensor::fusion::try_fuse_and_create;
+use crate::tensor::{DimDyn, Dimension, ReduceOp, Tensor, TensorNode, TensorOp};
 
 use super::binary::with_grad_fn;
 use super::grad::{ReduceMaxBackward, ReduceMulBackward, ReduceSumBackward};
+
+/// Helper to create View from usize shape
+fn view_from_shape(shape: &[usize]) -> View {
+    let shape_exprs: Vec<Expr> = shape.iter().map(|&s| Expr::from(s as i64)).collect();
+    View::contiguous(shape_exprs)
+}
+
+/// Compute result shape after reduction
+fn compute_reduce_shape(input_shape: &[usize], axes: &[usize], keepdim: bool) -> Vec<usize> {
+    let mut result_shape = input_shape.to_vec();
+
+    // Sort axes in descending order to handle dimension removal correctly
+    let mut sorted_axes: Vec<usize> = axes.to_vec();
+    sorted_axes.sort_by(|a, b| b.cmp(a));
+
+    for &axis in &sorted_axes {
+        if keepdim {
+            result_shape[axis] = 1;
+        } else {
+            result_shape.remove(axis);
+        }
+    }
+
+    result_shape
+}
+
+/// Create a reduce TensorNode with eager fusion
+fn create_reduce<D: Dimension>(
+    op: ReduceOp,
+    input: &Tensor<D>,
+    axes: &[usize],
+    keepdim: bool,
+) -> (TensorNode, Vec<usize>) {
+    let result_shape = compute_reduce_shape(input.shape(), axes, keepdim);
+    let view = view_from_shape(&result_shape);
+    // Try eager fusion with parent op (e.g., Elementwise + Reduce -> FusedElementwiseReduce)
+    let tensor_node = try_fuse_and_create(
+        TensorOp::Reduce {
+            op,
+            axes: axes.to_vec(),
+            keepdim,
+        },
+        vec![input.clone().into_dyn()],
+        view,
+        DType::F32,
+    );
+    (tensor_node, result_shape)
+}
 
 impl<D: Dimension> Tensor<D> {
     /// Sum reduction along specified axes (primop)
@@ -19,32 +69,8 @@ impl<D: Dimension> Tensor<D> {
     /// * `axes` - Axes to reduce over
     /// * `keepdim` - Whether to keep reduced dimensions as size 1
     pub fn reduce_sum(&self, axes: &[usize], keepdim: bool) -> Tensor<DimDyn> {
-        let mut result_shape = self.shape().to_vec();
-        let mut node = self.node.clone();
-
-        // Sort axes in descending order to handle dimension removal correctly
-        let mut sorted_axes: Vec<usize> = axes.to_vec();
-        sorted_axes.sort_by(|a, b| b.cmp(a));
-
-        for &axis in &sorted_axes {
-            node = graph_ops::reduce_sum(node, axis);
-            if keepdim {
-                result_shape[axis] = 1;
-            } else {
-                result_shape.remove(axis);
-            }
-        }
-
-        // If keepdim, reshape to restore dimensions
-        if keepdim {
-            let exprs: Vec<crate::graph::shape::Expr> = result_shape
-                .iter()
-                .map(|&s| crate::graph::shape::Expr::from(s as i64))
-                .collect();
-            node = node.reshape(exprs);
-        }
-
-        let result = Tensor::from_node(node, result_shape, DType::F32);
+        let (tensor_node, result_shape) = create_reduce(ReduceOp::Sum, self, axes, keepdim);
+        let result = Tensor::from_tensor_node(tensor_node, result_shape);
 
         if self.requires_grad() {
             let grad_fn = ReduceSumBackward::new(self.clone().into_dyn(), axes.to_vec(), keepdim);
@@ -60,31 +86,8 @@ impl<D: Dimension> Tensor<D> {
     /// * `axes` - Axes to reduce over
     /// * `keepdim` - Whether to keep reduced dimensions as size 1
     pub fn reduce_mul(&self, axes: &[usize], keepdim: bool) -> Tensor<DimDyn> {
-        let mut result_shape = self.shape().to_vec();
-        let mut node = self.node.clone();
-
-        let mut sorted_axes: Vec<usize> = axes.to_vec();
-        sorted_axes.sort_by(|a, b| b.cmp(a));
-
-        for &axis in &sorted_axes {
-            node = graph_ops::reduce_mul(node, axis);
-            if keepdim {
-                result_shape[axis] = 1;
-            } else {
-                result_shape.remove(axis);
-            }
-        }
-
-        // If keepdim, reshape to restore dimensions
-        if keepdim {
-            let exprs: Vec<crate::graph::shape::Expr> = result_shape
-                .iter()
-                .map(|&s| crate::graph::shape::Expr::from(s as i64))
-                .collect();
-            node = node.reshape(exprs);
-        }
-
-        let result = Tensor::from_node(node, result_shape, DType::F32);
+        let (tensor_node, result_shape) = create_reduce(ReduceOp::Prod, self, axes, keepdim);
+        let result = Tensor::from_tensor_node(tensor_node, result_shape.clone());
 
         if self.requires_grad() {
             let grad_fn = ReduceMulBackward::new(
@@ -105,31 +108,8 @@ impl<D: Dimension> Tensor<D> {
     /// * `axes` - Axes to reduce over
     /// * `keepdim` - Whether to keep reduced dimensions as size 1
     pub fn reduce_max(&self, axes: &[usize], keepdim: bool) -> Tensor<DimDyn> {
-        let mut result_shape = self.shape().to_vec();
-        let mut node = self.node.clone();
-
-        let mut sorted_axes: Vec<usize> = axes.to_vec();
-        sorted_axes.sort_by(|a, b| b.cmp(a));
-
-        for &axis in &sorted_axes {
-            node = graph_ops::reduce_max(node, axis);
-            if keepdim {
-                result_shape[axis] = 1;
-            } else {
-                result_shape.remove(axis);
-            }
-        }
-
-        // If keepdim, reshape to restore dimensions
-        if keepdim {
-            let exprs: Vec<crate::graph::shape::Expr> = result_shape
-                .iter()
-                .map(|&s| crate::graph::shape::Expr::from(s as i64))
-                .collect();
-            node = node.reshape(exprs);
-        }
-
-        let result = Tensor::from_node(node, result_shape, DType::F32);
+        let (tensor_node, result_shape) = create_reduce(ReduceOp::Max, self, axes, keepdim);
+        let result = Tensor::from_tensor_node(tensor_node, result_shape.clone());
 
         if self.requires_grad() {
             let grad_fn = ReduceMaxBackward::new(

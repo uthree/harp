@@ -183,6 +183,7 @@ impl<D: Dimension> Tensor<D> {
         // Create new tensor with executed buffer
         Ok(Tensor {
             node: self.node.clone(),
+            inner: self.inner.clone(),
             shape: self.shape.clone(),
             dtype: self.dtype.clone(),
             autograd: self.autograd.clone(),
@@ -242,6 +243,7 @@ impl<D: Dimension> Tensor<D> {
         // Create new tensor with executed buffer
         Ok(Tensor {
             node: self.node.clone(),
+            inner: self.inner.clone(),
             shape: self.shape.clone(),
             dtype: self.dtype.clone(),
             autograd: self.autograd.clone(),
@@ -258,18 +260,23 @@ impl<D: Dimension> Tensor<D> {
         use crate::ast::Literal;
         use crate::graph::shape::View;
         use crate::graph::{GraphNode, GraphOp};
+        use crate::tensor::{TensorNode, TensorOp};
         use std::cell::RefCell;
+        use std::rc::Rc;
 
         let view = View::contiguous(shape.iter().map(|&s| s as isize).collect::<Vec<_>>());
         let node = GraphNode::new(
             DType::F32,
             GraphOp::ConstFill(Literal::F32(0.0)), // placeholder
             vec![],
-            view,
+            view.clone(),
         );
+
+        let tensor_node = TensorNode::new(TensorOp::Executed, vec![], view, DType::F32);
 
         Tensor {
             node,
+            inner: Rc::new(tensor_node),
             shape,
             dtype: DType::F32,
             autograd: None,

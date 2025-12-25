@@ -1,6 +1,6 @@
 //! 並列化戦略の定義
 //!
-//! Reduce演算、Cumulative演算の各軸に対する
+//! Reduce演算の各軸に対する
 //! 並列化戦略とループアンローリングの設定を提供します。
 //!
 //! Note: ElementwiseStrategyは削除されました。
@@ -20,7 +20,7 @@ impl Default for ReduceStrategy {
     }
 }
 
-/// ReduceStrategyとCumulativeStrategyのビルダーメソッドを生成するマクロ
+/// ReduceStrategyのビルダーメソッドを生成するマクロ
 macro_rules! impl_unroll_only_strategy_builders {
     ($type:ident, $variant:ident, $prefix:ident) => {
         paste::paste! {
@@ -47,19 +47,3 @@ macro_rules! impl_unroll_only_strategy_builders {
 }
 
 impl_unroll_only_strategy_builders!(ReduceStrategy, Sequential, sequential);
-
-/// Cumulative演算の並列化戦略
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum CumulativeStrategy {
-    /// 逐次実行（アンローリング係数: デフォルト1）
-    /// 将来的にはParallel Scan（Hillis-Steele、Blelloch等）を追加予定
-    Sequential { unroll_factor: usize },
-}
-
-impl Default for CumulativeStrategy {
-    fn default() -> Self {
-        Self::Sequential { unroll_factor: 1 }
-    }
-}
-
-impl_unroll_only_strategy_builders!(CumulativeStrategy, Sequential, sequential);
