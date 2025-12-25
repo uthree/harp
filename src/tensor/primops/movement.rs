@@ -6,9 +6,12 @@
 //! - Reshape: change shape (same total elements)
 //! - Contiguous: ensure contiguous memory layout
 
-use crate::core::DType;
-use crate::core::shape::{Expr, View};
-use crate::tensor::{Dim, DimDyn, Dimension, Tensor, TensorNode, TensorOp};
+use std::marker::PhantomData;
+use std::sync::Arc;
+
+use crate::ast::DType;
+use crate::tensor::shape::{Expr, View};
+use crate::tensor::{Dim, DimDyn, Dimension, Tensor, TensorInner, TensorOp};
 
 /// Helper to create View from usize shape
 fn view_from_shape(shape: &[usize]) -> View {
@@ -84,13 +87,17 @@ impl<D: Dimension> Tensor<D> {
         );
 
         let view = view_from_shape(&new_shape);
-        let tensor_node = TensorNode::new(
-            TensorOp::View,
-            vec![self.clone().into_dyn()],
+        let input = Arc::new(self.clone().into_dyn());
+        let inner = TensorInner::new(
+            TensorOp::View { input },
             view,
+            new_shape.to_vec(),
             DType::F32,
         );
-        Tensor::from_tensor_node(tensor_node, new_shape.to_vec())
+        Tensor {
+            inner: Arc::new(inner),
+            _dim: PhantomData,
+        }
     }
 
     /// Reshape to dynamic shape (primop)
@@ -106,13 +113,17 @@ impl<D: Dimension> Tensor<D> {
         );
 
         let view = view_from_shape(new_shape);
-        let tensor_node = TensorNode::new(
-            TensorOp::View,
-            vec![self.clone().into_dyn()],
+        let input = Arc::new(self.clone().into_dyn());
+        let inner = TensorInner::new(
+            TensorOp::View { input },
             view,
+            new_shape.to_vec(),
             DType::F32,
         );
-        Tensor::from_tensor_node(tensor_node, new_shape.to_vec())
+        Tensor {
+            inner: Arc::new(inner),
+            _dim: PhantomData,
+        }
     }
 
     /// Repeat tensor along each dimension (primop)
@@ -136,13 +147,12 @@ impl<D: Dimension> Tensor<D> {
 
         // Create a view with broadcast to the new shape
         let view = view_from_shape(&new_shape);
-        let tensor_node = TensorNode::new(
-            TensorOp::View,
-            vec![self.clone().into_dyn()],
-            view,
-            DType::F32,
-        );
-        Tensor::from_tensor_node(tensor_node, new_shape)
+        let input = Arc::new(self.clone().into_dyn());
+        let inner = TensorInner::new(TensorOp::View { input }, view, new_shape, DType::F32);
+        Tensor {
+            inner: Arc::new(inner),
+            _dim: PhantomData,
+        }
     }
 
     /// Ensure contiguous memory layout (primop)
@@ -150,13 +160,17 @@ impl<D: Dimension> Tensor<D> {
     /// Returns a tensor with the same data but guaranteed contiguous memory.
     pub fn contiguous(&self) -> Tensor<D> {
         let view = view_from_shape(self.shape());
-        let tensor_node = TensorNode::new(
-            TensorOp::Contiguous,
-            vec![self.clone().into_dyn()],
+        let input = Arc::new(self.clone().into_dyn());
+        let inner = TensorInner::new(
+            TensorOp::Contiguous { input },
             view,
+            self.shape().to_vec(),
             DType::F32,
         );
-        Tensor::from_tensor_node(tensor_node, self.shape().to_vec())
+        Tensor {
+            inner: Arc::new(inner),
+            _dim: PhantomData,
+        }
     }
 
     /// Permute tensor dimensions
@@ -172,13 +186,12 @@ impl<D: Dimension> Tensor<D> {
 
         let new_shape: Vec<usize> = axes.iter().map(|&i| self.shape()[i]).collect();
         let new_view = self.inner.view.clone().permute(axes.to_vec());
-        let tensor_node = TensorNode::new(
-            TensorOp::View,
-            vec![self.clone().into_dyn()],
-            new_view,
-            DType::F32,
-        );
-        Tensor::from_tensor_node(tensor_node, new_shape)
+        let input = Arc::new(self.clone().into_dyn());
+        let inner = TensorInner::new(TensorOp::View { input }, new_view, new_shape, DType::F32);
+        Tensor {
+            inner: Arc::new(inner),
+            _dim: PhantomData,
+        }
     }
 
     /// Transpose the tensor (swap last two dimensions)
@@ -212,13 +225,17 @@ impl<D: Dimension> Tensor<D> {
         }
 
         let view = view_from_shape(new_shape);
-        let tensor_node = TensorNode::new(
-            TensorOp::View,
-            vec![self.clone().into_dyn()],
+        let input = Arc::new(self.clone().into_dyn());
+        let inner = TensorInner::new(
+            TensorOp::View { input },
             view,
+            new_shape.to_vec(),
             DType::F32,
         );
-        Tensor::from_tensor_node(tensor_node, new_shape.to_vec())
+        Tensor {
+            inner: Arc::new(inner),
+            _dim: PhantomData,
+        }
     }
 
     /// Flatten tensor to 1D

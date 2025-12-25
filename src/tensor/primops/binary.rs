@@ -5,17 +5,16 @@
 //! - Max: element-wise maximum
 //! - Idiv: integer division
 
-use std::cell::RefCell;
 use std::marker::PhantomData;
 use std::ops::Add;
 use std::ops::Mul;
-use std::rc::Rc;
+use std::sync::{Arc, RwLock};
 
+use crate::ast::DType;
 use crate::ast::Literal;
-use crate::core::DType;
-use crate::core::shape::{Expr, View};
+use crate::tensor::shape::{Expr, View};
 use crate::tensor::{
-    DimDyn, Dimension, ElementwiseOp, GradFn, Tensor, TensorData, TensorNode, TensorOp,
+    AutogradMeta, DimDyn, Dimension, ElementwiseOp, GradFn, Tensor, TensorInner, TensorOp,
 };
 
 use super::grad::{AddBackward, MaxBackward, MulBackward};
@@ -35,20 +34,25 @@ pub(crate) fn any_requires_grad<D1: Dimension, D2: Dimension>(
 /// Create a tensor with gradient tracking if needed
 pub(crate) fn with_grad_fn<D: Dimension>(
     tensor: Tensor<D>,
-    grad_fn: Option<Rc<dyn GradFn>>,
+    grad_fn: Option<Arc<dyn GradFn>>,
 ) -> Tensor<D> {
     if grad_fn.is_some() {
-        Tensor {
-            inner: tensor.inner,
-            shape: tensor.shape,
-            dtype: tensor.dtype,
-            autograd: Some(Rc::new(TensorData {
+        // Create a new TensorInner with autograd metadata
+        let inner = TensorInner {
+            op: tensor.inner.op.clone(),
+            view: tensor.inner.view.clone(),
+            shape: tensor.inner.shape.clone(),
+            dtype: tensor.inner.dtype.clone(),
+            name: tensor.inner.name.clone(),
+            autograd: Some(AutogradMeta {
                 requires_grad: true,
-                grad: RefCell::new(None),
+                grad: RwLock::new(None),
                 grad_fn,
-                cached_data: RefCell::new(None),
-            })),
-            buffer: tensor.buffer,
+            }),
+            buffer: RwLock::new(None),
+        };
+        Tensor {
+            inner: Arc::new(inner),
             _dim: PhantomData,
         }
     } else {
@@ -95,34 +99,50 @@ fn view_from_shape(shape: &[usize]) -> View {
     View::contiguous(shape_exprs)
 }
 
-/// Create a binary elementwise TensorNode
+/// Create a binary elementwise Tensor using Compute variant
 fn create_binary_elementwise<D: Dimension>(
     op: ElementwiseOp,
     lhs: &Tensor<D>,
     rhs: &Tensor<impl Dimension>,
-) -> TensorNode {
+) -> Tensor<D> {
     let result_shape = broadcast_shapes(lhs.shape(), rhs.shape());
     let view = view_from_shape(&result_shape);
-    TensorNode::new(
-        TensorOp::Elementwise { op },
-        vec![lhs.clone().into_dyn(), rhs.clone().into_dyn()],
+
+    // Create Compute operation with inputs embedded
+    let inputs = vec![
+        Arc::new(lhs.clone().into_dyn()),
+        Arc::new(rhs.clone().into_dyn()),
+    ];
+    let expr = op.to_ast(2);
+
+    let inner = TensorInner::new(
+        TensorOp::elementwise(inputs, expr),
         view,
+        result_shape,
         DType::F32,
-    )
+    );
+
+    Tensor {
+        inner: Arc::new(inner),
+        _dim: PhantomData,
+    }
 }
 
 /// Create a tensor with scalar (constant fill) for binary ops
-fn scalar_tensor(value: f32, _shape: &[usize]) -> Tensor<DimDyn> {
+fn scalar_tensor(value: f32) -> Tensor<DimDyn> {
     // For scalar operations, we create a scalar (shape=[]) tensor
     // that will be broadcast to the target shape
     let view = View::contiguous(Vec::<Expr>::new()); // scalar
-    let tensor_node = TensorNode::new(
+    let inner = TensorInner::new(
         TensorOp::ConstFill(Literal::F32(value)),
-        vec![],
         view,
+        vec![],
         DType::F32,
     );
-    Tensor::from_tensor_node(tensor_node, vec![])
+    Tensor {
+        inner: Arc::new(inner),
+        _dim: PhantomData,
+    }
 }
 
 // ============================================================================
@@ -133,13 +153,11 @@ impl<D: Dimension> Add for &Tensor<D> {
     type Output = Tensor<D>;
 
     fn add(self, rhs: Self) -> Tensor<D> {
-        let result_shape = broadcast_shapes(self.shape(), rhs.shape());
-        let tensor_node = create_binary_elementwise(ElementwiseOp::Add, self, rhs);
-        let result = Tensor::from_tensor_node(tensor_node, result_shape);
+        let result = create_binary_elementwise(ElementwiseOp::Add, self, rhs);
 
         if any_requires_grad(self, rhs) {
             let grad_fn = AddBackward::new(self.clone().into_dyn(), rhs.clone().into_dyn());
-            with_grad_fn(result, Some(Rc::new(grad_fn)))
+            with_grad_fn(result, Some(Arc::new(grad_fn)))
         } else {
             result
         }
@@ -171,9 +189,8 @@ impl<D: Dimension> Add for Tensor<D> {
 impl<D: Dimension> Add<f32> for &Tensor<D> {
     type Output = Tensor<D>;
     fn add(self, rhs: f32) -> Tensor<D> {
-        let scalar = scalar_tensor(rhs, &[]);
-        let tensor_node = create_binary_elementwise(ElementwiseOp::Add, self, &scalar);
-        Tensor::from_tensor_node(tensor_node, self.shape().to_vec())
+        let scalar = scalar_tensor(rhs);
+        create_binary_elementwise(ElementwiseOp::Add, self, &scalar)
     }
 }
 
@@ -188,9 +205,9 @@ impl<D: Dimension> Add<f32> for Tensor<D> {
 impl<D: Dimension> Add<&Tensor<D>> for f32 {
     type Output = Tensor<D>;
     fn add(self, rhs: &Tensor<D>) -> Tensor<D> {
-        let scalar = scalar_tensor(self, &[]);
-        let tensor_node = create_binary_elementwise(ElementwiseOp::Add, &scalar, rhs);
-        Tensor::from_tensor_node(tensor_node, rhs.shape().to_vec())
+        // Swap order: rhs determines the dimension type
+        let scalar = scalar_tensor(self);
+        create_binary_elementwise(ElementwiseOp::Add, rhs, &scalar)
     }
 }
 
@@ -209,13 +226,11 @@ impl<D: Dimension> Mul for &Tensor<D> {
     type Output = Tensor<D>;
 
     fn mul(self, rhs: Self) -> Tensor<D> {
-        let result_shape = broadcast_shapes(self.shape(), rhs.shape());
-        let tensor_node = create_binary_elementwise(ElementwiseOp::Mul, self, rhs);
-        let result = Tensor::from_tensor_node(tensor_node, result_shape);
+        let result = create_binary_elementwise(ElementwiseOp::Mul, self, rhs);
 
         if any_requires_grad(self, rhs) {
             let grad_fn = MulBackward::new(self.clone().into_dyn(), rhs.clone().into_dyn());
-            with_grad_fn(result, Some(Rc::new(grad_fn)))
+            with_grad_fn(result, Some(Arc::new(grad_fn)))
         } else {
             result
         }
@@ -247,9 +262,8 @@ impl<D: Dimension> Mul for Tensor<D> {
 impl<D: Dimension> Mul<f32> for &Tensor<D> {
     type Output = Tensor<D>;
     fn mul(self, rhs: f32) -> Tensor<D> {
-        let scalar = scalar_tensor(rhs, &[]);
-        let tensor_node = create_binary_elementwise(ElementwiseOp::Mul, self, &scalar);
-        Tensor::from_tensor_node(tensor_node, self.shape().to_vec())
+        let scalar = scalar_tensor(rhs);
+        create_binary_elementwise(ElementwiseOp::Mul, self, &scalar)
     }
 }
 
@@ -264,9 +278,9 @@ impl<D: Dimension> Mul<f32> for Tensor<D> {
 impl<D: Dimension> Mul<&Tensor<D>> for f32 {
     type Output = Tensor<D>;
     fn mul(self, rhs: &Tensor<D>) -> Tensor<D> {
-        let scalar = scalar_tensor(self, &[]);
-        let tensor_node = create_binary_elementwise(ElementwiseOp::Mul, &scalar, rhs);
-        Tensor::from_tensor_node(tensor_node, rhs.shape().to_vec())
+        // Swap order: rhs determines the dimension type
+        let scalar = scalar_tensor(self);
+        create_binary_elementwise(ElementwiseOp::Mul, rhs, &scalar)
     }
 }
 
@@ -284,13 +298,11 @@ impl<D: Dimension> Mul<Tensor<D>> for f32 {
 impl<D: Dimension> Tensor<D> {
     /// Compute element-wise maximum with another tensor (primop)
     pub fn max(&self, other: &Tensor<impl Dimension>) -> Tensor<D> {
-        let result_shape = broadcast_shapes(self.shape(), other.shape());
-        let tensor_node = create_binary_elementwise(ElementwiseOp::Max, self, other);
-        let result = Tensor::from_tensor_node(tensor_node, result_shape);
+        let result = create_binary_elementwise(ElementwiseOp::Max, self, other);
 
         if self.requires_grad() || other.requires_grad() {
             let grad_fn = MaxBackward::new(self.clone().into_dyn(), other.clone().into_dyn());
-            with_grad_fn(result, Some(Rc::new(grad_fn)))
+            with_grad_fn(result, Some(Arc::new(grad_fn)))
         } else {
             result
         }
@@ -298,7 +310,7 @@ impl<D: Dimension> Tensor<D> {
 
     /// Compute element-wise maximum with a scalar
     pub fn max_scalar(&self, value: f32) -> Tensor<D> {
-        let scalar = scalar_tensor(value, &[]);
+        let scalar = scalar_tensor(value);
         self.max(&scalar)
     }
 }

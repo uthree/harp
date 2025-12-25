@@ -135,7 +135,7 @@ impl Expr {
     /// # Examples
     ///
     /// ```
-    /// use harp::core::shape::Expr;
+    /// use harp::tensor::shape::Expr;
     ///
     /// let expr = Expr::Const(42);
     /// assert_eq!(expr.as_const(), Some(42));
@@ -155,7 +155,7 @@ impl Expr {
     /// # Examples
     ///
     /// ```
-    /// use harp::core::shape::Expr;
+    /// use harp::tensor::shape::Expr;
     ///
     /// let expr = Expr::Const(42);
     /// assert_eq!(expr.as_usize(), Some(42));
@@ -179,7 +179,7 @@ impl Expr {
     /// # Examples
     ///
     /// ```should_panic
-    /// use harp::core::shape::Expr;
+    /// use harp::tensor::shape::Expr;
     ///
     /// let idx = Expr::Idx(0);
     /// idx.expect_const("loop index not allowed"); // パニック
@@ -208,7 +208,7 @@ impl Expr {
     /// # Examples
     ///
     /// ```
-    /// use harp::core::shape::Expr;
+    /// use harp::tensor::shape::Expr;
     ///
     /// let expr = Expr::Const(8) * Expr::Const(4);
     /// assert_eq!(expr.evaluate(), Ok(32));
@@ -268,7 +268,7 @@ impl Expr {
     ///
     /// # Examples
     /// ```
-    /// use harp::core::shape::Expr;
+    /// use harp::tensor::shape::Expr;
     ///
     /// let expr = Expr::Idx(0) * Expr::from(4) + Expr::Idx(1);
     /// let substituted = expr.substitute_idx(0, Expr::from(5));
@@ -318,7 +318,7 @@ impl Expr {
     ///
     /// # Examples
     /// ```
-    /// use harp::core::shape::Expr;
+    /// use harp::tensor::shape::Expr;
     ///
     /// // permute([2, 0, 1]): 旧軸2->新軸0, 旧軸0->新軸1, 旧軸1->新軸2
     /// let expr = Expr::Idx(0) * Expr::from(12) + Expr::Idx(1) * Expr::from(4) + Expr::Idx(2);
@@ -509,7 +509,7 @@ impl Expr {
     ///
     /// # Example
     /// ```
-    /// use harp::core::shape::Expr;
+    /// use harp::tensor::shape::Expr;
     ///
     /// // LoadIndex { src_index: 1, ... } -> LoadIndex { src_index: 2, ... }
     /// let expr = Expr::LoadIndex {
@@ -581,7 +581,7 @@ impl_from_integer_for_expr!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
 ///
 /// ```
 /// use harp::shape;
-/// use harp::core::shape::Expr;
+/// use harp::tensor::shape::Expr;
 ///
 /// // 静的な形状
 /// let shape = shape![2, 3, 4];
@@ -594,10 +594,10 @@ impl_from_integer_for_expr!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
 #[macro_export]
 macro_rules! shape {
     () => {
-        ::std::vec::Vec::<$crate::core::shape::Expr>::new()
+        ::std::vec::Vec::<$crate::tensor::shape::Expr>::new()
     };
     ($($elem:expr),+ $(,)?) => {
-        vec![$(::std::convert::Into::<$crate::core::shape::Expr>::into($elem)),+]
+        vec![$(::std::convert::Into::<$crate::tensor::shape::Expr>::into($elem)),+]
     };
 }
 

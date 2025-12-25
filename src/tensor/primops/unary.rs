@@ -7,13 +7,13 @@
 //! - Exp2: base-2 exponential
 //! - Sin: sine
 
+use std::marker::PhantomData;
 use std::ops::Neg;
-use std::rc::Rc;
+use std::sync::Arc;
 
-use crate::core::DType;
-use crate::core::shape::{Expr, View};
-use crate::tensor::fusion::try_fuse_and_create;
-use crate::tensor::{Dimension, ElementwiseOp, Tensor, TensorNode, TensorOp};
+use crate::ast::DType;
+use crate::tensor::shape::{Expr, View};
+use crate::tensor::{Dimension, ElementwiseOp, Tensor, TensorInner, TensorOp};
 
 use super::binary::with_grad_fn;
 use super::grad::{
@@ -26,16 +26,21 @@ fn view_from_shape(shape: &[usize]) -> View {
     View::contiguous(shape_exprs)
 }
 
-/// Create a unary elementwise TensorNode with eager fusion
-fn create_unary_elementwise<D: Dimension>(op: ElementwiseOp, input: &Tensor<D>) -> TensorNode {
+/// Create a unary elementwise Tensor using Compute variant
+fn create_unary_elementwise<D: Dimension>(op: ElementwiseOp, input: &Tensor<D>) -> Tensor<D> {
     let view = view_from_shape(input.shape());
-    // Try eager fusion with parent op
-    try_fuse_and_create(
-        TensorOp::Elementwise { op },
-        vec![input.clone().into_dyn()],
-        view,
-        DType::F32,
-    )
+    let shape = input.shape().to_vec();
+
+    // Create Compute operation with input embedded
+    let inputs = vec![Arc::new(input.clone().into_dyn())];
+    let expr = op.to_ast(1);
+
+    let inner = TensorInner::new(TensorOp::elementwise(inputs, expr), view, shape, DType::F32);
+
+    Tensor {
+        inner: Arc::new(inner),
+        _dim: PhantomData,
+    }
 }
 
 // ============================================================================
@@ -46,12 +51,11 @@ impl<D: Dimension> Neg for &Tensor<D> {
     type Output = Tensor<D>;
 
     fn neg(self) -> Tensor<D> {
-        let tensor_node = create_unary_elementwise(ElementwiseOp::Neg, self);
-        let result = Tensor::from_tensor_node(tensor_node, self.shape().to_vec());
+        let result = create_unary_elementwise(ElementwiseOp::Neg, self);
 
         if self.requires_grad() {
             let grad_fn = NegBackward::new(self.clone().into_dyn());
-            with_grad_fn(result, Some(Rc::new(grad_fn)))
+            with_grad_fn(result, Some(Arc::new(grad_fn)))
         } else {
             result
         }
@@ -72,12 +76,11 @@ impl<D: Dimension> Neg for Tensor<D> {
 impl<D: Dimension> Tensor<D> {
     /// Compute the reciprocal (1/x) of each element (primop)
     pub fn recip(&self) -> Tensor<D> {
-        let tensor_node = create_unary_elementwise(ElementwiseOp::Recip, self);
-        let result = Tensor::from_tensor_node(tensor_node, self.shape().to_vec());
+        let result = create_unary_elementwise(ElementwiseOp::Recip, self);
 
         if self.requires_grad() {
             let grad_fn = RecipBackward::new(self.clone().into_dyn(), result.clone().into_dyn());
-            with_grad_fn(result, Some(Rc::new(grad_fn)))
+            with_grad_fn(result, Some(Arc::new(grad_fn)))
         } else {
             result
         }
@@ -85,12 +88,11 @@ impl<D: Dimension> Tensor<D> {
 
     /// Compute sqrt(x) for each element (primop)
     pub fn sqrt(&self) -> Tensor<D> {
-        let tensor_node = create_unary_elementwise(ElementwiseOp::Sqrt, self);
-        let result = Tensor::from_tensor_node(tensor_node, self.shape().to_vec());
+        let result = create_unary_elementwise(ElementwiseOp::Sqrt, self);
 
         if self.requires_grad() {
             let grad_fn = SqrtBackward::new(self.clone().into_dyn(), result.clone().into_dyn());
-            with_grad_fn(result, Some(Rc::new(grad_fn)))
+            with_grad_fn(result, Some(Arc::new(grad_fn)))
         } else {
             result
         }
@@ -98,12 +100,11 @@ impl<D: Dimension> Tensor<D> {
 
     /// Compute log2(x) for each element (primop)
     pub fn log2(&self) -> Tensor<D> {
-        let tensor_node = create_unary_elementwise(ElementwiseOp::Log2, self);
-        let result = Tensor::from_tensor_node(tensor_node, self.shape().to_vec());
+        let result = create_unary_elementwise(ElementwiseOp::Log2, self);
 
         if self.requires_grad() {
             let grad_fn = Log2Backward::new(self.clone().into_dyn());
-            with_grad_fn(result, Some(Rc::new(grad_fn)))
+            with_grad_fn(result, Some(Arc::new(grad_fn)))
         } else {
             result
         }
@@ -111,12 +112,11 @@ impl<D: Dimension> Tensor<D> {
 
     /// Compute exp2(x) = 2^x for each element (primop)
     pub fn exp2(&self) -> Tensor<D> {
-        let tensor_node = create_unary_elementwise(ElementwiseOp::Exp2, self);
-        let result = Tensor::from_tensor_node(tensor_node, self.shape().to_vec());
+        let result = create_unary_elementwise(ElementwiseOp::Exp2, self);
 
         if self.requires_grad() {
             let grad_fn = Exp2Backward::new(self.clone().into_dyn(), result.clone().into_dyn());
-            with_grad_fn(result, Some(Rc::new(grad_fn)))
+            with_grad_fn(result, Some(Arc::new(grad_fn)))
         } else {
             result
         }
@@ -124,12 +124,11 @@ impl<D: Dimension> Tensor<D> {
 
     /// Compute sin(x) for each element (primop)
     pub fn sin(&self) -> Tensor<D> {
-        let tensor_node = create_unary_elementwise(ElementwiseOp::Sin, self);
-        let result = Tensor::from_tensor_node(tensor_node, self.shape().to_vec());
+        let result = create_unary_elementwise(ElementwiseOp::Sin, self);
 
         if self.requires_grad() {
             let grad_fn = SinBackward::new(self.clone().into_dyn());
-            with_grad_fn(result, Some(Rc::new(grad_fn)))
+            with_grad_fn(result, Some(Arc::new(grad_fn)))
         } else {
             result
         }
@@ -140,9 +139,8 @@ impl<D: Dimension> Tensor<D> {
     /// Floor is non-differentiable (gradient is 0 almost everywhere).
     /// Therefore, gradient tracking is not preserved for this operation.
     pub fn floor(&self) -> Tensor<D> {
-        let tensor_node = create_unary_elementwise(ElementwiseOp::Floor, self);
         // floor is non-differentiable, so we don't track gradients
-        Tensor::from_tensor_node(tensor_node, self.shape().to_vec())
+        create_unary_elementwise(ElementwiseOp::Floor, self)
     }
 }
 

@@ -4,11 +4,12 @@
 //! - Rand: uniform random [0, 1)
 
 use std::marker::PhantomData;
+use std::sync::Arc;
 
+use crate::ast::DType;
 use crate::ast::Literal;
-use crate::core::DType;
-use crate::core::shape::{Expr, View};
-use crate::tensor::{Dim, DimDyn, Dimension, Tensor, TensorNode, TensorOp};
+use crate::tensor::shape::{Expr, View};
+use crate::tensor::{Dim, DimDyn, Dimension, Tensor, TensorInner, TensorOp};
 
 /// Helper to create View from usize shape
 fn view_from_shape(shape: &[usize]) -> View {
@@ -38,37 +39,46 @@ where
     pub fn full(shape: [usize; N], value: f32) -> Self {
         let shape_vec: Vec<usize> = shape.to_vec();
         let view = view_from_shape(&shape_vec);
-        let tensor_node = TensorNode::new(
+        let inner = TensorInner::new(
             TensorOp::ConstFill(Literal::F32(value)),
-            vec![],
             view,
+            shape_vec,
             DType::F32,
         );
-        Self::from_tensor_node(tensor_node, shape_vec)
+        Self {
+            inner: Arc::new(inner),
+            _dim: PhantomData,
+        }
     }
 
     /// Create an input tensor (placeholder for data)
     pub fn input(name: &str, shape: [usize; N]) -> Self {
         let shape_vec: Vec<usize> = shape.to_vec();
         let view = view_from_shape(&shape_vec);
-        let tensor_node = TensorNode::new_named(
+        let inner = TensorInner::new_named(
             TensorOp::Buffer {
                 name: name.to_string(),
             },
-            vec![],
             view,
+            shape_vec,
             DType::F32,
             name,
         );
-        Self::from_tensor_node(tensor_node, shape_vec)
+        Self {
+            inner: Arc::new(inner),
+            _dim: PhantomData,
+        }
     }
 
     /// Create a tensor with uniform random values [0, 1)
     pub fn rand(shape: [usize; N]) -> Self {
         let shape_vec: Vec<usize> = shape.to_vec();
         let view = view_from_shape(&shape_vec);
-        let tensor_node = TensorNode::new(TensorOp::Rand, vec![], view, DType::F32);
-        Self::from_tensor_node(tensor_node, shape_vec)
+        let inner = TensorInner::new(TensorOp::Rand, view, shape_vec, DType::F32);
+        Self {
+            inner: Arc::new(inner),
+            _dim: PhantomData,
+        }
     }
 }
 
@@ -91,57 +101,44 @@ impl Tensor<DimDyn> {
     pub fn full_dyn(shape: &[usize], value: f32) -> Self {
         let shape_vec = shape.to_vec();
         let view = view_from_shape(&shape_vec);
-        let tensor_node = TensorNode::new(
+        let inner = TensorInner::new(
             TensorOp::ConstFill(Literal::F32(value)),
-            vec![],
             view,
+            shape_vec,
             DType::F32,
         );
-        Self::from_tensor_node(tensor_node, shape_vec)
+        Self {
+            inner: Arc::new(inner),
+            _dim: PhantomData,
+        }
     }
 
     /// Create an input tensor (dynamic shape)
     pub fn input_dyn(name: &str, shape: &[usize]) -> Self {
         let shape_vec = shape.to_vec();
         let view = view_from_shape(&shape_vec);
-        let tensor_node = TensorNode::new_named(
+        let inner = TensorInner::new_named(
             TensorOp::Buffer {
                 name: name.to_string(),
             },
-            vec![],
             view,
+            shape_vec,
             DType::F32,
             name,
         );
-        Self::from_tensor_node(tensor_node, shape_vec)
+        Self {
+            inner: Arc::new(inner),
+            _dim: PhantomData,
+        }
     }
 
     /// Create a tensor with uniform random values [0, 1) (dynamic shape)
     pub fn rand_dyn(shape: &[usize]) -> Self {
         let shape_vec = shape.to_vec();
         let view = view_from_shape(&shape_vec);
-        let tensor_node = TensorNode::new(TensorOp::Rand, vec![], view, DType::F32);
-        Self::from_tensor_node(tensor_node, shape_vec)
-    }
-}
-
-// ============================================================================
-// Internal constructor
-// ============================================================================
-
-impl<D: Dimension> Tensor<D> {
-    /// Create a new tensor from a TensorNode directly
-    pub(crate) fn from_tensor_node(tensor_node: TensorNode, shape: Vec<usize>) -> Self {
-        use std::cell::RefCell;
-        use std::rc::Rc;
-
-        let dtype = tensor_node.dtype.clone();
+        let inner = TensorInner::new(TensorOp::Rand, view, shape_vec, DType::F32);
         Self {
-            inner: Rc::new(tensor_node),
-            shape,
-            dtype,
-            autograd: None,
-            buffer: RefCell::new(None),
+            inner: Arc::new(inner),
             _dim: PhantomData,
         }
     }

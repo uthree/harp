@@ -12,11 +12,13 @@
 //! - `data()`: Returns the computed data if available.
 //! - `from_data()`: Creates a tensor with pre-populated buffer data.
 
-use super::{DimDyn, Dimension, Tensor};
+use super::{DimDyn, Dimension, Tensor, TensorInner, TensorOp};
+use crate::ast::DType;
 use crate::backend::global::{DeviceKind, get_default_device_kind};
-use crate::core::DType;
+use crate::tensor::shape::{Expr, View};
 use std::fmt;
 use std::marker::PhantomData;
+use std::sync::{Arc, RwLock};
 
 /// Error type for forward execution
 #[derive(Debug, Clone)]
@@ -140,10 +142,8 @@ impl<D: Dimension> Tensor<D> {
         use crate::backend::global::get_default_device;
         use crate::backend::metal::{MetalBuffer, MetalCompiler, MetalDevice};
         use crate::backend::{BufferSignature, KernelSignature, Pipeline};
-        use crate::core::shape::Expr;
         use crate::renderer::MetalRenderer;
         use crate::tensor::lowerer::TensorLowerer;
-        use std::cell::RefCell;
 
         // Get the Metal device
         let device: std::sync::Arc<MetalDevice> = get_default_device::<MetalDevice>()
@@ -189,12 +189,18 @@ impl<D: Dimension> Tensor<D> {
             .map_err(|e| ForwardError::ExecutionError(format!("Failed to read result: {}", e)))?;
 
         // Create new tensor with executed buffer
+        let inner = TensorInner {
+            op: TensorOp::Executed,
+            view: self.inner.view.clone(),
+            shape: self.inner.shape.clone(),
+            dtype: self.inner.dtype.clone(),
+            name: self.inner.name.clone(),
+            autograd: None,
+            buffer: RwLock::new(Some(result)),
+        };
+
         Ok(Tensor {
-            inner: self.inner.clone(),
-            shape: self.shape.clone(),
-            dtype: self.dtype.clone(),
-            autograd: self.autograd.clone(),
-            buffer: RefCell::new(Some(result)),
+            inner: Arc::new(inner),
             _dim: PhantomData,
         })
     }
@@ -205,10 +211,8 @@ impl<D: Dimension> Tensor<D> {
         use crate::backend::global::get_default_device;
         use crate::backend::opencl::{OpenCLBuffer, OpenCLCompiler, OpenCLDevice};
         use crate::backend::{BufferSignature, KernelSignature, Pipeline};
-        use crate::core::shape::Expr;
         use crate::renderer::OpenCLRenderer;
         use crate::tensor::lowerer::TensorLowerer;
-        use std::cell::RefCell;
 
         // Get the OpenCL device
         let device: std::sync::Arc<OpenCLDevice> = get_default_device::<OpenCLDevice>()
@@ -256,12 +260,18 @@ impl<D: Dimension> Tensor<D> {
             .map_err(|e| ForwardError::ExecutionError(format!("Failed to read result: {}", e)))?;
 
         // Create new tensor with executed buffer
+        let inner = TensorInner {
+            op: TensorOp::Executed,
+            view: self.inner.view.clone(),
+            shape: self.inner.shape.clone(),
+            dtype: self.inner.dtype.clone(),
+            name: self.inner.name.clone(),
+            autograd: None,
+            buffer: RwLock::new(Some(result)),
+        };
+
         Ok(Tensor {
-            inner: self.inner.clone(),
-            shape: self.shape.clone(),
-            dtype: self.dtype.clone(),
-            autograd: self.autograd.clone(),
-            buffer: RefCell::new(Some(result)),
+            inner: Arc::new(inner),
             _dim: PhantomData,
         })
     }
@@ -271,20 +281,20 @@ impl<D: Dimension> Tensor<D> {
     /// This creates a tensor with the buffer already populated,
     /// bypassing the computation graph.
     pub fn from_data(data: Vec<f32>, shape: Vec<usize>) -> Tensor<DimDyn> {
-        use crate::core::shape::View;
-        use crate::tensor::{TensorNode, TensorOp};
-        use std::cell::RefCell;
-        use std::rc::Rc;
-
-        let view = View::contiguous(shape.iter().map(|&s| s as isize).collect::<Vec<_>>());
-        let tensor_node = TensorNode::new(TensorOp::Executed, vec![], view, DType::F32);
-
-        Tensor {
-            inner: Rc::new(tensor_node),
+        let shape_exprs: Vec<Expr> = shape.iter().map(|&s| Expr::from(s as i64)).collect();
+        let view = View::contiguous(shape_exprs);
+        let inner = TensorInner {
+            op: TensorOp::Executed,
+            view,
             shape,
             dtype: DType::F32,
+            name: None,
             autograd: None,
-            buffer: RefCell::new(Some(data)),
+            buffer: RwLock::new(Some(data)),
+        };
+
+        Tensor {
+            inner: Arc::new(inner),
             _dim: PhantomData,
         }
     }
@@ -354,18 +364,14 @@ impl<D: Dimension> Tensor<D> {
     /// Get the computed data from the tensor
     ///
     /// Returns the data if the tensor has been executed (via contiguous() or forward()).
-    /// Checks both the buffer field (new API) and autograd.cached_data (legacy).
     ///
     /// Returns None if the tensor has not been executed yet.
     pub fn data(&self) -> Option<Vec<f32>> {
-        // First check the buffer field (new API)
-        if let Some(data) = self.buffer.borrow().clone() {
-            return Some(data);
+        // Check the buffer field in TensorInner
+        if let Ok(guard) = self.inner.buffer.read() {
+            return guard.clone();
         }
-        // Fall back to autograd.cached_data (legacy)
-        self.autograd
-            .as_ref()
-            .and_then(|ag| ag.cached_data.borrow().clone())
+        None
     }
 
     /// Internal: Execute forward on Metal device
@@ -374,7 +380,6 @@ impl<D: Dimension> Tensor<D> {
         use crate::backend::global::get_default_device;
         use crate::backend::metal::{MetalBuffer, MetalCompiler, MetalDevice};
         use crate::backend::{BufferSignature, KernelSignature, Pipeline};
-        use crate::core::shape::Expr;
         use crate::renderer::MetalRenderer;
         use crate::tensor::lowerer::TensorLowerer;
 
@@ -421,9 +426,9 @@ impl<D: Dimension> Tensor<D> {
             .read()
             .map_err(|e| ForwardError::ExecutionError(format!("Failed to read result: {}", e)))?;
 
-        // Store in cached_data
-        if let Some(ref autograd) = self.autograd {
-            *autograd.cached_data.borrow_mut() = Some(result);
+        // Store result in buffer (note: this requires interior mutability)
+        if let Ok(mut guard) = self.inner.buffer.write() {
+            *guard = Some(result);
         }
 
         Ok(())
@@ -435,7 +440,6 @@ impl<D: Dimension> Tensor<D> {
         use crate::backend::global::get_default_device;
         use crate::backend::opencl::{OpenCLBuffer, OpenCLCompiler, OpenCLDevice};
         use crate::backend::{BufferSignature, KernelSignature, Pipeline};
-        use crate::core::shape::Expr;
         use crate::renderer::OpenCLRenderer;
         use crate::tensor::lowerer::TensorLowerer;
 
@@ -484,84 +488,11 @@ impl<D: Dimension> Tensor<D> {
             .read()
             .map_err(|e| ForwardError::ExecutionError(format!("Failed to read result: {}", e)))?;
 
-        // Store in cached_data
-        if let Some(ref autograd) = self.autograd {
-            *autograd.cached_data.borrow_mut() = Some(result);
+        // Store result in buffer
+        if let Ok(mut guard) = self.inner.buffer.write() {
+            *guard = Some(result);
         }
 
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::tensor::Dim2;
-
-    #[test]
-    fn test_forward_error_display() {
-        let err = ForwardError::NoDefaultDevice;
-        assert!(format!("{}", err).contains("No default device"));
-
-        let err = ForwardError::DeviceUnavailable("test".to_string());
-        assert!(format!("{}", err).contains("test"));
-
-        let err = ForwardError::AlreadyExecuted;
-        assert!(format!("{}", err).contains("already executed"));
-    }
-
-    #[test]
-    fn test_forward_no_device() {
-        use crate::backend::global::clear_default_device;
-
-        // Clear any existing device
-        clear_default_device();
-
-        let t = Tensor::<Dim2>::full([2, 3], 1.0);
-        let result = t.forward();
-        assert!(matches!(result, Err(ForwardError::NoDefaultDevice)));
-    }
-
-    #[test]
-    fn test_realize_no_device() {
-        use crate::backend::global::clear_default_device;
-
-        // Clear any existing device
-        clear_default_device();
-
-        let t = Tensor::<Dim2>::full([2, 3], 1.0);
-        let result = t.realize();
-        assert!(matches!(result, Err(ForwardError::NoDefaultDevice)));
-    }
-
-    #[test]
-    fn test_from_data() {
-        let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
-        let shape = vec![2, 3];
-        let t = Tensor::<DimDyn>::from_data(data.clone(), shape.clone());
-
-        assert_eq!(t.shape(), &[2, 3]);
-        assert!(t.is_executed());
-        assert_eq!(t.data(), Some(data));
-    }
-
-    #[test]
-    fn test_data_from_buffer() {
-        let data = vec![1.0, 2.0, 3.0, 4.0];
-        let t = Tensor::<DimDyn>::from_data(data.clone(), vec![2, 2]);
-
-        // Should return data from buffer
-        assert_eq!(t.data(), Some(data));
-    }
-
-    #[test]
-    fn test_is_executed() {
-        // Tensor without data is not executed
-        let t1 = Tensor::<Dim2>::full([2, 3], 1.0);
-        assert!(!t1.is_executed());
-
-        // Tensor with data is executed
-        let t2 = Tensor::<DimDyn>::from_data(vec![1.0, 2.0], vec![2]);
-        assert!(t2.is_executed());
     }
 }

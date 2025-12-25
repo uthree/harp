@@ -38,13 +38,12 @@
 // Core modules
 pub mod ast;
 pub mod backend;
-pub mod core;
 pub mod opt;
 pub mod renderer;
 pub mod tensor;
 
-// Re-export core types
-pub use core::DType;
+// Re-export types
+pub use ast::DType;
 
 // Re-export renderer traits
 pub use renderer::Renderer;
@@ -73,7 +72,7 @@ pub mod prelude {
     };
 
     // Data types
-    pub use crate::core::DType;
+    pub use crate::ast::DType;
 
     // Backend traits
     pub use crate::backend::{
@@ -81,5 +80,5 @@ pub mod prelude {
     };
 
     // Shape expressions (for advanced tensor operations)
-    pub use crate::core::shape::{Expr, View};
+    pub use crate::tensor::shape::{Expr, View};
 }

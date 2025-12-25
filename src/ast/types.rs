@@ -1,7 +1,7 @@
 //! データ型とリテラルの定義
 
 /// ASTノードの型を表す列挙型
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub enum DType {
     Bool,            // boolean (internally represented as u8 or i8: 0 = false, non-zero = true)
     I64,             // 64-bit signed integer (for array indexing and loop counters)
@@ -10,6 +10,7 @@ pub enum DType {
     Ptr(Box<DType>), // pointer for memory buffer, 値を渡す時は参照を渡す。
     Vec(Box<DType>, usize), // fixed size vector for SIMD, 値は渡す時にコピーされる
     Tuple(Vec<DType>),
+    #[default]
     Unknown,
     // TODO: 将来的にf16とか対応させたい
 }
@@ -173,6 +174,21 @@ impl DType {
     /// Check if this is a Bool type
     pub fn is_bool(&self) -> bool {
         matches!(self, DType::Bool)
+    }
+
+    /// Check if this is a floating point type
+    pub fn is_float(&self) -> bool {
+        matches!(self, DType::F32)
+    }
+
+    /// Check if this is an integer type
+    pub fn is_integer(&self) -> bool {
+        matches!(self, DType::I32 | DType::I64)
+    }
+
+    /// Check if the type is known (not Unknown)
+    pub fn is_known(&self) -> bool {
+        !matches!(self, DType::Unknown)
     }
 }
 

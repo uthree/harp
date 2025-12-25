@@ -2,10 +2,10 @@
 //!
 //! オフセット計算、ループ生成、Reduce用ユーティリティを提供します。
 
+use crate::ast::DType;
 use crate::ast::{AstNode, DType as AstDType, Literal, Scope, helper::*};
-use crate::core::DType;
-use crate::core::shape::{Expr, View};
 use crate::tensor::ReduceOp;
+use crate::tensor::shape::{Expr, View};
 use std::collections::HashSet;
 
 // ============================================================================
@@ -38,13 +38,19 @@ pub mod ph {
 // ============================================================================
 
 /// DTypeをAstDTypeに変換
+///
+/// Note: DTypeとAstDTypeは同じ型になったため、この関数は主にフォールバック処理を行う
 pub fn dtype_to_ast(dtype: &DType) -> AstDType {
     match dtype {
         DType::Bool => AstDType::Bool,
         DType::I64 => AstDType::I64,
         DType::I32 => AstDType::I32,
         DType::F32 => AstDType::F32,
-        DType::Unknown => AstDType::F32,
+        DType::Unknown => AstDType::F32, // デフォルトでF32
+        // Tensor領域では通常使用しないが、そのまま通す
+        DType::Ptr(inner) => AstDType::Ptr(inner.clone()),
+        DType::Vec(inner, size) => AstDType::Vec(inner.clone(), *size),
+        DType::Tuple(types) => AstDType::Tuple(types.clone()),
     }
 }
 

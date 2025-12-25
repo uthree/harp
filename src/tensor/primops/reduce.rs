@@ -4,12 +4,12 @@
 //! - Reduce(Mul): product reduction
 //! - Reduce(Max): max reduction
 
-use std::rc::Rc;
+use std::marker::PhantomData;
+use std::sync::Arc;
 
-use crate::core::DType;
-use crate::core::shape::{Expr, View};
-use crate::tensor::fusion::try_fuse_and_create;
-use crate::tensor::{DimDyn, Dimension, ReduceOp, Tensor, TensorNode, TensorOp};
+use crate::ast::DType;
+use crate::tensor::shape::{Expr, View};
+use crate::tensor::{DimDyn, Dimension, ReduceOp, Tensor, TensorInner, TensorOp};
 
 use super::binary::with_grad_fn;
 use super::grad::{ReduceMaxBackward, ReduceMulBackward, ReduceSumBackward};
@@ -39,27 +39,29 @@ fn compute_reduce_shape(input_shape: &[usize], axes: &[usize], keepdim: bool) ->
     result_shape
 }
 
-/// Create a reduce TensorNode with eager fusion
+/// Create a reduce Tensor using Compute variant
 fn create_reduce<D: Dimension>(
     op: ReduceOp,
     input: &Tensor<D>,
     axes: &[usize],
     keepdim: bool,
-) -> (TensorNode, Vec<usize>) {
+) -> Tensor<DimDyn> {
     let result_shape = compute_reduce_shape(input.shape(), axes, keepdim);
     let view = view_from_shape(&result_shape);
-    // Try eager fusion with parent op (e.g., Elementwise + Reduce -> FusedElementwiseReduce)
-    let tensor_node = try_fuse_and_create(
-        TensorOp::Reduce {
-            op,
-            axes: axes.to_vec(),
-            keepdim,
-        },
-        vec![input.clone().into_dyn()],
+
+    // Create Compute operation with reduce
+    let input_ref = Arc::new(input.clone().into_dyn());
+    let inner = TensorInner::new(
+        TensorOp::reduce(input_ref, op, axes.to_vec(), keepdim),
         view,
+        result_shape,
         DType::F32,
     );
-    (tensor_node, result_shape)
+
+    Tensor {
+        inner: Arc::new(inner),
+        _dim: PhantomData,
+    }
 }
 
 impl<D: Dimension> Tensor<D> {
@@ -69,12 +71,11 @@ impl<D: Dimension> Tensor<D> {
     /// * `axes` - Axes to reduce over
     /// * `keepdim` - Whether to keep reduced dimensions as size 1
     pub fn reduce_sum(&self, axes: &[usize], keepdim: bool) -> Tensor<DimDyn> {
-        let (tensor_node, result_shape) = create_reduce(ReduceOp::Sum, self, axes, keepdim);
-        let result = Tensor::from_tensor_node(tensor_node, result_shape);
+        let result = create_reduce(ReduceOp::Sum, self, axes, keepdim);
 
         if self.requires_grad() {
             let grad_fn = ReduceSumBackward::new(self.clone().into_dyn(), axes.to_vec(), keepdim);
-            with_grad_fn(result, Some(Rc::new(grad_fn)))
+            with_grad_fn(result, Some(Arc::new(grad_fn)))
         } else {
             result
         }
@@ -86,8 +87,7 @@ impl<D: Dimension> Tensor<D> {
     /// * `axes` - Axes to reduce over
     /// * `keepdim` - Whether to keep reduced dimensions as size 1
     pub fn reduce_mul(&self, axes: &[usize], keepdim: bool) -> Tensor<DimDyn> {
-        let (tensor_node, result_shape) = create_reduce(ReduceOp::Prod, self, axes, keepdim);
-        let result = Tensor::from_tensor_node(tensor_node, result_shape.clone());
+        let result = create_reduce(ReduceOp::Prod, self, axes, keepdim);
 
         if self.requires_grad() {
             let grad_fn = ReduceMulBackward::new(
@@ -96,7 +96,7 @@ impl<D: Dimension> Tensor<D> {
                 axes.to_vec(),
                 keepdim,
             );
-            with_grad_fn(result, Some(Rc::new(grad_fn)))
+            with_grad_fn(result, Some(Arc::new(grad_fn)))
         } else {
             result
         }
@@ -108,8 +108,7 @@ impl<D: Dimension> Tensor<D> {
     /// * `axes` - Axes to reduce over
     /// * `keepdim` - Whether to keep reduced dimensions as size 1
     pub fn reduce_max(&self, axes: &[usize], keepdim: bool) -> Tensor<DimDyn> {
-        let (tensor_node, result_shape) = create_reduce(ReduceOp::Max, self, axes, keepdim);
-        let result = Tensor::from_tensor_node(tensor_node, result_shape.clone());
+        let result = create_reduce(ReduceOp::Max, self, axes, keepdim);
 
         if self.requires_grad() {
             let grad_fn = ReduceMaxBackward::new(
@@ -118,7 +117,7 @@ impl<D: Dimension> Tensor<D> {
                 axes.to_vec(),
                 keepdim,
             );
-            with_grad_fn(result, Some(Rc::new(grad_fn)))
+            with_grad_fn(result, Some(Arc::new(grad_fn)))
         } else {
             result
         }

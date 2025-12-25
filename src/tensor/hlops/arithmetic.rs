@@ -78,6 +78,7 @@ impl<D: Dimension> Sub<Tensor<D>> for f32 {
 // Div: Tensor / Tensor = Mul(a, Recip(b))
 // ============================================================================
 
+#[allow(clippy::suspicious_arithmetic_impl)]
 impl<D: Dimension> Div for &Tensor<D> {
     type Output = Tensor<D>;
 
@@ -126,6 +127,7 @@ impl<D: Dimension> Div<f32> for Tensor<D> {
 }
 
 // Div: f32 / Tensor
+#[allow(clippy::suspicious_arithmetic_impl)]
 impl<D: Dimension> Div<&Tensor<D>> for f32 {
     type Output = Tensor<D>;
     fn div(self, rhs: &Tensor<D>) -> Tensor<D> {

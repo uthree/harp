@@ -10,63 +10,73 @@ tinygrad/microgradの設計哲学に基づき、最小のプリミティブ演�
 
 ### 内部構造
 
-TensorはTensorNodeを内部で使用し、TensorOpで演算を管理します。
+TensorはTensorInnerを内包し、TensorOpで演算を管理します。入力テンソルはTensorOp内に埋め込まれます。
 
 ```rust
 pub struct Tensor<D: Dimension = DimDyn> {
-    inner: Rc<TensorNode>,         // TensorNode表現
-    shape: Vec<usize>,             // テンソル形状
-    dtype: DType,                  // データ型
-    autograd: Option<Rc<TensorData>>,  // 勾配追跡データ
-    buffer: RefCell<Option<Vec<f32>>>, // 実行結果バッファ
-    _dim: PhantomData<D>,
+    inner: Arc<TensorInner>,      // 内部データ（Arc for sharing）
+    _dim: PhantomData<D>,         // 次元型マーカー
 }
 
-pub struct TensorNode {
-    op: TensorOp,                  // 演算種類
-    src: Vec<Tensor<DimDyn>>,      // 入力テンソル（DAG構造）
-    view: View,                    // メモリレイアウト
-    dtype: DType,                  // データ型
-    name: Option<String>,          // バッファ名（オプション）
+pub struct TensorInner {
+    op: TensorOp,                     // 演算種類（入力テンソルを含む）
+    view: View,                       // メモリレイアウト
+    shape: Vec<usize>,                // テンソル形状
+    dtype: DType,                     // データ型
+    name: Option<String>,             // バッファ名（オプション）
+    autograd: Option<AutogradMeta>,   // 勾配追跡データ
+    buffer: RwLock<Option<Vec<f32>>>, // 実行結果バッファ
 }
+
+pub type TensorRef = Arc<Tensor<DimDyn>>;
 ```
 
 ### TensorOp
 
-演算の種類を表すenum。
+演算の種類を表すenum。入力テンソルはOp内に埋め込まれる。
 
 ```rust
 pub enum TensorOp {
-    // 基本演算
+    // ソース演算（入力なし）
     Buffer { name: String },
     Const(Literal),
     ConstFill(Literal),
     Rand,
     Arange,
-    Cast { target_dtype: DType },
-    Clone,  // 分岐点（バッファコピー）
-
-    // View操作
-    View,
-    Contiguous,
-
-    // Elementwise（融合可能）
-    Elementwise { op: ElementwiseOp },
-    FusedElementwise { expr: AstNode },
-
-    // Reduce（融合可能）
-    Reduce { op: ReduceOp, axes: Vec<usize>, keepdim: bool },
-    FusedElementwiseReduce { expr: AstNode, reduce_op: ReduceOp, axes, keepdim },
-
-    // 構造操作
-    Pad { padding: Vec<(Expr, Expr)>, value: f32 },
-    Slice { ranges: Vec<(usize, usize)> },
-    Concat { axis: usize },
-
-    // 実行済み
     Executed,
+
+    // 単項演算（1入力）
+    View { input: TensorRef },
+    Contiguous { input: TensorRef },
+    Cast { input: TensorRef, target_dtype: DType },
+    Clone { input: TensorRef },
+
+    // 統一計算演算（Compute）
+    Compute {
+        inputs: Vec<TensorRef>,      // 入力テンソル群
+        expr: AstNode,               // 計算式
+        reduce_op: Option<ReduceOp>, // 縮約演算（オプション）
+        axes: Vec<usize>,            // 縮約軸
+        keepdim: bool,               // 次元を維持するか
+    },
+
+    // 構造演算
+    Pad { input: TensorRef, padding: Vec<(Expr, Expr)>, value: f32 },
+    Slice { input: TensorRef, ranges: Vec<(usize, usize)> },
+    Concat { inputs: Vec<TensorRef>, axis: usize },
 }
 ```
+
+### Compute演算の統一
+
+全ての計算演算がCompute variantで統一的に表現されます。
+
+| 旧表現 | 新表現（Compute） |
+|--------|-------------------|
+| `Elementwise { op }` | `reduce_op: None, axes: []` |
+| `FusedElementwise { expr }` | `reduce_op: None, axes: []` |
+| `Reduce { op, axes }` | `expr: Wildcard("0"), reduce_op: Some(op)` |
+| `FusedElementwiseReduce` | `expr + reduce_op: Some(op)` |
 
 ## Eager Fusion
 
@@ -74,12 +84,11 @@ pub enum TensorOp {
 
 ### 融合パターン
 
-| 親演算 | 子演算 | 結果 |
-|--------|--------|------|
-| Elementwise | Elementwise | FusedElementwise |
-| FusedElementwise | Elementwise | FusedElementwise（拡張） |
-| Elementwise | Reduce | FusedElementwiseReduce |
-| FusedElementwise | Reduce | FusedElementwiseReduce |
+| 親演算 | 子演算 | 融合可能 |
+|--------|--------|----------|
+| Elementwise Compute | Elementwise Compute | ○ |
+| Elementwise Compute | Reduce Compute | ○ |
+| Reduce Compute | * | × |
 
 ### 所有権ベース設計
 
@@ -111,7 +120,7 @@ let c = a2 * 2.0;        // a2は別パス → OK
 勾配関数のインターフェース。
 
 ```rust
-pub trait GradFn {
+pub trait GradFn: Send + Sync {
     fn backward(&self, grad_output: &Tensor<DimDyn>) -> Vec<Tensor<DimDyn>>;
     fn inputs(&self) -> Vec<Tensor<DimDyn>>;
     fn name(&self) -> &'static str;
@@ -297,14 +306,14 @@ let t = Tensor::<DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2]);
 
 ### 融合演算の勾配
 
-融合演算（`FusedElementwise`、`FusedElementwiseReduce`）はシンボリック微分により勾配を計算。
+Compute演算の勾配はシンボリック微分により勾配を計算。
 
 ```rust
-// FusedElementwiseBackward
+// Compute演算の勾配
 // - AstNode式を各入力Wildcardに対してシンボリック微分
 // - 導出した微分式をテンソル値で評価して勾配を計算
 
-// FusedElementwiseReduceBackward
+// Reduce付きCompute演算
 // - まず勾配をReduce前の形状に展開（unsqueeze + expand）
 // - 次にElementwise部分のシンボリック微分を適用
 ```
@@ -313,12 +322,19 @@ let t = Tensor::<DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2]);
 
 ```
 src/tensor/
-├── mod.rs          # Tensor構造体、GradFn、TensorNode
+├── mod.rs          # Tensor構造体、TensorInner、GradFn
 ├── dimension.rs    # Dimension トレイト
-├── ops.rs          # TensorOp、ElementwiseOp、ReduceOp
-├── fusion.rs       # Eager Fusion ロジック（try_fuse、try_fuse_and_create）
+├── ops.rs          # TensorOp、ElementwiseOp、ReduceOp、TensorRef
+├── fusion.rs       # Eager Fusion ロジック（can_fuse）
 ├── forward.rs      # forward()、realize() 実行
-├── lowerer.rs      # TensorLowerer（Tensor → AST変換）
+├── shape/          # 形状関連の型
+│   ├── mod.rs
+│   ├── expr.rs     # Expr（シンボリック式）
+│   └── view.rs     # View（メモリレイアウト）
+├── lowerer/        # TensorLowerer（Tensor → AST変換）
+│   ├── mod.rs
+│   ├── expr_builder.rs
+│   └── helpers.rs
 ├── hlops/          # 高級演算
 │   ├── activation.rs
 │   ├── arithmetic.rs

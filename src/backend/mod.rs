@@ -86,12 +86,12 @@ impl KernelSignature {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BufferSignature {
     pub name: String,
-    pub shape: Vec<crate::core::shape::Expr>,
+    pub shape: Vec<crate::tensor::shape::Expr>,
 }
 
 impl BufferSignature {
     /// 新しいBufferSignatureを作成
-    pub fn new(name: String, shape: Vec<crate::core::shape::Expr>) -> Self {
+    pub fn new(name: String, shape: Vec<crate::tensor::shape::Expr>) -> Self {
         Self { name, shape }
     }
 }

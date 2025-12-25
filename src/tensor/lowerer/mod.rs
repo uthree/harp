@@ -1,15 +1,14 @@
-//! TensorLowerer - TensorNodeから直接ASTへの変換
+//! TensorLowerer - TensorをASTへ変換
 //!
-//! TensorNodeツリーをASTに変換する。
-//! FusedElementwiseReduceパターンを使用して全演算を統一的に処理する。
+//! Tensorツリーをトラバースし、ASTプログラムを生成する。
+//! 統一Compute演算を使用して全ての計算を処理。
 //!
 //! # 設計
 //!
-//! 全ての計算演算を正規化形式 (expr, reduce_op, axes) に変換:
-//! - Elementwise: (expr, None, [])
-//! - FusedElementwise: (expr, None, [])
-//! - Reduce: (Wildcard("0"), Some(op), axes)
-//! - FusedElementwiseReduce: (expr, Some(op), axes)
+//! 全ての計算演算をCompute形式で統一:
+//! - Elementwise: reduce_op = None, axes = []
+//! - Reduce: expr = Wildcard("0"), reduce_op = Some(op), axes = [...]
+//! - Fused: 任意のexpr + reduce_op
 //!
 //! これにより、axes=[]ならElementwiseパス、そうでなければReduceパスで処理。
 //!
@@ -31,26 +30,25 @@ pub mod expr_builder;
 pub mod helpers;
 
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::ast::{AstKernelCallInfo, AstNode, DType as AstDType, Mutability, Scope, helper::*};
-use crate::core::shape::Expr;
 use crate::tensor::ops::{ReduceOp, TensorOp};
-use crate::tensor::{DimDyn, Tensor, TensorNode};
+use crate::tensor::shape::Expr;
+use crate::tensor::{DimDyn, Tensor, TensorInner};
 
-use expr_builder::{build_elementwise_expr, build_reduce_identity_expr};
 use helpers::*;
 
 /// TensorをASTに変換するLowerer
 ///
-/// TensorNodeツリーをトラバースし、ASTプログラムを直接生成する。
+/// Tensorツリーをトラバースし、ASTプログラムを直接生成する。
 pub struct TensorLowerer {
     /// カーネル名カウンタ
     kernel_counter: usize,
     /// 収集された入力バッファ名
     input_buffer_names: Vec<String>,
-    /// 処理済みTensorNodeキャッシュ (ptr -> processed flag)
-    visited: HashMap<*const TensorNode, bool>,
+    /// 処理済みTensorInnerキャッシュ (ptr -> processed flag)
+    visited: HashMap<*const TensorInner, bool>,
 }
 
 impl TensorLowerer {
@@ -87,14 +85,14 @@ impl TensorLowerer {
     }
 
     /// 入力バッファを収集
-    fn collect_input_buffers(&mut self, node: &Rc<TensorNode>) {
-        let ptr = Rc::as_ptr(node);
+    fn collect_input_buffers(&mut self, inner: &Arc<TensorInner>) {
+        let ptr = Arc::as_ptr(inner);
         if self.visited.contains_key(&ptr) {
             return;
         }
         self.visited.insert(ptr, true);
 
-        match &node.op {
+        match &inner.op {
             TensorOp::Buffer { name } => {
                 if !self.input_buffer_names.contains(name) {
                     self.input_buffer_names.push(name.clone());
@@ -102,8 +100,8 @@ impl TensorLowerer {
             }
             _ => {
                 // 再帰的に子ノードを処理
-                for src in &node.src {
-                    self.collect_input_buffers(&src.inner);
+                for input in inner.op.inputs() {
+                    self.collect_input_buffers(&input.inner);
                 }
             }
         }
@@ -116,57 +114,53 @@ impl TensorLowerer {
         name
     }
 
-    /// TensorNodeをASTにlower
-    fn lower_node(&self, node: &Rc<TensorNode>, name: &str) -> AstNode {
+    /// TensorInnerをASTにlower
+    fn lower_node(&self, inner: &Arc<TensorInner>, name: &str) -> AstNode {
         // 正規化形式に変換
-        let (expr, reduce_op, axes) = self.normalize_op(node);
-        let ndim = node.view.shape().len();
-        let shape = node.view.shape();
+        let (expr, reduce_op, axes) = self.normalize_op(inner);
+        let ndim = inner.view.shape().len();
+        let shape = inner.view.shape();
 
         if axes.is_empty() {
             // Elementwiseパス
-            self.lower_elementwise_path(node, &expr, ndim, shape, name)
+            self.lower_elementwise_path(inner, &expr, ndim, shape, name)
         } else {
             // Reduceパス
-            self.lower_reduce_path(node, &expr, reduce_op.as_ref().unwrap(), &axes, ndim, name)
+            self.lower_reduce_path(inner, &expr, reduce_op.as_ref().unwrap(), &axes, ndim, name)
         }
     }
 
     /// TensorOpを正規化形式に変換
     ///
     /// Returns: (expr, reduce_op, axes)
-    fn normalize_op(&self, node: &Rc<TensorNode>) -> (AstNode, Option<ReduceOp>, Vec<usize>) {
-        match &node.op {
-            TensorOp::Elementwise { op } => {
-                let expr = build_elementwise_expr(op);
-                (expr, None, vec![])
-            }
-            TensorOp::FusedElementwise { expr } => (expr.clone(), None, vec![]),
-            TensorOp::Reduce { op, axes, .. } => {
-                let expr = build_reduce_identity_expr();
-                (expr, Some(op.clone()), axes.clone())
-            }
-            TensorOp::FusedElementwiseReduce {
+    fn normalize_op(&self, inner: &Arc<TensorInner>) -> (AstNode, Option<ReduceOp>, Vec<usize>) {
+        match &inner.op {
+            // 統一Compute演算
+            TensorOp::Compute {
                 expr,
                 reduce_op,
                 axes,
                 ..
-            } => (expr.clone(), Some(reduce_op.clone()), axes.clone()),
+            } => (expr.clone(), *reduce_op, axes.clone()),
+
             TensorOp::ConstFill(lit) => (AstNode::Const(lit.clone()), None, vec![]),
+
             TensorOp::Rand => {
                 // Rand演算は特殊な式としてrand()を使用
                 (rand(), None, vec![])
             }
+
             TensorOp::Arange => {
                 // Arangeは単一の軸に対してインデックスを返す
                 // 0次元目のインデックスを使用
                 (var(ph::ridx(0)), None, vec![])
             }
+
             // Buffer, View, Clone, Contiguous等は直接lowerしない
             _ => {
                 // これらのケースはlower_nodeで到達すべきでない
-                // 通常はsrcを辿って計算ノードに到達する
-                panic!("Cannot normalize op: {:?}", node.op);
+                // 通常は入力を辿って計算ノードに到達する
+                panic!("Cannot normalize op: {:?}", inner.op);
             }
         }
     }
@@ -174,25 +168,26 @@ impl TensorLowerer {
     /// Elementwiseパスでlower
     fn lower_elementwise_path(
         &self,
-        node: &Rc<TensorNode>,
+        inner: &Arc<TensorInner>,
         expr: &AstNode,
         ndim: usize,
         shape: &[Expr],
         name: &str,
     ) -> AstNode {
-        let load_dtype = dtype_to_ast(&node.dtype);
+        let load_dtype = dtype_to_ast(&inner.dtype);
 
         // 各入力のload式を構築
         let mut mappings = HashMap::new();
         let mut non_const_idx = 0;
 
-        for (i, src) in node.src.iter().enumerate() {
-            if let TensorOp::Const(lit) = &src.inner.op {
+        let inputs = inner.op.inputs();
+        for (i, input) in inputs.iter().enumerate() {
+            if let TensorOp::Const(lit) = &input.inner.op {
                 // 定数は直接埋め込み
                 mappings.insert(i.to_string(), AstNode::Const(lit.clone()));
             } else {
                 // 入力バッファからload
-                let src_offset = self.build_input_offset(src, ndim);
+                let src_offset = self.build_input_offset(input, ndim);
                 let load_node = load(
                     var(ph::input(non_const_idx)),
                     src_offset,
@@ -224,31 +219,32 @@ impl TensorLowerer {
     /// Reduceパスでlower
     fn lower_reduce_path(
         &self,
-        node: &Rc<TensorNode>,
+        inner: &Arc<TensorInner>,
         expr: &AstNode,
         reduce_op: &ReduceOp,
         axes: &[usize],
         ndim: usize,
         name: &str,
     ) -> AstNode {
-        // 入力ノードの形状を取得（srcが存在する場合）
-        let input_shape = if let Some(src) = node.src.first() {
-            src.inner.view.shape()
+        // 入力ノードの形状を取得
+        let inputs = inner.op.inputs();
+        let input_shape = if let Some(input) = inputs.first() {
+            input.inner.view.shape()
         } else {
-            node.view.shape()
+            inner.view.shape()
         };
 
-        let load_dtype = dtype_to_ast(&node.dtype);
+        let load_dtype = dtype_to_ast(&inner.dtype);
 
         // 各入力のload式を構築
         let mut mappings = HashMap::new();
         let mut non_const_idx = 0;
 
-        for (i, src) in node.src.iter().enumerate() {
-            if let TensorOp::Const(lit) = &src.inner.op {
+        for (i, input) in inputs.iter().enumerate() {
+            if let TensorOp::Const(lit) = &input.inner.op {
                 mappings.insert(i.to_string(), AstNode::Const(lit.clone()));
             } else {
-                let src_offset = self.build_input_offset(src, ndim);
+                let src_offset = self.build_input_offset(input, ndim);
                 let load_node = load(
                     var(ph::input(non_const_idx)),
                     src_offset,
@@ -262,7 +258,7 @@ impl TensorLowerer {
         let value_expr = expr.substitute(&mappings);
 
         // アキュムレータ初期化と更新
-        let (init_value, accumulate_fn) = build_reduce_accumulator(reduce_op, &node.dtype);
+        let (init_value, accumulate_fn) = build_reduce_accumulator(reduce_op, &inner.dtype);
 
         // 出力オフセット（縮約軸を除く）
         let output_offset =
@@ -287,7 +283,7 @@ impl TensorLowerer {
         let mut scope = Scope::new();
         let _ = scope.declare(
             acc_var.to_string(),
-            dtype_to_ast(&node.dtype),
+            dtype_to_ast(&inner.dtype),
             Mutability::Mutable,
         );
 
@@ -317,25 +313,25 @@ impl TensorLowerer {
         self.build_offset_for_tensor(&src.inner, ndim)
     }
 
-    /// TensorNodeのオフセットを構築
-    fn build_offset_for_tensor(&self, node: &Rc<TensorNode>, ndim: usize) -> AstNode {
-        match &node.op {
+    /// TensorInnerのオフセットを構築
+    fn build_offset_for_tensor(&self, inner: &Arc<TensorInner>, ndim: usize) -> AstNode {
+        match &inner.op {
             TensorOp::Buffer { .. } => {
                 // Bufferノードは自身のviewを使用
-                build_strided_offset(&node.view, ndim)
+                build_strided_offset(&inner.view, ndim)
             }
-            TensorOp::View => {
+            TensorOp::View { .. } => {
                 // Viewノードは自身のviewを使用
-                build_strided_offset(&node.view, ndim)
+                build_strided_offset(&inner.view, ndim)
             }
-            TensorOp::Contiguous => {
+            TensorOp::Contiguous { .. } => {
                 // Contiguousは連続メモリアクセス
-                let shape = node.view.shape();
+                let shape = inner.view.shape();
                 build_contiguous_offset_with_shape(ndim, Some(shape))
             }
             _ => {
                 // その他の演算は自身のviewを使用
-                build_strided_offset(&node.view, ndim)
+                build_strided_offset(&inner.view, ndim)
             }
         }
     }
@@ -348,7 +344,7 @@ impl TensorLowerer {
 
         // スレッドグループサイズを計算
         let local_size = 64.min(numel);
-        let grid_size = (numel + local_size - 1) / local_size;
+        let grid_size = numel.div_ceil(local_size);
 
         // カーネル呼び出し情報
         let call_info = AstKernelCallInfo {

@@ -23,6 +23,8 @@ macro_rules! impl_unary_helper {
 }
 
 // Binary operation helpers
+impl_binary_helper!(add, Add, "Create an add node: a + b");
+impl_binary_helper!(mul, Mul, "Create a multiply node: a * b");
 impl_binary_helper!(max, Max, "Create a max node: max(a, b)");
 impl_binary_helper!(idiv, Idiv, "Create an integer division node: a / b");
 impl_binary_helper!(rem, Rem, "Create a remainder node: a % b");
@@ -41,6 +43,16 @@ impl_unary_helper!(sqrt, Sqrt, "Create a square root node: sqrt(a)");
 impl_unary_helper!(log2, Log2, "Create a log2 node: log2(a)");
 impl_unary_helper!(exp2, Exp2, "Create an exp2 node: 2^a");
 impl_unary_helper!(sin, Sin, "Create a sine node: sin(a)");
+impl_unary_helper!(floor, Floor, "Create a floor node: floor(a)");
+
+/// Create a negation node: -a
+/// Note: Uses Mul with -1.0 since there's no Neg variant in AstNode
+pub fn neg(a: AstNode) -> AstNode {
+    AstNode::Mul(
+        Box::new(AstNode::Const(super::Literal::F32(-1.0))),
+        Box::new(a),
+    )
+}
 
 /// Create a fused multiply-add node: fma(a, b, c) = a * b + c
 /// This is more accurate and potentially faster than separate multiply and add operations.

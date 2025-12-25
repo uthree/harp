@@ -86,10 +86,6 @@ impl<D: Dimension> Tensor<D> {
             // B[K, N] -> B[1, K, N]
             let b_expanded = other.unsqueeze(0);
 
-            // Expand for broadcasting
-            let _a_shape_3d = vec![m, k, 1];
-            let _b_shape_3d = vec![1, k, n];
-
             // Broadcast multiply: [M, K, 1] * [1, K, N] -> [M, K, N]
             let product = a_expanded.expand(&[m, k, n]) * b_expanded.expand(&[m, k, n]);
 

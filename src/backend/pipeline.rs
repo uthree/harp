@@ -275,7 +275,7 @@ where
             .iter()
             .flat_map(|s| {
                 s.shape.iter().filter_map(|e| {
-                    if let crate::core::shape::Expr::Const(n) = e {
+                    if let crate::tensor::shape::Expr::Const(n) = e {
                         Some(*n as usize)
                     } else {
                         None
@@ -339,7 +339,7 @@ where
             .iter()
             .flat_map(|s| {
                 s.shape.iter().filter_map(|e| {
-                    if let crate::core::shape::Expr::Const(n) = e {
+                    if let crate::tensor::shape::Expr::Const(n) = e {
                         Some(*n as usize)
                     } else {
                         None
