@@ -87,8 +87,7 @@ pub fn elementwise_to_ast(op: &ElementwiseOp, input_indices: &[usize]) -> AstNod
         ElementwiseOp::Floor => {
             // TODO: AstNodeにFloorを追加後に修正
             // 現在は単純にidentityとして扱う（暫定）
-            let input = wildcard(input_indices[0].to_string());
-            input
+            wildcard(input_indices[0].to_string())
         }
     }
 }

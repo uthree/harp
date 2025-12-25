@@ -294,6 +294,20 @@ let t = Tensor::<DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2]);
 | `z = Reduce(Prod)` | ∂L/∂a = ∂L/∂z · z / a |
 | `z = Reduce(Max)` | ∂L/∂a = ∂L/∂z · (a == max) |
 
+### 融合演算の勾配
+
+融合演算（`FusedElementwise`、`FusedElementwiseReduce`）はシンボリック微分により勾配を計算。
+
+```rust
+// FusedElementwiseBackward
+// - AstNode式を各入力Wildcardに対してシンボリック微分
+// - 導出した微分式をテンソル値で評価して勾配を計算
+
+// FusedElementwiseReduceBackward
+// - まず勾配をReduce前の形状に展開（unsqueeze + expand）
+// - 次にElementwise部分のシンボリック微分を適用
+```
+
 ## モジュール構成
 
 ```
