@@ -459,8 +459,6 @@ impl GradFn for ReduceMulBackward {
 /// ∂L/∂a = ∂L/∂z · (a == max)
 pub struct ReduceMaxBackward {
     input: Tensor<DimDyn>,
-    #[allow(dead_code)]
-    output: Tensor<DimDyn>,
     input_shape: Vec<usize>,
     axes: Vec<usize>,
     keepdim: bool,
@@ -469,14 +467,13 @@ pub struct ReduceMaxBackward {
 impl ReduceMaxBackward {
     pub fn new(
         input: Tensor<DimDyn>,
-        output: Tensor<DimDyn>,
+        _output: Tensor<DimDyn>, // TODO: Use for proper mask where input == max
         axes: Vec<usize>,
         keepdim: bool,
     ) -> Self {
         let input_shape = input.shape().to_vec();
         Self {
             input,
-            output,
             input_shape,
             axes,
             keepdim,
@@ -691,8 +688,6 @@ fn find_wildcards_impl(expr: &AstNode, result: &mut Vec<String>) {
 /// and then evaluating the derivative with the actual input values.
 pub struct FusedElementwiseBackward {
     inputs: Vec<Tensor<DimDyn>>,
-    #[allow(dead_code)]
-    expr: AstNode,
     /// Precomputed derivative expressions for each input wildcard
     grad_exprs: Vec<(String, AstNode)>,
 }
@@ -706,11 +701,7 @@ impl FusedElementwiseBackward {
             .map(|wc| (wc.clone(), differentiate_ast(&expr, wc)))
             .collect();
 
-        Self {
-            inputs,
-            expr,
-            grad_exprs,
-        }
+        Self { inputs, grad_exprs }
     }
 }
 
@@ -766,9 +757,7 @@ pub struct FusedElementwiseReduceBackward {
     inputs: Vec<Tensor<DimDyn>>,
     input_shapes: Vec<Vec<usize>>,
     #[allow(dead_code)]
-    expr: AstNode,
-    #[allow(dead_code)]
-    reduce_op: ReduceOp,
+    reduce_op: ReduceOp, // TODO: Use for proper gradient computation (e.g., ReduceMax mask)
     axes: Vec<usize>,
     keepdim: bool,
     /// Precomputed derivative expressions for each input wildcard
@@ -795,7 +784,6 @@ impl FusedElementwiseReduceBackward {
         Self {
             inputs,
             input_shapes,
-            expr,
             reduce_op,
             axes,
             keepdim,

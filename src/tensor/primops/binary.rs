@@ -45,7 +45,6 @@ pub(crate) fn with_grad_fn<D: Dimension>(
             dtype: tensor.inner.dtype.clone(),
             name: tensor.inner.name.clone(),
             autograd: Some(AutogradMeta {
-                requires_grad: true,
                 grad: RwLock::new(None),
                 grad_fn,
             }),

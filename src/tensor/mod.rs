@@ -120,10 +120,10 @@ pub trait GradFn: Send + Sync {
 }
 
 /// Autograd metadata for gradient tracking
+///
+/// The presence of this struct indicates that gradient tracking is enabled.
+/// Use `tensor.requires_grad()` (which checks `autograd.is_some()`) to check status.
 pub struct AutogradMeta {
-    /// Whether this tensor requires gradient computation
-    #[allow(dead_code)]
-    pub(crate) requires_grad: bool,
     /// Stored gradient (populated after backward())
     pub(crate) grad: RwLock<Option<Arc<Tensor<DimDyn>>>>,
     /// Gradient function for backpropagation
@@ -307,7 +307,6 @@ impl<D: Dimension> Tensor<D> {
                 dtype: self.inner.dtype.clone(),
                 name: self.inner.name.clone(),
                 autograd: Some(AutogradMeta {
-                    requires_grad: true,
                     grad: RwLock::new(None),
                     grad_fn: None,
                 }),
