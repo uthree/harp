@@ -2,8 +2,6 @@
 
 **Tensorはharpの主要なAPIです。** 統合Tensor型を提供し、遅延評価、自動微分、Eager Fusionをサポートします。
 
-> **Note**: 低レベルのGraph APIは移行期間中のみ利用可能です。通常のユースケースではTensor APIを推奨します。
-
 ## 設計思想
 
 tinygrad/microgradの設計哲学に基づき、最小のプリミティブ演算の組み合わせで複雑な機能を実現。
@@ -16,8 +14,7 @@ TensorはTensorNodeを内部で使用し、TensorOpで演算を管理します�
 
 ```rust
 pub struct Tensor<D: Dimension = DimDyn> {
-    node: GraphNode,               // 後方互換性のため（移行期間中）
-    inner: Rc<TensorNode>,         // 新しいTensorNode表現
+    inner: Rc<TensorNode>,         // TensorNode表現
     shape: Vec<usize>,             // テンソル形状
     dtype: DType,                  // データ型
     autograd: Option<Rc<TensorData>>,  // 勾配追跡データ
@@ -36,7 +33,7 @@ pub struct TensorNode {
 
 ### TensorOp
 
-演算の種類を表すenum。GraphOpを置換する。
+演算の種類を表すenum。
 
 ```rust
 pub enum TensorOp {

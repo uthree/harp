@@ -31,42 +31,6 @@ lazy-arrayで3つ以上の独立した定数配列（`zeros()`, `ones()`, `full(
 
 ---
 
-### GraphRuntimeSelector計測時のバッファ追跡バグ
-
-**発見日**: 2024-12
-**修正日**: 2024-12
-
-**状態**: 修正済み
-
-**症状**:
-Phase 1でGraphRuntimeSelectorを使用した実測値ベース最適化を行う際、計測用のLoweringで2つのエラーが発生していた：
-1. `use of undeclared identifier 'input1'` - 入力バッファが正しく追跡されない
-2. `use of undeclared identifier 'shape2'` - 形状変数が正しく置換されない
-
-**原因**:
-`collect_input_buffers`関数でView操作を経由してInputノードを追跡する際に：
-1. 入力バッファの追跡が行われていなかった
-2. 追跡時に元のBufferのviewを使用していたため、View操作による形状変換が失われていた
-
-**修正内容**:
-`src/opt/graph/suggesters/lowering/helpers.rs`に以下の修正を実施：
-
-1. `collect_input_buffers`関数を追加し、Viewノードを透過してBufferノードを追跡
-2. トレース開始点（Kernelの直接のsrc）のviewを"entry view"として保持し、Bufferノード作成時にそのviewを使用
-
-```rust
-// 修正のポイント
-for src in src_nodes {
-    // 各srcノードのviewを"entry view"として保持
-    // これがKernelが期待する入力形状
-    let entry_view = src.view.clone();
-    collect_inputs_recursive(src, &mut input_names, &mut seen, &entry_view);
-}
-```
-
-これにより、Kernelが期待する形状（View変換後の形状）が正しくBufferノードに伝達され、
-ProgramRootAbsorptionでのshapeプレースホルダー置換が正しく動作するようになった。
-
 ### ループタイリング時の変数未宣言バグ
 
 **発見日**: 2024-12

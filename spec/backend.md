@@ -14,9 +14,6 @@
 - `pipeline.rs`: Pipeline、PipelineConfig、CompiledKernel、KernelExecutionError、DispatchSizeConfig、DispatchSizeExpr、AST式評価関数、KernelSourceRenderer trait
 - `c_like.rs`: C言語系構文の共通レンダリングロジック（CLikeRenderer trait）、OptimizationLevel、extract_buffer_placeholders関数
 
-**注意**: グラフ最適化のファクトリ関数（`create_multi_phase_optimizer`, `MultiPhaseConfig`等）は
-`opt/graph/factory.rs` に移動しました。後方互換性のため `backend` モジュールから re-export されています。
-
 ### バックエンド実装
 - `metal/`: Metalバックエンド（macOS GPU）
   - `mod.rs`: モジュール定義とre-export
@@ -130,50 +127,6 @@ pub struct BufferSignature {
     pub shape: Vec<Expr>,
 }
 ```
-
-## パイプライン（最適化フロー）
-
-### MultiPhaseConfig / create_multi_phase_optimizer
-
-Graph最適化を3フェーズで行うためのパイプライン。
-
-**処理フロー:**
-1. **Preparation** (グラフ準備): View挿入、融合、タイリングなどのグラフ構造最適化
-2. **Lowering**: 全てのGraphOpノードをKernelノードに変換（並列化戦略の選択を含む）
-3. **Fusion**: 全てのKernelノードをProgramRootに融合（決定論的変換）
-
-**設定オプション:**
-- `beam_width`: ビームサーチの幅（デフォルト: 4）
-- `max_steps`: 最大ステップ数（デフォルト: 10000）
-- `show_progress`: プログレスバー表示（デフォルト: false）
-- `collect_logs`: 最適化ログの収集（デフォルト: false）
-- `opt_context`: 最適化コンテキスト（デバイス固有のパラメータ）
-
-**使用例:**
-```rust
-use harp::backend::{create_multi_phase_optimizer, MultiPhaseConfig};
-use harp::opt::graph::GraphOptimizer;
-use harp::opt::context::DeviceCapabilities;
-
-// デバイス固有のパラメータを使用する場合
-let caps = DeviceCapabilities::from_device(&device);
-let config = MultiPhaseConfig::new()
-    .with_beam_width(4)
-    .with_max_steps(1000)
-    .with_capabilities(caps);
-
-let optimizer = create_multi_phase_optimizer(config);
-let (optimized_graph, history) = optimizer.optimize_with_history(graph);
-```
-
-**デバイス能力による最適化:**
-`with_capabilities()`でDeviceCapabilitiesを設定すると、各Suggesterはデバイス特性に基づいたパラメータを使用します：
-- KernelPartitionSuggester: `preferred_work_group_size_range`を使用
-- LoweringSuggester: `simd_capabilities`（SIMD能力）を使用
-
-Note: ループタイル化はAST最適化フェーズ（LoopTilingSuggester）で行われます。
-
-Pipelineを使用する場合、コンテキストは自動的に設定されます。
 
 ## GPU実行バックエンド
 
@@ -303,7 +256,6 @@ let search_rules = search_rules_for_capabilities(&caps);  // ビームサーチ�
 
 ```rust
 pub struct PipelineConfig {
-    pub graph_beam_width: usize,   // グラフ最適化のビーム幅
     pub ast_beam_width: usize,     // AST最適化のビーム幅
     pub max_steps: usize,          // 最適化の最大ステップ数
     pub show_progress: bool,       // 進行状況表示
@@ -373,63 +325,18 @@ let result: Vec<f32> = c.read_vec()?;  // [6.0, 8.0, 10.0, 12.0]
 
 ### Pipeline
 
-`Pipeline`は、Graphから直接GPUカーネルを生成・実行するためのパイプラインです。
+`Pipeline`は、ASTからGPUカーネルを生成・実行するためのパイプラインです。
 
 **処理フロー:**
-1. Graphの最適化（多フェーズグラフ最適化）
-2. AST抽出（lowerer）
-3. ASTの最適化（ルールベース＋ビームサーチ）
-4. カーネルソースのみをレンダリング（`KernelSourceRenderer` trait）
-5. ネイティブコンパイル（`Compiler`）
-6. GPUカーネル実行（`Kernel`）
-
-**使用例:**
-```rust
-use harp::backend::{Buffer, Compiler, Device, Pipeline, ExecutionQuery};
-use harp::backend::opencl::{OpenCLBuffer, OpenCLCompiler, OpenCLDevice, OpenCLRenderer};
-use harp::graph::{Graph, DType};
-
-// パイプライン作成
-let device = OpenCLDevice::new()?;
-let renderer = OpenCLRenderer::new();
-let compiler = OpenCLCompiler::new();
-let mut pipeline = Pipeline::new(renderer, compiler, device);
-
-// グラフ作成
-let mut graph = Graph::new();
-let a = graph.input("a", DType::F32, vec![1024]);
-let b = graph.input("b", DType::F32, vec![1024]);
-let c = a + b;
-graph.output("out", c);
-
-// コンパイル
-let compiled = pipeline.compile_graph(graph)?;
-
-// バッファ作成
-let mut input_a = OpenCLBuffer::allocate(&pipeline.device(), vec![1024], AstDType::F32)?;
-let mut input_b = OpenCLBuffer::allocate(&pipeline.device(), vec![1024], AstDType::F32)?;
-let mut output = OpenCLBuffer::allocate(&pipeline.device(), vec![1024], AstDType::F32)?;
-
-// データ書き込み
-input_a.write_vec(&vec![1.0f32; 1024])?;
-input_b.write_vec(&vec![2.0f32; 1024])?;
-
-// 実行（名前ベース - ExecutionQuery使用）
-let query = ExecutionQuery::new()
-    .input("a", &input_a)
-    .input("b", &input_b)
-    .output("out", &mut output);
-compiled.execute_with(query)?;
-
-// 結果読み出し
-let result: Vec<f32> = output.read_vec()?;
-```
+1. ASTの最適化（ルールベース＋ビームサーチ）
+2. カーネルソースのみをレンダリング（`KernelSourceRenderer` trait）
+3. ネイティブコンパイル（`Compiler`）
+4. GPUカーネル実行（`Kernel`）
 
 **設定:**
 ```rust
 {
     let config = pipeline.config_mut();
-    config.graph_beam_width = 2;    // グラフ最適化のビーム幅
     config.ast_beam_width = 2;      // AST最適化のビーム幅
     config.max_steps = 1000;        // 最大最適化ステップ数
     config.show_progress = true;    // プログレス表示
@@ -592,11 +499,11 @@ pub enum DispatchSizeExpr {
 
 **情報フロー:**
 ```
-Graph → Lowerer → AST(Kernel) → Pipeline → KernelConfig → execute
-                   ↓                  ↓
-            default_grid_size    evaluate_dispatch_size()
-            default_thread_group_size   ↓
-                               [usize; 3] (実際のサイズ)
+Tensor → TensorLowerer → AST(Kernel) → Pipeline → KernelConfig → execute
+                          ↓                  ↓
+                   default_grid_size    evaluate_dispatch_size()
+                   default_thread_group_size   ↓
+                                      [usize; 3] (実際のサイズ)
 ```
 
 サイズ式（`[Box<AstNode>; 3]`）は`evaluate_ast_expr`関数で評価され、`shape_vars`（シェイプ変数）を参照して具体値に解決されます。
@@ -613,31 +520,13 @@ Pipelineは`extract_entry_point_name`内部メソッドでASTからカーネル/
 
 ### 複数カーネルの順次実行
 
-最適化の結果、1つのGraphが複数のカーネルに分割されることがあります。`CompiledProgram`はこれらのカーネルを正しい順序で実行する機能を提供します。
+最適化の結果、1つのプログラムが複数のカーネルに分割されることがあります。`CompiledProgram`はこれらのカーネルを正しい順序で実行する機能を提供します。
 
 **主要型:**
 
 - `KernelCallInfo`: カーネル呼び出し情報（名前、入出力バッファ、グリッドサイズ）
 - `IntermediateBufferSpec`: 中間バッファ仕様（カーネル間で受け渡されるバッファ）
 - `CompiledProgram`: コンパイル済みプログラム（複数カーネル対応）
-
-**使用例:**
-```rust
-// compile_program()は複数カーネルに対応
-let program = pipeline.compile_program(graph)?;
-let device = pipeline.device();  // デバイスを取得
-
-// 名前付きバッファで実行
-let mut inputs = HashMap::new();
-inputs.insert("a".to_string(), &input_a);
-let mut outputs = HashMap::new();
-outputs.insert("out".to_string(), &mut output);
-
-program.execute(device, &inputs, &mut outputs)?;
-
-// または位置引数で実行（単一カーネルの場合に便利）
-program.execute_positional(device, &[&input_a], &mut [&mut output])?;
-```
 
 **動的サイズでの実行:**
 
@@ -691,37 +580,15 @@ harpc input.harp --embed-source
 
 ## 今後の実装予定
 
-### 並列Reduce (ReduceStrategy::Parallel)
+### 並列Reduce
 
-現在の`ReduceStrategy::Sequential`は単一スレッドでの逐次リダクションですが、GPUでの大規模配列には非効率。並列Reduceを実装することで高速化が可能。
-
-**追加予定の構造体:**
-```rust
-pub enum ReduceStrategy {
-    Sequential { unroll_factor: usize },
-    Parallel {
-        local_size: usize,    // ワークグループサイズ
-        use_atomics: bool,    // アトミック操作使用
-    },
-}
-```
+現在のReduceは単一スレッドでの逐次リダクションですが、GPUでの大規模配列には非効率。並列Reduceを実装することで高速化が可能。
 
 **2段階リダクションアルゴリズム:**
 1. **Stage 1 (ワークグループ内)**: 各スレッドがストライドアクセスで累積 → ローカルメモリでTree-based reduction
 2. **Stage 2 (グローバル集約)**: `AtomicAddFloat`サポート時はatomic_add、非サポート時は中間バッファ経由
 
-**実装に必要なファイル:**
-- `src/graph/strategy.rs`: `ReduceStrategy::Parallel`追加
-- `src/opt/graph/suggesters/lowering/reduce.rs`: `build_parallel_reduce_function()`実装
-- `src/lowerer/`: 並列Reduce用カーネル生成（実装時に追加）
-
 **前提条件（実装済み）:**
 - `AstNode::AtomicAdd`, `AstNode::AtomicMax`バリアント
 - OpenCL/Metalでのatomicレンダリング
 - `DeviceInstruction::AtomicAddFloat`検出
-
-**推奨アプローチ:**
-1. シンプルなケース（`use_atomics: true`）から実装
-2. ローカルメモリ抽象化（`AstNode::AllocateLocal`）の検討
-3. 小配列でのユニットテストを先に作成
-4. 段階的に非アトミック版を追加

@@ -14,8 +14,9 @@ harp/
 │   │   ├── dimension.rs  # Dimension trait, Dim<N>, DimDyn
 │   │   ├── ops.rs        # 演算子オーバーロード
 │   │   ├── forward.rs    # forward() 実装
+│   │   ├── lowerer/      # Tensor→AST変換
 │   │   └── grad.rs       # GradFn, backward() 実装
-│   ├── graph/            # 計算グラフ表現
+│   ├── core/             # コア型（DType, Expr, View）
 │   ├── ast/              # 抽象構文木
 │   ├── renderer/         # コードレンダラー（常に利用可能）
 │   │   ├── mod.rs
@@ -30,8 +31,7 @@ harp/
 │   │   ├── global.rs     # グローバルデバイス管理
 │   │   ├── opencl/       # OpenCLバックエンド (feature: opencl)
 │   │   └── metal/        # Metalバックエンド (feature: metal)
-│   ├── lowerer/          # Graph→AST変換
-│   └── opt/              # 最適化パイプライン
+│   └── opt/              # 最適化パイプライン（AST最適化）
 ├── tests/                # 統合テスト
 └── spec/                 # 仕様書
 ```
@@ -67,13 +67,6 @@ harp = { version = "0.1", features = ["metal"] }
 
 **仕様書:** [tensor.md](tensor.md)
 
-### graph（上級者向け）
-
-計算グラフの低レベルAPI。直接的なグラフ操作が必要な場合に使用します。
-通常のユースケースではTensor APIを推奨します。
-
-**仕様書:** [graph.md](graph.md)
-
 ### ast
 
 抽象構文木（AstNode, Function, Literal）
@@ -94,17 +87,11 @@ GPU実行バックエンド。Renderer traitとDevice/Buffer/Kernel traits。
 
 **仕様書:** [backend.md](backend.md)
 
-### lowerer
-
-Graph→AST変換
-
-**仕様書:** [lowerer.md](lowerer.md)
-
 ### opt
 
-最適化パイプライン（graph最適化、ast最適化）
+AST最適化パイプライン
 
-**仕様書:** [opt.md](opt.md), [opt-graph.md](opt-graph.md), [opt-ast.md](opt-ast.md)
+**仕様書:** [opt.md](opt.md), [opt-ast.md](opt-ast.md)
 
 ## 使用例
 
@@ -162,17 +149,3 @@ let y = &x + &x;
 y.forward().unwrap();
 ```
 
-### 低レベルAPI（上級者向け：計算グラフ直接操作）
-
-通常はTensor APIを使用してください。直接的なグラフ操作が必要な場合のみ使用します。
-
-```rust
-use harp::prelude::*;
-use harp::graph::GraphNode;  // GraphNodeは明示的インポートが必要
-
-let mut graph = Graph::new();
-let a = graph.input("a", DType::F32, vec![10, 20]);
-let b = graph.input("b", DType::F32, vec![10, 20]);
-let result = a + b;
-graph.output("result", result);
-```
