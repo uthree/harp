@@ -219,12 +219,7 @@ impl VectorizationSuggester {
         match expr {
             // 定数 → broadcast
             AstNode::Const(lit) => {
-                let scalar_type = match lit {
-                    Literal::F32(_) => DType::F32,
-                    Literal::I64(_) => DType::I64,
-                    Literal::I32(_) => DType::I32,
-                    Literal::Bool(_) => DType::Bool,
-                };
+                let scalar_type = lit.dtype();
                 let vec_type = scalar_type.to_vec(width);
                 Some(AstNode::Cast(Box::new(expr.clone()), vec_type))
             }

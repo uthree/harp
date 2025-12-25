@@ -3,43 +3,79 @@
 /// ASTノードの型を表す列挙型
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub enum DType {
-    Bool,            // boolean (internally represented as u8 or i8: 0 = false, non-zero = true)
-    I64,             // 64-bit signed integer (for array indexing and loop counters)
-    I32,             // 32-bit signed integer (for data arrays)
-    F32,             // float
-    Ptr(Box<DType>), // pointer for memory buffer, 値を渡す時は参照を渡す。
-    Vec(Box<DType>, usize), // fixed size vector for SIMD, 値は渡す時にコピーされる
+    // Boolean
+    Bool,
+
+    // Signed integers
+    I8,
+    I16,
+    I32,
+    I64,
+
+    // Unsigned integers
+    U8,
+    U16,
+    U32,
+    U64,
+
+    // Floating point
+    F32,
+    F64,
+
+    // Index type: バックエンドによって自動的に決定される整数型
+    // GPU/CPUの最適なインデックス型に変換される（通常はi32またはi64）
+    Int,
+
+    // Composite types
+    Ptr(Box<DType>),        // pointer for memory buffer
+    Vec(Box<DType>, usize), // fixed size vector for SIMD
     Tuple(Vec<DType>),
+
     #[default]
     Unknown,
-    // TODO: 将来的にf16とか対応させたい
 }
 
 /// リテラル値
 #[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
     Bool(bool),
-    I64(i64),
+
+    // Signed integers
+    I8(i8),
+    I16(i16),
     I32(i32),
+    I64(i64),
+
+    // Unsigned integers
+    U8(u8),
+    U16(u16),
+    U32(u32),
+    U64(u64),
+
+    // Floating point
     F32(f32),
+    F64(f64),
 }
 
+// ============================================================================
 // Conversion from numeric types to Literal
+// ============================================================================
+
 impl From<bool> for Literal {
     fn from(value: bool) -> Self {
         Literal::Bool(value)
     }
 }
 
-impl From<f32> for Literal {
-    fn from(value: f32) -> Self {
-        Literal::F32(value)
+impl From<i8> for Literal {
+    fn from(value: i8) -> Self {
+        Literal::I8(value)
     }
 }
 
-impl From<i64> for Literal {
-    fn from(value: i64) -> Self {
-        Literal::I64(value)
+impl From<i16> for Literal {
+    fn from(value: i16) -> Self {
+        Literal::I16(value)
     }
 }
 
@@ -49,27 +85,84 @@ impl From<i32> for Literal {
     }
 }
 
+impl From<i64> for Literal {
+    fn from(value: i64) -> Self {
+        Literal::I64(value)
+    }
+}
+
+impl From<u8> for Literal {
+    fn from(value: u8) -> Self {
+        Literal::U8(value)
+    }
+}
+
+impl From<u16> for Literal {
+    fn from(value: u16) -> Self {
+        Literal::U16(value)
+    }
+}
+
+impl From<u32> for Literal {
+    fn from(value: u32) -> Self {
+        Literal::U32(value)
+    }
+}
+
+impl From<u64> for Literal {
+    fn from(value: u64) -> Self {
+        Literal::U64(value)
+    }
+}
+
+impl From<f32> for Literal {
+    fn from(value: f32) -> Self {
+        Literal::F32(value)
+    }
+}
+
+impl From<f64> for Literal {
+    fn from(value: f64) -> Self {
+        Literal::F64(value)
+    }
+}
+
 impl From<usize> for Literal {
     fn from(value: usize) -> Self {
+        // usizeはインデックス計算で符号付き演算が必要な場合が多いためI64に変換
         Literal::I64(value as i64)
     }
 }
+
+impl From<isize> for Literal {
+    fn from(value: isize) -> Self {
+        Literal::I64(value as i64)
+    }
+}
+
+// ============================================================================
+// Literal methods
+// ============================================================================
 
 impl Literal {
     /// Get the DType of this literal
     pub fn dtype(&self) -> DType {
         match self {
             Literal::Bool(_) => DType::Bool,
-            Literal::F32(_) => DType::F32,
-            Literal::I64(_) => DType::I64,
+            Literal::I8(_) => DType::I8,
+            Literal::I16(_) => DType::I16,
             Literal::I32(_) => DType::I32,
+            Literal::I64(_) => DType::I64,
+            Literal::U8(_) => DType::U8,
+            Literal::U16(_) => DType::U16,
+            Literal::U32(_) => DType::U32,
+            Literal::U64(_) => DType::U64,
+            Literal::F32(_) => DType::F32,
+            Literal::F64(_) => DType::F64,
         }
     }
 
     /// ブールリテラルを bool として取得
-    ///
-    /// Bool を bool に変換して返します。
-    /// Bool でない場合は None を返します。
     pub fn as_bool(&self) -> Option<bool> {
         match self {
             Literal::Bool(v) => Some(*v),
@@ -77,40 +170,117 @@ impl Literal {
         }
     }
 
-    /// 整数リテラルを i64 として取得
-    ///
-    /// I64 または I32 を i64 に変換して返します。
-    /// Bool, F32 の場合は None を返します。
+    /// 整数リテラルを i64 として取得（符号付き整数のみ）
     pub fn as_i64(&self) -> Option<i64> {
         match self {
-            Literal::I64(v) => Some(*v),
+            Literal::I8(v) => Some(*v as i64),
+            Literal::I16(v) => Some(*v as i64),
             Literal::I32(v) => Some(*v as i64),
-            Literal::Bool(_) | Literal::F32(_) => None,
+            Literal::I64(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    /// 整数リテラルを u64 として取得（符号なし整数のみ）
+    pub fn as_u64(&self) -> Option<u64> {
+        match self {
+            Literal::U8(v) => Some(*v as u64),
+            Literal::U16(v) => Some(*v as u64),
+            Literal::U32(v) => Some(*v as u64),
+            Literal::U64(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    /// 任意の整数リテラルを i64 として取得
+    pub fn to_i64(&self) -> Option<i64> {
+        match self {
+            Literal::I8(v) => Some(*v as i64),
+            Literal::I16(v) => Some(*v as i64),
+            Literal::I32(v) => Some(*v as i64),
+            Literal::I64(v) => Some(*v),
+            Literal::U8(v) => Some(*v as i64),
+            Literal::U16(v) => Some(*v as i64),
+            Literal::U32(v) => Some(*v as i64),
+            Literal::U64(v) => (*v).try_into().ok(),
+            _ => None,
         }
     }
 
     /// 整数リテラルを usize として取得
-    ///
-    /// I64 または I32 を usize に変換して返します。
-    /// Bool, F32 または負の値の場合は None を返します。
     pub fn as_usize(&self) -> Option<usize> {
         match self {
-            Literal::I64(v) => (*v).try_into().ok(),
+            Literal::I8(v) => (*v).try_into().ok(),
+            Literal::I16(v) => (*v).try_into().ok(),
             Literal::I32(v) => (*v).try_into().ok(),
-            Literal::Bool(_) | Literal::F32(_) => None,
+            Literal::I64(v) => (*v).try_into().ok(),
+            Literal::U8(v) => Some(*v as usize),
+            Literal::U16(v) => Some(*v as usize),
+            Literal::U32(v) => Some(*v as usize),
+            Literal::U64(v) => (*v).try_into().ok(),
+            _ => None,
+        }
+    }
+
+    /// 浮動小数点リテラルを f64 として取得
+    pub fn as_f64(&self) -> Option<f64> {
+        match self {
+            Literal::F32(v) => Some(*v as f64),
+            Literal::F64(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    /// Check if the literal is zero
+    pub fn is_zero(&self) -> bool {
+        match self {
+            Literal::Bool(v) => !*v,
+            Literal::I8(v) => *v == 0,
+            Literal::I16(v) => *v == 0,
+            Literal::I32(v) => *v == 0,
+            Literal::I64(v) => *v == 0,
+            Literal::U8(v) => *v == 0,
+            Literal::U16(v) => *v == 0,
+            Literal::U32(v) => *v == 0,
+            Literal::U64(v) => *v == 0,
+            Literal::F32(v) => *v == 0.0,
+            Literal::F64(v) => *v == 0.0,
+        }
+    }
+
+    /// Check if the literal is one
+    pub fn is_one(&self) -> bool {
+        match self {
+            Literal::Bool(v) => *v,
+            Literal::I8(v) => *v == 1,
+            Literal::I16(v) => *v == 1,
+            Literal::I32(v) => *v == 1,
+            Literal::I64(v) => *v == 1,
+            Literal::U8(v) => *v == 1,
+            Literal::U16(v) => *v == 1,
+            Literal::U32(v) => *v == 1,
+            Literal::U64(v) => *v == 1,
+            Literal::F32(v) => *v == 1.0,
+            Literal::F64(v) => *v == 1.0,
         }
     }
 }
+
+// ============================================================================
+// DType methods
+// ============================================================================
 
 impl DType {
     /// バイト単位でのサイズを取得
     pub fn size_in_bytes(&self) -> usize {
         match self {
-            DType::Bool => 1, // u8として表現
-            DType::I64 => std::mem::size_of::<i64>(),
-            DType::I32 => std::mem::size_of::<i32>(), // 4 bytes
-            DType::F32 => std::mem::size_of::<f32>(),
-            DType::Ptr(_) => std::mem::size_of::<usize>(), // ポインタはusizeと同じサイズ
+            DType::Bool => 1,
+            DType::I8 | DType::U8 => 1,
+            DType::I16 | DType::U16 => 2,
+            DType::I32 | DType::U32 | DType::F32 => 4,
+            DType::I64 | DType::U64 | DType::F64 => 8,
+            DType::Int => std::mem::size_of::<isize>(), // Platform-dependent
+            DType::Ptr(_) => std::mem::size_of::<usize>(),
             DType::Vec(elem_type, size) => elem_type.size_in_bytes() * size,
             DType::Tuple(types) => types.iter().map(|t| t.size_in_bytes()).sum(),
             DType::Unknown => 0,
@@ -128,7 +298,6 @@ impl DType {
     }
 
     /// If this is a Vec type, return the element type and size
-    /// Returns None if this is not a Vec type
     pub fn from_vec(&self) -> Option<(&DType, usize)> {
         match self {
             DType::Vec(elem_type, size) => Some((elem_type.as_ref(), *size)),
@@ -137,7 +306,6 @@ impl DType {
     }
 
     /// If this is a Ptr type, return the pointee type
-    /// Returns None if this is not a Ptr type
     pub fn from_ptr(&self) -> Option<&DType> {
         match self {
             DType::Ptr(pointee) => Some(pointee.as_ref()),
@@ -178,19 +346,90 @@ impl DType {
 
     /// Check if this is a floating point type
     pub fn is_float(&self) -> bool {
-        matches!(self, DType::F32)
+        matches!(self, DType::F32 | DType::F64)
     }
 
-    /// Check if this is an integer type
+    /// Check if this is a signed integer type
+    pub fn is_signed_integer(&self) -> bool {
+        matches!(
+            self,
+            DType::I8 | DType::I16 | DType::I32 | DType::I64 | DType::Int
+        )
+    }
+
+    /// Check if this is an unsigned integer type
+    pub fn is_unsigned_integer(&self) -> bool {
+        matches!(self, DType::U8 | DType::U16 | DType::U32 | DType::U64)
+    }
+
+    /// Check if this is any integer type (signed or unsigned)
     pub fn is_integer(&self) -> bool {
-        matches!(self, DType::I32 | DType::I64)
+        self.is_signed_integer() || self.is_unsigned_integer()
+    }
+
+    /// Check if this is a numeric type (integer or float)
+    pub fn is_numeric(&self) -> bool {
+        self.is_integer() || self.is_float()
     }
 
     /// Check if the type is known (not Unknown)
     pub fn is_known(&self) -> bool {
         !matches!(self, DType::Unknown)
     }
+
+    /// Get bit width of the type (for numeric types)
+    pub fn bit_width(&self) -> Option<usize> {
+        match self {
+            DType::Bool => Some(1),
+            DType::I8 | DType::U8 => Some(8),
+            DType::I16 | DType::U16 => Some(16),
+            DType::I32 | DType::U32 | DType::F32 => Some(32),
+            DType::I64 | DType::U64 | DType::F64 => Some(64),
+            DType::Int => Some(std::mem::size_of::<isize>() * 8),
+            _ => None,
+        }
+    }
+
+    /// Create a zero literal for this type
+    pub fn zero(&self) -> Option<Literal> {
+        match self {
+            DType::Bool => Some(Literal::Bool(false)),
+            DType::I8 => Some(Literal::I8(0)),
+            DType::I16 => Some(Literal::I16(0)),
+            DType::I32 => Some(Literal::I32(0)),
+            DType::I64 | DType::Int => Some(Literal::I64(0)),
+            DType::U8 => Some(Literal::U8(0)),
+            DType::U16 => Some(Literal::U16(0)),
+            DType::U32 => Some(Literal::U32(0)),
+            DType::U64 => Some(Literal::U64(0)),
+            DType::F32 => Some(Literal::F32(0.0)),
+            DType::F64 => Some(Literal::F64(0.0)),
+            _ => None,
+        }
+    }
+
+    /// Create a one literal for this type
+    pub fn one(&self) -> Option<Literal> {
+        match self {
+            DType::Bool => Some(Literal::Bool(true)),
+            DType::I8 => Some(Literal::I8(1)),
+            DType::I16 => Some(Literal::I16(1)),
+            DType::I32 => Some(Literal::I32(1)),
+            DType::I64 | DType::Int => Some(Literal::I64(1)),
+            DType::U8 => Some(Literal::U8(1)),
+            DType::U16 => Some(Literal::U16(1)),
+            DType::U32 => Some(Literal::U32(1)),
+            DType::U64 => Some(Literal::U64(1)),
+            DType::F32 => Some(Literal::F32(1.0)),
+            DType::F64 => Some(Literal::F64(1.0)),
+            _ => None,
+        }
+    }
 }
+
+// ============================================================================
+// Tests
+// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -208,41 +447,90 @@ mod tests {
     }
 
     #[test]
-    fn test_bool_literal_from_conversion() {
-        let lit: Literal = true.into();
-        assert_eq!(lit, Literal::Bool(true));
-
-        let lit: Literal = false.into();
-        assert_eq!(lit, Literal::Bool(false));
+    fn test_integer_literals() {
+        assert_eq!(Literal::I8(42).dtype(), DType::I8);
+        assert_eq!(Literal::I16(42).dtype(), DType::I16);
+        assert_eq!(Literal::I32(42).dtype(), DType::I32);
+        assert_eq!(Literal::I64(42).dtype(), DType::I64);
+        assert_eq!(Literal::U8(42).dtype(), DType::U8);
+        assert_eq!(Literal::U16(42).dtype(), DType::U16);
+        assert_eq!(Literal::U32(42).dtype(), DType::U32);
+        assert_eq!(Literal::U64(42).dtype(), DType::U64);
     }
 
     #[test]
-    fn test_bool_dtype_size() {
+    fn test_float_literals() {
+        assert_eq!(Literal::F32(3.14).dtype(), DType::F32);
+        assert_eq!(Literal::F64(3.14).dtype(), DType::F64);
+    }
+
+    #[test]
+    fn test_literal_conversions() {
+        let lit: Literal = 42i8.into();
+        assert_eq!(lit, Literal::I8(42));
+
+        let lit: Literal = 42i64.into();
+        assert_eq!(lit, Literal::I64(42));
+
+        let lit: Literal = 42u64.into();
+        assert_eq!(lit, Literal::U64(42));
+
+        let lit: Literal = 3.14f64.into();
+        assert_eq!(lit, Literal::F64(3.14));
+    }
+
+    #[test]
+    fn test_dtype_size() {
         assert_eq!(DType::Bool.size_in_bytes(), 1);
+        assert_eq!(DType::I8.size_in_bytes(), 1);
+        assert_eq!(DType::I16.size_in_bytes(), 2);
+        assert_eq!(DType::I32.size_in_bytes(), 4);
+        assert_eq!(DType::I64.size_in_bytes(), 8);
+        assert_eq!(DType::U8.size_in_bytes(), 1);
+        assert_eq!(DType::U16.size_in_bytes(), 2);
+        assert_eq!(DType::U32.size_in_bytes(), 4);
+        assert_eq!(DType::U64.size_in_bytes(), 8);
+        assert_eq!(DType::F32.size_in_bytes(), 4);
+        assert_eq!(DType::F64.size_in_bytes(), 8);
     }
 
     #[test]
-    fn test_bool_dtype_is_bool() {
+    fn test_dtype_is_methods() {
         assert!(DType::Bool.is_bool());
-        assert!(!DType::F32.is_bool());
-        assert!(!DType::I64.is_bool());
+        assert!(DType::I32.is_signed_integer());
+        assert!(DType::U32.is_unsigned_integer());
+        assert!(DType::I32.is_integer());
+        assert!(DType::U32.is_integer());
+        assert!(DType::F32.is_float());
+        assert!(DType::F64.is_float());
+        assert!(DType::Int.is_signed_integer());
     }
 
     #[test]
-    fn test_bool_ptr_and_vec() {
-        let bool_ptr = DType::Bool.to_ptr();
-        assert_eq!(bool_ptr, DType::Ptr(Box::new(DType::Bool)));
-        assert_eq!(bool_ptr.deref_type(), &DType::Bool);
-
-        let bool_vec = DType::Bool.to_vec(4);
-        assert_eq!(bool_vec, DType::Vec(Box::new(DType::Bool), 4));
-        assert_eq!(bool_vec.element_type(), &DType::Bool);
+    fn test_dtype_bit_width() {
+        assert_eq!(DType::I8.bit_width(), Some(8));
+        assert_eq!(DType::I16.bit_width(), Some(16));
+        assert_eq!(DType::I32.bit_width(), Some(32));
+        assert_eq!(DType::I64.bit_width(), Some(64));
+        assert_eq!(DType::F32.bit_width(), Some(32));
+        assert_eq!(DType::F64.bit_width(), Some(64));
     }
 
     #[test]
-    fn test_literal_as_i64_with_bool() {
-        let bool_lit = Literal::Bool(true);
-        assert_eq!(bool_lit.as_i64(), None);
-        assert_eq!(bool_lit.as_usize(), None);
+    fn test_literal_is_zero_one() {
+        assert!(Literal::I32(0).is_zero());
+        assert!(!Literal::I32(1).is_zero());
+        assert!(Literal::I32(1).is_one());
+        assert!(!Literal::I32(0).is_one());
+        assert!(Literal::F32(0.0).is_zero());
+        assert!(Literal::F32(1.0).is_one());
+    }
+
+    #[test]
+    fn test_dtype_zero_one() {
+        assert_eq!(DType::I32.zero(), Some(Literal::I32(0)));
+        assert_eq!(DType::I32.one(), Some(Literal::I32(1)));
+        assert_eq!(DType::F64.zero(), Some(Literal::F64(0.0)));
+        assert_eq!(DType::F64.one(), Some(Literal::F64(1.0)));
     }
 }

@@ -43,9 +43,17 @@ pub mod ph {
 pub fn dtype_to_ast(dtype: &DType) -> AstDType {
     match dtype {
         DType::Bool => AstDType::Bool,
-        DType::I64 => AstDType::I64,
+        DType::I8 => AstDType::I8,
+        DType::I16 => AstDType::I16,
         DType::I32 => AstDType::I32,
+        DType::I64 => AstDType::I64,
+        DType::U8 => AstDType::U8,
+        DType::U16 => AstDType::U16,
+        DType::U32 => AstDType::U32,
+        DType::U64 => AstDType::U64,
         DType::F32 => AstDType::F32,
+        DType::F64 => AstDType::F64,
+        DType::Int => AstDType::Int,
         DType::Unknown => AstDType::F32, // デフォルトでF32
         // Tensor領域では通常使用しないが、そのまま通す
         DType::Ptr(inner) => AstDType::Ptr(inner.clone()),

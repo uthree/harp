@@ -124,6 +124,14 @@ pub trait CLikeRenderer: Renderer {
                 // Boolはu8として表現: true = 1, false = 0
                 if *v { "1".to_string() } else { "0".to_string() }
             }
+            Literal::I8(v) => format!("{}", v),
+            Literal::I16(v) => format!("{}", v),
+            Literal::I32(v) => format!("{}", v),
+            Literal::I64(v) => format!("{}", v),
+            Literal::U8(v) => format!("{}u", v),
+            Literal::U16(v) => format!("{}u", v),
+            Literal::U32(v) => format!("{}u", v),
+            Literal::U64(v) => format!("{}ull", v),
             Literal::F32(v) => {
                 // 特殊な浮動小数点値の処理
                 if v.is_nan() {
@@ -144,8 +152,24 @@ pub trait CLikeRenderer: Renderer {
                     }
                 }
             }
-            Literal::I64(v) => format!("{}", v),
-            Literal::I32(v) => format!("{}", v),
+            Literal::F64(v) => {
+                if v.is_nan() {
+                    "NAN".to_string()
+                } else if v.is_infinite() {
+                    if v.is_sign_positive() {
+                        "INFINITY".to_string()
+                    } else {
+                        "(-INFINITY)".to_string()
+                    }
+                } else {
+                    let s = format!("{}", v);
+                    if !s.contains('.') && !s.contains('e') && !s.contains('E') {
+                        format!("{}.0", s)
+                    } else {
+                        s
+                    }
+                }
+            }
         }
     }
 
@@ -836,10 +860,18 @@ impl CLikeRenderer for GenericRenderer {
 
     fn render_dtype_backend(&self, dtype: &DType) -> String {
         match dtype {
-            DType::F32 => "float".to_string(),
             DType::Bool => "unsigned char".to_string(),
-            DType::I64 => "long".to_string(),
-            DType::I32 => "int".to_string(), // 32-bit signed integer
+            DType::I8 => "signed char".to_string(),
+            DType::I16 => "short".to_string(),
+            DType::I32 => "int".to_string(),
+            DType::I64 => "long long".to_string(),
+            DType::U8 => "unsigned char".to_string(),
+            DType::U16 => "unsigned short".to_string(),
+            DType::U32 => "unsigned int".to_string(),
+            DType::U64 => "unsigned long long".to_string(),
+            DType::F32 => "float".to_string(),
+            DType::F64 => "double".to_string(),
+            DType::Int => "long".to_string(), // Default index type
             DType::Ptr(inner) => format!("{}*", self.render_dtype_backend(inner)),
             DType::Vec(inner, size) => format!("{}[{}]", self.render_dtype_backend(inner), size),
             DType::Tuple(_) => "/* tuple */".to_string(),

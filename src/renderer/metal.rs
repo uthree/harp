@@ -74,9 +74,17 @@ impl std::fmt::Display for MetalCode {
 fn render_dtype_metal(dtype: &DType) -> String {
     match dtype {
         DType::Bool => "uchar".to_string(),
-        DType::F32 => "float".to_string(),
-        DType::I64 => "long".to_string(),
+        DType::I8 => "char".to_string(),
+        DType::I16 => "short".to_string(),
         DType::I32 => "int".to_string(),
+        DType::I64 => "long".to_string(),
+        DType::U8 => "uchar".to_string(),
+        DType::U16 => "ushort".to_string(),
+        DType::U32 => "uint".to_string(),
+        DType::U64 => "ulong".to_string(),
+        DType::F32 => "float".to_string(),
+        DType::F64 => "double".to_string(), // Note: Metal has limited double support
+        DType::Int => "long".to_string(),   // Index type: use long for Metal
         DType::Ptr(inner) => format!("device {}*", render_dtype_metal(inner)),
         DType::Vec(inner, size) => {
             let base = render_dtype_metal(inner);
