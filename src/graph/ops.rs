@@ -78,6 +78,10 @@ pub enum GraphOp {
     }, // unfoldの逆操作（col2im）
     /// 一様乱数でテンソルを初期化 [0, 1)
     Rand,
+    /// 定数値でテンソル全体を埋める
+    ///
+    /// zeros, ones, full の実装に使用
+    ConstFill(Literal),
     /// 連番テンソルを生成 [0, 1, 2, ..., n-1]
     Arange,
     /// 型変換（キャスト）

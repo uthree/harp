@@ -1,7 +1,7 @@
 //! ASTを可読性の高い文字列に変換するモジュール
 
 use super::AstNode;
-use crate::backend::c_like::CLikeRenderer;
+use crate::renderer::c_like::CLikeRenderer;
 
 /// ASTを文字列に変換（ジェネリックレンダラー対応）
 ///

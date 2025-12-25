@@ -233,7 +233,7 @@ pub fn collect_kernels_as_program(graph: &Graph) -> Option<crate::ast::AstNode> 
                                 // node.srcから入力が見つからない場合はAST本体からプレースホルダーを抽出
                                 // （外部入力バッファを使用するケース）
                                 if inputs.is_empty() {
-                                    use crate::backend::c_like::extract_buffer_placeholders;
+                                    use crate::renderer::c_like::extract_buffer_placeholders;
                                     // 関数本体からプレースホルダーを抽出
                                     let body = match ast {
                                         AstNode::Kernel { body, .. }

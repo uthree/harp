@@ -340,6 +340,62 @@ impl GraphNode {
         Self::new(dtype, GraphOp::Const(literal), vec![], view)
     }
 
+    /// 指定した形状でゼロ埋めされたテンソルを作成
+    ///
+    /// # 引数
+    /// - `shape`: テンソルの形状
+    ///
+    /// # 例
+    /// ```
+    /// use harp::graph::GraphNode;
+    ///
+    /// // 3x4のゼロテンソル
+    /// let zeros = GraphNode::zeros(vec![3, 4]);
+    /// ```
+    pub fn zeros<E: Into<shape::Expr> + Clone, I: IntoIterator<Item = E>>(shape: I) -> Self {
+        Self::full(0.0f32, shape)
+    }
+
+    /// 指定した形状で1埋めされたテンソルを作成
+    ///
+    /// # 引数
+    /// - `shape`: テンソルの形状
+    ///
+    /// # 例
+    /// ```
+    /// use harp::graph::GraphNode;
+    ///
+    /// // 2x3の1テンソル
+    /// let ones = GraphNode::ones(vec![2, 3]);
+    /// ```
+    pub fn ones<E: Into<shape::Expr> + Clone, I: IntoIterator<Item = E>>(shape: I) -> Self {
+        Self::full(1.0f32, shape)
+    }
+
+    /// 指定した形状で定数値埋めされたテンソルを作成
+    ///
+    /// # 引数
+    /// - `value`: 埋める値
+    /// - `shape`: テンソルの形状
+    ///
+    /// # 例
+    /// ```
+    /// use harp::graph::GraphNode;
+    ///
+    /// // 2x3のテンソル、すべて3.14で埋める
+    /// let filled = GraphNode::full(3.14f32, vec![2, 3]);
+    /// ```
+    pub fn full<E: Into<shape::Expr> + Clone, I: IntoIterator<Item = E>>(
+        value: f32,
+        shape: I,
+    ) -> Self {
+        let shape_exprs: Vec<shape::Expr> = shape.into_iter().map(|e| e.into()).collect();
+        let view = View::contiguous(shape_exprs);
+        let literal = crate::ast::Literal::F32(value);
+        // ConstFill: 形状全体を定数で埋める
+        Self::new(DType::F32, GraphOp::ConstFill(literal), vec![], view)
+    }
+
     /// 指定した形状の一様乱数テンソルを生成 [0, 1)
     ///
     /// # 引数

@@ -582,7 +582,7 @@ impl KernelMergeSuggester {
                 let kernel_name = name.clone().unwrap_or_else(|| "unnamed_kernel".to_string());
                 // paramsが空の場合は関数本体からプレースホルダーを抽出
                 let (inputs, outputs) = if params.is_empty() {
-                    use crate::backend::c_like::extract_buffer_placeholders;
+                    use crate::renderer::c_like::extract_buffer_placeholders;
                     let (input_names, has_output) = extract_buffer_placeholders(body);
                     let output_names = if has_output {
                         vec!["output".to_string()]
@@ -643,7 +643,7 @@ impl KernelMergeSuggester {
                                     name.clone().unwrap_or_else(|| "unnamed_kernel".to_string());
                                 // paramsが空の場合は関数本体からプレースホルダーを抽出
                                 let (inputs, outputs) = if params.is_empty() {
-                                    use crate::backend::c_like::extract_buffer_placeholders;
+                                    use crate::renderer::c_like::extract_buffer_placeholders;
                                     let (input_names, has_output) =
                                         extract_buffer_placeholders(body);
                                     let output_names = if has_output {

@@ -38,12 +38,14 @@ pub mod backend;
 pub mod graph;
 pub mod lowerer;
 pub mod opt;
+pub mod renderer;
+pub mod tensor;
 
 // Re-export commonly used types from graph module
 pub use graph::{CumulativeStrategy, DType, Graph, GraphNode, ReduceStrategy};
 
-// Re-export backend traits
-pub use backend::Renderer;
+// Re-export renderer traits
+pub use renderer::Renderer;
 
 // Re-export backend traits
 pub use backend::{Buffer, Compiler, Device, Kernel, KernelConfig, Pipeline};
@@ -85,4 +87,10 @@ pub mod prelude {
 
     // AST types (for advanced usage)
     pub use crate::ast::{AstNode, DType as AstDType, Literal};
+
+    // Tensor types
+    pub use crate::tensor::{
+        Dim, Dim0, Dim1, Dim2, Dim3, Dim4, Dim5, Dim6, DimDyn, Dimension, HasLarger, HasSmaller,
+        Tensor,
+    };
 }

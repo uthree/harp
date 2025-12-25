@@ -3,9 +3,15 @@
 //! This module provides a Pipeline implementation that uses the GPU backends
 //! (OpenCL via `ocl` crate, Metal via `metal` crate).
 
+// Allow deprecated types internally for backwards compatibility
+// Users will still see deprecation warnings when using these types
+#![allow(deprecated)]
+
 use crate::ast::{AstKernelCallInfo, AstNode, DType, Literal};
 use crate::backend::KernelSignature;
-use crate::backend::c_like::CLikeRenderer;
+// Note: CompiledProgram, IntermediateBufferSpec, KernelCallInfo are deprecated
+// but still used internally for backwards compatibility
+#[allow(deprecated)]
 use crate::backend::sequence::{
     CompiledProgram, ExecutionQuery, IntermediateBufferSpec, KernelCallInfo,
 };
@@ -20,6 +26,7 @@ use crate::opt::ast::{
 };
 use crate::opt::context::DeviceCapabilities;
 use crate::opt::graph::{GraphOptimizer, OptimizationHistory as GraphOptimizationHistory};
+use crate::renderer::c_like::CLikeRenderer;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 
@@ -204,6 +211,16 @@ where
     ///
     /// This method compiles a graph that may produce multiple kernels after optimization.
     /// The returned `CompiledProgram` can execute all kernels in the correct order.
+    ///
+    /// # Deprecated
+    ///
+    /// Use `compile_graph` instead. The 1 binary = 1 kernel model is now preferred.
+    /// If you need multiple kernels, compile each graph separately.
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use compile_graph instead. For multiple kernels, compile each graph separately."
+    )]
+    #[allow(deprecated)]
     pub fn compile_program(
         &mut self,
         graph: Graph,

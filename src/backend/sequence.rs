@@ -3,6 +3,13 @@
 //! This module provides types and utilities for executing multiple kernels
 //! in sequence, supporting subgraph-based compilation where a single Graph
 //! may be split into multiple kernels.
+//!
+//! **Note**: `CompiledProgram`, `KernelCallInfo`, and `IntermediateBufferSpec` are deprecated.
+//! Use `CompiledKernel` for single-kernel execution. For multiple kernels,
+//! compile each graph separately and manage execution at the call site.
+
+// Allow deprecated types within this module for internal consistency
+#![allow(deprecated)]
 
 use crate::ast::DType;
 use crate::backend::traits::{Buffer, Kernel};
@@ -192,6 +199,16 @@ impl<KE: std::error::Error + 'static, BE: std::error::Error + 'static> std::erro
 }
 
 /// Information about a single kernel invocation in a sequence
+///
+/// # Deprecated
+///
+/// This struct is deprecated as part of the ExecutionWave removal.
+/// Use `CompiledKernel` for single-kernel execution instead.
+/// If you need multiple kernels, manage execution order at the call site.
+#[deprecated(
+    since = "0.2.0",
+    note = "Use CompiledKernel for single-kernel execution. For multiple kernels, manage execution at the call site."
+)]
 #[derive(Clone, Debug)]
 pub struct KernelCallInfo {
     /// Name of the kernel to invoke
@@ -226,6 +243,15 @@ impl KernelCallInfo {
 }
 
 /// Specification for an intermediate buffer
+///
+/// # Deprecated
+///
+/// This struct is deprecated as part of the ExecutionWave removal.
+/// Use `CompiledKernel` for single-kernel execution instead.
+#[deprecated(
+    since = "0.2.0",
+    note = "Use CompiledKernel for single-kernel execution. Intermediate buffers are no longer automatically managed."
+)]
 #[derive(Clone, Debug)]
 pub struct IntermediateBufferSpec {
     /// Buffer name (used as key for lookup)
@@ -275,21 +301,31 @@ impl IntermediateBufferSpec {
 /// This represents a complete computation that may require multiple kernel
 /// invocations. Intermediate buffers are automatically managed.
 ///
-/// ## Execution Model
+/// # Deprecated
 ///
-/// `execution_waves` contains groups of kernels organized as follows:
-/// - Inner `Vec<KernelCallInfo>`: Kernels that can execute in parallel
-/// - Outer `Vec`: Sequential waves with implicit barriers between them
+/// This struct is deprecated. Use `CompiledKernel` for single-kernel execution.
+/// The 1 binary = 1 kernel model is now preferred. If you need multiple kernels,
+/// compile each graph separately and manage execution order at the call site.
 ///
-/// ```text
-/// execution_waves = [
-///     // Wave 0: These kernels can run in parallel
-///     [KernelA, KernelB],
-///     // <implicit barrier>
-///     // Wave 1: These depend on Wave 0's results
-///     [KernelC],
-/// ]
+/// ## Migration Guide
+///
+/// Before (deprecated):
+/// ```ignore
+/// let program = pipeline.compile_program(graph)?;
+/// program.execute(&context, &inputs, &mut outputs)?;
 /// ```
+///
+/// After:
+/// ```ignore
+/// let kernel = pipeline.compile_graph(graph)?;
+/// kernel.execute(&inputs, &mut outputs)?;
+/// ```
+///
+/// For multiple kernels, compile each separately and execute in order.
+#[deprecated(
+    since = "0.2.0",
+    note = "Use CompiledKernel for single-kernel execution. For multiple kernels, compile each graph separately."
+)]
 pub struct CompiledProgram<K, B>
 where
     K: Kernel<Buffer = B>,

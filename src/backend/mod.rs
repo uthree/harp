@@ -1,13 +1,17 @@
 //! Backend module
 //!
-//! This module provides GPU kernel rendering and execution capabilities.
+//! This module provides GPU execution capabilities.
 //!
 //! ## Architecture
 //!
 //! The backend is organized into:
-//! - **Renderers**: Convert AST to kernel source code
 //! - **Traits**: Common interfaces for GPU execution (Device, Buffer, etc.)
 //! - **Execution**: Pipeline for end-to-end compilation from Graph to executable kernel
+//!
+//! ## Renderers
+//!
+//! Renderers are now in `crate::renderer` module and are always available
+//! without feature flags. Use `harp::renderer::{OpenCLRenderer, MetalRenderer}`.
 //!
 //! ## Usage
 //!
@@ -21,7 +25,6 @@
 
 use std::collections::HashMap;
 
-pub mod c_like;
 pub mod pipeline;
 pub mod sequence;
 pub mod traits;
@@ -47,6 +50,9 @@ pub use pipeline::{
 };
 
 // Re-export sequence types
+// Note: CompiledProgram, IntermediateBufferSpec, KernelCallInfo are deprecated
+// but still exported for backwards compatibility
+#[allow(deprecated)]
 pub use sequence::{
     CompiledProgram, ExecutionQuery, IntermediateBufferSpec, KernelCallInfo, ProgramExecutionError,
 };
@@ -58,14 +64,8 @@ pub use crate::opt::graph::{
     optimize_graph_greedy, optimize_graph_multi_phase,
 };
 
-/// Renderer trait for converting AST to source code
-pub trait Renderer {
-    type CodeRepr: Into<String>;
-    type Option;
-    fn render(&self, program: &crate::ast::AstNode) -> Self::CodeRepr;
-    fn is_available(&self) -> bool;
-    fn with_option(&mut self, _option: Self::Option) {}
-}
+// Re-export Renderer trait from renderer module for backwards compatibility
+pub use crate::renderer::Renderer;
 
 /// カーネルのシグネチャ（入出力バッファの形状情報）
 #[derive(Debug, Clone, PartialEq, Eq)]

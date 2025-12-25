@@ -357,6 +357,14 @@ impl SimpleCostEstimator {
                 let lowering_penalty = self.kernel_launch_overhead.ln();
                 num_elements.ln() + self.memory_access_cost.ln() + lowering_penalty
             }
+            GraphOp::ConstFill(_) => {
+                // 定数値初期化: 各要素に同じ定数値を書き込み
+                // 非常に軽量（書き込みのみ）
+                let num_elements = self.compute_num_elements(node);
+                // ConstFillもKernelにloweringされるべきなのでペナルティを追加
+                let lowering_penalty = self.kernel_launch_overhead.ln();
+                num_elements.ln() + self.memory_access_cost.ln() + lowering_penalty
+            }
             GraphOp::Cast { .. } => {
                 // 型変換: 各要素をキャスト
                 // 非常に軽量（読み込み + キャスト + 書き込み）

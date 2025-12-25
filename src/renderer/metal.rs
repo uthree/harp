@@ -1,7 +1,69 @@
-use super::MetalCode;
+use super::Renderer;
+use super::c_like::CLikeRenderer;
 use crate::ast::{AstNode, DType, Mutability, VarDecl, VarKind};
-use crate::backend::Renderer;
-use crate::backend::c_like::CLikeRenderer;
+
+/// Metal Shading Language のソースコードを表す型
+///
+/// newtype pattern を使用して、型システムで Metal 専用のコードとして扱う。
+/// これにより、誤って他のバックエンドにコードを渡すことを防ぐ。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MetalCode(String);
+
+impl MetalCode {
+    /// 新しい MetalCode を作成
+    pub fn new(code: String) -> Self {
+        Self(code)
+    }
+
+    /// 内部の String への参照を取得
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// 内部の String を取得（所有権を移動）
+    pub fn into_inner(self) -> String {
+        self.0
+    }
+
+    /// コードのバイト数を取得
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// コードが空かどうか
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// 指定した文字列が含まれているかチェック
+    pub fn contains(&self, pat: &str) -> bool {
+        self.0.contains(pat)
+    }
+}
+
+impl From<String> for MetalCode {
+    fn from(s: String) -> Self {
+        Self::new(s)
+    }
+}
+
+impl From<MetalCode> for String {
+    fn from(code: MetalCode) -> Self {
+        code.into_inner()
+    }
+}
+
+impl AsRef<str> for MetalCode {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl std::fmt::Display for MetalCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 // ============================================================
 // Metal共通のレンダリングヘルパー関数
@@ -191,7 +253,7 @@ impl MetalKernelRenderer {
 
             // paramsが空の場合、関数本体からバッファプレースホルダーを抽出
             if params.is_empty() {
-                use crate::backend::c_like::extract_buffer_placeholders;
+                use crate::renderer::c_like::extract_buffer_placeholders;
                 let (inputs, has_output) = extract_buffer_placeholders(body);
                 let mut buffer_params: Vec<String> = Vec::new();
                 let mut buffer_index = 0;
@@ -503,7 +565,7 @@ mod tests {
     use super::*;
     use crate::ast::helper::*;
     use crate::ast::{AstNode, Literal, Scope};
-    use crate::backend::c_like::CLikeRenderer;
+    use crate::renderer::c_like::CLikeRenderer;
 
     #[test]
     #[allow(clippy::approx_constant)]
