@@ -1,8 +1,4 @@
 [workspace]
-members = [
-    ".",
-    "crates/autograd",
-]
 resolver = "2"
 
 [package]

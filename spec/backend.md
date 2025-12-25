@@ -9,6 +9,7 @@
 ### コアモジュール
 - `mod.rs`: Renderer trait、KernelSignature、BufferSignatureの定義
 - `traits.rs`: GPU実行用の共通trait定義（Device, Buffer, Kernel, Compiler, KernelConfig）
+- `global.rs`: グローバルデバイス管理（DeviceKind, set_default_device, get_default_device等）
 - `sequence.rs`: 複数カーネル順次実行（CompiledProgram, KernelCallInfo, IntermediateBufferSpec, ExecutionQuery）
 - `pipeline.rs`: Pipeline、PipelineConfig、CompiledKernel、KernelExecutionError、DispatchSizeConfig、DispatchSizeExpr、AST式評価関数、KernelSourceRenderer trait
 - `c_like.rs`: C言語系構文の共通レンダリングロジック（CLikeRenderer trait）、OptimizationLevel、extract_buffer_placeholders関数
@@ -44,6 +45,51 @@ pub trait Renderer {
 ```
 
 C言語系の構文を持つ言語（OpenCL、Metal）は`CLikeRenderer` traitで共通ロジックを共有。
+
+### グローバルデバイス管理
+
+PyTorchライクなグローバルデバイス管理。`thread_local!`でスレッドごとにデフォルトデバイスを管理。
+
+```rust
+pub enum DeviceKind {
+    None,    // デバイス未設定
+    Metal,   // Metalバックエンド
+    OpenCL,  // OpenCLバックエンド
+}
+
+// デバイス設定
+pub fn set_default_device<D: Device + Send + Sync + 'static>(device: D, kind: DeviceKind);
+
+// デバイス種類取得
+pub fn get_default_device_kind() -> DeviceKind;
+
+// デバイス取得（型指定）
+pub fn get_default_device<D: Device + Send + Sync + 'static>() -> Option<Arc<D>>;
+
+// デバイスが設定されているか
+pub fn has_default_device() -> bool;
+
+// デバイスクリア
+pub fn clear_default_device();
+
+// スコープ付きデバイス切り替え
+pub fn with_device<D, F, R>(device: D, kind: DeviceKind, f: F) -> R;
+```
+
+**使用例:**
+
+```rust
+use harp::backend::{set_default_device, DeviceKind};
+
+#[cfg(feature = "metal")]
+{
+    use harp::backend::metal::MetalDevice;
+    let device = MetalDevice::new().unwrap();
+    set_default_device(device, DeviceKind::Metal);
+}
+
+// Tensor.forward()でこのデバイスが使用される
+```
 
 ### KernelSourceRenderer trait
 GPU APIに直接渡せるカーネルソースコードのみを生成するためのtrait。`CLikeRenderer`を拡張します。
