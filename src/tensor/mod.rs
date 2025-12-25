@@ -158,6 +158,7 @@ pub(crate) struct TensorNode {
     /// Data type
     pub(crate) dtype: DType,
     /// Optional name for debugging
+    #[allow(dead_code)]
     pub(crate) name: Option<String>,
 }
 

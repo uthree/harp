@@ -34,22 +34,12 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::ast::{AstKernelCallInfo, AstNode, DType as AstDType, Mutability, Scope, helper::*};
-use crate::core::DType;
-use crate::core::shape::{Expr, View};
+use crate::core::shape::Expr;
 use crate::tensor::ops::{ReduceOp, TensorOp};
 use crate::tensor::{DimDyn, Tensor, TensorNode};
 
 use expr_builder::{build_elementwise_expr, build_reduce_identity_expr};
 use helpers::*;
-
-/// 入力バッファのメタデータ
-#[derive(Debug, Clone)]
-struct InputMeta {
-    name: String,
-    dtype: DType,
-    shape: Vec<Expr>,
-    view: View,
-}
 
 /// TensorをASTに変換するLowerer
 ///
@@ -57,8 +47,8 @@ struct InputMeta {
 pub struct TensorLowerer {
     /// カーネル名カウンタ
     kernel_counter: usize,
-    /// 収集された入力バッファ (name -> meta)
-    input_buffers: HashMap<String, InputMeta>,
+    /// 収集された入力バッファ名
+    input_buffer_names: Vec<String>,
     /// 処理済みTensorNodeキャッシュ (ptr -> processed flag)
     visited: HashMap<*const TensorNode, bool>,
 }
@@ -68,7 +58,7 @@ impl TensorLowerer {
     pub fn new() -> Self {
         Self {
             kernel_counter: 0,
-            input_buffers: HashMap::new(),
+            input_buffer_names: Vec::new(),
             visited: HashMap::new(),
         }
     }
@@ -106,16 +96,8 @@ impl TensorLowerer {
 
         match &node.op {
             TensorOp::Buffer { name } => {
-                if !self.input_buffers.contains_key(name) {
-                    self.input_buffers.insert(
-                        name.clone(),
-                        InputMeta {
-                            name: name.clone(),
-                            dtype: node.dtype.clone(),
-                            shape: node.view.shape().to_vec(),
-                            view: node.view.clone(),
-                        },
-                    );
+                if !self.input_buffer_names.contains(name) {
+                    self.input_buffer_names.push(name.clone());
                 }
             }
             _ => {
@@ -361,7 +343,7 @@ impl TensorLowerer {
     /// Programとしてラップ
     fn wrap_as_program(&self, functions: Vec<AstNode>, kernel_name: &str, numel: usize) -> AstNode {
         // 入力バッファをソート（安定した順序のため）
-        let mut input_names: Vec<_> = self.input_buffers.keys().cloned().collect();
+        let mut input_names = self.input_buffer_names.clone();
         input_names.sort();
 
         // スレッドグループサイズを計算
