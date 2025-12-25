@@ -1,7 +1,0 @@
-// Matrix multiplication
-// Computes C = A @ B where A is [L, M] and B is [M, N]
-
-graph<L=1, M=1, N=1> main(a: f32[L, M], b: f32[M, N]) -> (c: f32[L, N]) {
-    result = matmul(a, b)
-    return result
-}

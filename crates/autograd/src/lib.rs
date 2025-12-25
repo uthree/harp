@@ -19,8 +19,9 @@
 
 pub mod differentiable;
 pub mod hlops;
-#[cfg(feature = "ndarray")]
-mod ndarray_impl;
+// TODO: ndarray_impl is not yet implemented
+// #[cfg(feature = "ndarray")]
+// mod ndarray_impl;
 pub mod prelude;
 pub mod primops;
 pub mod shape;
