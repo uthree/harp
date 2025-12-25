@@ -1,24 +1,99 @@
 # Tensor モジュール仕様
 
-統合Tensor型を提供するモジュール。遅延評価と自動微分をサポート。
+統合Tensor型を提供するモジュール。遅延評価、自動微分、Eager Fusionをサポート。
 
 ## 設計思想
 
 tinygrad/microgradの設計哲学に基づき、最小のプリミティブ演算の組み合わせで複雑な機能を実現。
 
-## 主要コンポーネント
+## アーキテクチャ（移行中）
 
-### Tensor<D>
+### 新設計: TensorOp直接保持
+
+Tensorが計算グラフを直接保持し、GraphNodeレイヤーを廃止する設計へ移行中。
 
 ```rust
+// 新構造（Phase 6で完全移行予定）
 pub struct Tensor<D: Dimension = DimDyn> {
-    node: GraphNode,           // 計算グラフノード
-    shape: Vec<usize>,         // テンソル形状
-    dtype: DType,              // データ型
+    op: TensorOp,                  // 演算種類
+    src: Vec<Tensor<DimDyn>>,      // 入力テンソル（DAG構造）
+    view: View,                    // メモリレイアウト
+    dtype: DType,                  // データ型
+    shape: Vec<usize>,             // テンソル形状
     autograd: Option<Rc<TensorData>>,  // 勾配追跡データ
-    _dim: PhantomData<D>,      // 次元マーカー
+    buffer: RefCell<Option<Vec<f32>>>, // 実行結果バッファ
+    _dim: PhantomData<D>,
 }
 ```
+
+### TensorOp
+
+演算の種類を表すenum。GraphOpを置換する。
+
+```rust
+pub enum TensorOp {
+    // 基本演算
+    Buffer { name: String },
+    Const(Literal),
+    ConstFill(Literal),
+    Rand,
+    Arange,
+    Cast { target_dtype: DType },
+    Clone,  // 分岐点（バッファコピー）
+
+    // View操作
+    View,
+    Contiguous,
+
+    // Elementwise（融合可能）
+    Elementwise { op: ElementwiseOp },
+    FusedElementwise { expr: AstNode },
+
+    // Reduce（融合可能）
+    Reduce { op: ReduceOp, axes: Vec<usize>, keepdim: bool },
+    FusedElementwiseReduce { expr: AstNode, reduce_op: ReduceOp, axes, keepdim },
+
+    // 構造操作
+    Pad { padding: Vec<(Expr, Expr)>, value: f32 },
+    Slice { ranges: Vec<(usize, usize)> },
+    Concat { axis: usize },
+    Fold { ... },
+    Unfold { ... },
+
+    // 実行済み
+    Executed,
+}
+```
+
+## Eager Fusion
+
+演算呼び出し時に即座に融合判定を行い、可能であれば融合演算に変換。
+
+### 融合パターン
+
+| 親演算 | 子演算 | 結果 |
+|--------|--------|------|
+| Elementwise | Elementwise | FusedElementwise |
+| FusedElementwise | Elementwise | FusedElementwise（拡張） |
+| Elementwise | Reduce | FusedElementwiseReduce |
+| FusedElementwise | Reduce | FusedElementwiseReduce |
+
+### 所有権ベース設計
+
+演算はselfを消費（move）する。分岐が必要な場合は明示的に`fork()`を使用。
+
+```rust
+let a = x + y;           // x, y消費
+let b = a.sum();         // a消費 → 融合OK
+
+// 分岐が必要な場合
+let a = x + y;
+let a2 = a.fork();       // Clone演算がグラフに追加
+let b = a.sum();         // a消費 → 融合OK
+let c = a2 * 2.0;        // a2は別パス → OK
+```
+
+## 主要コンポーネント
 
 ### Dimension トレイト
 
@@ -50,7 +125,9 @@ pub trait GradFn {
 | 演算 | 説明 |
 |------|------|
 | `Const` | 定数テンソル |
+| `ConstFill` | 定数値で埋める |
 | `Rand` | 一様乱数 [0, 1) |
+| `Arange` | 連番テンソル |
 
 #### 要素ごとの演算（二項）
 | 演算 | 説明 |
@@ -59,6 +136,7 @@ pub trait GradFn {
 | `Mul` | 乗算 |
 | `Max` | 最大値 |
 | `Idiv` | 整数除算 |
+| `Rem` | 剰余 |
 
 #### 要素ごとの演算（単項）
 | 演算 | 説明 |
@@ -69,22 +147,30 @@ pub trait GradFn {
 | `Log2` | 2を底とする対数 |
 | `Exp2` | 2のべき乗 |
 | `Sin` | 正弦 |
+| `Floor` | 床関数（追加予定） |
 
 #### 縮約演算
 | 演算 | 説明 |
 |------|------|
-| `Reduce(Add)` | 総和 |
-| `Reduce(Mul)` | 総積 |
+| `Reduce(Sum)` | 総和 |
+| `Reduce(Prod)` | 総積 |
 | `Reduce(Max)` | 最大値 |
 
 #### 形状変更
 | 演算 | 説明 |
 |------|------|
-| `Squeeze` | サイズ1の次元を削除 |
-| `Unsqueeze` | サイズ1の次元を追加 |
-| `Repeat` | 次元方向に繰り返し |
-| `Reshape` | 形状変更 |
-| `Contiguous` | メモリレイアウト正規化 |
+| `View` | メモリコピーなしのView変更 |
+| `Contiguous` | メモリレイアウト正規化・実行トリガー |
+| `Pad` | パディング |
+| `Slice` | スライス |
+| `Fold` | col2im相当 |
+| `Unfold` | im2col相当 |
+
+#### 特殊
+| 演算 | 説明 |
+|------|------|
+| `Clone` | 分岐点（バッファコピー） |
+| `Cast` | 型変換 |
 
 ---
 
@@ -102,21 +188,10 @@ primopsの組み合わせで表現される演算。
 | `ReLU(x)` | `Max(x, 0)` |
 | `Sigmoid(x)` | `Recip(Add(1, Exp(Neg(x))))` |
 | `Tanh(x)` | `Div(Sub(Exp(2x), 1), Add(Exp(2x), 1))` |
-| `Mean(x, axes)` | `Div(Reduce(Add, x, axes), count)` |
-| `Softmax(x)` | `Div(Exp(x - max), Reduce(Add, Exp(x - max)))` |
-| `MatMul(a, b)` | `Reduce(Add, Mul(Unsqueeze(a), Unsqueeze(b)))` |
+| `Mean(x, axes)` | `Div(Reduce(Sum, x, axes), count)` |
+| `Softmax(x)` | `Div(Exp(x - max), Reduce(Sum, Exp(x - max)))` |
+| `MatMul(a, b)` | `Reduce(Sum, Mul(Unsqueeze(a), Unsqueeze(b)))` |
 | `Conv2d` | Unfold + MatMul (im2col方式) |
-
-#### MatMulの展開例
-
-```
-A: [M, K], B: [K, N] → C: [M, N]
-
-1. Unsqueeze(A, -1)     → [M, K, 1]
-2. Unsqueeze(B, 0)      → [1, K, N]
-3. Mul                  → [M, K, N]  (broadcast)
-4. Reduce(Add, axis=1)  → [M, N]
-```
 
 ## API
 
@@ -158,14 +233,8 @@ let y = x.relu();
 let sum = x.sum(&[0, 1], true);  // keepdim=true
 let mean = x.mean(&[1], false);
 
-// 形状操作
-let y = x.reshape([6]);
-let y = x.permute(&[1, 0]);
-let y = x.transpose();
-let y = x.expand(&[4, 3]);
-let y = x.unsqueeze(0);
-let y = x.squeeze();
-let y = x.flatten();
+// 分岐
+let a2 = a.fork();  // Clone演算を追加
 ```
 
 ### 勾配追跡
@@ -193,11 +262,17 @@ let detached = x.detach();
 ### 計算実行
 
 ```rust
-// デフォルトデバイスで実行
-x.forward()?;
+// realize()で実行トリガー（tinygradと同様）
+let result = x.realize()?;
 
 // 結果取得
-let data: Vec<f32> = x.data().unwrap();
+let data: Vec<f32> = result.data().unwrap();
+
+// contiguous()はメモリレイアウトの正規化（グラフノード作成のみ）
+let contiguous = x.contiguous();
+
+// from_data()で既存データからTensorを作成
+let t = Tensor::<DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2]);
 ```
 
 ## 勾配関数実装
@@ -215,67 +290,30 @@ let data: Vec<f32> = x.data().unwrap();
 | `z = Log2(a)` | ∂L/∂a = ∂L/∂z / (a · ln(2)) |
 | `z = Exp2(a)` | ∂L/∂a = ∂L/∂z · 2^a · ln(2) |
 | `z = Sin(a)` | ∂L/∂a = ∂L/∂z · cos(a) |
-| `z = Reduce(Add)` | ∂L/∂a = expand(∂L/∂z) |
-| `z = Reduce(Mul)` | ∂L/∂a = ∂L/∂z · z / a |
+| `z = Reduce(Sum)` | ∂L/∂a = expand(∂L/∂z) |
+| `z = Reduce(Prod)` | ∂L/∂a = ∂L/∂z · z / a |
 | `z = Reduce(Max)` | ∂L/∂a = ∂L/∂z · (a == max) |
 
-### hlops の勾配
+## モジュール構成
 
-hlopsはprimopsに展開されるため、連鎖律により自動的に勾配が計算される。
-便宜上、よく使う演算の勾配を示す：
-
-| 演算 | 勾配計算 |
-|------|----------|
-| `z = Sub(a, b)` | ∂L/∂a = ∂L/∂z, ∂L/∂b = -∂L/∂z |
-| `z = Div(a, b)` | ∂L/∂a = ∂L/∂z / b, ∂L/∂b = -∂L/∂z · a / b² |
-| `z = Exp(a)` | ∂L/∂a = ∂L/∂z · exp(a) |
-| `z = Ln(a)` | ∂L/∂a = ∂L/∂z / a |
-| `z = ReLU(a)` | ∂L/∂a = ∂L/∂z · (a > 0) |
-| `z = Mean(a)` | ∂L/∂a = expand(∂L/∂z) / count |
-
-## グローバルデバイス管理
-
-`thread_local!`でスレッドごとにデフォルトデバイスを管理。
-
-```rust
-// デバイス設定
-set_default_device(device, DeviceKind::Metal);
-
-// デバイス種類取得
-let kind = get_default_device_kind();
-
-// デバイス取得
-let device: Arc<MetalDevice> = get_default_device().unwrap();
-
-// スコープ付きデバイス変更
-with_device(other_device, DeviceKind::OpenCL, || {
-    // このスコープ内ではother_deviceがデフォルト
-});
-
-// デバイスクリア
-clear_default_device();
 ```
-
-## エラー型
-
-### ForwardError
-
-```rust
-pub enum ForwardError {
-    NoDefaultDevice,           // デフォルトデバイス未設定
-    DeviceUnavailable(String), // デバイス利用不可
-    CompilationError(String),  // コンパイル失敗
-    ExecutionError(String),    // 実行失敗
-    MissingInputData(String),  // 入力データ不足
-    NoComputation,             // 計算グラフなし
-}
-```
-
-### BackwardError
-
-```rust
-pub enum BackwardError {
-    NoGrad,                    // 勾配追跡無効
-    ShapeMismatch { expected, got }, // 形状不一致
-}
+src/tensor/
+├── mod.rs          # Tensor構造体、GradFn、TensorNode
+├── dimension.rs    # Dimension トレイト
+├── ops.rs          # TensorOp、ElementwiseOp、ReduceOp
+├── fusion.rs       # Eager Fusion ロジック
+├── forward.rs      # forward()、realize() 実行
+├── hlops/          # 高級演算
+│   ├── activation.rs
+│   ├── arithmetic.rs
+│   ├── linalg.rs
+│   ├── reduction.rs
+│   └── transcendental.rs
+└── primops/        # プリミティブ演算
+    ├── binary.rs
+    ├── grad.rs
+    ├── init.rs
+    ├── movement.rs
+    ├── reduce.rs
+    └── unary.rs
 ```

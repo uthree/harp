@@ -44,6 +44,7 @@ pub(crate) fn with_grad_fn<D: Dimension>(
                 grad_fn,
                 cached_data: RefCell::new(None),
             })),
+            buffer: tensor.buffer,
             _dim: PhantomData,
         }
     } else {

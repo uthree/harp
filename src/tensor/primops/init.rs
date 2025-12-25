@@ -110,11 +110,13 @@ impl Tensor<DimDyn> {
 impl<D: Dimension> Tensor<D> {
     /// Create a new tensor from a graph node (internal use)
     pub(crate) fn from_node(node: GraphNode, shape: Vec<usize>, dtype: DType) -> Self {
+        use std::cell::RefCell;
         Self {
             node,
             shape,
             dtype,
             autograd: None,
+            buffer: RefCell::new(None),
             _dim: PhantomData,
         }
     }

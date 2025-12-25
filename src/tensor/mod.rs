@@ -4,21 +4,30 @@
 //! - Lazy evaluation via computation graphs
 //! - Static dimension checking via const generics
 //! - Automatic differentiation (autograd)
+//! - Eager fusion for operation optimization
 //!
 //! # Design Philosophy
 //!
 //! The Tensor type follows the design philosophy of tinygrad/micrograd:
 //! minimal primitives combined to create complex functionality.
 //!
+//! ## Architecture
+//!
+//! Tensor directly holds the computation graph (no separate GraphNode layer):
+//! - `op: TensorOp` - The operation that produces this tensor
+//! - `src: Vec<Tensor<DimDyn>>` - Input tensors (forms a DAG)
+//! - `view: View` - Memory layout information
+//!
 //! ## primops (Primitive Operations)
 //!
 //! Minimal set of operations from which all others are composed:
 //!
-//! - **Initialization**: Const, Rand
-//! - **Binary**: Add, Mul, Max, Idiv
-//! - **Unary**: Neg, Recip, Sqrt, Log2, Exp2, Sin
-//! - **Reduce**: Reduce(Add), Reduce(Mul), Reduce(Max)
-//! - **Movement**: Squeeze, Unsqueeze, Repeat, Reshape, Contiguous
+//! - **Initialization**: Const, Rand, Arange
+//! - **Binary**: Add, Mul, Max, Idiv, Rem
+//! - **Unary**: Neg, Recip, Sqrt, Log2, Exp2, Sin, Floor
+//! - **Reduce**: Reduce(Sum), Reduce(Prod), Reduce(Max)
+//! - **Movement**: View, Contiguous, Pad, Slice, Fold, Unfold
+//! - **Special**: Clone (explicit branch point), Cast
 //!
 //! ## hlops (High-Level Operations)
 //!
@@ -29,6 +38,26 @@
 //! - **Activation**: ReLU, Sigmoid, Tanh, GELU, SiLU
 //! - **Reduction**: Mean, Var, Std, Softmax, LogSoftmax
 //! - **Linear Algebra**: MatMul, Dot, Outer
+//!
+//! ## Eager Fusion
+//!
+//! Operations are fused at call time:
+//! - Elementwise → Elementwise → FusedElementwise
+//! - Elementwise → Reduce → FusedElementwiseReduce
+//!
+//! ## Ownership-based Fusion Control
+//!
+//! Operations consume `self` (move semantics). For branching, use explicit `fork()`:
+//! ```ignore
+//! let a = x + y;           // x, y consumed
+//! let b = a.sum();         // a consumed → fusion OK
+//!
+//! // For branching:
+//! let a = x + y;
+//! let a2 = a.fork();       // Clone op added to graph
+//! let b = a.sum();         // a consumed → fusion OK
+//! let c = a2 * 2.0;        // a2 is separate path
+//! ```
 //!
 //! # Examples
 //!
@@ -43,7 +72,7 @@
 //! let z = y.relu();
 //!
 //! // Execute computation
-//! z.forward();
+//! z.contiguous();
 //!
 //! // Get data
 //! let data = z.data().unwrap();
@@ -55,7 +84,9 @@
 
 pub mod dimension;
 pub mod forward;
+pub mod fusion;
 pub mod hlops;
+pub mod ops;
 pub mod primops;
 
 use std::cell::RefCell;
@@ -64,7 +95,9 @@ use std::rc::Rc;
 
 pub use dimension::{Dim, Dim0, Dim1, Dim2, Dim3, Dim4, Dim5, Dim6, DimDyn, Dimension};
 pub use forward::ForwardError;
+pub use ops::{ElementwiseOp, ReduceOp, TensorOp};
 
+use crate::graph::shape::View;
 use crate::graph::{DType, GraphNode};
 
 /// Gradient function trait for backpropagation
@@ -105,6 +138,66 @@ pub(crate) struct TensorData {
     pub(crate) cached_data: RefCell<Option<Vec<f32>>>,
 }
 
+// ============================================================================
+// TensorNode: Internal computation graph node
+// ============================================================================
+
+/// Internal computation graph node data
+///
+/// This replaces GraphNodeData, embedding the computation graph directly in Tensor.
+/// The structure is reference-counted via Rc for efficient sharing.
+///
+/// Note: Currently unused - prepared for Phase 6 (GraphNode abolition)
+#[allow(dead_code)]
+#[derive(Clone)]
+pub(crate) struct TensorNode {
+    /// The operation that produces this tensor
+    pub(crate) op: TensorOp,
+    /// Input tensors (forms a DAG)
+    pub(crate) src: Vec<Tensor<DimDyn>>,
+    /// Memory layout information
+    pub(crate) view: View,
+    /// Data type
+    pub(crate) dtype: DType,
+    /// Optional name for debugging
+    pub(crate) name: Option<String>,
+}
+
+#[allow(dead_code)]
+impl TensorNode {
+    /// Create a new tensor node
+    pub fn new(op: TensorOp, src: Vec<Tensor<DimDyn>>, view: View, dtype: DType) -> Self {
+        Self {
+            op,
+            src,
+            view,
+            dtype,
+            name: None,
+        }
+    }
+
+    /// Create a new tensor node with a name
+    pub fn new_named(
+        op: TensorOp,
+        src: Vec<Tensor<DimDyn>>,
+        view: View,
+        dtype: DType,
+        name: impl Into<String>,
+    ) -> Self {
+        Self {
+            op,
+            src,
+            view,
+            dtype,
+            name: Some(name.into()),
+        }
+    }
+}
+
+// ============================================================================
+// Tensor: The main tensor type
+// ============================================================================
+
 /// A multi-dimensional tensor with lazy evaluation and automatic differentiation
 ///
 /// # Type Parameters
@@ -117,6 +210,7 @@ pub(crate) struct TensorData {
 /// - **Static Dimensions**: Use `Tensor<Dim<N>>` for compile-time dimension checking
 /// - **Dynamic Dimensions**: Use `Tensor<DimDyn>` for runtime-determined dimensions
 /// - **Automatic Differentiation**: Track gradients with `.set_requires_grad(true)`
+/// - **Eager Fusion**: Operations are fused at call time for optimization
 ///
 /// # Examples
 ///
@@ -130,14 +224,23 @@ pub(crate) struct TensorData {
 /// let dynamic = Tensor::<DimDyn>::zeros_dyn(&[3, 4, 5]);
 /// ```
 pub struct Tensor<D: Dimension = DimDyn> {
-    /// The computation graph node (forms a DAG through `src` references)
+    // ---- Transition period: keeping both old and new structures ----
+    // TODO: Remove `node` field after full migration to TensorOp
+    /// The computation graph node (legacy - forms a DAG through `src` references)
     pub(crate) node: GraphNode,
-    /// Shape of the tensor (cached from node.view for convenience)
+
+    // ---- New structure (TensorOp-based) ----
+    // These fields will replace `node` after migration
+    // /// Internal tensor node (reference counted for efficient sharing)
+    // pub(crate) inner: Rc<TensorNode>,
+    /// Shape of the tensor (cached from view for convenience)
     pub(crate) shape: Vec<usize>,
     /// Data type
     pub(crate) dtype: DType,
     /// Autograd data (only allocated when requires_grad is true)
     pub(crate) autograd: Option<Rc<TensorData>>,
+    /// Executed buffer data (populated after contiguous())
+    pub(crate) buffer: RefCell<Option<Vec<f32>>>,
     /// Marker for dimension type
     pub(crate) _dim: PhantomData<D>,
 }
@@ -149,8 +252,29 @@ impl<D: Dimension> Clone for Tensor<D> {
             shape: self.shape.clone(),
             dtype: self.dtype.clone(),
             autograd: self.autograd.clone(),
+            buffer: RefCell::new(self.buffer.borrow().clone()),
             _dim: PhantomData,
         }
+    }
+}
+
+impl<D: Dimension> Tensor<D> {
+    /// Create an explicit branch point in the computation graph (Clone operation)
+    ///
+    /// Use this when you need to use the same tensor in multiple computation paths.
+    /// This creates a Clone operation in the graph that will copy the buffer at execution time.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let a = x + y;
+    /// let a2 = a.fork();       // Clone op added to graph
+    /// let b = a.sum();         // a consumed → fusion OK
+    /// let c = a2 * 2.0;        // a2 is separate path
+    /// ```
+    pub fn fork(&self) -> Tensor<D> {
+        // For now, just clone (will be updated to create Clone operation)
+        // TODO: Create TensorOp::Clone operation when fully migrated
+        self.clone()
     }
 }
 
@@ -207,8 +331,19 @@ impl<D: Dimension> Tensor<D> {
             shape: self.shape,
             dtype: self.dtype,
             autograd: self.autograd,
+            buffer: self.buffer,
             _dim: PhantomData,
         }
+    }
+
+    /// Get the view of this tensor's memory layout
+    pub fn view(&self) -> &View {
+        &self.node.view
+    }
+
+    /// Check if this tensor has been executed (buffer is populated)
+    pub fn is_executed(&self) -> bool {
+        self.buffer.borrow().is_some()
     }
 }
 
@@ -291,6 +426,7 @@ impl<D: Dimension> Tensor<D> {
             shape: self.shape.clone(),
             dtype: self.dtype.clone(),
             autograd: None,
+            buffer: RefCell::new(self.buffer.borrow().clone()),
             _dim: PhantomData,
         }
     }
