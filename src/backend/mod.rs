@@ -23,8 +23,6 @@
 //! // - metal: Metal backend (macOS only)
 //! ```
 
-use std::collections::HashMap;
-
 pub mod global;
 pub mod pipeline;
 pub mod sequence;
@@ -51,12 +49,7 @@ pub use pipeline::{
 };
 
 // Re-export sequence types
-// Note: CompiledProgram, IntermediateBufferSpec, KernelCallInfo are deprecated
-// but still exported for backwards compatibility
-#[allow(deprecated)]
-pub use sequence::{
-    CompiledProgram, ExecutionQuery, IntermediateBufferSpec, KernelCallInfo, ProgramExecutionError,
-};
+pub use sequence::{ExecutionQuery, ProgramExecutionError};
 
 // Re-export graph optimizer factory functions from opt::graph
 pub use crate::opt::graph::{
@@ -79,21 +72,12 @@ pub use global::{
 pub struct KernelSignature {
     pub inputs: Vec<BufferSignature>,
     pub outputs: Vec<BufferSignature>,
-    pub shape_vars: HashMap<String, i64>,
 }
 
 impl KernelSignature {
     /// 新しいKernelSignatureを作成
-    pub fn new(
-        inputs: Vec<BufferSignature>,
-        outputs: Vec<BufferSignature>,
-        shape_vars: HashMap<String, i64>,
-    ) -> Self {
-        Self {
-            inputs,
-            outputs,
-            shape_vars,
-        }
+    pub fn new(inputs: Vec<BufferSignature>, outputs: Vec<BufferSignature>) -> Self {
+        Self { inputs, outputs }
     }
 
     /// 空のKernelSignatureを作成
@@ -101,7 +85,6 @@ impl KernelSignature {
         Self {
             inputs: Vec::new(),
             outputs: Vec::new(),
-            shape_vars: HashMap::new(),
         }
     }
 }

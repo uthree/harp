@@ -51,7 +51,11 @@ impl<D: Dimension> Tensor<D> {
         if other.ndim() == 1 {
             // [M, K] @ [K] -> [M]
             let k = a_shape[a_shape.len() - 1];
-            assert_eq!(k, b_shape[0], "matmul dimension mismatch: {} vs {}", k, b_shape[0]);
+            assert_eq!(
+                k, b_shape[0],
+                "matmul dimension mismatch: {} vs {}",
+                k, b_shape[0]
+            );
 
             // Reshape to [K, 1], matmul, then squeeze
             let b_2d = other.unsqueeze(1);

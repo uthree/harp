@@ -23,10 +23,4 @@ fn test_create_signature_simple() {
     assert_eq!(signature.outputs.len(), 1);
     assert_eq!(signature.outputs[0].name, "result");
     assert_eq!(signature.outputs[0].shape.len(), 2);
-
-    // 動的なshape変数はなし
-    assert_eq!(signature.shape_vars.len(), 0);
 }
-
-// Note: Dynamic shape tests were removed as Expr::Var was removed
-// in favor of static shapes for simplicity.

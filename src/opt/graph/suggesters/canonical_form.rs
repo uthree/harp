@@ -177,10 +177,6 @@ impl CanonicalFormSuggester {
             new_graph.set_output_node(name.clone(), rebuilt);
         }
 
-        for (name, value) in graph.shape_var_defaults() {
-            new_graph.set_shape_var_default(name.clone(), *value);
-        }
-
         new_graph
     }
 }

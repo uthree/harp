@@ -40,7 +40,6 @@ pub struct Graph {
     input_metas: Vec<InputMeta>,               // 入力バッファのメタデータ
     output_metas: Vec<OutputMeta>,             // 出力バッファのメタデータ
     output_nodes: BTreeMap<String, GraphNode>, // 出力ノード（名前→ノード）
-    shape_var_defaults: HashMap<String, i64>,  // 動的shape変数のデフォルト値（必須）
     subgraphs: HashMap<String, Graph>,         // サブグラフ定義（DSLのgraph main以外）
 }
 
@@ -79,7 +78,6 @@ impl Graph {
             input_metas: Vec::new(),
             output_metas: Vec::new(),
             output_nodes: BTreeMap::new(),
-            shape_var_defaults: HashMap::new(),
             subgraphs: HashMap::new(),
         }
     }
@@ -213,16 +211,6 @@ impl Graph {
     /// 出力メタデータをコピー（最適化時にグラフを再構築する際に使用）
     pub fn copy_output_metas_from(&mut self, other: &Graph) {
         self.output_metas = other.output_metas.clone();
-    }
-
-    // shape変数のデフォルト値を設定
-    pub fn set_shape_var_default(&mut self, name: impl Into<String>, default_value: i64) {
-        self.shape_var_defaults.insert(name.into(), default_value);
-    }
-
-    // shape変数のデフォルト値を取得
-    pub fn shape_var_defaults(&self) -> &HashMap<String, i64> {
-        &self.shape_var_defaults
     }
 
     /// サブグラフを追加

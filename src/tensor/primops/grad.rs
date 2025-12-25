@@ -9,7 +9,10 @@ use crate::tensor::{DimDyn, GradFn, Tensor};
 // ============================================================================
 
 /// Reduce gradient to match the original input shape (handle broadcasting)
-pub(crate) fn reduce_grad_for_broadcast(grad: &Tensor<DimDyn>, target_shape: &[usize]) -> Tensor<DimDyn> {
+pub(crate) fn reduce_grad_for_broadcast(
+    grad: &Tensor<DimDyn>,
+    target_shape: &[usize],
+) -> Tensor<DimDyn> {
     if grad.shape() == target_shape {
         return grad.clone();
     }
@@ -372,7 +375,12 @@ pub struct ReduceMulBackward {
 }
 
 impl ReduceMulBackward {
-    pub fn new(input: Tensor<DimDyn>, output: Tensor<DimDyn>, axes: Vec<usize>, keepdim: bool) -> Self {
+    pub fn new(
+        input: Tensor<DimDyn>,
+        output: Tensor<DimDyn>,
+        axes: Vec<usize>,
+        keepdim: bool,
+    ) -> Self {
         let input_shape = input.shape().to_vec();
         Self {
             input,
@@ -428,7 +436,12 @@ pub struct ReduceMaxBackward {
 }
 
 impl ReduceMaxBackward {
-    pub fn new(input: Tensor<DimDyn>, output: Tensor<DimDyn>, axes: Vec<usize>, keepdim: bool) -> Self {
+    pub fn new(
+        input: Tensor<DimDyn>,
+        output: Tensor<DimDyn>,
+        axes: Vec<usize>,
+        keepdim: bool,
+    ) -> Self {
         let input_shape = input.shape().to_vec();
         Self {
             input,

@@ -14,7 +14,9 @@ use crate::graph::{DType, ops as graph_ops};
 use crate::tensor::{Dimension, Tensor};
 
 use super::binary::with_grad_fn;
-use super::grad::{Exp2Backward, Log2Backward, NegBackward, RecipBackward, SinBackward, SqrtBackward};
+use super::grad::{
+    Exp2Backward, Log2Backward, NegBackward, RecipBackward, SinBackward, SqrtBackward,
+};
 
 // ============================================================================
 // Neg: -Tensor

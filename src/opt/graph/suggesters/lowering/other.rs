@@ -198,34 +198,6 @@ pub fn build_pad_function(
     ))
 }
 
-/// 座標リストから入力オフセットを計算（row-major順、連続配置前提）
-///
-/// 注意: この関数は連続メモリ配置を前提としています。
-/// 非連続Viewを考慮する場合は`build_offset_from_coords_with_view`を使用してください。
-#[allow(dead_code)]
-fn build_input_offset_from_coords(coords: &[AstNode], shape: &[Expr]) -> AstNode {
-    let ndim = coords.len();
-    if ndim == 0 {
-        return const_int(0);
-    }
-
-    // Row-major: offset = coords[0] * stride[0] + coords[1] * stride[1] + ...
-    // stride[i] = shape[i+1] * shape[i+2] * ... * shape[ndim-1]
-    let mut offset = coords[ndim - 1].clone();
-
-    for axis in (0..ndim - 1).rev() {
-        // stride = shape[axis+1] * shape[axis+2] * ... * shape[ndim-1]
-        let mut stride: AstNode = shape[axis + 1].clone().into();
-        for dim in shape.iter().take(ndim).skip(axis + 2) {
-            let s: AstNode = dim.clone().into();
-            stride = stride * s;
-        }
-        offset = coords[axis].clone() * stride + offset;
-    }
-
-    offset
-}
-
 /// Slice演算の関数を生成
 ///
 /// 入力のView（転置等）を考慮してオフセットを計算します。

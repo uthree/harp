@@ -87,8 +87,12 @@ impl<D: Dimension> Tensor<D> {
         let result = Tensor::from_node(node, result_shape, DType::F32);
 
         if self.requires_grad() {
-            let grad_fn =
-                ReduceMulBackward::new(self.clone().into_dyn(), result.clone(), axes.to_vec(), keepdim);
+            let grad_fn = ReduceMulBackward::new(
+                self.clone().into_dyn(),
+                result.clone(),
+                axes.to_vec(),
+                keepdim,
+            );
             with_grad_fn(result, Some(Rc::new(grad_fn)))
         } else {
             result
@@ -128,8 +132,12 @@ impl<D: Dimension> Tensor<D> {
         let result = Tensor::from_node(node, result_shape, DType::F32);
 
         if self.requires_grad() {
-            let grad_fn =
-                ReduceMaxBackward::new(self.clone().into_dyn(), result.clone(), axes.to_vec(), keepdim);
+            let grad_fn = ReduceMaxBackward::new(
+                self.clone().into_dyn(),
+                result.clone(),
+                axes.to_vec(),
+                keepdim,
+            );
             with_grad_fn(result, Some(Rc::new(grad_fn)))
         } else {
             result
