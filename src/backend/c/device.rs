@@ -68,7 +68,7 @@ impl Device for CDevice {
 
     fn profile(&self) -> DeviceProfile {
         DeviceProfile {
-            device_type: DeviceType::Cpu,
+            device_type: DeviceType::C,
             compute_units: 1, // Single core for sequential execution
             max_work_group_size: 1,
             preferred_work_group_size_range: (1, 1),
@@ -128,7 +128,7 @@ mod tests {
         let device = CDevice::new();
         let profile = device.profile();
 
-        assert_eq!(profile.device_type, DeviceType::Cpu);
+        assert_eq!(profile.device_type, DeviceType::C);
         assert_eq!(profile.compute_units, 1);
         assert_eq!(profile.warp_size, 1);
     }

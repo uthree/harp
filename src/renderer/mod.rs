@@ -21,12 +21,15 @@
 //! println!("{}", code);
 //! ```
 
+/// Pure C renderer (`c` feature required)
+#[cfg(feature = "c")]
 pub mod c;
 pub mod c_like;
 pub mod metal;
 pub mod opencl;
 
 // Re-export common types
+#[cfg(feature = "c")]
 pub use c::{CCode, CRenderer};
 pub use c_like::{CLikeRenderer, GenericRenderer, OptimizationLevel};
 pub use metal::{MetalCode, MetalRenderer};

@@ -29,7 +29,8 @@ pub mod pipeline;
 pub mod sequence;
 pub mod traits;
 
-/// Pure C バックエンド（常に利用可能、並列実行なし）
+/// Pure C バックエンド（`c` feature required、並列実行なし）
+#[cfg(feature = "c")]
 pub mod c;
 
 /// OpenCL バックエンド（`opencl` feature required）

@@ -31,6 +31,7 @@ objc = { version = "0.2", optional = true }
 
 [features]
 default = []
+c = []
 opencl = ["dep:ocl"]
 metal = ["dep:metal", "dep:objc"]
 viz = ["dep:ratatui", "dep:crossterm", "dep:syntect"]
