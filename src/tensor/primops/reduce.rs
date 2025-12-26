@@ -10,12 +10,44 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use crate::ast::types::DType;
 use crate::tensor::shape::{Expr, View};
 use crate::tensor::{
     DimDyn, Dimension, FloatDType, GradFn, ReduceOp, Tensor, TensorDType, TensorInner, TensorOp,
 };
 
 use super::binary::with_grad_fn;
+
+/// Helper to attach gradient function for f32 tensors only
+fn maybe_attach_grad<T: FloatDType, D: Dimension>(
+    input: &Tensor<T, D>,
+    result: Tensor<T, DimDyn>,
+    grad_fn: impl FnOnce(Tensor<f32, DimDyn>) -> Arc<dyn GradFn>,
+) -> Tensor<T, DimDyn> {
+    // Only attach gradients for f32 tensors that require grad
+    if T::DTYPE == DType::F32 && input.requires_grad() {
+        // Type-erase to f32 for gradient operations
+        let input_f32: Tensor<f32, DimDyn> = Tensor {
+            inner: input.inner.clone(),
+            _dtype: PhantomData,
+            _dim: PhantomData,
+        };
+        let result_f32: Tensor<f32, DimDyn> = Tensor {
+            inner: result.inner.clone(),
+            _dtype: PhantomData,
+            _dim: PhantomData,
+        };
+        let result_with_grad = with_grad_fn(result_f32, Some(grad_fn(input_f32)));
+        // Cast back to T (which is f32 here)
+        Tensor {
+            inner: result_with_grad.inner,
+            _dtype: PhantomData,
+            _dim: PhantomData,
+        }
+    } else {
+        result
+    }
+}
 
 // ============================================================================
 // Helper for type conversion
@@ -242,96 +274,105 @@ fn create_reduce<T: FloatDType, D: Dimension>(
     }
 }
 
-impl<D: Dimension> Tensor<f32, D> {
-    /// Sum reduction along specified axes (primop)
+impl<T: FloatDType, D: Dimension> Tensor<T, D> {
+    // ========================================================================
+    // Type-safe single-axis reductions (recommended)
+    // ========================================================================
+
+    /// Sum along a single axis with type-safe dimension tracking
     ///
-    /// # Arguments
-    /// * `axes` - Axes to reduce over
-    /// * `keepdim` - Whether to keep reduced dimensions as size 1
-    pub fn reduce_sum(&self, axes: &[usize], keepdim: bool) -> Tensor<f32, DimDyn> {
+    /// Returns a tensor with one fewer dimension.
+    /// For keepdim=true behavior, use `.unsqueeze(axis)` afterwards.
+    pub fn sum_axis(&self, axis: usize) -> Tensor<T, D::Smaller> {
+        let result_dyn = self.reduce_sum(&[axis], false);
+        Tensor {
+            inner: result_dyn.inner,
+            _dtype: PhantomData,
+            _dim: PhantomData,
+        }
+    }
+
+    /// Product along a single axis with type-safe dimension tracking
+    ///
+    /// Returns a tensor with one fewer dimension.
+    /// For keepdim=true behavior, use `.unsqueeze(axis)` afterwards.
+    pub fn prod_axis(&self, axis: usize) -> Tensor<T, D::Smaller> {
+        let result_dyn = self.reduce_mul(&[axis], false);
+        Tensor {
+            inner: result_dyn.inner,
+            _dtype: PhantomData,
+            _dim: PhantomData,
+        }
+    }
+
+    /// Max along a single axis with type-safe dimension tracking
+    ///
+    /// Returns a tensor with one fewer dimension.
+    /// For keepdim=true behavior, use `.unsqueeze(axis)` afterwards.
+    pub fn max_axis(&self, axis: usize) -> Tensor<T, D::Smaller> {
+        let result_dyn = self.reduce_max(&[axis], false);
+        Tensor {
+            inner: result_dyn.inner,
+            _dtype: PhantomData,
+            _dim: PhantomData,
+        }
+    }
+
+    // ========================================================================
+    // Multi-axis reductions (returns DimDyn)
+    // ========================================================================
+
+    /// Sum reduction along specified axes
+    ///
+    /// For single-axis reduction, prefer `sum_axis()` for type safety.
+    pub fn reduce_sum(&self, axes: &[usize], keepdim: bool) -> Tensor<T, DimDyn> {
         let result = create_reduce(ReduceOp::Sum, self, axes, keepdim);
-
-        if self.requires_grad() {
-            let grad_fn = ReduceSumBackward::new(self.clone().into_dyn(), axes.to_vec(), keepdim);
-            with_grad_fn(result, Some(Arc::new(grad_fn)))
-        } else {
-            result
-        }
+        let axes = axes.to_vec();
+        maybe_attach_grad(self, result, move |input| {
+            Arc::new(ReduceSumBackward::new(input, axes, keepdim))
+        })
     }
 
-    /// Product reduction along specified axes (primop)
+    /// Product reduction along specified axes
     ///
-    /// # Arguments
-    /// * `axes` - Axes to reduce over
-    /// * `keepdim` - Whether to keep reduced dimensions as size 1
-    pub fn reduce_mul(&self, axes: &[usize], keepdim: bool) -> Tensor<f32, DimDyn> {
+    /// For single-axis reduction, prefer `prod_axis()` for type safety.
+    pub fn reduce_mul(&self, axes: &[usize], keepdim: bool) -> Tensor<T, DimDyn> {
         let result = create_reduce(ReduceOp::Prod, self, axes, keepdim);
-
-        if self.requires_grad() {
-            let grad_fn = ReduceMulBackward::new(
-                self.clone().into_dyn(),
-                result.clone(),
-                axes.to_vec(),
+        let axes = axes.to_vec();
+        let result_for_grad: Tensor<f32, DimDyn> = Tensor {
+            inner: result.inner.clone(),
+            _dtype: PhantomData,
+            _dim: PhantomData,
+        };
+        maybe_attach_grad(self, result, move |input| {
+            Arc::new(ReduceMulBackward::new(
+                input,
+                result_for_grad,
+                axes,
                 keepdim,
-            );
-            with_grad_fn(result, Some(Arc::new(grad_fn)))
-        } else {
-            result
-        }
+            ))
+        })
     }
 
-    /// Max reduction along specified axes (primop)
+    /// Max reduction along specified axes
     ///
-    /// # Arguments
-    /// * `axes` - Axes to reduce over
-    /// * `keepdim` - Whether to keep reduced dimensions as size 1
-    pub fn reduce_max(&self, axes: &[usize], keepdim: bool) -> Tensor<f32, DimDyn> {
+    /// For single-axis reduction, prefer `max_axis()` for type safety.
+    pub fn reduce_max(&self, axes: &[usize], keepdim: bool) -> Tensor<T, DimDyn> {
         let result = create_reduce(ReduceOp::Max, self, axes, keepdim);
-
-        if self.requires_grad() {
-            let grad_fn = ReduceMaxBackward::new(
-                self.clone().into_dyn(),
-                result.clone(),
-                axes.to_vec(),
+        let axes = axes.to_vec();
+        let result_for_grad: Tensor<f32, DimDyn> = Tensor {
+            inner: result.inner.clone(),
+            _dtype: PhantomData,
+            _dim: PhantomData,
+        };
+        maybe_attach_grad(self, result, move |input| {
+            Arc::new(ReduceMaxBackward::new(
+                input,
+                result_for_grad,
+                axes,
                 keepdim,
-            );
-            with_grad_fn(result, Some(Arc::new(grad_fn)))
-        } else {
-            result
-        }
-    }
-}
-
-// ============================================================================
-// f64 Reduce Operations (no gradient tracking)
-// ============================================================================
-
-impl<D: Dimension> Tensor<f64, D> {
-    /// Sum reduction along specified axes (primop)
-    ///
-    /// # Arguments
-    /// * `axes` - Axes to reduce over
-    /// * `keepdim` - Whether to keep reduced dimensions as size 1
-    pub fn reduce_sum(&self, axes: &[usize], keepdim: bool) -> Tensor<f64, DimDyn> {
-        create_reduce(ReduceOp::Sum, self, axes, keepdim)
-    }
-
-    /// Product reduction along specified axes (primop)
-    ///
-    /// # Arguments
-    /// * `axes` - Axes to reduce over
-    /// * `keepdim` - Whether to keep reduced dimensions as size 1
-    pub fn reduce_mul(&self, axes: &[usize], keepdim: bool) -> Tensor<f64, DimDyn> {
-        create_reduce(ReduceOp::Prod, self, axes, keepdim)
-    }
-
-    /// Max reduction along specified axes (primop)
-    ///
-    /// # Arguments
-    /// * `axes` - Axes to reduce over
-    /// * `keepdim` - Whether to keep reduced dimensions as size 1
-    pub fn reduce_max(&self, axes: &[usize], keepdim: bool) -> Tensor<f64, DimDyn> {
-        create_reduce(ReduceOp::Max, self, axes, keepdim)
+            ))
+        })
     }
 }
 
@@ -388,5 +429,38 @@ mod tests {
         let a = Tensor::<f64, Dim2>::ones([2, 3]);
         let m = a.reduce_max(&[1], false);
         assert_eq!(m.shape(), &[2]);
+    }
+
+    // Type-safe single-axis reduction tests
+    #[test]
+    fn test_sum_axis_type_safe() {
+        use crate::tensor::Dim1;
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
+        let s: Tensor<f32, Dim1> = a.sum_axis(1); // Dim2 -> Dim1
+        assert_eq!(s.shape(), &[2]);
+    }
+
+    #[test]
+    fn test_prod_axis_type_safe() {
+        use crate::tensor::Dim1;
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
+        let p: Tensor<f32, Dim1> = a.prod_axis(0); // Dim2 -> Dim1
+        assert_eq!(p.shape(), &[3]);
+    }
+
+    #[test]
+    fn test_max_axis_type_safe() {
+        use crate::tensor::Dim1;
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
+        let m: Tensor<f32, Dim1> = a.max_axis(1); // Dim2 -> Dim1
+        assert_eq!(m.shape(), &[2]);
+    }
+
+    #[test]
+    fn test_sum_axis_f64() {
+        use crate::tensor::Dim1;
+        let a = Tensor::<f64, Dim2>::ones([2, 3]);
+        let s: Tensor<f64, Dim1> = a.sum_axis(1);
+        assert_eq!(s.shape(), &[2]);
     }
 }
