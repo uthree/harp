@@ -7,23 +7,16 @@
 //! - `cargo test --features metal` for Metal backend (macOS only)
 //! - `cargo test --features opencl` for OpenCL backend
 
-use harp::backend::global::{DeviceKind, set_default_device};
-use harp::tensor::{DimDyn, Sqrt, Tensor};
-use ndarray::{Array2, array};
-
-// ============================================================================
-// Test Utilities
-// ============================================================================
-
-/// Tolerance for floating point comparisons
+// Test Utilities - used by feature-specific test modules
+#[allow(dead_code)]
 const EPSILON: f32 = 1e-5;
 
-/// Check if two f32 values are approximately equal
+#[allow(dead_code)]
 fn approx_eq(a: f32, b: f32) -> bool {
     (a - b).abs() < EPSILON
 }
 
-/// Check if two Vec<f32> are approximately equal
+#[allow(dead_code)]
 fn vec_approx_eq(a: &[f32], b: &[f32]) -> bool {
     if a.len() != b.len() {
         return false;

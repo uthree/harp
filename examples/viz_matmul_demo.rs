@@ -15,6 +15,8 @@
 //! - ↓/j: 次の候補を選択
 //! - q/Esc: 終了
 
+use harp::backend::Device;
+use harp::backend::opencl::{OpenCLDevice, OpenCLRenderer};
 use harp::opt::ast::BeamSearchOptimizer;
 use harp::opt::ast::rules::all_rules_with_search;
 use harp::opt::ast::suggesters::{
@@ -26,47 +28,32 @@ use harp::opt::ast::suggesters::{
 use harp::tensor::lowerer::TensorLowerer;
 use harp::tensor::{Dim2, Tensor};
 
-#[cfg(feature = "opencl")]
-use harp::backend::Device;
-#[cfg(feature = "opencl")]
-use harp::backend::opencl::{OpenCLDevice, OpenCLRenderer};
-
 fn main() {
     // ログを初期化（オプション）
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
 
     // OpenCLデバイスの確認
-    #[cfg(feature = "opencl")]
-    {
-        if !OpenCLDevice::is_available() {
-            eprintln!("Error: OpenCL is not available on this system.");
-            eprintln!("Please ensure you have OpenCL drivers installed.");
-            std::process::exit(1);
-        }
-
-        match OpenCLDevice::new() {
-            Ok(device) => {
-                let profile = device.profile();
-                println!("OpenCL Device detected:");
-                println!("  Type: {:?}", profile.device_type);
-                println!("  Compute units: {}", profile.compute_units);
-                println!("  Max work group size: {}", profile.max_work_group_size);
-                println!("  Local memory: {} KB", profile.local_memory_size / 1024);
-                println!("  Warp/wavefront size: {}", profile.warp_size);
-                println!();
-            }
-            Err(e) => {
-                eprintln!("Error creating OpenCL device: {}", e);
-                std::process::exit(1);
-            }
-        }
+    if !OpenCLDevice::is_available() {
+        eprintln!("Error: OpenCL is not available on this system.");
+        eprintln!("Please ensure you have OpenCL drivers installed.");
+        std::process::exit(1);
     }
 
-    #[cfg(not(feature = "opencl"))]
-    {
-        eprintln!("Error: This example requires the 'opencl' feature.");
-        eprintln!("Run with: cargo run --features \"viz,opencl\" --example viz_matmul_demo");
-        std::process::exit(1);
+    match OpenCLDevice::new() {
+        Ok(device) => {
+            let profile = device.profile();
+            println!("OpenCL Device detected:");
+            println!("  Type: {:?}", profile.device_type);
+            println!("  Compute units: {}", profile.compute_units);
+            println!("  Max work group size: {}", profile.max_work_group_size);
+            println!("  Local memory: {} KB", profile.local_memory_size / 1024);
+            println!("  Warp/wavefront size: {}", profile.warp_size);
+            println!();
+        }
+        Err(e) => {
+            eprintln!("Error creating OpenCL device: {}", e);
+            std::process::exit(1);
+        }
     }
 
     println!("Creating 1024x1024 matmul computation...");
@@ -123,29 +110,9 @@ fn main() {
     println!("Press q or Esc to quit.");
 
     // 可視化を起動（OpenCLRendererを使用）
-    #[cfg(all(feature = "viz", feature = "opencl"))]
-    {
-        let renderer = OpenCLRenderer::new();
-        if let Err(e) = harp::viz::run_with_renderer(history, renderer) {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
-        }
-    }
-
-    #[cfg(all(feature = "viz", not(feature = "opencl")))]
-    {
-        // OpenCLなしの場合はデフォルトレンダラーを使用
-        if let Err(e) = harp::viz::run(history) {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
-        }
-    }
-
-    #[cfg(not(feature = "viz"))]
-    {
-        let _ = history; // unused warning suppression
-        eprintln!("Error: This example requires the 'viz' feature.");
-        eprintln!("Run with: cargo run --features \"viz,opencl\" --example viz_matmul_demo");
+    let renderer = OpenCLRenderer::new();
+    if let Err(e) = harp::viz::run_with_renderer(history, renderer) {
+        eprintln!("Error: {}", e);
         std::process::exit(1);
     }
 }
