@@ -68,7 +68,9 @@ pub trait AstCostEstimator {
 pub use estimator::SimpleCostEstimator;
 pub use history::{AlternativeCandidate, OptimizationHistory, OptimizationSnapshot};
 // AstSuggestResult is already defined in this module
-pub use optimizer::{BeamSearchOptimizer, RuleBaseOptimizer};
+pub use optimizer::{
+    BeamSearchOptimizer, PrunedBfsOptimizer, PrunedDfsOptimizer, RuleBaseOptimizer,
+};
 pub use selector::{AstCostSelector, AstMultiStageSelector, AstSelector};
 pub use suggesters::{
     CompositeSuggester, CseSuggester, FunctionInliningSuggester, GroupParallelizationSuggester,

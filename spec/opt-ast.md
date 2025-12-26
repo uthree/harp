@@ -17,6 +17,8 @@
 |-----------|------|
 | RuleBaseOptimizer | パターンマッチングベースの書き換え |
 | BeamSearchOptimizer | ビームサーチで最適な変換列を探索 |
+| PrunedBfsOptimizer | 枝刈り付き幅優先探索（各レベルで上位n個を保持） |
+| PrunedDfsOptimizer | 枝刈り付き深さ優先探索（各ノードで上位n個の子を探索） |
 
 ## Suggester実装
 
