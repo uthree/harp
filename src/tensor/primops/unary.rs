@@ -16,12 +16,183 @@ use std::sync::Arc;
 
 use crate::ast::DType;
 use crate::tensor::shape::{Expr, View};
-use crate::tensor::{Dimension, ElementwiseOp, Tensor, TensorInner, TensorOp};
+use crate::tensor::{DimDyn, Dimension, ElementwiseOp, GradFn, Tensor, TensorInner, TensorOp};
 
 use super::binary::with_grad_fn;
-use super::grad::{
-    Exp2Backward, Log2Backward, NegBackward, RecipBackward, SinBackward, SqrtBackward,
-};
+
+// ============================================================================
+// Unary Gradients
+// ============================================================================
+
+/// Gradient for Neg: z = -a
+/// ∂L/∂a = -∂L/∂z
+pub struct NegBackward {
+    input: Tensor<DimDyn>,
+}
+
+impl NegBackward {
+    pub fn new(input: Tensor<DimDyn>) -> Self {
+        Self { input }
+    }
+}
+
+impl GradFn for NegBackward {
+    fn backward(&self, grad_output: &Tensor<DimDyn>) -> Vec<Tensor<DimDyn>> {
+        vec![-grad_output]
+    }
+
+    fn inputs(&self) -> Vec<Tensor<DimDyn>> {
+        vec![self.input.clone()]
+    }
+
+    fn name(&self) -> &'static str {
+        "NegBackward"
+    }
+}
+
+/// Gradient for Recip: z = 1/a
+/// ∂L/∂a = -∂L/∂z / a² = -∂L/∂z · z²
+pub struct RecipBackward {
+    input: Tensor<DimDyn>,
+    output: Tensor<DimDyn>,
+}
+
+impl RecipBackward {
+    pub fn new(input: Tensor<DimDyn>, output: Tensor<DimDyn>) -> Self {
+        Self { input, output }
+    }
+}
+
+impl GradFn for RecipBackward {
+    fn backward(&self, grad_output: &Tensor<DimDyn>) -> Vec<Tensor<DimDyn>> {
+        // ∂L/∂a = -∂L/∂z · z² where z = 1/a
+        let z_squared = &self.output * &self.output;
+        vec![-(grad_output * &z_squared)]
+    }
+
+    fn inputs(&self) -> Vec<Tensor<DimDyn>> {
+        vec![self.input.clone()]
+    }
+
+    fn name(&self) -> &'static str {
+        "RecipBackward"
+    }
+}
+
+/// Gradient for Sqrt: z = √a
+/// ∂L/∂a = ∂L/∂z / (2·√a) = ∂L/∂z / (2·z)
+pub struct SqrtBackward {
+    input: Tensor<DimDyn>,
+    output: Tensor<DimDyn>,
+}
+
+impl SqrtBackward {
+    pub fn new(input: Tensor<DimDyn>, output: Tensor<DimDyn>) -> Self {
+        Self { input, output }
+    }
+}
+
+impl GradFn for SqrtBackward {
+    fn backward(&self, grad_output: &Tensor<DimDyn>) -> Vec<Tensor<DimDyn>> {
+        let two_sqrt = &self.output * 2.0;
+        vec![grad_output / &two_sqrt]
+    }
+
+    fn inputs(&self) -> Vec<Tensor<DimDyn>> {
+        vec![self.input.clone()]
+    }
+
+    fn name(&self) -> &'static str {
+        "SqrtBackward"
+    }
+}
+
+/// Gradient for Log2: z = log₂(a)
+/// ∂L/∂a = ∂L/∂z / (a · ln(2))
+pub struct Log2Backward {
+    input: Tensor<DimDyn>,
+}
+
+impl Log2Backward {
+    pub fn new(input: Tensor<DimDyn>) -> Self {
+        Self { input }
+    }
+}
+
+impl GradFn for Log2Backward {
+    fn backward(&self, grad_output: &Tensor<DimDyn>) -> Vec<Tensor<DimDyn>> {
+        let ln2 = std::f32::consts::LN_2;
+        let denominator = &self.input * ln2;
+        vec![grad_output / &denominator]
+    }
+
+    fn inputs(&self) -> Vec<Tensor<DimDyn>> {
+        vec![self.input.clone()]
+    }
+
+    fn name(&self) -> &'static str {
+        "Log2Backward"
+    }
+}
+
+/// Gradient for Exp2: z = 2^a
+/// ∂L/∂a = ∂L/∂z · 2^a · ln(2) = ∂L/∂z · z · ln(2)
+pub struct Exp2Backward {
+    input: Tensor<DimDyn>,
+    output: Tensor<DimDyn>,
+}
+
+impl Exp2Backward {
+    pub fn new(input: Tensor<DimDyn>, output: Tensor<DimDyn>) -> Self {
+        Self { input, output }
+    }
+}
+
+impl GradFn for Exp2Backward {
+    fn backward(&self, grad_output: &Tensor<DimDyn>) -> Vec<Tensor<DimDyn>> {
+        let ln2 = std::f32::consts::LN_2;
+        let scaled_output = &self.output * ln2;
+        vec![grad_output * &scaled_output]
+    }
+
+    fn inputs(&self) -> Vec<Tensor<DimDyn>> {
+        vec![self.input.clone()]
+    }
+
+    fn name(&self) -> &'static str {
+        "Exp2Backward"
+    }
+}
+
+/// Gradient for Sin: z = sin(a)
+/// ∂L/∂a = ∂L/∂z · cos(a)
+pub struct SinBackward {
+    input: Tensor<DimDyn>,
+}
+
+impl SinBackward {
+    pub fn new(input: Tensor<DimDyn>) -> Self {
+        Self { input }
+    }
+}
+
+impl GradFn for SinBackward {
+    fn backward(&self, grad_output: &Tensor<DimDyn>) -> Vec<Tensor<DimDyn>> {
+        // cos(x) = sin(x + π/2)
+        use std::f32::consts::FRAC_PI_2;
+        let shifted = &self.input + FRAC_PI_2;
+        let cos_input = shifted.sin();
+        vec![grad_output * &cos_input]
+    }
+
+    fn inputs(&self) -> Vec<Tensor<DimDyn>> {
+        vec![self.input.clone()]
+    }
+
+    fn name(&self) -> &'static str {
+        "SinBackward"
+    }
+}
 
 // ============================================================================
 // Unary operation traits

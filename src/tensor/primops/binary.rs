@@ -17,7 +17,104 @@ use crate::tensor::{
     AutogradMeta, DimDyn, Dimension, ElementwiseOp, GradFn, Tensor, TensorInner, TensorOp,
 };
 
-use super::grad::{AddBackward, MaxBackward, MulBackward};
+use super::grad::reduce_grad_for_broadcast;
+
+// ============================================================================
+// Binary Gradients
+// ============================================================================
+
+/// Gradient for Add: z = a + b
+/// ∂L/∂a = ∂L/∂z, ∂L/∂b = ∂L/∂z
+pub struct AddBackward {
+    lhs: Tensor<DimDyn>,
+    rhs: Tensor<DimDyn>,
+}
+
+impl AddBackward {
+    pub fn new(lhs: Tensor<DimDyn>, rhs: Tensor<DimDyn>) -> Self {
+        Self { lhs, rhs }
+    }
+}
+
+impl GradFn for AddBackward {
+    fn backward(&self, grad_output: &Tensor<DimDyn>) -> Vec<Tensor<DimDyn>> {
+        let grad_lhs = reduce_grad_for_broadcast(grad_output, self.lhs.shape());
+        let grad_rhs = reduce_grad_for_broadcast(grad_output, self.rhs.shape());
+        vec![grad_lhs, grad_rhs]
+    }
+
+    fn inputs(&self) -> Vec<Tensor<DimDyn>> {
+        vec![self.lhs.clone(), self.rhs.clone()]
+    }
+
+    fn name(&self) -> &'static str {
+        "AddBackward"
+    }
+}
+
+/// Gradient for Mul: z = a * b
+/// ∂L/∂a = ∂L/∂z · b, ∂L/∂b = ∂L/∂z · a
+pub struct MulBackward {
+    lhs: Tensor<DimDyn>,
+    rhs: Tensor<DimDyn>,
+}
+
+impl MulBackward {
+    pub fn new(lhs: Tensor<DimDyn>, rhs: Tensor<DimDyn>) -> Self {
+        Self { lhs, rhs }
+    }
+}
+
+impl GradFn for MulBackward {
+    fn backward(&self, grad_output: &Tensor<DimDyn>) -> Vec<Tensor<DimDyn>> {
+        let grad_lhs_full = grad_output * &self.rhs;
+        let grad_lhs = reduce_grad_for_broadcast(&grad_lhs_full, self.lhs.shape());
+
+        let grad_rhs_full = grad_output * &self.lhs;
+        let grad_rhs = reduce_grad_for_broadcast(&grad_rhs_full, self.rhs.shape());
+
+        vec![grad_lhs, grad_rhs]
+    }
+
+    fn inputs(&self) -> Vec<Tensor<DimDyn>> {
+        vec![self.lhs.clone(), self.rhs.clone()]
+    }
+
+    fn name(&self) -> &'static str {
+        "MulBackward"
+    }
+}
+
+/// Gradient for Max: z = max(a, b)
+/// ∂L/∂a = ∂L/∂z · (a ≥ b), ∂L/∂b = ∂L/∂z · (b > a)
+pub struct MaxBackward {
+    lhs: Tensor<DimDyn>,
+    rhs: Tensor<DimDyn>,
+}
+
+impl MaxBackward {
+    pub fn new(lhs: Tensor<DimDyn>, rhs: Tensor<DimDyn>) -> Self {
+        Self { lhs, rhs }
+    }
+}
+
+impl GradFn for MaxBackward {
+    fn backward(&self, grad_output: &Tensor<DimDyn>) -> Vec<Tensor<DimDyn>> {
+        // Approximation: gradient flows to the larger input
+        // TODO: Proper comparison operation needed
+        let grad_lhs = reduce_grad_for_broadcast(grad_output, self.lhs.shape());
+        let grad_rhs = Tensor::<DimDyn>::zeros_dyn(self.rhs.shape());
+        vec![grad_lhs, grad_rhs]
+    }
+
+    fn inputs(&self) -> Vec<Tensor<DimDyn>> {
+        vec![self.lhs.clone(), self.rhs.clone()]
+    }
+
+    fn name(&self) -> &'static str {
+        "MaxBackward"
+    }
+}
 
 // ============================================================================
 // Helper functions

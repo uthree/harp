@@ -26,24 +26,16 @@ mod unary;
 // Re-export unary operation traits
 pub use unary::{Exp2, Floor, Log2, Recip, Sin, Sqrt};
 
-// Re-export gradient functions for use in backward pass
-pub use grad::{
-    // Basic gradients
-    AddBackward,
-    CloneBackward,
-    Exp2Backward,
-    // Fused operation gradients
-    FusedElementwiseBackward,
-    FusedElementwiseReduceBackward,
-    Log2Backward,
-    MaxBackward,
-    MulBackward,
-    NegBackward,
-    RecipBackward,
-    ReduceMaxBackward,
-    ReduceMulBackward,
-    // Reduce gradients
-    ReduceSumBackward,
-    SinBackward,
-    SqrtBackward,
+// Re-export unary gradient functions
+pub use unary::{
+    Exp2Backward, Log2Backward, NegBackward, RecipBackward, SinBackward, SqrtBackward,
 };
+
+// Re-export binary gradient functions
+pub use binary::{AddBackward, MaxBackward, MulBackward};
+
+// Re-export reduce gradient functions
+pub use reduce::{ReduceMaxBackward, ReduceMulBackward, ReduceSumBackward};
+
+// Re-export general gradient utilities and fused operation gradients
+pub use grad::{CloneBackward, FusedElementwiseBackward, FusedElementwiseReduceBackward};

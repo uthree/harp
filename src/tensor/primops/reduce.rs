@@ -9,10 +9,170 @@ use std::sync::Arc;
 
 use crate::ast::DType;
 use crate::tensor::shape::{Expr, View};
-use crate::tensor::{DimDyn, Dimension, ReduceOp, Tensor, TensorInner, TensorOp};
+use crate::tensor::{DimDyn, Dimension, GradFn, ReduceOp, Tensor, TensorInner, TensorOp};
 
 use super::binary::with_grad_fn;
-use super::grad::{ReduceMaxBackward, ReduceMulBackward, ReduceSumBackward};
+
+// ============================================================================
+// Reduce Gradients
+// ============================================================================
+
+/// Gradient for Reduce(Add): z = sum(a, axes)
+/// ∂L/∂a = expand(∂L/∂z)
+pub struct ReduceSumBackward {
+    input: Tensor<DimDyn>,
+    input_shape: Vec<usize>,
+    axes: Vec<usize>,
+    keepdim: bool,
+}
+
+impl ReduceSumBackward {
+    pub fn new(input: Tensor<DimDyn>, axes: Vec<usize>, keepdim: bool) -> Self {
+        let input_shape = input.shape().to_vec();
+        Self {
+            input,
+            input_shape,
+            axes,
+            keepdim,
+        }
+    }
+}
+
+impl GradFn for ReduceSumBackward {
+    fn backward(&self, grad_output: &Tensor<DimDyn>) -> Vec<Tensor<DimDyn>> {
+        let mut grad = grad_output.clone();
+
+        // If keepdim=false, we need to unsqueeze the reduced dimensions
+        if !self.keepdim {
+            for &axis in &self.axes {
+                grad = grad.unsqueeze(axis);
+            }
+        }
+
+        // Expand to original shape
+        let grad_expanded = grad.expand(&self.input_shape);
+        vec![grad_expanded]
+    }
+
+    fn inputs(&self) -> Vec<Tensor<DimDyn>> {
+        vec![self.input.clone()]
+    }
+
+    fn name(&self) -> &'static str {
+        "ReduceSumBackward"
+    }
+}
+
+/// Gradient for Reduce(Mul): z = prod(a, axes)
+/// ∂L/∂a = ∂L/∂z · z / a
+pub struct ReduceMulBackward {
+    input: Tensor<DimDyn>,
+    output: Tensor<DimDyn>,
+    input_shape: Vec<usize>,
+    axes: Vec<usize>,
+    keepdim: bool,
+}
+
+impl ReduceMulBackward {
+    pub fn new(
+        input: Tensor<DimDyn>,
+        output: Tensor<DimDyn>,
+        axes: Vec<usize>,
+        keepdim: bool,
+    ) -> Self {
+        let input_shape = input.shape().to_vec();
+        Self {
+            input,
+            output,
+            input_shape,
+            axes,
+            keepdim,
+        }
+    }
+}
+
+impl GradFn for ReduceMulBackward {
+    fn backward(&self, grad_output: &Tensor<DimDyn>) -> Vec<Tensor<DimDyn>> {
+        let mut grad = grad_output.clone();
+
+        if !self.keepdim {
+            for &axis in &self.axes {
+                grad = grad.unsqueeze(axis);
+            }
+        }
+
+        // ∂L/∂a = ∂L/∂z · z / a (expanded)
+        let mut output_expanded = self.output.clone();
+        if !self.keepdim {
+            for &axis in &self.axes {
+                output_expanded = output_expanded.unsqueeze(axis);
+            }
+        }
+        let output_expanded = output_expanded.expand(&self.input_shape);
+        let grad_expanded = grad.expand(&self.input_shape);
+
+        vec![(&grad_expanded * &output_expanded) / &self.input]
+    }
+
+    fn inputs(&self) -> Vec<Tensor<DimDyn>> {
+        vec![self.input.clone()]
+    }
+
+    fn name(&self) -> &'static str {
+        "ReduceMulBackward"
+    }
+}
+
+/// Gradient for Reduce(Max): z = max(a, axes)
+/// ∂L/∂a = ∂L/∂z · (a == max)
+pub struct ReduceMaxBackward {
+    input: Tensor<DimDyn>,
+    input_shape: Vec<usize>,
+    axes: Vec<usize>,
+    keepdim: bool,
+}
+
+impl ReduceMaxBackward {
+    pub fn new(
+        input: Tensor<DimDyn>,
+        _output: Tensor<DimDyn>, // TODO: Use for proper mask where input == max
+        axes: Vec<usize>,
+        keepdim: bool,
+    ) -> Self {
+        let input_shape = input.shape().to_vec();
+        Self {
+            input,
+            input_shape,
+            axes,
+            keepdim,
+        }
+    }
+}
+
+impl GradFn for ReduceMaxBackward {
+    fn backward(&self, grad_output: &Tensor<DimDyn>) -> Vec<Tensor<DimDyn>> {
+        // Expand gradient to original shape
+        let mut grad = grad_output.clone();
+        if !self.keepdim {
+            for &axis in &self.axes {
+                grad = grad.unsqueeze(axis);
+            }
+        }
+
+        // TODO: Proper mask where input == max
+        // For now, just expand the gradient
+        let grad_expanded = grad.expand(&self.input_shape);
+        vec![grad_expanded]
+    }
+
+    fn inputs(&self) -> Vec<Tensor<DimDyn>> {
+        vec![self.input.clone()]
+    }
+
+    fn name(&self) -> &'static str {
+        "ReduceMaxBackward"
+    }
+}
 
 /// Helper to create View from usize shape
 fn view_from_shape(shape: &[usize]) -> View {
