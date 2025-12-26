@@ -14,11 +14,29 @@ use std::marker::PhantomData;
 use std::ops::Neg;
 use std::sync::Arc;
 
-use crate::ast::DType;
 use crate::tensor::shape::{Expr, View};
-use crate::tensor::{DimDyn, Dimension, ElementwiseOp, GradFn, Tensor, TensorInner, TensorOp};
+use crate::tensor::{
+    DimDyn, Dimension, ElementwiseOp, FloatDType, GradFn, Tensor, TensorDType, TensorInner,
+    TensorOp,
+};
 
 use super::binary::with_grad_fn;
+
+// ============================================================================
+// Helper for type conversion
+// ============================================================================
+
+/// Convert any Tensor<T, D> to Tensor<f32, DimDyn> for graph operations.
+///
+/// This is safe because the tensor's layout is the same for all T,
+/// and the actual dtype is stored in TensorInner at runtime.
+fn to_graph_ref<T: TensorDType, D: Dimension>(tensor: &Tensor<T, D>) -> Tensor<f32, DimDyn> {
+    Tensor {
+        inner: tensor.inner.clone(),
+        _dtype: PhantomData,
+        _dim: PhantomData,
+    }
+}
 
 // ============================================================================
 // Unary Gradients
@@ -245,18 +263,21 @@ fn view_from_shape(shape: &[usize]) -> View {
 }
 
 /// Create a unary elementwise Tensor using Compute variant
-fn create_unary_elementwise<D: Dimension>(
+///
+/// Generic over FloatDType to support f32 and f64.
+fn create_unary_elementwise<T: FloatDType, D: Dimension>(
     op: ElementwiseOp,
-    input: &Tensor<f32, D>,
-) -> Tensor<f32, D> {
+    input: &Tensor<T, D>,
+) -> Tensor<T, D> {
     let view = view_from_shape(input.shape());
     let shape = input.shape().to_vec();
 
-    // Create Compute operation with input embedded
-    let inputs = vec![Arc::new(input.clone().into_dyn())];
+    // Convert to f32-typed tensor for graph operations (TensorRef is f32-based)
+    let inputs = vec![Arc::new(to_graph_ref(input))];
     let expr = op.to_ast(1);
 
-    let inner = TensorInner::new(TensorOp::elementwise(inputs, expr), view, shape, DType::F32);
+    // Use the actual dtype from the input
+    let inner = TensorInner::new(TensorOp::elementwise(inputs, expr), view, shape, T::DTYPE);
 
     Tensor {
         inner: Arc::new(inner),
@@ -295,6 +316,7 @@ impl<D: Dimension> Neg for Tensor<f32, D> {
 // Recip implementation
 // ============================================================================
 
+// f32 implementation with gradient tracking
 impl<D: Dimension> Recip for &Tensor<f32, D> {
     type Output = Tensor<f32, D>;
 
@@ -317,10 +339,27 @@ impl<D: Dimension> Recip for Tensor<f32, D> {
     }
 }
 
+// f64 implementation (no gradient tracking)
+impl<D: Dimension> Recip for &Tensor<f64, D> {
+    type Output = Tensor<f64, D>;
+
+    fn recip(self) -> Tensor<f64, D> {
+        create_unary_elementwise(ElementwiseOp::Recip, self)
+    }
+}
+
+impl<D: Dimension> Recip for Tensor<f64, D> {
+    type Output = Tensor<f64, D>;
+    fn recip(self) -> Tensor<f64, D> {
+        (&self).recip()
+    }
+}
+
 // ============================================================================
 // Sqrt implementation
 // ============================================================================
 
+// f32 implementation with gradient tracking
 impl<D: Dimension> Sqrt for &Tensor<f32, D> {
     type Output = Tensor<f32, D>;
 
@@ -343,10 +382,27 @@ impl<D: Dimension> Sqrt for Tensor<f32, D> {
     }
 }
 
+// f64 implementation (no gradient tracking)
+impl<D: Dimension> Sqrt for &Tensor<f64, D> {
+    type Output = Tensor<f64, D>;
+
+    fn sqrt(self) -> Tensor<f64, D> {
+        create_unary_elementwise(ElementwiseOp::Sqrt, self)
+    }
+}
+
+impl<D: Dimension> Sqrt for Tensor<f64, D> {
+    type Output = Tensor<f64, D>;
+    fn sqrt(self) -> Tensor<f64, D> {
+        (&self).sqrt()
+    }
+}
+
 // ============================================================================
 // Log2 implementation
 // ============================================================================
 
+// f32 implementation with gradient tracking
 impl<D: Dimension> Log2 for &Tensor<f32, D> {
     type Output = Tensor<f32, D>;
 
@@ -369,10 +425,27 @@ impl<D: Dimension> Log2 for Tensor<f32, D> {
     }
 }
 
+// f64 implementation (no gradient tracking)
+impl<D: Dimension> Log2 for &Tensor<f64, D> {
+    type Output = Tensor<f64, D>;
+
+    fn log2(self) -> Tensor<f64, D> {
+        create_unary_elementwise(ElementwiseOp::Log2, self)
+    }
+}
+
+impl<D: Dimension> Log2 for Tensor<f64, D> {
+    type Output = Tensor<f64, D>;
+    fn log2(self) -> Tensor<f64, D> {
+        (&self).log2()
+    }
+}
+
 // ============================================================================
 // Exp2 implementation
 // ============================================================================
 
+// f32 implementation with gradient tracking
 impl<D: Dimension> Exp2 for &Tensor<f32, D> {
     type Output = Tensor<f32, D>;
 
@@ -395,10 +468,27 @@ impl<D: Dimension> Exp2 for Tensor<f32, D> {
     }
 }
 
+// f64 implementation (no gradient tracking)
+impl<D: Dimension> Exp2 for &Tensor<f64, D> {
+    type Output = Tensor<f64, D>;
+
+    fn exp2(self) -> Tensor<f64, D> {
+        create_unary_elementwise(ElementwiseOp::Exp2, self)
+    }
+}
+
+impl<D: Dimension> Exp2 for Tensor<f64, D> {
+    type Output = Tensor<f64, D>;
+    fn exp2(self) -> Tensor<f64, D> {
+        (&self).exp2()
+    }
+}
+
 // ============================================================================
 // Sin implementation
 // ============================================================================
 
+// f32 implementation with gradient tracking
 impl<D: Dimension> Sin for &Tensor<f32, D> {
     type Output = Tensor<f32, D>;
 
@@ -421,10 +511,27 @@ impl<D: Dimension> Sin for Tensor<f32, D> {
     }
 }
 
+// f64 implementation (no gradient tracking)
+impl<D: Dimension> Sin for &Tensor<f64, D> {
+    type Output = Tensor<f64, D>;
+
+    fn sin(self) -> Tensor<f64, D> {
+        create_unary_elementwise(ElementwiseOp::Sin, self)
+    }
+}
+
+impl<D: Dimension> Sin for Tensor<f64, D> {
+    type Output = Tensor<f64, D>;
+    fn sin(self) -> Tensor<f64, D> {
+        (&self).sin()
+    }
+}
+
 // ============================================================================
 // Floor implementation
 // ============================================================================
 
+// f32 implementation (no gradient - floor is non-differentiable)
 impl<D: Dimension> Floor for &Tensor<f32, D> {
     type Output = Tensor<f32, D>;
 
@@ -438,6 +545,22 @@ impl<D: Dimension> Floor for &Tensor<f32, D> {
 impl<D: Dimension> Floor for Tensor<f32, D> {
     type Output = Tensor<f32, D>;
     fn floor(self) -> Tensor<f32, D> {
+        (&self).floor()
+    }
+}
+
+// f64 implementation (no gradient - floor is non-differentiable)
+impl<D: Dimension> Floor for &Tensor<f64, D> {
+    type Output = Tensor<f64, D>;
+
+    fn floor(self) -> Tensor<f64, D> {
+        create_unary_elementwise(ElementwiseOp::Floor, self)
+    }
+}
+
+impl<D: Dimension> Floor for Tensor<f64, D> {
+    type Output = Tensor<f64, D>;
+    fn floor(self) -> Tensor<f64, D> {
         (&self).floor()
     }
 }
@@ -483,8 +606,32 @@ mod tests {
     }
 
     #[test]
-    fn test_sin() {
+    fn test_sin_f32() {
         let a = Tensor::<f32, Dim2>::ones([2, 3]);
+        let c = a.sin();
+        assert_eq!(c.shape(), &[2, 3]);
+    }
+
+    #[test]
+    fn test_sin_f64() {
+        // Verify that sin works with f64 (FloatDType constraint)
+        use crate::tensor::DimDyn;
+
+        // Create an f64 tensor manually
+        let inner = TensorInner::new(
+            TensorOp::ConstFill(crate::ast::Literal::F64(1.0)),
+            crate::tensor::shape::View::contiguous(vec![
+                crate::tensor::shape::Expr::from(2i64),
+                crate::tensor::shape::Expr::from(3i64),
+            ]),
+            vec![2, 3],
+            crate::ast::DType::F64,
+        );
+        let a: Tensor<f64, DimDyn> = Tensor {
+            inner: Arc::new(inner),
+            _dtype: PhantomData,
+            _dim: PhantomData,
+        };
         let c = a.sin();
         assert_eq!(c.shape(), &[2, 3]);
     }

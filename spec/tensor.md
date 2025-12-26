@@ -166,33 +166,39 @@ pub trait GradFn: Send + Sync {
 
 最小限の基本演算。これらの組み合わせで全ての演算を表現する。
 
+**型制約**:
+- 初期化演算: f32, f64をサポート
+- 二項演算: NumericDType（f32, f64）をサポート
+- 単項演算: FloatDType（f32, f64）をサポート
+- 勾配追跡: f32のみ
+
 #### 初期化
-| 演算 | 説明 |
-|------|------|
-| `Const` | 定数テンソル |
-| `ConstFill` | 定数値で埋める |
-| `Rand` | 一様乱数 [0, 1) |
-| `Arange` | 連番テンソル |
+| 演算 | 説明 | 型 |
+|------|------|-----|
+| `Const` | 定数テンソル | f32, f64 |
+| `ConstFill` | 定数値で埋める | f32, f64 |
+| `Rand` | 一様乱数 [0, 1) | f32, f64 |
+| `Arange` | 連番テンソル | f32 |
 
 #### 要素ごとの演算（二項）
-| 演算 | 説明 |
-|------|------|
-| `Add` | 加算 |
-| `Mul` | 乗算 |
-| `Max` | 最大値 |
-| `Idiv` | 整数除算 |
-| `Rem` | 剰余 |
+| 演算 | 説明 | 型制約 |
+|------|------|--------|
+| `Add` | 加算 | NumericDType |
+| `Mul` | 乗算 | NumericDType |
+| `Max` | 最大値 | NumericDType |
+| `Idiv` | 整数除算 | NumericDType |
+| `Rem` | 剰余 | NumericDType |
 
 #### 要素ごとの演算（単項）
-| 演算 | 説明 |
-|------|------|
-| `Neg` | 否定 (-x) |
-| `Recip` | 逆数 (1/x) |
-| `Sqrt` | 平方根 |
-| `Log2` | 2を底とする対数 |
-| `Exp2` | 2のべき乗 |
-| `Sin` | 正弦 |
-| `Floor` | 床関数（非微分可能、勾配=0） |
+| 演算 | 説明 | 型制約 |
+|------|------|--------|
+| `Neg` | 否定 (-x) | NumericDType |
+| `Recip` | 逆数 (1/x) | FloatDType |
+| `Sqrt` | 平方根 | FloatDType |
+| `Log2` | 2を底とする対数 | FloatDType |
+| `Exp2` | 2のべき乗 | FloatDType |
+| `Sin` | 正弦 | FloatDType |
+| `Floor` | 床関数（非微分可能、勾配=0） | FloatDType |
 
 #### 縮約演算
 | 演算 | 説明 |
@@ -220,6 +226,8 @@ pub trait GradFn: Send + Sync {
 ### hlops（高級演算）
 
 primopsの組み合わせで表現される演算。
+
+**注**: 現在hlopsはf32のみサポート。f64のhlopsは二項演算（Add, Mul, Div）のf64サポート後に追加可能。
 
 | 演算 | primopsによる表現 |
 |------|-------------------|

@@ -3,15 +3,32 @@
 //! - Reduce(Add): sum reduction
 //! - Reduce(Mul): product reduction
 //! - Reduce(Max): max reduction
+//!
+//! These operations support FloatDType (f32, f64).
+//! Gradient tracking is only available for f32 tensors.
 
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use crate::ast::DType;
 use crate::tensor::shape::{Expr, View};
-use crate::tensor::{DimDyn, Dimension, GradFn, ReduceOp, Tensor, TensorInner, TensorOp};
+use crate::tensor::{
+    DimDyn, Dimension, FloatDType, GradFn, ReduceOp, Tensor, TensorDType, TensorInner, TensorOp,
+};
 
 use super::binary::with_grad_fn;
+
+// ============================================================================
+// Helper for type conversion
+// ============================================================================
+
+/// Convert any Tensor<T, D> to Tensor<f32, DimDyn> for graph operations.
+fn to_graph_ref<T: TensorDType, D: Dimension>(tensor: &Tensor<T, D>) -> Tensor<f32, DimDyn> {
+    Tensor {
+        inner: tensor.inner.clone(),
+        _dtype: PhantomData,
+        _dim: PhantomData,
+    }
+}
 
 // ============================================================================
 // Reduce Gradients
@@ -200,22 +217,22 @@ fn compute_reduce_shape(input_shape: &[usize], axes: &[usize], keepdim: bool) ->
 }
 
 /// Create a reduce Tensor using Compute variant
-fn create_reduce<D: Dimension>(
+fn create_reduce<T: FloatDType, D: Dimension>(
     op: ReduceOp,
-    input: &Tensor<f32, D>,
+    input: &Tensor<T, D>,
     axes: &[usize],
     keepdim: bool,
-) -> Tensor<f32, DimDyn> {
+) -> Tensor<T, DimDyn> {
     let result_shape = compute_reduce_shape(input.shape(), axes, keepdim);
     let view = view_from_shape(&result_shape);
 
     // Create Compute operation with reduce
-    let input_ref = Arc::new(input.clone().into_dyn());
+    let input_ref = Arc::new(to_graph_ref(input));
     let inner = TensorInner::new(
         TensorOp::reduce(input_ref, op, axes.to_vec(), keepdim),
         view,
         result_shape,
-        DType::F32,
+        T::DTYPE,
     );
 
     Tensor {
@@ -285,6 +302,39 @@ impl<D: Dimension> Tensor<f32, D> {
     }
 }
 
+// ============================================================================
+// f64 Reduce Operations (no gradient tracking)
+// ============================================================================
+
+impl<D: Dimension> Tensor<f64, D> {
+    /// Sum reduction along specified axes (primop)
+    ///
+    /// # Arguments
+    /// * `axes` - Axes to reduce over
+    /// * `keepdim` - Whether to keep reduced dimensions as size 1
+    pub fn reduce_sum(&self, axes: &[usize], keepdim: bool) -> Tensor<f64, DimDyn> {
+        create_reduce(ReduceOp::Sum, self, axes, keepdim)
+    }
+
+    /// Product reduction along specified axes (primop)
+    ///
+    /// # Arguments
+    /// * `axes` - Axes to reduce over
+    /// * `keepdim` - Whether to keep reduced dimensions as size 1
+    pub fn reduce_mul(&self, axes: &[usize], keepdim: bool) -> Tensor<f64, DimDyn> {
+        create_reduce(ReduceOp::Prod, self, axes, keepdim)
+    }
+
+    /// Max reduction along specified axes (primop)
+    ///
+    /// # Arguments
+    /// * `axes` - Axes to reduce over
+    /// * `keepdim` - Whether to keep reduced dimensions as size 1
+    pub fn reduce_max(&self, axes: &[usize], keepdim: bool) -> Tensor<f64, DimDyn> {
+        create_reduce(ReduceOp::Max, self, axes, keepdim)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -314,6 +364,28 @@ mod tests {
     #[test]
     fn test_reduce_max() {
         let a = Tensor::<f32, Dim2>::ones([2, 3]);
+        let m = a.reduce_max(&[1], false);
+        assert_eq!(m.shape(), &[2]);
+    }
+
+    // f64 tests
+    #[test]
+    fn test_reduce_sum_f64() {
+        let a = Tensor::<f64, Dim2>::ones([2, 3]);
+        let s = a.reduce_sum(&[1], false);
+        assert_eq!(s.shape(), &[2]);
+    }
+
+    #[test]
+    fn test_reduce_mul_f64() {
+        let a = Tensor::<f64, Dim2>::ones([2, 3]);
+        let p = a.reduce_mul(&[1], false);
+        assert_eq!(p.shape(), &[2]);
+    }
+
+    #[test]
+    fn test_reduce_max_f64() {
+        let a = Tensor::<f64, Dim2>::ones([2, 3]);
         let m = a.reduce_max(&[1], false);
         assert_eq!(m.shape(), &[2]);
     }

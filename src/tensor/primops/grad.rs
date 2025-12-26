@@ -10,6 +10,11 @@
 //! - binary.rs: AddBackward, MulBackward, MaxBackward
 //! - unary.rs: NegBackward, RecipBackward, SqrtBackward, Log2Backward, Exp2Backward, SinBackward
 //! - reduce.rs: ReduceSumBackward, ReduceMulBackward, ReduceMaxBackward
+//!
+//! Note: The GradFn trait and Backward structs are currently f32-only because:
+//! - GradFn is used as a trait object (dyn GradFn) which doesn't support type parameters
+//! - AutogradMeta stores grad_fn as Arc<dyn GradFn>
+//! Full FloatDType support would require architectural changes to the autograd system.
 
 use crate::ast::{AstNode, Literal};
 use crate::tensor::ops::ReduceOp;
@@ -21,6 +26,10 @@ use std::collections::HashMap;
 // ============================================================================
 
 /// Reduce gradient to match the original input shape (handle broadcasting)
+///
+/// Note: Currently f32-only because:
+/// - GradFn trait is f32-only
+/// - reduce_sum and reshape_dyn would need FloatDType implementations first
 pub fn reduce_grad_for_broadcast(
     grad: &Tensor<f32, DimDyn>,
     target_shape: &[usize],

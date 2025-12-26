@@ -708,11 +708,11 @@ mod tests {
     #[test]
     fn test_tensor_type_aliases() {
         // Test that type aliases work correctly
-        let t0: Tensor0 = Tensor::full([], 1.0);
-        let t1: Tensor1 = Tensor::ones([5]);
-        let t2: Tensor2 = Tensor::zeros([3, 4]);
-        let t3: Tensor3 = Tensor::ones([2, 3, 4]);
-        let t_dyn: TensorDyn = Tensor::ones_dyn(&[2, 3]);
+        let t0: Tensor0 = Tensor::<f32, Dim0>::full([], 1.0);
+        let t1: Tensor1 = Tensor::<f32, Dim1>::ones([5]);
+        let t2: Tensor2 = Tensor::<f32, Dim2>::zeros([3, 4]);
+        let t3: Tensor3 = Tensor::<f32, Dim3>::ones([2, 3, 4]);
+        let t_dyn: TensorDyn = Tensor::<f32, DimDyn>::ones_dyn(&[2, 3]);
 
         assert_eq!(t0.ndim(), 0);
         assert_eq!(t1.ndim(), 1);

@@ -1,5 +1,8 @@
 //! Transcendental high-level operations
 //!
+//! These operations are currently available for f32.
+//! The underlying primops (sin, sqrt, log2, exp2) support both f32 and f64.
+//!
 //! - Exp(x) = Exp2(x * log2(e))
 //! - Ln(x) = Log2(x) * ln(2)
 //! - Cos(x) = Sin(x + π/2)
@@ -60,6 +63,10 @@ impl<D: Dimension> Tensor<f32, D> {
         self * self
     }
 }
+
+// Note: f64 hlops (exp, ln, cos, tan, pow, square) require binary operations
+// (Add, Mul, Div) for f64 tensors. Currently only primops (sin, sqrt, log2,
+// exp2, recip, floor) support f64 directly.
 
 #[cfg(test)]
 mod tests {

@@ -283,8 +283,8 @@ mod tests {
 
     #[test]
     fn test_matmul2_type_safe() {
-        let a: Tensor<f32, Dim2> = Tensor::ones([2, 3]);
-        let b: Tensor<f32, Dim2> = Tensor::ones([3, 4]);
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
+        let b = Tensor::<f32, Dim2>::ones([3, 4]);
         // matmul2 returns Tensor<f32, Dim2>, not Tensor<f32, DimDyn>
         let c: Tensor<f32, Dim2> = a.matmul2(&b);
         assert_eq!(c.shape(), &[2, 4]);
@@ -292,8 +292,8 @@ mod tests {
 
     #[test]
     fn test_dot1_type_safe() {
-        let a: Tensor<f32, Dim1> = Tensor::ones([3]);
-        let b: Tensor<f32, Dim1> = Tensor::ones([3]);
+        let a = Tensor::<f32, Dim1>::ones([3]);
+        let b = Tensor::<f32, Dim1>::ones([3]);
         // dot1 returns scalar (0-dim tensor)
         let c = a.dot1(&b);
         assert_eq!(c.shape(), &[]);
@@ -301,8 +301,8 @@ mod tests {
 
     #[test]
     fn test_outer1_type_safe() {
-        let a: Tensor<f32, Dim1> = Tensor::ones([3]);
-        let b: Tensor<f32, Dim1> = Tensor::ones([4]);
+        let a = Tensor::<f32, Dim1>::ones([3]);
+        let b = Tensor::<f32, Dim1>::ones([4]);
         // outer1 returns Tensor<f32, Dim2>
         let c: Tensor<f32, Dim2> = a.outer1(&b);
         assert_eq!(c.shape(), &[3, 4]);
