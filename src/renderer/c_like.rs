@@ -282,8 +282,9 @@ pub trait CLikeRenderer: Renderer {
                 )
             }
             AstNode::Cast(operand, dtype) => {
+                // C-style cast: (type)(value)
                 format!(
-                    "{}({})",
+                    "({})({})",
                     self.render_dtype_backend(dtype),
                     self.render_expr(operand)
                 )
