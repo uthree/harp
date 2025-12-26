@@ -20,13 +20,13 @@ pub struct Tensor<T: TensorDType = f32, D: Dimension = DimDyn> {
 }
 
 pub struct TensorInner {
-    op: TensorOp,                       // 演算種類（入力テンソルを含む）
-    view: View,                         // メモリレイアウト
-    shape: Vec<usize>,                  // テンソル形状
-    dtype: DType,                       // データ型
-    name: Option<String>,               // バッファ名（オプション）
-    autograd: Option<AutogradStorage>,  // 勾配追跡データ（F32/F64）
-    buffer: RwLock<Option<Vec<f32>>>,   // 実行結果バッファ
+    op: TensorOp,                             // 演算種類（入力テンソルを含む）
+    view: View,                               // メモリレイアウト
+    shape: Vec<usize>,                        // テンソル形状
+    dtype: DType,                             // データ型
+    name: Option<String>,                     // バッファ名（オプション）
+    autograd: Option<AutogradStorage>,        // 勾配追跡データ（F32/F64）
+    buffer: RwLock<Option<Box<dyn DynBuffer>>>, // 実行結果バッファ（GPU/ホスト）
 }
 
 // 型消去された自動微分ストレージ

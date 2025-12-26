@@ -14,12 +14,71 @@
 
 use super::{DimDyn, Dimension, Tensor, TensorInner, TensorOp};
 use crate::ast::DType;
+use crate::backend::DynBuffer;
 use crate::backend::global::{DeviceKind, get_default_device_kind};
 use crate::tensor::shape::{Expr, View};
 use ndarray::{Array, ArrayD, Dimension as NdDimension, IxDyn};
 use std::fmt;
 use std::marker::PhantomData;
 use std::sync::{Arc, RwLock};
+
+// ============================================================================
+// VecBuffer - Simple wrapper for host data to implement DynBuffer
+// ============================================================================
+
+/// Simple wrapper for Vec<u8> that implements DynBuffer for host data storage
+///
+/// This is used by `from_data()` and for input tensors that haven't been
+/// transferred to the GPU yet.
+#[derive(Clone)]
+pub(crate) struct VecBuffer {
+    data: Vec<u8>,
+    shape: Vec<usize>,
+    dtype: DType,
+}
+
+impl VecBuffer {
+    /// Create a new VecBuffer from typed data
+    pub fn from_vec<T>(data: &[T], shape: Vec<usize>, dtype: DType) -> Self {
+        let byte_len = std::mem::size_of_val(data);
+        let bytes = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, byte_len) };
+        Self {
+            data: bytes.to_vec(),
+            shape,
+            dtype,
+        }
+    }
+}
+
+impl DynBuffer for VecBuffer {
+    fn shape(&self) -> &[usize] {
+        &self.shape
+    }
+
+    fn dtype(&self) -> DType {
+        self.dtype.clone()
+    }
+
+    fn byte_len(&self) -> usize {
+        self.data.len()
+    }
+
+    fn read_to_host(&self) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(self.data.clone())
+    }
+
+    fn write_from_host(
+        &mut self,
+        data: &[u8],
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.data = data.to_vec();
+        Ok(())
+    }
+
+    fn clone_buffer(&self) -> Box<dyn DynBuffer> {
+        Box::new(self.clone())
+    }
+}
 
 /// Error type for forward execution
 #[derive(Debug, Clone)]
@@ -144,6 +203,17 @@ impl<D: Dimension> Tensor<f32, D> {
     fn collect_input_data(&self) -> Vec<(Vec<f32>, Vec<usize>)> {
         use std::collections::HashSet;
 
+        /// Convert bytes to Vec<f32>
+        fn bytes_to_f32(bytes: &[u8]) -> Vec<f32> {
+            let len = bytes.len() / std::mem::size_of::<f32>();
+            let mut result = Vec::with_capacity(len);
+            unsafe {
+                let ptr = bytes.as_ptr() as *const f32;
+                result.extend_from_slice(std::slice::from_raw_parts(ptr, len));
+            }
+            result
+        }
+
         fn collect_recursive(
             inner: &Arc<TensorInner>,
             visited: &mut HashSet<usize>,
@@ -158,19 +228,23 @@ impl<D: Dimension> Tensor<f32, D> {
             match &inner.op {
                 // Leaf nodes with data
                 TensorOp::Executed => {
-                    // Get data from buffer
+                    // Get data from buffer (now DynBuffer)
                     if let Ok(guard) = inner.buffer.read()
-                        && let Some(data) = guard.as_ref()
+                        && let Some(buf) = guard.as_ref()
+                        && let Ok(bytes) = buf.read_to_host()
                     {
-                        inputs.push((data.clone(), inner.shape.clone()));
+                        let data = bytes_to_f32(&bytes);
+                        inputs.push((data, inner.shape.clone()));
                     }
                 }
                 TensorOp::Buffer { .. } => {
                     // Named buffer - also get data if available
                     if let Ok(guard) = inner.buffer.read()
-                        && let Some(data) = guard.as_ref()
+                        && let Some(buf) = guard.as_ref()
+                        && let Ok(bytes) = buf.read_to_host()
                     {
-                        inputs.push((data.clone(), inner.shape.clone()));
+                        let data = bytes_to_f32(&bytes);
+                        inputs.push((data, inner.shape.clone()));
                     }
                 }
                 // Compute operations - recurse into inputs
@@ -275,12 +349,7 @@ impl<D: Dimension> Tensor<f32, D> {
             .execute(&input_refs, &mut output_refs)
             .map_err(|e| ForwardError::ExecutionError(format!("Execution failed: {:?}", e)))?;
 
-        // Read back result
-        let result: Vec<f32> = output_buffer
-            .read_vec()
-            .map_err(|e| ForwardError::ExecutionError(format!("Failed to read result: {}", e)))?;
-
-        // Create new tensor with executed buffer
+        // Store GPU buffer directly (no host readback)
         let inner = TensorInner {
             op: TensorOp::Executed,
             view: self.inner.view.clone(),
@@ -288,7 +357,7 @@ impl<D: Dimension> Tensor<f32, D> {
             dtype: self.inner.dtype.clone(),
             name: self.inner.name.clone(),
             autograd: None,
-            buffer: RwLock::new(Some(result)),
+            buffer: RwLock::new(Some(Box::new(output_buffer) as Box<dyn DynBuffer>)),
         };
 
         Ok(Tensor {
@@ -378,12 +447,7 @@ impl<D: Dimension> Tensor<f32, D> {
             .execute(&input_refs, &mut output_refs)
             .map_err(|e| ForwardError::ExecutionError(format!("Execution failed: {:?}", e)))?;
 
-        // Read back result
-        let result: Vec<f32> = output_buffer
-            .read_vec()
-            .map_err(|e| ForwardError::ExecutionError(format!("Failed to read result: {}", e)))?;
-
-        // Create new tensor with executed buffer
+        // Store GPU buffer directly (no host readback)
         let inner = TensorInner {
             op: TensorOp::Executed,
             view: self.inner.view.clone(),
@@ -391,7 +455,7 @@ impl<D: Dimension> Tensor<f32, D> {
             dtype: self.inner.dtype.clone(),
             name: self.inner.name.clone(),
             autograd: None,
-            buffer: RwLock::new(Some(result)),
+            buffer: RwLock::new(Some(Box::new(output_buffer) as Box<dyn DynBuffer>)),
         };
 
         Ok(Tensor {
@@ -408,6 +472,7 @@ impl<D: Dimension> Tensor<f32, D> {
     pub fn from_data(data: Vec<f32>, shape: Vec<usize>) -> Tensor<f32, DimDyn> {
         let shape_exprs: Vec<Expr> = shape.iter().map(|&s| Expr::from(s as i64)).collect();
         let view = View::contiguous(shape_exprs);
+        let vec_buffer = VecBuffer::from_vec(&data, shape.clone(), DType::F32);
         let inner = TensorInner {
             op: TensorOp::Executed,
             view,
@@ -415,7 +480,7 @@ impl<D: Dimension> Tensor<f32, D> {
             dtype: DType::F32,
             name: None,
             autograd: None,
-            buffer: RwLock::new(Some(data)),
+            buffer: RwLock::new(Some(Box::new(vec_buffer) as Box<dyn DynBuffer>)),
         };
 
         Tensor {
@@ -467,11 +532,12 @@ impl<D: Dimension> Tensor<f32, D> {
         // Call realize() to execute and get result
         let result = self.realize()?;
 
-        // Copy the result buffer back to self
-        if let Some(result_data) = result.data()
+        // Clone the result buffer back to self
+        if let Ok(result_guard) = result.inner.buffer.read()
+            && let Some(result_buf) = result_guard.as_ref()
             && let Ok(mut guard) = self.inner.buffer.write()
         {
-            *guard = Some(result_data);
+            *guard = Some(result_buf.clone_buffer());
         }
 
         Ok(())
@@ -484,8 +550,18 @@ impl<D: Dimension> Tensor<f32, D> {
     /// Returns None if the tensor has not been executed yet.
     pub fn data(&self) -> Option<Vec<f32>> {
         // Check the buffer field in TensorInner
-        if let Ok(guard) = self.inner.buffer.read() {
-            return guard.clone();
+        if let Ok(guard) = self.inner.buffer.read()
+            && let Some(buf) = guard.as_ref()
+            && let Ok(bytes) = buf.read_to_host()
+        {
+            // Convert bytes to Vec<f32>
+            let len = bytes.len() / std::mem::size_of::<f32>();
+            let mut result = Vec::with_capacity(len);
+            unsafe {
+                let ptr = bytes.as_ptr() as *const f32;
+                result.extend_from_slice(std::slice::from_raw_parts(ptr, len));
+            }
+            return Some(result);
         }
         None
     }
@@ -591,6 +667,7 @@ macro_rules! impl_from_ndarray {
 
                 let shape_exprs: Vec<Expr> = shape.iter().map(|&s| Expr::from(s as i64)).collect();
                 let view = View::contiguous(shape_exprs);
+                let vec_buffer = VecBuffer::from_vec(&data, shape.clone(), DType::F32);
                 let inner = TensorInner {
                     op: TensorOp::Executed,
                     view,
@@ -598,7 +675,7 @@ macro_rules! impl_from_ndarray {
                     dtype: DType::F32,
                     name: None,
                     autograd: None,
-                    buffer: RwLock::new(Some(data)),
+                    buffer: RwLock::new(Some(Box::new(vec_buffer) as Box<dyn DynBuffer>)),
                 };
 
                 Tensor {

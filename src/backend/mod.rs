@@ -38,8 +38,8 @@ pub mod metal;
 
 // Re-export core traits
 pub use traits::{
-    Buffer, Compiler, Device, DeviceFeature, DeviceInstruction, DeviceProfile, DeviceType, Kernel,
-    KernelConfig, OpKind, SimdCapability,
+    Buffer, Compiler, Device, DeviceFeature, DeviceInstruction, DeviceProfile, DeviceType,
+    DynBuffer, Kernel, KernelConfig, OpKind, SimdCapability,
 };
 
 // Re-export pipeline types (Pipeline, CompiledKernel, etc.)

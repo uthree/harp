@@ -2,7 +2,7 @@
 
 use super::device::{MetalDevice, MetalError};
 use crate::ast::DType;
-use crate::backend::traits::Buffer;
+use crate::backend::traits::{Buffer, DynBuffer};
 use metal::{Buffer as MtlBuffer, MTLResourceOptions};
 use std::sync::Arc;
 
@@ -85,6 +85,37 @@ impl Buffer for MetalBuffer {
             "Buffer size {} is not aligned to type size {}",
             buffer_size, type_size
         ))
+    }
+}
+
+impl DynBuffer for MetalBuffer {
+    fn shape(&self) -> &[usize] {
+        &self.shape
+    }
+
+    fn dtype(&self) -> DType {
+        self.dtype.clone()
+    }
+
+    fn byte_len(&self) -> usize {
+        self.byte_len
+    }
+
+    fn read_to_host(&self) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+        Buffer::read_to_host(self)
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+    }
+
+    fn write_from_host(
+        &mut self,
+        data: &[u8],
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Buffer::write_from_host(self, data)
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+    }
+
+    fn clone_buffer(&self) -> Box<dyn DynBuffer> {
+        Box::new(self.clone())
     }
 }
 

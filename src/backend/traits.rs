@@ -373,6 +373,42 @@ pub trait Buffer: Sized + Clone + Send + Sync {
     }
 }
 
+// ============================================================================
+// DynBuffer - Object-safe buffer trait for dynamic dispatch
+// ============================================================================
+
+/// Object-safe buffer trait for dynamic dispatch
+///
+/// This trait provides a subset of `Buffer` functionality that can be used
+/// with `dyn DynBuffer` for type-erased buffer storage in `TensorInner`.
+///
+/// Unlike `Buffer`, this trait:
+/// - Does not require `Sized` or `Clone`
+/// - Uses `Box<dyn Error>` instead of associated error types
+/// - Provides `clone_buffer()` for cloning through trait objects
+pub trait DynBuffer: Send + Sync {
+    /// Get the shape of the buffer
+    fn shape(&self) -> &[usize];
+
+    /// Get the data type of the buffer elements
+    fn dtype(&self) -> DType;
+
+    /// Get the total number of bytes in the buffer
+    fn byte_len(&self) -> usize;
+
+    /// Read all data to host memory as raw bytes
+    fn read_to_host(&self) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>>;
+
+    /// Write raw bytes from host memory
+    fn write_from_host(
+        &mut self,
+        data: &[u8],
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+
+    /// Clone the buffer (returns Box<dyn DynBuffer>)
+    fn clone_buffer(&self) -> Box<dyn DynBuffer>;
+}
+
 /// Kernel execution configuration
 #[derive(Debug, Clone)]
 pub struct KernelConfig {

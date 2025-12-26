@@ -91,6 +91,8 @@ pub mod shape;
 use std::marker::PhantomData;
 use std::sync::{Arc, RwLock};
 
+use crate::backend::DynBuffer;
+
 pub use dimension::{Dim, Dim0, Dim1, Dim2, Dim3, Dim4, Dim5, Dim6, DimDyn, Dimension};
 pub use dtype::{
     FloatDType, IntegerDType, NumericDType, SignedIntDType, TensorDType, UnsignedIntDType,
@@ -303,8 +305,8 @@ pub struct TensorInner {
     pub(crate) name: Option<String>,
     /// Autograd metadata (only allocated when requires_grad is true)
     pub(crate) autograd: Option<AutogradStorage>,
-    /// Executed buffer data (populated after contiguous())
-    pub(crate) buffer: RwLock<Option<Vec<f32>>>,
+    /// Executed buffer data (populated after realize())
+    pub(crate) buffer: RwLock<Option<Box<dyn DynBuffer>>>,
 }
 
 impl TensorInner {
@@ -338,6 +340,15 @@ impl TensorInner {
             autograd: None,
             buffer: RwLock::new(None),
         }
+    }
+
+    /// Clone the buffer option using DynBuffer::clone_buffer()
+    pub(crate) fn clone_buffer(&self) -> Option<Box<dyn DynBuffer>> {
+        self.buffer
+            .read()
+            .unwrap()
+            .as_ref()
+            .map(|buf| buf.clone_buffer())
     }
 }
 
@@ -496,7 +507,7 @@ impl<T: FloatDTypeAutograd, D: Dimension> Tensor<T, D> {
                 dtype: self.inner.dtype.clone(),
                 name: self.inner.name.clone(),
                 autograd: Some(T::new_autograd()),
-                buffer: RwLock::new(self.inner.buffer.read().unwrap().clone()),
+                buffer: RwLock::new(self.inner.clone_buffer()),
             };
             Tensor {
                 inner: Arc::new(inner),
@@ -512,7 +523,7 @@ impl<T: FloatDTypeAutograd, D: Dimension> Tensor<T, D> {
                 dtype: self.inner.dtype.clone(),
                 name: self.inner.name.clone(),
                 autograd: None,
-                buffer: RwLock::new(self.inner.buffer.read().unwrap().clone()),
+                buffer: RwLock::new(self.inner.clone_buffer()),
             };
             Tensor {
                 inner: Arc::new(inner),
@@ -714,7 +725,7 @@ impl<D: Dimension> Tensor<f32, D> {
             dtype: self.inner.dtype.clone(),
             name: self.inner.name.clone(),
             autograd: None,
-            buffer: RwLock::new(self.inner.buffer.read().unwrap().clone()),
+            buffer: RwLock::new(self.inner.clone_buffer()),
         };
         Tensor {
             inner: Arc::new(inner),
@@ -825,7 +836,7 @@ impl<D: Dimension> Tensor<f64, D> {
             dtype: self.inner.dtype.clone(),
             name: self.inner.name.clone(),
             autograd: None,
-            buffer: RwLock::new(self.inner.buffer.read().unwrap().clone()),
+            buffer: RwLock::new(self.inner.clone_buffer()),
         };
         Tensor {
             inner: Arc::new(inner),

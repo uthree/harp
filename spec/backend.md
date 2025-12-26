@@ -276,7 +276,30 @@ let config = PipelineConfig::default().with_fast_math(true);
 ```
 
 #### Buffer
-GPUメモリバッファ。ホスト⇔デバイス間のデータ転送を提供。
+GPUメモリバッファ。ホスト⇔デバイス間のデータ転送を提供。関連型として`Dev: Device`と`Error`を持つ。
+
+#### DynBuffer
+`Buffer`トレイトの型消去版。`Tensor`内部でGPU/ホストバッファを抽象化するために使用。
+
+```rust
+pub trait DynBuffer: Send + Sync {
+    fn shape(&self) -> &[usize];
+    fn dtype(&self) -> DType;
+    fn byte_len(&self) -> usize;
+    fn read_to_host(&self) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>>;
+    fn write_from_host(&mut self, data: &[u8]) -> Result<(), Box<dyn Error + Send + Sync>>;
+    fn clone_buffer(&self) -> Box<dyn DynBuffer>;
+}
+```
+
+**用途:**
+- `TensorInner.buffer`フィールドで`Box<dyn DynBuffer>`として使用
+- `realize()`実行後もGPUバッファを保持（ホストへのコピーを遅延）
+- `data()`呼び出し時に必要に応じて`read_to_host()`でホストにコピー
+
+**実装:**
+- `MetalBuffer`, `OpenCLBuffer`: GPUバックエンドのバッファ
+- `VecBuffer`: ホストデータ用の簡易ラッパー（`from_data()`等で使用）
 
 #### Kernel
 コンパイル済みカーネル。バッファを受け取って実行。
