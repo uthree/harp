@@ -617,6 +617,22 @@ where
     _buffer: PhantomData<B>,
 }
 
+impl<K, B> CompiledKernel<K, B>
+where
+    K: Kernel<Buffer = B>,
+    B: TypedBuffer,
+{
+    /// Create a new CompiledKernel from components
+    pub fn new(kernel: K, signature: KernelSignature, dispatch_config: DispatchSizeConfig) -> Self {
+        Self {
+            kernel,
+            signature,
+            dispatch_config,
+            _buffer: PhantomData,
+        }
+    }
+}
+
 /// Error type for kernel execution with query
 #[derive(Debug)]
 pub enum KernelExecutionError<KE> {

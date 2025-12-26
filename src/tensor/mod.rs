@@ -87,6 +87,7 @@ pub mod lowerer;
 pub mod ops;
 pub mod primops;
 pub mod shape;
+pub mod stringify;
 
 use std::marker::PhantomData;
 use std::sync::{Arc, RwLock};

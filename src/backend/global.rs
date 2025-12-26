@@ -27,7 +27,7 @@ use std::cell::RefCell;
 use std::sync::Arc;
 
 /// The kind of device currently set as default
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum DeviceKind {
     /// No device is set
     #[default]

@@ -12,11 +12,12 @@
 //! - `data()`: Returns the computed data if available.
 //! - `from_data()`: Creates a tensor with pre-populated buffer data.
 
-use super::{DimDyn, Dimension, ErasedTensorInner, Tensor, TensorInner, TensorOp};
+#[cfg(any(all(feature = "metal", target_os = "macos"), feature = "opencl"))]
+use super::ErasedTensorInner;
+use super::{DimDyn, Dimension, Tensor, TensorInner, TensorOp};
 use crate::ast::DType;
 use crate::backend::Buffer;
 use crate::backend::global::{DeviceKind, get_default_device_kind};
-use crate::backend::traits::TypedBuffer;
 use crate::tensor::shape::{Expr, View};
 use ndarray::{Array, ArrayD, Dimension as NdDimension, IxDyn};
 use std::fmt;
@@ -201,6 +202,7 @@ impl<D: Dimension> Tensor<f32, D> {
     ///
     /// Returns input data in the order they appear as non-const inputs in the Compute ops.
     /// This matches the order used by the lowerer when generating `input0`, `input1`, etc.
+    #[cfg(any(all(feature = "metal", target_os = "macos"), feature = "opencl"))]
     fn collect_input_data(&self) -> Vec<(Vec<f32>, Vec<usize>)> {
         use std::collections::HashSet;
 
@@ -275,54 +277,90 @@ impl<D: Dimension> Tensor<f32, D> {
     /// Internal: Execute realize on Metal device
     #[cfg(all(feature = "metal", target_os = "macos"))]
     fn realize_metal(&self) -> Result<Tensor<f32, D>, ForwardError> {
+        use crate::backend::cache::{
+            KernelCacheKey, MetalCacheEntry, get_metal_kernel, insert_metal_kernel,
+        };
         use crate::backend::global::get_default_device;
         use crate::backend::metal::{MetalBuffer, MetalCompiler, MetalDevice};
-        use crate::backend::{BufferSignature, KernelSignature, Pipeline};
+        use crate::backend::traits::TypedBuffer;
+        use crate::backend::{BufferSignature, CompiledKernel, KernelSignature, Pipeline};
         use crate::renderer::MetalRenderer;
         use crate::tensor::lowerer::TensorLowerer;
+        use crate::tensor::stringify::stringify_graph;
+        use std::time::Instant;
 
         // Get the Metal device
         let device: std::sync::Arc<MetalDevice> = get_default_device::<MetalDevice>()
             .ok_or_else(|| ForwardError::DeviceUnavailable("Metal device not found".to_string()))?;
 
-        // Collect input tensor data
+        // Generate cache key from graph structure
+        let graph_repr = stringify_graph(self);
+        let cache_key = KernelCacheKey::new(graph_repr, DeviceKind::Metal);
+
+        // Check cache for compiled kernel
+        let compiled: CompiledKernel<_, MetalBuffer> =
+            if let Some(cached) = get_metal_kernel(&cache_key) {
+                log::debug!("Kernel cache hit: {}", cache_key.graph_repr());
+                CompiledKernel::new(cached.kernel, cached.signature, cached.dispatch_config)
+            } else {
+                log::debug!("Kernel cache miss: {}", cache_key.graph_repr());
+
+                // Collect input tensor data
+                let input_data = self.collect_input_data();
+
+                // Lower Tensor to AST directly
+                let mut lowerer = TensorLowerer::new();
+                let ast = lowerer.lower(&self.clone().into_dyn());
+
+                // Create input signatures
+                let input_signatures: Vec<BufferSignature> = input_data
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (_, shape))| {
+                        let shape_expr: Vec<Expr> =
+                            shape.iter().map(|&s| Expr::from(s as i64)).collect();
+                        BufferSignature::new(format!("input{}", i), shape_expr)
+                    })
+                    .collect();
+
+                // Create signature from tensor metadata
+                let output_shape_expr: Vec<Expr> =
+                    self.shape().iter().map(|&s| Expr::from(s as i64)).collect();
+                let signature = KernelSignature::new(
+                    input_signatures,
+                    vec![BufferSignature::new(
+                        "output".to_string(),
+                        output_shape_expr,
+                    )],
+                );
+
+                // Create pipeline and compile from AST
+                use crate::backend::traits::Compiler;
+                let renderer = MetalRenderer::default();
+                let compiler = MetalCompiler::new();
+                let mut pipeline: Pipeline<MetalRenderer, MetalDevice, MetalCompiler> =
+                    Pipeline::new(renderer, compiler, device.as_ref().clone());
+
+                let compiled = pipeline.compile_ast(ast, signature).map_err(|e| {
+                    ForwardError::CompilationError(format!("Failed to compile: {:?}", e))
+                })?;
+
+                // Insert into cache
+                insert_metal_kernel(
+                    cache_key,
+                    MetalCacheEntry {
+                        kernel: compiled.kernel.clone(),
+                        signature: compiled.signature.clone(),
+                        dispatch_config: compiled.dispatch_config.clone(),
+                        last_accessed: Instant::now(),
+                    },
+                );
+
+                compiled
+            };
+
+        // Collect input tensor data (needed for buffer creation)
         let input_data = self.collect_input_data();
-
-        // Lower Tensor to AST directly
-        let mut lowerer = TensorLowerer::new();
-        let ast = lowerer.lower(&self.clone().into_dyn());
-
-        // Create input signatures
-        let input_signatures: Vec<BufferSignature> = input_data
-            .iter()
-            .enumerate()
-            .map(|(i, (_, shape))| {
-                let shape_expr: Vec<Expr> = shape.iter().map(|&s| Expr::from(s as i64)).collect();
-                BufferSignature::new(format!("input{}", i), shape_expr)
-            })
-            .collect();
-
-        // Create signature from tensor metadata
-        let output_shape_expr: Vec<Expr> =
-            self.shape().iter().map(|&s| Expr::from(s as i64)).collect();
-        let signature = KernelSignature::new(
-            input_signatures,
-            vec![BufferSignature::new(
-                "output".to_string(),
-                output_shape_expr,
-            )],
-        );
-
-        // Create pipeline and compile from AST
-        use crate::backend::traits::Compiler;
-        let renderer = MetalRenderer::default();
-        let compiler = MetalCompiler::new();
-        let mut pipeline: Pipeline<MetalRenderer, MetalDevice, MetalCompiler> =
-            Pipeline::new(renderer, compiler, device.as_ref().clone());
-
-        let compiled = pipeline
-            .compile_ast(ast, signature)
-            .map_err(|e| ForwardError::CompilationError(format!("Failed to compile: {:?}", e)))?;
 
         // Create input buffers from collected data
         use crate::backend::traits::Buffer;
@@ -371,11 +409,17 @@ impl<D: Dimension> Tensor<f32, D> {
     /// Internal: Execute realize on OpenCL device
     #[cfg(feature = "opencl")]
     fn realize_opencl(&self) -> Result<Tensor<f32, D>, ForwardError> {
+        use crate::backend::cache::{
+            KernelCacheKey, OpenCLCacheEntry, get_opencl_kernel, insert_opencl_kernel,
+        };
         use crate::backend::global::get_default_device;
         use crate::backend::opencl::{OpenCLBuffer, OpenCLCompiler, OpenCLDevice};
-        use crate::backend::{BufferSignature, KernelSignature, Pipeline};
+        use crate::backend::traits::TypedBuffer;
+        use crate::backend::{BufferSignature, CompiledKernel, KernelSignature, Pipeline};
         use crate::renderer::OpenCLRenderer;
         use crate::tensor::lowerer::TensorLowerer;
+        use crate::tensor::stringify::stringify_graph;
+        use std::time::Instant;
 
         // Get the OpenCL device
         let device: std::sync::Arc<OpenCLDevice> = get_default_device::<OpenCLDevice>()
@@ -383,44 +427,74 @@ impl<D: Dimension> Tensor<f32, D> {
                 ForwardError::DeviceUnavailable("OpenCL device not found".to_string())
             })?;
 
-        // Collect input tensor data
+        // Generate cache key from graph structure
+        let graph_repr = stringify_graph(self);
+        let cache_key = KernelCacheKey::new(graph_repr, DeviceKind::OpenCL);
+
+        // Check cache for compiled kernel
+        let compiled: CompiledKernel<_, OpenCLBuffer> =
+            if let Some(cached) = get_opencl_kernel(&cache_key) {
+                log::debug!("Kernel cache hit: {}", cache_key.graph_repr());
+                CompiledKernel::new(cached.kernel, cached.signature, cached.dispatch_config)
+            } else {
+                log::debug!("Kernel cache miss: {}", cache_key.graph_repr());
+
+                // Collect input tensor data
+                let input_data = self.collect_input_data();
+
+                // Lower Tensor to AST directly
+                let mut lowerer = TensorLowerer::new();
+                let ast = lowerer.lower(&self.clone().into_dyn());
+
+                // Create input signatures
+                let input_signatures: Vec<BufferSignature> = input_data
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (_, shape))| {
+                        let shape_expr: Vec<Expr> =
+                            shape.iter().map(|&s| Expr::from(s as i64)).collect();
+                        BufferSignature::new(format!("input{}", i), shape_expr)
+                    })
+                    .collect();
+
+                // Create signature from tensor metadata
+                let output_shape_expr: Vec<Expr> =
+                    self.shape().iter().map(|&s| Expr::from(s as i64)).collect();
+                let signature = KernelSignature::new(
+                    input_signatures,
+                    vec![BufferSignature::new(
+                        "output".to_string(),
+                        output_shape_expr,
+                    )],
+                );
+
+                // Create pipeline and compile from AST
+                use crate::backend::traits::Compiler;
+                let renderer = OpenCLRenderer::default();
+                let compiler = OpenCLCompiler::new();
+                let mut pipeline: Pipeline<OpenCLRenderer, OpenCLDevice, OpenCLCompiler> =
+                    Pipeline::new(renderer, compiler, device.as_ref().clone());
+
+                let compiled = pipeline.compile_ast(ast, signature).map_err(|e| {
+                    ForwardError::CompilationError(format!("Failed to compile: {:?}", e))
+                })?;
+
+                // Insert into cache
+                insert_opencl_kernel(
+                    cache_key,
+                    OpenCLCacheEntry {
+                        kernel: compiled.kernel.clone(),
+                        signature: compiled.signature.clone(),
+                        dispatch_config: compiled.dispatch_config.clone(),
+                        last_accessed: Instant::now(),
+                    },
+                );
+
+                compiled
+            };
+
+        // Collect input tensor data (needed for buffer creation)
         let input_data = self.collect_input_data();
-
-        // Lower Tensor to AST directly
-        let mut lowerer = TensorLowerer::new();
-        let ast = lowerer.lower(&self.clone().into_dyn());
-
-        // Create input signatures
-        let input_signatures: Vec<BufferSignature> = input_data
-            .iter()
-            .enumerate()
-            .map(|(i, (_, shape))| {
-                let shape_expr: Vec<Expr> = shape.iter().map(|&s| Expr::from(s as i64)).collect();
-                BufferSignature::new(format!("input{}", i), shape_expr)
-            })
-            .collect();
-
-        // Create signature from tensor metadata
-        let output_shape_expr: Vec<Expr> =
-            self.shape().iter().map(|&s| Expr::from(s as i64)).collect();
-        let signature = KernelSignature::new(
-            input_signatures,
-            vec![BufferSignature::new(
-                "output".to_string(),
-                output_shape_expr,
-            )],
-        );
-
-        // Create pipeline and compile from AST
-        use crate::backend::traits::Compiler;
-        let renderer = OpenCLRenderer::default();
-        let compiler = OpenCLCompiler::new();
-        let mut pipeline: Pipeline<OpenCLRenderer, OpenCLDevice, OpenCLCompiler> =
-            Pipeline::new(renderer, compiler, device.as_ref().clone());
-
-        let compiled = pipeline
-            .compile_ast(ast, signature)
-            .map_err(|e| ForwardError::CompilationError(format!("Failed to compile: {:?}", e)))?;
 
         // Create input buffers from collected data
         use crate::backend::traits::Buffer;

@@ -23,6 +23,7 @@
 //! // - metal: Metal backend (macOS only)
 //! ```
 
+pub mod cache;
 pub mod global;
 pub mod pipeline;
 pub mod sequence;
