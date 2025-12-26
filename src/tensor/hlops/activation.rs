@@ -13,7 +13,7 @@ impl<D: Dimension> Tensor<f32, D> {
     ///
     /// Implemented as: Max(x, 0)
     pub fn relu(&self) -> Tensor<f32, D> {
-        self.max_scalar(0.0)
+        self.maximum_scalar(0.0)
     }
 
     /// Leaky ReLU activation (hlop)
@@ -22,7 +22,7 @@ impl<D: Dimension> Tensor<f32, D> {
     pub fn leaky_relu(&self, alpha: f32) -> Tensor<f32, D> {
         // max(x, alpha * x)
         let scaled = self * alpha;
-        self.max(&scaled)
+        self.maximum(&scaled)
     }
 
     /// Sigmoid activation: 1 / (1 + exp(-x)) (hlop)
@@ -94,7 +94,7 @@ impl<D: Dimension> Tensor<f32, D> {
 
         // Use max(x, 0) + min(x, 0) as approximation
         let positive = self.relu();
-        let _negative = self.max_scalar(0.0);
+        let _negative = self.maximum_scalar(0.0);
 
         // This is approximate; proper implementation needs comparison op
         // For now: if x > 0: x, else: alpha * (exp(x) - 1)
@@ -104,20 +104,20 @@ impl<D: Dimension> Tensor<f32, D> {
 
     /// Hardtanh: clamp to [-min_val, max_val] (hlop)
     pub fn hardtanh(&self, min_val: f32, max_val: f32) -> Tensor<f32, D> {
-        self.max_scalar(min_val).min_scalar(max_val)
+        self.maximum_scalar(min_val).min_scalar(max_val)
     }
 
     /// Element-wise minimum with scalar (hlop)
     pub fn min_scalar(&self, value: f32) -> Tensor<f32, D> {
         // min(a, b) = -max(-a, -b)
         let neg_self = -self;
-        let neg_max = neg_self.max_scalar(-value);
+        let neg_max = neg_self.maximum_scalar(-value);
         -neg_max
     }
 
     /// Clamp values to [min, max] (hlop)
     pub fn clamp(&self, min: f32, max: f32) -> Tensor<f32, D> {
-        self.max_scalar(min).min_scalar(max)
+        self.maximum_scalar(min).min_scalar(max)
     }
 }
 

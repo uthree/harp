@@ -29,7 +29,7 @@ impl Tensor<f32, Dim1> {
         );
 
         let product = &self.clone().into_dyn() * &other.clone().into_dyn();
-        product.reduce_sum(&[0], false)
+        product.sum(0)
     }
 
     /// Type-safe outer product for 1D tensors
@@ -102,7 +102,7 @@ impl Tensor<f32, Dim2> {
         let product = a_expanded.expand(&[m, k, n]) * b_expanded.expand(&[m, k, n]);
 
         // Sum over K dimension: [M, K, N] -> [M, N]
-        let result_dyn = product.reduce_sum(&[1], false);
+        let result_dyn = product.sum(1);
 
         // Convert back to Dim2
         Tensor {
@@ -220,7 +220,7 @@ impl Tensor<f32, DimDyn> {
 
         let expanded_shape = vec![batch_size, m, k, n];
         let product = a_4d.expand(&expanded_shape) * b_4d.expand(&expanded_shape);
-        let result_3d = product.reduce_sum(&[2], false);
+        let result_3d = product.sum(2);
 
         result_3d.reshape_dyn(&result_shape)
     }

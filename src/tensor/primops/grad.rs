@@ -52,10 +52,12 @@ pub fn reduce_grad_for_broadcast_generic<T: FloatDTypeAutograd>(
         }
     }
 
-    // Reduce along those axes
+    // Reduce along those axes using sum_axis (single axis at a time)
+    // Process axes in reverse order to preserve indices
     let mut result = grad.clone();
-    if !reduce_axes.is_empty() {
-        result = result.reduce_sum(&reduce_axes, true);
+    for &axis in reduce_axes.iter().rev() {
+        // sum_axis reduces dimension, then unsqueeze restores it (keepdim=true effect)
+        result = result.sum(axis).unsqueeze(axis);
     }
 
     // Reshape to target shape
@@ -512,7 +514,7 @@ fn evaluate_ast_with_tensors(
         AstNode::Max(lhs, rhs) => {
             let l = evaluate_ast_with_tensors(lhs, substitution);
             let r = evaluate_ast_with_tensors(rhs, substitution);
-            l.max(&r)
+            l.maximum(&r)
         }
 
         AstNode::Cast(inner, _dtype) => {
@@ -866,20 +868,21 @@ mod tests {
     }
 
     #[test]
-    fn test_f64_reduce_sum_backward() {
-        use crate::tensor::Dim2;
+    fn test_f64_sum_axis_backward() {
+        use crate::tensor::{Dim1, Dim2};
 
         // Create f64 tensor with gradient tracking
         let a = Tensor::<f64, Dim2>::ones([2, 3]).set_requires_grad(true);
 
-        // Forward: b = sum(a)
-        let b = a.reduce_sum(&[0, 1], false);
+        // Forward: b = sum_axis(a, 1)
+        let b: Tensor<f64, Dim1> = a.sum(1);
         assert!(b.requires_grad());
 
-        // Backward
-        b.backward();
+        // Sum again to get scalar for backward
+        let c = b.sum(0);
+        c.backward();
 
-        // Check gradient: db/da = 1
+        // Check gradient: dc/da = 1
         let grad_a = a.grad().expect("a should have gradient");
         assert_eq!(grad_a.shape(), &[2, 3]);
     }

@@ -17,17 +17,12 @@
 //! - Sigmoid(x) = 1 / (1 + Exp(-x))
 //! - Tanh(x) = (Exp(2x) - 1) / (Exp(2x) + 1)
 //!
-//! ## Reduction
-//! - Mean(x) = Sum(x) / count
-//! - Softmax(x) = Exp(x - max) / Sum(Exp(x - max))
-//!
 //! ## Linear Algebra
 //! - MatMul = Unsqueeze + Mul + ReduceSum
 
 mod activation;
 mod arithmetic;
 mod linalg;
-mod reduction;
 mod transcendental;
 
 // hlops modules implement methods on Tensor directly,

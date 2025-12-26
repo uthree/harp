@@ -34,8 +34,7 @@ pub use unary::{
 // Re-export binary gradient functions
 pub use binary::{AddBackward, MaxBackward, MulBackward};
 
-// Re-export reduce gradient functions
-pub use reduce::{ReduceMaxBackward, ReduceMulBackward, ReduceSumBackward};
+// Reduce gradient functions are pub(crate) - used internally only
 
 // Re-export general gradient utilities and fused operation gradients
 pub use grad::{CloneBackward, FusedElementwiseBackward, FusedElementwiseReduceBackward};

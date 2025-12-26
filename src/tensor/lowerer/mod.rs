@@ -766,11 +766,12 @@ mod tests {
 
     #[test]
     fn test_lower_reduce() {
+        use crate::tensor::Dim1;
         let a = Tensor::<f32, Dim2>::input("a", [4, 4]);
-        let b = a.reduce_sum(&[1], false);
+        let b: Tensor<f32, Dim1> = a.sum(1);
 
         let mut lowerer = TensorLowerer::new();
-        let ast = lowerer.lower(&b);
+        let ast = lowerer.lower(&b.into_dyn());
 
         match ast {
             AstNode::Program { functions, .. } => {

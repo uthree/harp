@@ -414,7 +414,7 @@ impl_scalar_ops!(Mul, mul, ElementwiseOp::Mul, f64, scalar_tensor_f64);
 
 impl<D: Dimension> Tensor<f32, D> {
     /// Compute element-wise maximum with another tensor (primop)
-    pub fn max(&self, other: &Tensor<f32, impl Dimension>) -> Tensor<f32, D> {
+    pub fn maximum(&self, other: &Tensor<f32, impl Dimension>) -> Tensor<f32, D> {
         let result = create_binary_elementwise(ElementwiseOp::Max, self, other);
 
         if self.requires_grad() || other.requires_grad() {
@@ -426,9 +426,9 @@ impl<D: Dimension> Tensor<f32, D> {
     }
 
     /// Compute element-wise maximum with a scalar
-    pub fn max_scalar(&self, value: f32) -> Tensor<f32, D> {
+    pub fn maximum_scalar(&self, value: f32) -> Tensor<f32, D> {
         let scalar = scalar_tensor_f32(value);
-        self.max(&scalar)
+        self.maximum(&scalar)
     }
 }
 
@@ -438,14 +438,14 @@ impl<D: Dimension> Tensor<f32, D> {
 
 impl<D: Dimension> Tensor<f64, D> {
     /// Compute element-wise maximum with another tensor (primop)
-    pub fn max(&self, other: &Tensor<f64, impl Dimension>) -> Tensor<f64, D> {
+    pub fn maximum(&self, other: &Tensor<f64, impl Dimension>) -> Tensor<f64, D> {
         create_binary_elementwise(ElementwiseOp::Max, self, other)
     }
 
     /// Compute element-wise maximum with a scalar
-    pub fn max_scalar(&self, value: f64) -> Tensor<f64, D> {
+    pub fn maximum_scalar(&self, value: f64) -> Tensor<f64, D> {
         let scalar = scalar_tensor_f64(value);
-        self.max(&scalar)
+        self.maximum(&scalar)
     }
 }
 
@@ -491,17 +491,17 @@ mod tests {
     }
 
     #[test]
-    fn test_max() {
+    fn test_maximum() {
         let a = Tensor::<f32, Dim2>::full([2, 3], -1.0);
         let b = Tensor::<f32, Dim2>::full([2, 3], 0.0);
-        let c = a.max(&b);
+        let c = a.maximum(&b);
         assert_eq!(c.shape(), &[2, 3]);
     }
 
     #[test]
-    fn test_max_scalar() {
+    fn test_maximum_scalar() {
         let a = Tensor::<f32, Dim2>::full([2, 3], -1.0);
-        let c = a.max_scalar(0.0);
+        let c = a.maximum_scalar(0.0);
         assert_eq!(c.shape(), &[2, 3]);
     }
 
@@ -530,17 +530,17 @@ mod tests {
     }
 
     #[test]
-    fn test_max_f64() {
+    fn test_maximum_f64() {
         let a = Tensor::<f64, Dim2>::full([2, 3], -1.0);
         let b = Tensor::<f64, Dim2>::full([2, 3], 0.0);
-        let c = a.max(&b);
+        let c = a.maximum(&b);
         assert_eq!(c.shape(), &[2, 3]);
     }
 
     #[test]
-    fn test_max_scalar_f64() {
+    fn test_maximum_scalar_f64() {
         let a = Tensor::<f64, Dim2>::full([2, 3], -1.0);
-        let c = a.max_scalar(0.0);
+        let c = a.maximum_scalar(0.0);
         assert_eq!(c.shape(), &[2, 3]);
     }
 }
