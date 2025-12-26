@@ -14,7 +14,7 @@
 
 use super::{DimDyn, Dimension, Tensor, TensorInner, TensorOp};
 use crate::ast::DType;
-use crate::backend::DynBuffer;
+use crate::backend::Buffer;
 use crate::backend::global::{DeviceKind, get_default_device_kind};
 use crate::tensor::shape::{Expr, View};
 use ndarray::{Array, ArrayD, Dimension as NdDimension, IxDyn};
@@ -23,10 +23,10 @@ use std::marker::PhantomData;
 use std::sync::{Arc, RwLock};
 
 // ============================================================================
-// VecBuffer - Simple wrapper for host data to implement DynBuffer
+// VecBuffer - Simple wrapper for host data to implement Buffer
 // ============================================================================
 
-/// Simple wrapper for Vec<u8> that implements DynBuffer for host data storage
+/// Simple wrapper for Vec<u8> that implements Buffer for host data storage
 ///
 /// This is used by `from_data()` and for input tensors that haven't been
 /// transferred to the GPU yet.
@@ -50,7 +50,7 @@ impl VecBuffer {
     }
 }
 
-impl DynBuffer for VecBuffer {
+impl Buffer for VecBuffer {
     fn shape(&self) -> &[usize] {
         &self.shape
     }
@@ -75,7 +75,7 @@ impl DynBuffer for VecBuffer {
         Ok(())
     }
 
-    fn clone_buffer(&self) -> Box<dyn DynBuffer> {
+    fn clone_buffer(&self) -> Box<dyn Buffer> {
         Box::new(self.clone())
     }
 }
@@ -228,7 +228,7 @@ impl<D: Dimension> Tensor<f32, D> {
             match &inner.op {
                 // Leaf nodes with data
                 TensorOp::Executed => {
-                    // Get data from buffer (now DynBuffer)
+                    // Get data from buffer (now Buffer)
                     if let Ok(guard) = inner.buffer.read()
                         && let Some(buf) = guard.as_ref()
                         && let Ok(bytes) = buf.read_to_host()
@@ -357,7 +357,7 @@ impl<D: Dimension> Tensor<f32, D> {
             dtype: self.inner.dtype.clone(),
             name: self.inner.name.clone(),
             autograd: None,
-            buffer: RwLock::new(Some(Box::new(output_buffer) as Box<dyn DynBuffer>)),
+            buffer: RwLock::new(Some(Box::new(output_buffer) as Box<dyn Buffer>)),
         };
 
         Ok(Tensor {
@@ -455,7 +455,7 @@ impl<D: Dimension> Tensor<f32, D> {
             dtype: self.inner.dtype.clone(),
             name: self.inner.name.clone(),
             autograd: None,
-            buffer: RwLock::new(Some(Box::new(output_buffer) as Box<dyn DynBuffer>)),
+            buffer: RwLock::new(Some(Box::new(output_buffer) as Box<dyn Buffer>)),
         };
 
         Ok(Tensor {
@@ -480,7 +480,7 @@ impl<D: Dimension> Tensor<f32, D> {
             dtype: DType::F32,
             name: None,
             autograd: None,
-            buffer: RwLock::new(Some(Box::new(vec_buffer) as Box<dyn DynBuffer>)),
+            buffer: RwLock::new(Some(Box::new(vec_buffer) as Box<dyn Buffer>)),
         };
 
         Tensor {
@@ -675,7 +675,7 @@ macro_rules! impl_from_ndarray {
                     dtype: DType::F32,
                     name: None,
                     autograd: None,
-                    buffer: RwLock::new(Some(Box::new(vec_buffer) as Box<dyn DynBuffer>)),
+                    buffer: RwLock::new(Some(Box::new(vec_buffer) as Box<dyn Buffer>)),
                 };
 
                 Tensor {

@@ -240,10 +240,11 @@ pub trait Device {
     }
 }
 
-/// GPU buffer
+/// GPU buffer (typed, static dispatch)
 ///
-/// Represents a memory buffer on the GPU device.
-pub trait Buffer: Sized + Clone + Send + Sync {
+/// Represents a memory buffer on the GPU device with full type information.
+/// Use `Buffer` trait for object-safe dynamic dispatch.
+pub trait TypedBuffer: Sized + Clone + Send + Sync {
     type Dev: Device;
     type Error: std::error::Error + Send + Sync + 'static;
 
@@ -374,19 +375,19 @@ pub trait Buffer: Sized + Clone + Send + Sync {
 }
 
 // ============================================================================
-// DynBuffer - Object-safe buffer trait for dynamic dispatch
+// Buffer - Object-safe buffer trait for dynamic dispatch
 // ============================================================================
 
 /// Object-safe buffer trait for dynamic dispatch
 ///
-/// This trait provides a subset of `Buffer` functionality that can be used
-/// with `dyn DynBuffer` for type-erased buffer storage in `TensorInner`.
+/// This trait provides a subset of `TypedBuffer` functionality that can be used
+/// with `dyn Buffer` for type-erased buffer storage in `TensorInner`.
 ///
-/// Unlike `Buffer`, this trait:
+/// Unlike `TypedBuffer`, this trait:
 /// - Does not require `Sized` or `Clone`
 /// - Uses `Box<dyn Error>` instead of associated error types
 /// - Provides `clone_buffer()` for cloning through trait objects
-pub trait DynBuffer: Send + Sync {
+pub trait Buffer: Send + Sync {
     /// Get the shape of the buffer
     fn shape(&self) -> &[usize];
 
@@ -405,8 +406,8 @@ pub trait DynBuffer: Send + Sync {
         data: &[u8],
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
-    /// Clone the buffer (returns Box<dyn DynBuffer>)
-    fn clone_buffer(&self) -> Box<dyn DynBuffer>;
+    /// Clone the buffer (returns Box<dyn Buffer>)
+    fn clone_buffer(&self) -> Box<dyn Buffer>;
 }
 
 /// Kernel execution configuration
@@ -456,7 +457,7 @@ impl KernelConfig {
 ///
 /// Represents a compiled compute kernel that can be executed on the GPU.
 pub trait Kernel: Sized + Clone + Send + Sync {
-    type Buffer: Buffer;
+    type Buffer: TypedBuffer;
     type Error: std::error::Error + Send + Sync + 'static;
 
     /// Get the kernel configuration

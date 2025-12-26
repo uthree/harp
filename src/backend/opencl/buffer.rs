@@ -2,7 +2,7 @@
 
 use super::device::{OpenCLDevice, OpenCLError};
 use crate::ast::DType;
-use crate::backend::traits::{Buffer, DynBuffer};
+use crate::backend::traits::{Buffer, TypedBuffer};
 use ocl::{Buffer as OclBuffer, Queue, flags};
 use std::sync::Arc;
 
@@ -18,7 +18,7 @@ pub struct OpenCLBuffer {
     byte_len: usize,
 }
 
-impl Buffer for OpenCLBuffer {
+impl TypedBuffer for OpenCLBuffer {
     type Dev = OpenCLDevice;
     type Error = OpenCLError;
 
@@ -88,7 +88,7 @@ impl Buffer for OpenCLBuffer {
     }
 }
 
-impl DynBuffer for OpenCLBuffer {
+impl Buffer for OpenCLBuffer {
     fn shape(&self) -> &[usize] {
         &self.shape
     }
@@ -102,7 +102,7 @@ impl DynBuffer for OpenCLBuffer {
     }
 
     fn read_to_host(&self) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
-        Buffer::read_to_host(self)
+        TypedBuffer::read_to_host(self)
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
 
@@ -110,11 +110,11 @@ impl DynBuffer for OpenCLBuffer {
         &mut self,
         data: &[u8],
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        Buffer::write_from_host(self, data)
+        TypedBuffer::write_from_host(self, data)
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
 
-    fn clone_buffer(&self) -> Box<dyn DynBuffer> {
+    fn clone_buffer(&self) -> Box<dyn Buffer> {
         Box::new(self.clone())
     }
 }

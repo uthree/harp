@@ -3,7 +3,7 @@
 //! This module provides `ExecutionQuery` for binding buffers and shape variables
 //! when executing compiled kernels.
 
-use crate::backend::traits::Buffer;
+use crate::backend::traits::TypedBuffer;
 use std::collections::HashMap;
 use std::fmt;
 use std::marker::PhantomData;
@@ -26,14 +26,14 @@ use std::marker::PhantomData;
 ///
 /// compiled_kernel.execute_with(query)?;
 /// ```
-pub struct ExecutionQuery<'a, B: Buffer> {
+pub struct ExecutionQuery<'a, B: TypedBuffer> {
     inputs: HashMap<String, &'a B>,
     outputs: HashMap<String, *mut B>,
     shape_vars: HashMap<String, i64>,
     _marker: PhantomData<&'a mut B>,
 }
 
-impl<'a, B: Buffer> ExecutionQuery<'a, B> {
+impl<'a, B: TypedBuffer> ExecutionQuery<'a, B> {
     /// Create a new empty execution query
     pub fn new() -> Self {
         Self {
@@ -147,7 +147,7 @@ impl<'a, B: Buffer> ExecutionQuery<'a, B> {
     }
 }
 
-impl<'a, B: Buffer> Default for ExecutionQuery<'a, B> {
+impl<'a, B: TypedBuffer> Default for ExecutionQuery<'a, B> {
     fn default() -> Self {
         Self::new()
     }
@@ -227,7 +227,7 @@ mod tests {
     unsafe impl Send for MockBuffer {}
     unsafe impl Sync for MockBuffer {}
 
-    impl Buffer for MockBuffer {
+    impl TypedBuffer for MockBuffer {
         type Dev = MockDevice;
         type Error = MockError;
 

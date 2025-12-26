@@ -2,7 +2,7 @@
 
 use super::device::{MetalDevice, MetalError};
 use crate::ast::DType;
-use crate::backend::traits::{Buffer, DynBuffer};
+use crate::backend::traits::{Buffer, TypedBuffer};
 use metal::{Buffer as MtlBuffer, MTLResourceOptions};
 use std::sync::Arc;
 
@@ -17,7 +17,7 @@ pub struct MetalBuffer {
     byte_len: usize,
 }
 
-impl Buffer for MetalBuffer {
+impl TypedBuffer for MetalBuffer {
     type Dev = MetalDevice;
     type Error = MetalError;
 
@@ -88,7 +88,7 @@ impl Buffer for MetalBuffer {
     }
 }
 
-impl DynBuffer for MetalBuffer {
+impl Buffer for MetalBuffer {
     fn shape(&self) -> &[usize] {
         &self.shape
     }
@@ -102,7 +102,7 @@ impl DynBuffer for MetalBuffer {
     }
 
     fn read_to_host(&self) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
-        Buffer::read_to_host(self)
+        TypedBuffer::read_to_host(self)
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
 
@@ -110,11 +110,11 @@ impl DynBuffer for MetalBuffer {
         &mut self,
         data: &[u8],
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        Buffer::write_from_host(self, data)
+        TypedBuffer::write_from_host(self, data)
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
 
-    fn clone_buffer(&self) -> Box<dyn DynBuffer> {
+    fn clone_buffer(&self) -> Box<dyn Buffer> {
         Box::new(self.clone())
     }
 }

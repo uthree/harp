@@ -8,7 +8,7 @@
 
 ### コアモジュール
 - `mod.rs`: Renderer trait、KernelSignature、BufferSignatureの定義
-- `traits.rs`: GPU実行用の共通trait定義（Device, Buffer, Kernel, Compiler, KernelConfig）
+- `traits.rs`: GPU実行用の共通trait定義（Device, TypedBuffer, Buffer, Kernel, Compiler, KernelConfig）
 - `global.rs`: グローバルデバイス管理（DeviceKind, set_default_device, get_default_device等）
 - `sequence.rs`: 複数カーネル順次実行（CompiledProgram, KernelCallInfo, IntermediateBufferSpec, ExecutionQuery）
 - `pipeline.rs`: Pipeline、PipelineConfig、CompiledKernel、KernelExecutionError、DispatchSizeConfig、DispatchSizeExpr、AST式評価関数、KernelSourceRenderer trait
@@ -275,30 +275,30 @@ pub struct PipelineConfig {
 let config = PipelineConfig::default().with_fast_math(true);
 ```
 
-#### Buffer
-GPUメモリバッファ。ホスト⇔デバイス間のデータ転送を提供。関連型として`Dev: Device`と`Error`を持つ。
+#### TypedBuffer
+GPUメモリバッファの静的ディスパッチ版。ホスト⇔デバイス間のデータ転送を提供。関連型として`Dev: Device`と`Error`を持つ。具体的なバックエンド実装（`MetalBuffer`, `OpenCLBuffer`）がこのtraitを実装する。
 
-#### DynBuffer
-`Buffer`トレイトの型消去版。`Tensor`内部でGPU/ホストバッファを抽象化するために使用。
+#### Buffer
+`TypedBuffer`トレイトの型消去版（object-safe）。`Tensor`内部でGPU/ホストバッファを抽象化するために使用。
 
 ```rust
-pub trait DynBuffer: Send + Sync {
+pub trait Buffer: Send + Sync {
     fn shape(&self) -> &[usize];
     fn dtype(&self) -> DType;
     fn byte_len(&self) -> usize;
     fn read_to_host(&self) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>>;
     fn write_from_host(&mut self, data: &[u8]) -> Result<(), Box<dyn Error + Send + Sync>>;
-    fn clone_buffer(&self) -> Box<dyn DynBuffer>;
+    fn clone_buffer(&self) -> Box<dyn Buffer>;
 }
 ```
 
 **用途:**
-- `TensorInner.buffer`フィールドで`Box<dyn DynBuffer>`として使用
+- `TensorInner.buffer`フィールドで`Box<dyn Buffer>`として使用
 - `realize()`実行後もGPUバッファを保持（ホストへのコピーを遅延）
 - `data()`呼び出し時に必要に応じて`read_to_host()`でホストにコピー
 
 **実装:**
-- `MetalBuffer`, `OpenCLBuffer`: GPUバックエンドのバッファ
+- `MetalBuffer`, `OpenCLBuffer`: GPUバックエンドのバッファ（`TypedBuffer`も実装）
 - `VecBuffer`: ホストデータ用の簡易ラッパー（`from_data()`等で使用）
 
 #### Kernel

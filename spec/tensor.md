@@ -26,7 +26,7 @@ pub struct TensorInner {
     dtype: DType,                             // データ型
     name: Option<String>,                     // バッファ名（オプション）
     autograd: Option<AutogradStorage>,        // 勾配追跡データ（F32/F64）
-    buffer: RwLock<Option<Box<dyn DynBuffer>>>, // 実行結果バッファ（GPU/ホスト）
+    buffer: RwLock<Option<Box<dyn Buffer>>>, // 実行結果バッファ（GPU/ホスト）
 }
 
 // 型消去された自動微分ストレージ

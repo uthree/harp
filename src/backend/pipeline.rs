@@ -6,7 +6,7 @@
 use crate::ast::{AstNode, DType, Literal};
 use crate::backend::KernelSignature;
 use crate::backend::sequence::ExecutionQuery;
-use crate::backend::traits::{Buffer, Compiler, Device, Kernel, KernelConfig};
+use crate::backend::traits::{Compiler, Device, Kernel, KernelConfig, TypedBuffer};
 use crate::opt::ast::rules::rules_for_capabilities;
 use crate::opt::ast::{
     AstSuggester, BeamSearchOptimizer as AstBeamSearchOptimizer,
@@ -104,7 +104,7 @@ impl<R, Dev, Comp, Buf> Pipeline<R, Dev, Comp>
 where
     R: KernelSourceRenderer + Clone,
     Dev: Device,
-    Buf: Buffer<Dev = Dev>,
+    Buf: TypedBuffer<Dev = Dev>,
     Comp: Compiler<Dev = Dev>,
     Comp::Kernel: Kernel<Buffer = Buf> + Clone,
 {
@@ -598,7 +598,7 @@ impl DispatchSizeConfig {
 pub struct CompiledKernel<K, B>
 where
     K: Kernel<Buffer = B>,
-    B: Buffer,
+    B: TypedBuffer,
 {
     /// The compiled kernel
     pub kernel: K,
@@ -659,7 +659,7 @@ impl<KE: std::error::Error + 'static> std::error::Error for KernelExecutionError
 impl<K, B> CompiledKernel<K, B>
 where
     K: Kernel<Buffer = B>,
-    B: Buffer,
+    B: TypedBuffer,
 {
     /// Execute the kernel with the given buffers (positional)
     pub fn execute(&self, inputs: &[&B], outputs: &mut [&mut B]) -> Result<(), K::Error> {
@@ -811,7 +811,7 @@ where
 pub struct BoundExecutionQuery<'a, K, B>
 where
     K: Kernel<Buffer = B>,
-    B: Buffer,
+    B: TypedBuffer,
 {
     kernel: &'a CompiledKernel<K, B>,
     query: ExecutionQuery<'a, B>,
@@ -820,7 +820,7 @@ where
 impl<'a, K, B> BoundExecutionQuery<'a, K, B>
 where
     K: Kernel<Buffer = B>,
-    B: Buffer,
+    B: TypedBuffer,
 {
     /// Add an input buffer with the given name
     pub fn input(mut self, name: impl Into<String>, buffer: &'a B) -> Self {

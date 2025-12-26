@@ -91,7 +91,7 @@ pub mod shape;
 use std::marker::PhantomData;
 use std::sync::{Arc, RwLock};
 
-use crate::backend::DynBuffer;
+use crate::backend::Buffer;
 
 pub use dimension::{Dim, Dim0, Dim1, Dim2, Dim3, Dim4, Dim5, Dim6, DimDyn, Dimension};
 pub use dtype::{
@@ -306,7 +306,7 @@ pub struct TensorInner {
     /// Autograd metadata (only allocated when requires_grad is true)
     pub(crate) autograd: Option<AutogradStorage>,
     /// Executed buffer data (populated after realize())
-    pub(crate) buffer: RwLock<Option<Box<dyn DynBuffer>>>,
+    pub(crate) buffer: RwLock<Option<Box<dyn Buffer>>>,
 }
 
 impl TensorInner {
@@ -342,8 +342,8 @@ impl TensorInner {
         }
     }
 
-    /// Clone the buffer option using DynBuffer::clone_buffer()
-    pub(crate) fn clone_buffer(&self) -> Option<Box<dyn DynBuffer>> {
+    /// Clone the buffer option using Buffer::clone_buffer()
+    pub(crate) fn clone_buffer(&self) -> Option<Box<dyn Buffer>> {
         self.buffer
             .read()
             .unwrap()
