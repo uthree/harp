@@ -15,6 +15,7 @@ use crate::opt::ast::{
     OptimizationHistory as AstOptimizationHistory, RuleBaseSuggester, VectorizationSuggester,
 };
 use crate::opt::context::DeviceCapabilities;
+use crate::opt::progress::IndicatifProgress;
 use crate::renderer::c_like::CLikeRenderer;
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -212,12 +213,19 @@ where
         }
 
         let suggester = AstCompositeSuggester::new(suggesters);
-        let optimizer = AstBeamSearchOptimizer::new(suggester)
-            .with_beam_width(self.config.ast_beam_width)
-            .with_max_steps(self.config.max_steps)
-            .with_progress(self.config.show_progress);
-
-        let (optimized, history) = optimizer.optimize_with_history(program);
+        let (optimized, history) = if self.config.show_progress {
+            let mut optimizer = AstBeamSearchOptimizer::new(suggester)
+                .with_beam_width(self.config.ast_beam_width)
+                .with_max_steps(self.config.max_steps)
+                .with_progress(IndicatifProgress::new());
+            optimizer.optimize_with_history(program)
+        } else {
+            let mut optimizer = AstBeamSearchOptimizer::new(suggester)
+                .with_beam_width(self.config.ast_beam_width)
+                .with_max_steps(self.config.max_steps)
+                .without_progress();
+            optimizer.optimize_with_history(program)
+        };
 
         if self.config.collect_history {
             self.histories.ast = Some(history);

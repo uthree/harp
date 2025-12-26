@@ -258,7 +258,7 @@ mod tests {
 
     #[test]
     fn test_simplification_rules() {
-        let optimizer = RuleBaseOptimizer::new(simplification_rules());
+        let mut optimizer = RuleBaseOptimizer::new(simplification_rules());
 
         // (42 + 0) * 1
         let input = (const_int(42) + const_int(0)) * const_int(1);
@@ -376,7 +376,7 @@ mod tests {
 
     #[test]
     fn test_constant_folding_with_optimizer() {
-        let optimizer = RuleBaseOptimizer::new(constant_folding_rules());
+        let mut optimizer = RuleBaseOptimizer::new(constant_folding_rules());
 
         // (2 + 3) * 4 = 5 * 4 = 20
         let input = (const_int(2) + const_int(3)) * const_int(4);
@@ -388,7 +388,7 @@ mod tests {
     #[test]
     fn test_combined_optimization() {
         // 定数畳み込みと簡約を組み合わせ
-        let optimizer = RuleBaseOptimizer::new(all_algebraic_rules());
+        let mut optimizer = RuleBaseOptimizer::new(all_algebraic_rules());
 
         // ((2 + 3) * 1) + 0 = 5 * 1 + 0 = 5 + 0 = 5
         let input = ((const_int(2) + const_int(3)) * const_int(1)) + const_int(0);
@@ -478,7 +478,7 @@ mod tests {
     #[test]
     fn test_mul_power_of_two_with_optimizer() {
         // オプティマイザーと組み合わせてテスト
-        let optimizer = RuleBaseOptimizer::new(simplification_rules());
+        let mut optimizer = RuleBaseOptimizer::new(simplification_rules());
 
         // x * 16 → x << 4
         let input = var("x") * const_int(16);
@@ -602,7 +602,7 @@ mod tests {
     #[test]
     fn test_unwrap_single_statement_block_with_optimizer() {
         use crate::ast::helper::{block, range};
-        let optimizer = RuleBaseOptimizer::new(simplification_rules());
+        let mut optimizer = RuleBaseOptimizer::new(simplification_rules());
 
         // Block内にRangeがあるケース（ループ交換などで生成されるパターン）
         let inner_range = range("i", const_int(0), const_int(1), const_int(10), var("body"));
@@ -657,10 +657,10 @@ mod tests {
         // BeamSearchでの最適化（SelectorがCostEstimatorを内包）
         let composite_suggester =
             CompositeSuggester::new(vec![Box::new(RuleBaseSuggester::new(rules))]);
-        let optimizer = BeamSearchOptimizer::new(composite_suggester)
+        let mut optimizer = BeamSearchOptimizer::new(composite_suggester)
             .with_beam_width(4)
             .with_max_steps(100)
-            .with_progress(false);
+            .without_progress();
 
         let optimized = optimizer.optimize(store);
         println!("Optimized Store: {:?}", optimized);
@@ -760,10 +760,10 @@ mod tests {
         let rules = all_rules_with_search();
         let composite_suggester =
             CompositeSuggester::new(vec![Box::new(RuleBaseSuggester::new(rules))]);
-        let optimizer = BeamSearchOptimizer::new(composite_suggester)
+        let mut optimizer = BeamSearchOptimizer::new(composite_suggester)
             .with_beam_width(10)
             .with_max_steps(50)
-            .with_progress(false);
+            .without_progress();
 
         let optimized = optimizer.optimize(program);
         let final_cost = SimpleCostEstimator::new().estimate(&optimized);
@@ -811,9 +811,10 @@ mod tests {
         // BeamSearchでの最適化（SelectorがCostEstimatorを内包）
         let composite_suggester =
             CompositeSuggester::new(vec![Box::new(RuleBaseSuggester::new(rules))]);
-        let optimizer = BeamSearchOptimizer::new(composite_suggester)
+        let mut optimizer = BeamSearchOptimizer::new(composite_suggester)
             .with_beam_width(4)
-            .with_max_steps(100);
+            .with_max_steps(100)
+            .without_progress();
 
         let optimized = optimizer.optimize(expr);
         println!("Optimized: {:?}", optimized);

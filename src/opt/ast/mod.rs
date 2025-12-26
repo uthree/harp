@@ -11,7 +11,7 @@ use crate::ast::AstNode;
 /// ASTを最適化するトレイト
 pub trait AstOptimizer {
     /// ASTを最適化して返す
-    fn optimize(&self, ast: AstNode) -> AstNode;
+    fn optimize(&mut self, ast: AstNode) -> AstNode;
 }
 
 /// Suggesterによる提案結果

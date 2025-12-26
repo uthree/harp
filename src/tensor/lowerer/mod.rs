@@ -442,8 +442,12 @@ impl TensorLowerer {
                 // Elementwise Compute演算の場合、式を再帰的に展開
                 let mut nested_mappings = HashMap::new();
                 for (j, nested_input) in nested_inputs.iter().enumerate() {
-                    let nested_node =
-                        self.build_input_expr(nested_input.as_ref(), ndim, buffer_index, load_dtype);
+                    let nested_node = self.build_input_expr(
+                        nested_input.as_ref(),
+                        ndim,
+                        buffer_index,
+                        load_dtype,
+                    );
                     nested_mappings.insert(j.to_string(), nested_node);
                 }
                 nested_expr.substitute(&nested_mappings)
@@ -482,7 +486,8 @@ impl TensorLowerer {
 
         let inputs = inner.op().inputs();
         for (i, input) in inputs.iter().enumerate() {
-            let input_node = self.build_input_expr(input.as_ref(), ndim, &mut buffer_index, &load_dtype);
+            let input_node =
+                self.build_input_expr(input.as_ref(), ndim, &mut buffer_index, &load_dtype);
             mappings.insert(i.to_string(), input_node);
         }
 

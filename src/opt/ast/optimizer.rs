@@ -1,7 +1,9 @@
 use super::selector::{AstCostSelector, AstSelector};
 use crate::ast::AstNode;
 use crate::ast::pat::{AstRewriteRule, AstRewriter};
-use indicatif::{ProgressBar, ProgressStyle};
+use crate::opt::progress::{
+    FinishInfo, IndicatifProgress, NoOpProgress, ProgressState, SearchProgress,
+};
 use log::{debug, info, trace};
 use std::rc::Rc;
 use std::time::Instant;
@@ -30,7 +32,7 @@ impl RuleBaseOptimizer {
 }
 
 impl AstOptimizer for RuleBaseOptimizer {
-    fn optimize(&self, ast: AstNode) -> AstNode {
+    fn optimize(&mut self, ast: AstNode) -> AstNode {
         info!("AST rule-based optimization started");
         let result = self.rewriter.apply(ast);
         info!("AST rule-based optimization complete");
@@ -51,29 +53,36 @@ impl AstOptimizer for RuleBaseOptimizer {
 /// `AstSelector`により候補選択・コスト評価を行います。
 /// デフォルトは`AstCostSelector`（SimpleCostEstimatorでコスト計算、上位n件を選択）。
 /// `RuntimeSelector`を使用すると、静的コストで足切り後に実行時間を計測して選択します。
-pub struct BeamSearchOptimizer<S, Sel = AstCostSelector>
+///
+/// # プログレス表示
+///
+/// 型パラメータ`P`で`SearchProgress`トレイトを実装したプログレス表示器を指定できます。
+/// デフォルトは`IndicatifProgress`（Cargoスタイルのプログレスバー）。
+/// テスト時などプログレス表示が不要な場合は`without_progress()`で無効化できます。
+pub struct BeamSearchOptimizer<S, Sel = AstCostSelector, P = IndicatifProgress>
 where
     S: AstSuggester,
     Sel: AstSelector,
+    P: SearchProgress,
 {
     suggester: S,
     selector: Sel,
     beam_width: usize,
     max_steps: usize,
-    show_progress: bool,
+    progress: Option<P>,
     collect_logs: bool,
     max_node_count: Option<usize>,
     /// 改善がない場合に早期終了するまでのステップ数（Noneで無効化）
     max_no_improvement_steps: Option<usize>,
 }
 
-impl<S> BeamSearchOptimizer<S, AstCostSelector>
+impl<S> BeamSearchOptimizer<S, AstCostSelector, IndicatifProgress>
 where
     S: AstSuggester,
 {
     /// 新しいビームサーチ最適化器を作成
     ///
-    /// デフォルトでは`AstCostSelector`を使用します。
+    /// デフォルトでは`AstCostSelector`と`IndicatifProgress`を使用します。
     /// コスト評価はSelector自身が行います。
     pub fn new(suggester: S) -> Self {
         Self {
@@ -81,7 +90,11 @@ where
             selector: AstCostSelector::new(),
             beam_width: 10,
             max_steps: 10000,
-            show_progress: cfg!(debug_assertions),
+            progress: if cfg!(debug_assertions) {
+                Some(IndicatifProgress::new())
+            } else {
+                None
+            },
             collect_logs: cfg!(debug_assertions),
             max_node_count: Some(10000), // デフォルトで最大1万ノードに制限
             max_no_improvement_steps: Some(3), // デフォルトで3ステップ改善なしで終了
@@ -89,10 +102,11 @@ where
     }
 }
 
-impl<S, Sel> BeamSearchOptimizer<S, Sel>
+impl<S, Sel, P> BeamSearchOptimizer<S, Sel, P>
 where
     S: AstSuggester,
     Sel: AstSelector,
+    P: SearchProgress,
 {
     /// カスタム選択器を設定
     ///
@@ -110,7 +124,7 @@ where
     /// let optimizer = BeamSearchOptimizer::new(suggester)
     ///     .with_selector(selector);
     /// ```
-    pub fn with_selector<NewSel>(self, selector: NewSel) -> BeamSearchOptimizer<S, NewSel>
+    pub fn with_selector<NewSel>(self, selector: NewSel) -> BeamSearchOptimizer<S, NewSel, P>
     where
         NewSel: AstSelector,
     {
@@ -119,7 +133,7 @@ where
             selector,
             beam_width: self.beam_width,
             max_steps: self.max_steps,
-            show_progress: self.show_progress,
+            progress: self.progress,
             collect_logs: self.collect_logs,
             max_node_count: self.max_node_count,
             max_no_improvement_steps: self.max_no_improvement_steps,
@@ -142,10 +156,48 @@ where
         self
     }
 
-    /// プログレスバーの表示/非表示を設定
-    pub fn with_progress(mut self, show: bool) -> Self {
-        self.show_progress = show;
-        self
+    /// カスタムプログレス表示器を設定
+    ///
+    /// デフォルトの`IndicatifProgress`の代わりに、カスタム実装を使用できます。
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use harp::opt::progress::{IndicatifProgress, SearchProgress};
+    ///
+    /// let optimizer = BeamSearchOptimizer::new(suggester)
+    ///     .with_progress(IndicatifProgress::new());
+    /// ```
+    pub fn with_progress<P2: SearchProgress>(
+        self,
+        progress: P2,
+    ) -> BeamSearchOptimizer<S, Sel, P2> {
+        BeamSearchOptimizer {
+            suggester: self.suggester,
+            selector: self.selector,
+            beam_width: self.beam_width,
+            max_steps: self.max_steps,
+            progress: Some(progress),
+            collect_logs: self.collect_logs,
+            max_node_count: self.max_node_count,
+            max_no_improvement_steps: self.max_no_improvement_steps,
+        }
+    }
+
+    /// プログレス表示を無効化
+    ///
+    /// テスト時や高速実行が必要な場合に使用します。
+    pub fn without_progress(self) -> BeamSearchOptimizer<S, Sel, NoOpProgress> {
+        BeamSearchOptimizer {
+            suggester: self.suggester,
+            selector: self.selector,
+            beam_width: self.beam_width,
+            max_steps: self.max_steps,
+            progress: None,
+            collect_logs: self.collect_logs,
+            max_node_count: self.max_node_count,
+            max_no_improvement_steps: self.max_no_improvement_steps,
+        }
     }
 
     /// ログ収集の有効/無効を設定
@@ -189,15 +241,16 @@ struct BeamEntry {
     path: OptimizationPath,
 }
 
-impl<S, Sel> BeamSearchOptimizer<S, Sel>
+impl<S, Sel, P> BeamSearchOptimizer<S, Sel, P>
 where
     S: AstSuggester,
     Sel: AstSelector,
+    P: SearchProgress,
 {
     /// 履歴を記録しながら最適化を実行
     ///
     /// コスト評価はSelectorが行います。履歴記録用のコストはSelectorから返される値を使用します。
-    pub fn optimize_with_history(&self, ast: AstNode) -> (AstNode, OptimizationHistory) {
+    pub fn optimize_with_history(&mut self, ast: AstNode) -> (AstNode, OptimizationHistory) {
         use crate::opt::ast::estimator::SimpleCostEstimator;
         use crate::opt::log_capture;
 
@@ -256,18 +309,10 @@ where
             log_capture::clear_logs();
         }
 
-        let pb = if self.show_progress {
-            let pb = ProgressBar::new(self.max_steps as u64);
-            pb.set_style(
-                ProgressStyle::with_template("{prefix:>12.cyan.bold} [{bar:24}] {pos}/{len} {msg}")
-                    .unwrap()
-                    .progress_chars("=> "),
-            );
-            pb.set_prefix("Optimizing");
-            Some(pb)
-        } else {
-            None
-        };
+        // プログレス表示の開始
+        if let Some(ref mut progress) = self.progress {
+            progress.start(self.max_steps, "AST optimization");
+        }
 
         let mut actual_steps = 0;
         let mut best_cost = initial_cost;
@@ -275,9 +320,12 @@ where
 
         for step in 0..self.max_steps {
             actual_steps = step;
-            if let Some(ref pb) = pb {
-                pb.set_message(format!("step {}", step + 1));
-                pb.set_position(step as u64);
+            if let Some(ref mut progress) = self.progress {
+                progress.update(&ProgressState::new(
+                    step,
+                    self.max_steps,
+                    format!("step {}", step + 1),
+                ));
             }
 
             // 候補: (AST, suggester_name, description, parent_path)
@@ -345,9 +393,12 @@ where
                 );
                 // 早期終了時は実際のステップ数を記録
                 actual_steps = step;
-                if let Some(ref pb) = pb {
-                    pb.set_position(step as u64);
-                    pb.set_message(format!("converged at step {}", step));
+                if let Some(ref mut progress) = self.progress {
+                    progress.update(&ProgressState::new(
+                        step,
+                        self.max_steps,
+                        format!("converged at step {}", step),
+                    ));
                 }
                 break;
             }
@@ -429,11 +480,11 @@ where
                                 max_no_improvement
                             );
                             actual_steps = step;
-                            if let Some(ref pb) = pb {
-                                pb.set_position(step as u64);
-                                pb.set_message(format!(
-                                    "no cost improvement for {} steps",
-                                    max_no_improvement
+                            if let Some(ref mut progress) = self.progress {
+                                progress.update(&ProgressState::new(
+                                    step,
+                                    self.max_steps,
+                                    format!("no cost improvement for {} steps", max_no_improvement),
                                 ));
                             }
                             break;
@@ -524,32 +575,16 @@ where
             }
         }
 
-        if let Some(pb) = pb {
-            pb.finish_and_clear();
-            // Cargoスタイルの完了メッセージ
+        // プログレス表示の完了
+        if let Some(ref mut progress) = self.progress {
             let elapsed = start_time.elapsed();
-            let time_str = if elapsed.as_secs() > 0 {
-                format!("{:.2}s", elapsed.as_secs_f64())
-            } else {
-                format!("{}ms", elapsed.as_millis())
-            };
-            if actual_steps + 1 < self.max_steps {
-                // 早期終了
-                println!(
-                    "{:>12} AST optimization in {} (converged after {} steps)",
-                    "\x1b[1;32mFinished\x1b[0m",
-                    time_str,
-                    actual_steps + 1
-                );
-            } else {
-                // 最大ステップ数に到達
-                println!(
-                    "{:>12} AST optimization in {} ({} steps)",
-                    "\x1b[1;32mFinished\x1b[0m",
-                    time_str,
-                    actual_steps + 1
-                );
-            }
+            let finish_info = FinishInfo::new(
+                elapsed,
+                actual_steps + 1,
+                self.max_steps,
+                "AST optimization",
+            );
+            progress.finish(&finish_info);
         }
 
         let improvement_pct = if initial_cost > 0.0 {
@@ -616,12 +651,13 @@ where
     }
 }
 
-impl<S, Sel> AstOptimizer for BeamSearchOptimizer<S, Sel>
+impl<S, Sel, P> AstOptimizer for BeamSearchOptimizer<S, Sel, P>
 where
     S: AstSuggester,
     Sel: AstSelector,
+    P: SearchProgress,
 {
-    fn optimize(&self, ast: AstNode) -> AstNode {
+    fn optimize(&mut self, ast: AstNode) -> AstNode {
         let (optimized, _) = self.optimize_with_history(ast);
         optimized
     }
@@ -643,7 +679,7 @@ mod tests {
             a
         });
 
-        let optimizer = RuleBaseOptimizer::new(vec![rule]);
+        let mut optimizer = RuleBaseOptimizer::new(vec![rule]);
 
         let input = AstNode::Add(
             Box::new(AstNode::Const(Literal::I64(42))),
@@ -671,10 +707,10 @@ mod tests {
 
         let suggester = RuleBaseSuggester::new(vec![rule1, rule2]);
 
-        let optimizer = BeamSearchOptimizer::new(suggester)
+        let mut optimizer = BeamSearchOptimizer::new(suggester)
             .with_beam_width(5)
             .with_max_steps(5)
-            .with_progress(false); // テスト中はプログレスバーを非表示
+            .without_progress(); // テスト中はプログレスバーを非表示
 
         // (42 + 0) を最適化
         let input = AstNode::Add(
@@ -696,10 +732,10 @@ mod tests {
 
         let suggester = RuleBaseSuggester::new(rules);
 
-        let optimizer = BeamSearchOptimizer::new(suggester)
+        let mut optimizer = BeamSearchOptimizer::new(suggester)
             .with_beam_width(10)
             .with_max_steps(10)
-            .with_progress(false);
+            .without_progress();
 
         // ((2 + 3) * 1) + 0 を最適化
         let input = AstNode::Add(
@@ -729,10 +765,10 @@ mod tests {
 
         let suggester = RuleBaseSuggester::new(vec![rule]);
 
-        let optimizer = BeamSearchOptimizer::new(suggester)
+        let mut optimizer = BeamSearchOptimizer::new(suggester)
             .with_beam_width(5)
             .with_max_steps(5)
-            .with_progress(false);
+            .without_progress();
 
         // ルールが適用されない入力
         let input = AstNode::Const(Literal::I64(42));
@@ -748,10 +784,10 @@ mod tests {
 
         let suggester = RuleBaseSuggester::new(all_algebraic_rules());
 
-        let optimizer = BeamSearchOptimizer::new(suggester)
+        let mut optimizer = BeamSearchOptimizer::new(suggester)
             .with_beam_width(10)
             .with_max_steps(10)
-            .with_progress(false);
+            .without_progress();
 
         // すでに最適化済みの入力
         let input = AstNode::Const(Literal::I64(42));
@@ -771,10 +807,10 @@ mod tests {
         let suggester = RuleBaseSuggester::new(rules);
 
         // ビーム幅1（貪欲法）
-        let optimizer = BeamSearchOptimizer::new(suggester)
+        let mut optimizer = BeamSearchOptimizer::new(suggester)
             .with_beam_width(1)
             .with_max_steps(10)
-            .with_progress(false);
+            .without_progress();
 
         let input = AstNode::Add(
             Box::new(AstNode::Const(Literal::I64(5))),
@@ -793,10 +829,10 @@ mod tests {
         let suggester = RuleBaseSuggester::new(all_algebraic_rules());
 
         // 最大ステップ数0（最適化しない）
-        let optimizer = BeamSearchOptimizer::new(suggester)
+        let mut optimizer = BeamSearchOptimizer::new(suggester)
             .with_beam_width(10)
             .with_max_steps(0)
-            .with_progress(false);
+            .without_progress();
 
         let input = AstNode::Add(
             Box::new(AstNode::Const(Literal::I64(5))),
@@ -819,10 +855,10 @@ mod tests {
 
         let suggester = RuleBaseSuggester::new(vec![rule]);
 
-        let optimizer = BeamSearchOptimizer::new(suggester)
+        let mut optimizer = BeamSearchOptimizer::new(suggester)
             .with_beam_width(5)
             .with_max_steps(10) // 最大ステップ数は10だが早期終了するはず
-            .with_progress(false);
+            .without_progress();
 
         let input = AstNode::Add(
             Box::new(AstNode::Const(Literal::I64(42))),
@@ -843,10 +879,10 @@ mod tests {
         let suggester = RuleBaseSuggester::new(rules);
 
         // 非常に大きなビーム幅
-        let optimizer = BeamSearchOptimizer::new(suggester)
+        let mut optimizer = BeamSearchOptimizer::new(suggester)
             .with_beam_width(1000)
             .with_max_steps(5)
-            .with_progress(false);
+            .without_progress();
 
         let input = AstNode::Add(
             Box::new(AstNode::Mul(
@@ -914,10 +950,10 @@ mod tests {
         let suggester =
             CompositeSuggester::new(vec![Box::new(MulOneSuggester), Box::new(AddZeroSuggester)]);
 
-        let optimizer = BeamSearchOptimizer::new(suggester)
+        let mut optimizer = BeamSearchOptimizer::new(suggester)
             .with_beam_width(1) // ビーム幅1で系統を1つに固定
             .with_max_steps(10)
-            .with_progress(false);
+            .without_progress();
 
         // Mul(Add(42, 0), 1) を最適化
         // トップレベルがMulなので、MulOneSuggesterが先に適用される
@@ -1001,10 +1037,10 @@ mod tests {
 
         let suggester = CompositeSuggester::new(vec![Box::new(SuggesterA), Box::new(SuggesterB)]);
 
-        let optimizer = BeamSearchOptimizer::new(suggester)
+        let mut optimizer = BeamSearchOptimizer::new(suggester)
             .with_beam_width(4) // ビーム幅4
             .with_max_steps(10)
-            .with_progress(false);
+            .without_progress();
 
         // Mul(Add(42, 0), 1) を最適化
         let input = AstNode::Mul(
