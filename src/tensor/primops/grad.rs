@@ -16,7 +16,9 @@
 
 use crate::ast::{AstNode, Literal};
 use crate::tensor::ops::ReduceOp;
-use crate::tensor::{DimDyn, Exp2, FloatDType, Floor, GradFn, Log2, Recip, Sin, Sqrt, Tensor};
+use crate::tensor::{
+    DimDyn, Exp2, FloatDType, FloatDTypeAutograd, Floor, GradFn, Log2, Recip, Sin, Sqrt, Tensor,
+};
 use std::collections::HashMap;
 
 // ============================================================================
@@ -25,8 +27,8 @@ use std::collections::HashMap;
 
 /// Reduce gradient to match the original input shape (handle broadcasting)
 ///
-/// Generic version for any FloatDType (f32, f64, future f16/bf16).
-pub fn reduce_grad_for_broadcast_generic<T: FloatDType>(
+/// Generic version for any FloatDTypeAutograd (f32, f64).
+pub fn reduce_grad_for_broadcast_generic<T: FloatDTypeAutograd>(
     grad: &Tensor<T, DimDyn>,
     target_shape: &[usize],
 ) -> Tensor<T, DimDyn> {
@@ -700,5 +702,185 @@ mod tests {
         substitution.insert("1".to_string(), t2);
         let result = evaluate_ast_with_tensors(&expr, &substitution);
         assert_eq!(result.shape(), &[2, 3]);
+    }
+
+    // ========================================================================
+    // f64 Autograd Integration Tests
+    // ========================================================================
+
+    #[test]
+    fn test_f64_add_backward() {
+        use crate::tensor::Dim2;
+
+        // Create f64 tensors with gradient tracking
+        let a = Tensor::<f64, Dim2>::ones([2, 3]).set_requires_grad(true);
+        let b = Tensor::<f64, Dim2>::ones([2, 3]).set_requires_grad(true);
+
+        // Forward: c = a + b
+        let c = &a + &b;
+        assert!(c.requires_grad());
+        assert_eq!(c.shape(), &[2, 3]);
+
+        // Backward
+        c.backward();
+
+        // Check gradients: dc/da = 1, dc/db = 1
+        let grad_a = a.grad().expect("a should have gradient");
+        let grad_b = b.grad().expect("b should have gradient");
+
+        assert_eq!(grad_a.shape(), &[2, 3]);
+        assert_eq!(grad_b.shape(), &[2, 3]);
+    }
+
+    #[test]
+    fn test_f64_mul_backward() {
+        use crate::tensor::Dim2;
+
+        // Create f64 tensors with gradient tracking
+        let a = Tensor::<f64, Dim2>::full([2, 3], 2.0).set_requires_grad(true);
+        let b = Tensor::<f64, Dim2>::full([2, 3], 3.0).set_requires_grad(true);
+
+        // Forward: c = a * b
+        let c = &a * &b;
+        assert!(c.requires_grad());
+
+        // Backward
+        c.backward();
+
+        // Check gradients: dc/da = b = 3, dc/db = a = 2
+        let grad_a = a.grad().expect("a should have gradient");
+        let grad_b = b.grad().expect("b should have gradient");
+
+        assert_eq!(grad_a.shape(), &[2, 3]);
+        assert_eq!(grad_b.shape(), &[2, 3]);
+    }
+
+    #[test]
+    fn test_f64_neg_backward() {
+        use crate::tensor::Dim2;
+
+        // Create f64 tensor with gradient tracking
+        let a = Tensor::<f64, Dim2>::ones([2, 3]).set_requires_grad(true);
+
+        // Forward: b = -a
+        let b = -&a;
+        assert!(b.requires_grad());
+
+        // Backward
+        b.backward();
+
+        // Check gradient: db/da = -1
+        let grad_a = a.grad().expect("a should have gradient");
+        assert_eq!(grad_a.shape(), &[2, 3]);
+    }
+
+    #[test]
+    fn test_f64_recip_backward() {
+        use crate::tensor::Dim2;
+
+        // Create f64 tensor with gradient tracking (non-zero values)
+        let a = Tensor::<f64, Dim2>::full([2, 3], 2.0).set_requires_grad(true);
+        let a_clone = a.clone();
+
+        // Forward: b = 1/a
+        let b = a.recip();
+        assert!(b.requires_grad());
+
+        // Backward
+        b.backward();
+
+        // Check gradient: db/da = -1/a^2
+        let grad_a = a_clone.grad().expect("a should have gradient");
+        assert_eq!(grad_a.shape(), &[2, 3]);
+    }
+
+    #[test]
+    fn test_f64_sub_backward() {
+        use crate::tensor::Dim2;
+
+        // Create f64 tensors with gradient tracking
+        let a = Tensor::<f64, Dim2>::ones([2, 3]).set_requires_grad(true);
+        let b = Tensor::<f64, Dim2>::ones([2, 3]).set_requires_grad(true);
+
+        // Forward: c = a - b (= a + (-b))
+        let c = &a - &b;
+        assert!(c.requires_grad());
+
+        // Backward
+        c.backward();
+
+        // Check gradients: dc/da = 1, dc/db = -1
+        let grad_a = a.grad().expect("a should have gradient");
+        let grad_b = b.grad().expect("b should have gradient");
+
+        assert_eq!(grad_a.shape(), &[2, 3]);
+        assert_eq!(grad_b.shape(), &[2, 3]);
+    }
+
+    #[test]
+    fn test_f64_div_backward() {
+        use crate::tensor::Dim2;
+
+        // Create f64 tensors with gradient tracking
+        let a = Tensor::<f64, Dim2>::full([2, 3], 6.0).set_requires_grad(true);
+        let b = Tensor::<f64, Dim2>::full([2, 3], 2.0).set_requires_grad(true);
+
+        // Forward: c = a / b (= a * (1/b))
+        let c = &a / &b;
+        assert!(c.requires_grad());
+
+        // Backward
+        c.backward();
+
+        // Check gradients exist
+        let grad_a = a.grad().expect("a should have gradient");
+        let grad_b = b.grad().expect("b should have gradient");
+
+        assert_eq!(grad_a.shape(), &[2, 3]);
+        assert_eq!(grad_b.shape(), &[2, 3]);
+    }
+
+    #[test]
+    fn test_f64_chain_backward() {
+        use crate::tensor::Dim2;
+
+        // Create f64 tensors with gradient tracking
+        let a = Tensor::<f64, Dim2>::full([2, 3], 2.0).set_requires_grad(true);
+        let b = Tensor::<f64, Dim2>::full([2, 3], 3.0).set_requires_grad(true);
+
+        // Forward: d = (a + b) * a = a^2 + ab
+        let c = &a + &b;
+        let d = &c * &a;
+        assert!(d.requires_grad());
+
+        // Backward
+        d.backward();
+
+        // Check gradients exist
+        // dd/da = 2a + b, dd/db = a
+        let grad_a = a.grad().expect("a should have gradient");
+        let grad_b = b.grad().expect("b should have gradient");
+
+        assert_eq!(grad_a.shape(), &[2, 3]);
+        assert_eq!(grad_b.shape(), &[2, 3]);
+    }
+
+    #[test]
+    fn test_f64_reduce_sum_backward() {
+        use crate::tensor::Dim2;
+
+        // Create f64 tensor with gradient tracking
+        let a = Tensor::<f64, Dim2>::ones([2, 3]).set_requires_grad(true);
+
+        // Forward: b = sum(a)
+        let b = a.reduce_sum(&[0, 1], false);
+        assert!(b.requires_grad());
+
+        // Backward
+        b.backward();
+
+        // Check gradient: db/da = 1
+        let grad_a = a.grad().expect("a should have gradient");
+        assert_eq!(grad_a.shape(), &[2, 3]);
     }
 }

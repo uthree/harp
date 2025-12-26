@@ -10,44 +10,14 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use crate::ast::DType;
 use crate::tensor::shape::{Expr, View};
 use crate::tensor::{
     DimDyn, Dimension, FloatDType, GradFn, ReduceOp, Tensor, TensorDType, TensorInner, TensorOp,
 };
 
-use super::binary::with_grad_fn;
-
-/// Helper to attach gradient function for f32 tensors only
-fn maybe_attach_grad<T: FloatDType, D: Dimension>(
-    input: &Tensor<T, D>,
-    result: Tensor<T, DimDyn>,
-    grad_fn: impl FnOnce(Tensor<f32, DimDyn>) -> Arc<dyn GradFn<f32>>,
-) -> Tensor<T, DimDyn> {
-    // Only attach gradients for f32 tensors that require grad
-    if T::DTYPE == DType::F32 && input.requires_grad() {
-        // Type-erase to f32 for gradient operations
-        let input_f32: Tensor<f32, DimDyn> = Tensor {
-            inner: input.inner.clone(),
-            _dtype: PhantomData,
-            _dim: PhantomData,
-        };
-        let result_f32: Tensor<f32, DimDyn> = Tensor {
-            inner: result.inner.clone(),
-            _dtype: PhantomData,
-            _dim: PhantomData,
-        };
-        let result_with_grad = with_grad_fn(result_f32, Some(grad_fn(input_f32)));
-        // Cast back to T (which is f32 here)
-        Tensor {
-            inner: result_with_grad.inner,
-            _dtype: PhantomData,
-            _dim: PhantomData,
-        }
-    } else {
-        result
-    }
-}
+use super::binary::with_grad_fn_generic;
+use super::unary::Recip;
+use crate::tensor::FloatDTypeAutograd;
 
 // ============================================================================
 // Helper for type conversion
@@ -63,20 +33,20 @@ fn to_graph_ref<T: TensorDType, D: Dimension>(tensor: &Tensor<T, D>) -> Tensor<f
 }
 
 // ============================================================================
-// Reduce Gradients (f32 only for now, infrastructure for generic later)
+// Reduce Gradients (generic over FloatDType)
 // ============================================================================
 
 /// Gradient for Reduce(Add): z = sum(a, axes)
 /// ∂L/∂a = expand(∂L/∂z)
-pub struct ReduceSumBackward {
-    input: Tensor<f32, DimDyn>,
+pub struct ReduceSumBackward<T: FloatDType> {
+    input: Tensor<T, DimDyn>,
     input_shape: Vec<usize>,
     axes: Vec<usize>,
     keepdim: bool,
 }
 
-impl ReduceSumBackward {
-    pub fn new(input: Tensor<f32, DimDyn>, axes: Vec<usize>, keepdim: bool) -> Self {
+impl<T: FloatDType> ReduceSumBackward<T> {
+    pub fn new(input: Tensor<T, DimDyn>, axes: Vec<usize>, keepdim: bool) -> Self {
         let input_shape = input.shape().to_vec();
         Self {
             input,
@@ -87,8 +57,9 @@ impl ReduceSumBackward {
     }
 }
 
-impl GradFn<f32> for ReduceSumBackward {
-    fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
+// ReduceSumBackward doesn't use arithmetic ops, so we can implement generically
+impl<T: FloatDType> GradFn<T> for ReduceSumBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
         let mut grad = grad_output.clone();
 
         // If keepdim=false, we need to unsqueeze the reduced dimensions
@@ -103,7 +74,7 @@ impl GradFn<f32> for ReduceSumBackward {
         vec![grad_expanded]
     }
 
-    fn inputs(&self) -> Vec<Tensor<f32, DimDyn>> {
+    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
         vec![self.input.clone()]
     }
 
@@ -114,18 +85,18 @@ impl GradFn<f32> for ReduceSumBackward {
 
 /// Gradient for Reduce(Mul): z = prod(a, axes)
 /// ∂L/∂a = ∂L/∂z · z / a
-pub struct ReduceMulBackward {
-    input: Tensor<f32, DimDyn>,
-    output: Tensor<f32, DimDyn>,
+pub struct ReduceMulBackward<T: FloatDType> {
+    input: Tensor<T, DimDyn>,
+    output: Tensor<T, DimDyn>,
     input_shape: Vec<usize>,
     axes: Vec<usize>,
     keepdim: bool,
 }
 
-impl ReduceMulBackward {
+impl<T: FloatDType> ReduceMulBackward<T> {
     pub fn new(
-        input: Tensor<f32, DimDyn>,
-        output: Tensor<f32, DimDyn>,
+        input: Tensor<T, DimDyn>,
+        output: Tensor<T, DimDyn>,
         axes: Vec<usize>,
         keepdim: bool,
     ) -> Self {
@@ -140,7 +111,8 @@ impl ReduceMulBackward {
     }
 }
 
-impl GradFn<f32> for ReduceMulBackward {
+// ReduceMulBackward uses * and /, need separate impls for f32/f64
+impl GradFn<f32> for ReduceMulBackward<f32> {
     fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
         let mut grad = grad_output.clone();
 
@@ -172,19 +144,52 @@ impl GradFn<f32> for ReduceMulBackward {
     }
 }
 
+impl GradFn<f64> for ReduceMulBackward<f64> {
+    fn backward(&self, grad_output: &Tensor<f64, DimDyn>) -> Vec<Tensor<f64, DimDyn>> {
+        let mut grad = grad_output.clone();
+
+        if !self.keepdim {
+            for &axis in &self.axes {
+                grad = grad.unsqueeze(axis);
+            }
+        }
+
+        // ∂L/∂a = ∂L/∂z · z / a (expanded)
+        let mut output_expanded = self.output.clone();
+        if !self.keepdim {
+            for &axis in &self.axes {
+                output_expanded = output_expanded.unsqueeze(axis);
+            }
+        }
+        let output_expanded = output_expanded.expand(&self.input_shape);
+        let grad_expanded = grad.expand(&self.input_shape);
+
+        // Use recip() * instead of / since Div not yet implemented for f64
+        vec![&(&grad_expanded * &output_expanded) * &self.input.clone().recip()]
+    }
+
+    fn inputs(&self) -> Vec<Tensor<f64, DimDyn>> {
+        vec![self.input.clone()]
+    }
+
+    fn name(&self) -> &'static str {
+        "ReduceMulBackward"
+    }
+}
+
 /// Gradient for Reduce(Max): z = max(a, axes)
 /// ∂L/∂a = ∂L/∂z · (a == max)
-pub struct ReduceMaxBackward {
-    input: Tensor<f32, DimDyn>,
+pub struct ReduceMaxBackward<T: FloatDType> {
+    input: Tensor<T, DimDyn>,
     input_shape: Vec<usize>,
     axes: Vec<usize>,
     keepdim: bool,
 }
 
-impl ReduceMaxBackward {
+impl<T: FloatDType> ReduceMaxBackward<T> {
     pub fn new(
-        input: Tensor<f32, DimDyn>,
-        _output: Tensor<f32, DimDyn>, // TODO: Use for proper mask where input == max
+        input: Tensor<T, DimDyn>,
+        _output: Tensor<T, DimDyn>, // TODO: Use for proper mask where input == max
         axes: Vec<usize>,
         keepdim: bool,
     ) -> Self {
@@ -198,8 +203,9 @@ impl ReduceMaxBackward {
     }
 }
 
-impl GradFn<f32> for ReduceMaxBackward {
-    fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
+// ReduceMaxBackward doesn't use arithmetic ops, so we can implement generically
+impl<T: FloatDType> GradFn<T> for ReduceMaxBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
         // Expand gradient to original shape
         let mut grad = grad_output.clone();
         if !self.keepdim {
@@ -214,7 +220,7 @@ impl GradFn<f32> for ReduceMaxBackward {
         vec![grad_expanded]
     }
 
-    fn inputs(&self) -> Vec<Tensor<f32, DimDyn>> {
+    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
         vec![self.input.clone()]
     }
 
@@ -274,30 +280,21 @@ fn create_reduce<T: FloatDType, D: Dimension>(
     }
 }
 
-impl<T: FloatDType, D: Dimension> Tensor<T, D> {
-    // ========================================================================
-    // Type-safe single-axis reductions (recommended)
-    // ========================================================================
+// ============================================================================
+// Type-safe single-axis reductions (no gradient tracking needed here)
+// These just delegate to multi-axis reductions
+// ============================================================================
 
+impl<T: FloatDType, D: Dimension> Tensor<T, D> {
     /// Sum along a single axis with type-safe dimension tracking
     ///
     /// Returns a tensor with one fewer dimension.
     /// For keepdim=true behavior, use `.unsqueeze(axis)` afterwards.
-    pub fn sum_axis(&self, axis: usize) -> Tensor<T, D::Smaller> {
+    pub fn sum_axis(&self, axis: usize) -> Tensor<T, D::Smaller>
+    where
+        T: FloatDTypeAutograd,
+    {
         let result_dyn = self.reduce_sum(&[axis], false);
-        Tensor {
-            inner: result_dyn.inner,
-            _dtype: PhantomData,
-            _dim: PhantomData,
-        }
-    }
-
-    /// Product along a single axis with type-safe dimension tracking
-    ///
-    /// Returns a tensor with one fewer dimension.
-    /// For keepdim=true behavior, use `.unsqueeze(axis)` afterwards.
-    pub fn prod_axis(&self, axis: usize) -> Tensor<T, D::Smaller> {
-        let result_dyn = self.reduce_mul(&[axis], false);
         Tensor {
             inner: result_dyn.inner,
             _dtype: PhantomData,
@@ -309,7 +306,10 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
     ///
     /// Returns a tensor with one fewer dimension.
     /// For keepdim=true behavior, use `.unsqueeze(axis)` afterwards.
-    pub fn max_axis(&self, axis: usize) -> Tensor<T, D::Smaller> {
+    pub fn max_axis(&self, axis: usize) -> Tensor<T, D::Smaller>
+    where
+        T: FloatDTypeAutograd,
+    {
         let result_dyn = self.reduce_max(&[axis], false);
         Tensor {
             inner: result_dyn.inner,
@@ -317,42 +317,26 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
             _dim: PhantomData,
         }
     }
+}
 
-    // ========================================================================
-    // Multi-axis reductions (returns DimDyn)
-    // ========================================================================
+// ============================================================================
+// Multi-axis reductions with gradient tracking (FloatDTypeAutograd)
+// ============================================================================
 
+impl<T: FloatDTypeAutograd, D: Dimension> Tensor<T, D> {
     /// Sum reduction along specified axes
     ///
     /// For single-axis reduction, prefer `sum_axis()` for type safety.
     pub fn reduce_sum(&self, axes: &[usize], keepdim: bool) -> Tensor<T, DimDyn> {
         let result = create_reduce(ReduceOp::Sum, self, axes, keepdim);
-        let axes = axes.to_vec();
-        maybe_attach_grad(self, result, move |input| {
-            Arc::new(ReduceSumBackward::new(input, axes, keepdim))
-        })
-    }
-
-    /// Product reduction along specified axes
-    ///
-    /// For single-axis reduction, prefer `prod_axis()` for type safety.
-    pub fn reduce_mul(&self, axes: &[usize], keepdim: bool) -> Tensor<T, DimDyn> {
-        let result = create_reduce(ReduceOp::Prod, self, axes, keepdim);
-        let axes = axes.to_vec();
-        // Create f32-typed tensor for gradient operations
-        let result_for_grad: Tensor<f32, DimDyn> = Tensor {
-            inner: result.inner.clone(),
-            _dtype: PhantomData,
-            _dim: PhantomData,
-        };
-        maybe_attach_grad(self, result, move |input| {
-            Arc::new(ReduceMulBackward::new(
-                input,
-                result_for_grad,
-                axes,
-                keepdim,
-            ))
-        })
+        if self.requires_grad() {
+            let axes = axes.to_vec();
+            let input = self.clone().into_dyn();
+            let grad_fn = ReduceSumBackward::new(input, axes, keepdim);
+            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
+        } else {
+            result
+        }
     }
 
     /// Max reduction along specified axes
@@ -360,21 +344,81 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
     /// For single-axis reduction, prefer `max_axis()` for type safety.
     pub fn reduce_max(&self, axes: &[usize], keepdim: bool) -> Tensor<T, DimDyn> {
         let result = create_reduce(ReduceOp::Max, self, axes, keepdim);
-        let axes = axes.to_vec();
-        // Create f32-typed tensor for gradient operations
-        let result_for_grad: Tensor<f32, DimDyn> = Tensor {
-            inner: result.inner.clone(),
+        if self.requires_grad() {
+            let axes = axes.to_vec();
+            let input = self.clone().into_dyn();
+            let result_for_grad = result.clone();
+            let grad_fn = ReduceMaxBackward::new(input, result_for_grad, axes, keepdim);
+            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
+        } else {
+            result
+        }
+    }
+}
+
+// ============================================================================
+// reduce_mul needs separate impls because ReduceMulBackward uses arithmetic ops
+// ============================================================================
+
+impl<D: Dimension> Tensor<f32, D> {
+    /// Product along a single axis with type-safe dimension tracking (f32)
+    ///
+    /// Returns a tensor with one fewer dimension.
+    /// For keepdim=true behavior, use `.unsqueeze(axis)` afterwards.
+    pub fn prod_axis(&self, axis: usize) -> Tensor<f32, D::Smaller> {
+        let result_dyn = self.reduce_mul(&[axis], false);
+        Tensor {
+            inner: result_dyn.inner,
             _dtype: PhantomData,
             _dim: PhantomData,
-        };
-        maybe_attach_grad(self, result, move |input| {
-            Arc::new(ReduceMaxBackward::new(
-                input,
-                result_for_grad,
-                axes,
-                keepdim,
-            ))
-        })
+        }
+    }
+
+    /// Product reduction along specified axes (f32)
+    ///
+    /// For single-axis reduction, prefer `prod_axis()` for type safety.
+    pub fn reduce_mul(&self, axes: &[usize], keepdim: bool) -> Tensor<f32, DimDyn> {
+        let result = create_reduce(ReduceOp::Prod, self, axes, keepdim);
+        if self.requires_grad() {
+            let axes = axes.to_vec();
+            let input = self.clone().into_dyn();
+            let result_for_grad = result.clone();
+            let grad_fn = ReduceMulBackward::new(input, result_for_grad, axes, keepdim);
+            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
+        } else {
+            result
+        }
+    }
+}
+
+impl<D: Dimension> Tensor<f64, D> {
+    /// Product along a single axis with type-safe dimension tracking (f64)
+    ///
+    /// Returns a tensor with one fewer dimension.
+    /// For keepdim=true behavior, use `.unsqueeze(axis)` afterwards.
+    pub fn prod_axis(&self, axis: usize) -> Tensor<f64, D::Smaller> {
+        let result_dyn = self.reduce_mul(&[axis], false);
+        Tensor {
+            inner: result_dyn.inner,
+            _dtype: PhantomData,
+            _dim: PhantomData,
+        }
+    }
+
+    /// Product reduction along specified axes (f64)
+    ///
+    /// For single-axis reduction, prefer `prod_axis()` for type safety.
+    pub fn reduce_mul(&self, axes: &[usize], keepdim: bool) -> Tensor<f64, DimDyn> {
+        let result = create_reduce(ReduceOp::Prod, self, axes, keepdim);
+        if self.requires_grad() {
+            let axes = axes.to_vec();
+            let input = self.clone().into_dyn();
+            let result_for_grad = result.clone();
+            let grad_fn = ReduceMulBackward::new(input, result_for_grad, axes, keepdim);
+            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
+        } else {
+            result
+        }
     }
 }
 

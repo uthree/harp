@@ -724,6 +724,117 @@ impl<D: Dimension> Tensor<f32, D> {
     }
 }
 
+// ============================================================================
+// f64 Autograd Methods
+// ============================================================================
+
+impl<D: Dimension> Tensor<f64, D> {
+    /// Perform backward propagation starting from this tensor
+    ///
+    /// Computes gradients for all tensors in the computation graph that
+    /// have `requires_grad = true`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if this tensor does not require gradients.
+    pub fn backward(&self) {
+        if self.inner.autograd.is_none() {
+            panic!("backward() called on tensor that doesn't require gradients");
+        }
+
+        // Create initial gradient of ones with same shape
+        let initial_grad = Tensor::<f64, DimDyn>::ones_dyn(self.shape());
+        self.backward_with(initial_grad);
+    }
+
+    /// Perform backward propagation with a custom initial gradient
+    pub fn backward_with(&self, grad_output: Tensor<f64, DimDyn>) {
+        if let Some(ref autograd_storage) = self.inner.autograd {
+            // Get f64 autograd metadata
+            let autograd = autograd_storage
+                .as_f64()
+                .expect("f64 tensor should have f64 autograd storage");
+
+            // Accumulate gradient
+            {
+                let mut grad = autograd.grad.write().unwrap();
+                if let Some(existing) = grad.take() {
+                    // Add to existing gradient
+                    let new_grad = &(*existing) + &grad_output;
+                    *grad = Some(Arc::new(new_grad));
+                } else {
+                    *grad = Some(Arc::new(grad_output.clone()));
+                }
+            }
+
+            // Propagate to inputs via grad_fn
+            if let Some(ref grad_fn) = autograd.grad_fn {
+                let input_grads = grad_fn.backward(&grad_output);
+                let inputs = grad_fn.inputs();
+
+                // Propagate gradients to each input tensor
+                for (input, grad) in inputs.into_iter().zip(input_grads.into_iter()) {
+                    if input.requires_grad() {
+                        input.backward_with(grad);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Get the accumulated gradient for this tensor
+    ///
+    /// Returns None if backward() hasn't been called or if this tensor
+    /// doesn't require gradients.
+    ///
+    /// The returned gradient has the same dimension type as the original tensor.
+    pub fn grad(&self) -> Option<Tensor<f64, D>> {
+        self.inner
+            .autograd
+            .as_ref()
+            .and_then(|storage| storage.as_f64())
+            .and_then(|ag| {
+                ag.grad.read().unwrap().as_ref().map(|g| {
+                    // Convert from DimDyn to D (same underlying data, different type marker)
+                    Tensor {
+                        inner: g.inner.clone(),
+                        _dtype: PhantomData,
+                        _dim: PhantomData,
+                    }
+                })
+            })
+    }
+
+    /// Reset the gradient to None
+    pub fn zero_grad(&self) {
+        if let Some(ref autograd_storage) = self.inner.autograd
+            && let Some(autograd) = autograd_storage.as_f64()
+        {
+            *autograd.grad.write().unwrap() = None;
+        }
+    }
+
+    /// Detach this tensor from the computation graph
+    ///
+    /// Returns a new tensor with the same data but no gradient tracking.
+    pub fn detach(&self) -> Tensor<f64, D> {
+        let inner = TensorInner {
+            op: self.inner.op.clone(),
+            view: self.inner.view.clone(),
+            shape: self.inner.shape.clone(),
+            dtype: self.inner.dtype.clone(),
+            name: self.inner.name.clone(),
+            autograd: None,
+            buffer: RwLock::new(self.inner.buffer.read().unwrap().clone()),
+        };
+        Tensor {
+            inner: Arc::new(inner),
+            _dtype: PhantomData,
+            _dim: PhantomData,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

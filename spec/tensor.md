@@ -20,13 +20,19 @@ pub struct Tensor<T: TensorDType = f32, D: Dimension = DimDyn> {
 }
 
 pub struct TensorInner {
-    op: TensorOp,                     // 演算種類（入力テンソルを含む）
-    view: View,                       // メモリレイアウト
-    shape: Vec<usize>,                // テンソル形状
-    dtype: DType,                     // データ型
-    name: Option<String>,             // バッファ名（オプション）
-    autograd: Option<AutogradMeta>,   // 勾配追跡データ
-    buffer: RwLock<Option<Vec<f32>>>, // 実行結果バッファ
+    op: TensorOp,                       // 演算種類（入力テンソルを含む）
+    view: View,                         // メモリレイアウト
+    shape: Vec<usize>,                  // テンソル形状
+    dtype: DType,                       // データ型
+    name: Option<String>,               // バッファ名（オプション）
+    autograd: Option<AutogradStorage>,  // 勾配追跡データ（F32/F64）
+    buffer: RwLock<Option<Vec<f32>>>,   // 実行結果バッファ
+}
+
+// 型消去された自動微分ストレージ
+pub enum AutogradStorage {
+    F32(AutogradMeta<f32>),
+    F64(AutogradMeta<f64>),
 }
 
 pub type TensorRef = Arc<Tensor<f32, DimDyn>>;
@@ -150,12 +156,12 @@ let c = a2 * 2.0;        // a2は別パス → OK
 
 ### GradFn トレイト
 
-勾配関数のインターフェース。勾配計算はf32テンソルに固定されています。
+勾配関数のインターフェース。FloatDType（f32, f64）に対してジェネリックです。
 
 ```rust
-pub trait GradFn: Send + Sync {
-    fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>>;
-    fn inputs(&self) -> Vec<Tensor<f32, DimDyn>>;
+pub trait GradFn<T: FloatDType>: Send + Sync {
+    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>>;
+    fn inputs(&self) -> Vec<Tensor<T, DimDyn>>;
     fn name(&self) -> &'static str;
 }
 ```
@@ -170,7 +176,7 @@ pub trait GradFn: Send + Sync {
 - 初期化演算: f32, f64をサポート
 - 二項演算: NumericDType（f32, f64）をサポート
 - 単項演算: FloatDType（f32, f64）をサポート
-- 勾配追跡: f32のみ
+- 勾配追跡: f32, f64（FloatDTypeAutograd）
 
 #### 初期化
 | 演算 | 説明 | 型 |
@@ -225,9 +231,7 @@ pub trait GradFn: Send + Sync {
 
 ### hlops（高級演算）
 
-primopsの組み合わせで表現される演算。
-
-**注**: 現在hlopsはf32のみサポート。f64のhlopsは二項演算（Add, Mul, Div）のf64サポート後に追加可能。
+primopsの組み合わせで表現される演算。f32, f64両方でサポート。
 
 | 演算 | primopsによる表現 |
 |------|-------------------|
@@ -290,11 +294,14 @@ let a2 = a.fork();  // Clone演算を追加
 
 ### 勾配追跡
 
-勾配関連の操作はf32テンソルのみで利用可能です（AutogradMeta, GradFnがf32固定のため）。
+勾配関連の操作はFloatDTypeAutograd（f32, f64）テンソルで利用可能です。
 
 ```rust
-// 勾配追跡を有効化
+// 勾配追跡を有効化（f32）
 let x = Tensor::<f32, Dim2>::ones([2, 2]).set_requires_grad(true);
+
+// f64でも同様に使用可能
+let x = Tensor::<f64, Dim2>::ones([2, 2]).set_requires_grad(true);
 
 // 演算（勾配が自動追跡される）
 let y = &x * &x;
