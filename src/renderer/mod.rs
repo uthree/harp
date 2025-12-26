@@ -21,11 +21,13 @@
 //! println!("{}", code);
 //! ```
 
+pub mod c;
 pub mod c_like;
 pub mod metal;
 pub mod opencl;
 
 // Re-export common types
+pub use c::{CCode, CRenderer};
 pub use c_like::{CLikeRenderer, GenericRenderer, OptimizationLevel};
 pub use metal::{MetalCode, MetalRenderer};
 pub use opencl::{OpenCLCode, OpenCLRenderer};
