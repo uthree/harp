@@ -63,11 +63,53 @@ impl VariableExpansionSuggester {
         }
     }
 
+    /// ステートメント内で指定した変数への再代入があるかチェック（再帰的に子ノードも確認）
+    fn has_reassignment_in_statements(statements: &[AstNode], var_name: &str) -> bool {
+        for stmt in statements {
+            if Self::has_reassignment(stmt, var_name) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// ASTノード内で指定した変数への再代入があるかチェック
+    fn has_reassignment(node: &AstNode, var_name: &str) -> bool {
+        match node {
+            // Assign: 対象変数への代入があるか
+            AstNode::Assign { var, .. } if var == var_name => true,
+            // Block: 子ステートメントを再帰チェック
+            AstNode::Block { statements, .. } => {
+                Self::has_reassignment_in_statements(statements, var_name)
+            }
+            // Range: ループ本体を再帰チェック
+            AstNode::Range { body, .. } => Self::has_reassignment(body, var_name),
+            // If: then/else両方を再帰チェック
+            AstNode::If {
+                then_body,
+                else_body,
+                ..
+            } => {
+                Self::has_reassignment(then_body, var_name)
+                    || else_body
+                        .as_ref()
+                        .is_some_and(|e| Self::has_reassignment(e, var_name))
+            }
+            // Function/Kernel: 本体を再帰チェック
+            AstNode::Function { body, .. } | AstNode::Kernel { body, .. } => {
+                Self::has_reassignment(body, var_name)
+            }
+            // その他のノードは再代入なし
+            _ => false,
+        }
+    }
+
     /// 式内の変数の使用回数をカウント
     fn count_var_usage(expr: &AstNode, var_name: &str) -> usize {
         match expr {
             AstNode::Var(name) if name == var_name => 1,
-            AstNode::Var(_) | AstNode::Const(_) | AstNode::Rand => 0,
+            AstNode::Var(_) | AstNode::Const(_) | AstNode::Rand | AstNode::Barrier => 0,
+            // 二項演算
             AstNode::Add(a, b)
             | AstNode::Mul(a, b)
             | AstNode::Max(a, b)
@@ -80,13 +122,42 @@ impl VariableExpansionSuggester {
             | AstNode::RightShift(a, b) => {
                 Self::count_var_usage(a, var_name) + Self::count_var_usage(b, var_name)
             }
+            // 比較演算
+            AstNode::Lt(a, b)
+            | AstNode::Le(a, b)
+            | AstNode::Gt(a, b)
+            | AstNode::Ge(a, b)
+            | AstNode::Eq(a, b)
+            | AstNode::Ne(a, b) => {
+                Self::count_var_usage(a, var_name) + Self::count_var_usage(b, var_name)
+            }
+            // 単項演算
             AstNode::Recip(a)
             | AstNode::Sqrt(a)
             | AstNode::Log2(a)
             | AstNode::Exp2(a)
             | AstNode::Sin(a)
+            | AstNode::Floor(a)
             | AstNode::BitwiseNot(a)
             | AstNode::Cast(a, _) => Self::count_var_usage(a, var_name),
+            // Fused Multiply-Add
+            AstNode::Fma { a, b, c } => {
+                Self::count_var_usage(a, var_name)
+                    + Self::count_var_usage(b, var_name)
+                    + Self::count_var_usage(c, var_name)
+            }
+            // アトミック操作
+            AstNode::AtomicAdd {
+                ptr, offset, value, ..
+            }
+            | AstNode::AtomicMax {
+                ptr, offset, value, ..
+            } => {
+                Self::count_var_usage(ptr, var_name)
+                    + Self::count_var_usage(offset, var_name)
+                    + Self::count_var_usage(value, var_name)
+            }
+            // メモリ操作
             AstNode::Load { ptr, offset, .. } => {
                 Self::count_var_usage(ptr, var_name) + Self::count_var_usage(offset, var_name)
             }
@@ -95,11 +166,29 @@ impl VariableExpansionSuggester {
                     + Self::count_var_usage(offset, var_name)
                     + Self::count_var_usage(value, var_name)
             }
+            AstNode::Allocate { size, .. } => Self::count_var_usage(size, var_name),
+            AstNode::Deallocate { ptr } => Self::count_var_usage(ptr, var_name),
+            // 代入
             AstNode::Assign { value, .. } => Self::count_var_usage(value, var_name),
+            // ブロック
             AstNode::Block { statements, .. } => statements
                 .iter()
                 .map(|s| Self::count_var_usage(s, var_name))
                 .sum(),
+            // 条件分岐
+            AstNode::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                Self::count_var_usage(condition, var_name)
+                    + Self::count_var_usage(then_body, var_name)
+                    + else_body
+                        .as_ref()
+                        .map(|e| Self::count_var_usage(e, var_name))
+                        .unwrap_or(0)
+            }
+            // ループ
             AstNode::Range {
                 start,
                 step,
@@ -112,16 +201,60 @@ impl VariableExpansionSuggester {
                     + Self::count_var_usage(stop, var_name)
                     + Self::count_var_usage(body, var_name)
             }
+            // 関数呼び出し
             AstNode::Call { args, .. } => args
                 .iter()
                 .map(|a| Self::count_var_usage(a, var_name))
                 .sum(),
+            // カーネル呼び出し
+            AstNode::CallKernel {
+                args,
+                grid_size,
+                thread_group_size,
+                ..
+            } => {
+                let args_count: usize = args
+                    .iter()
+                    .map(|a| Self::count_var_usage(a, var_name))
+                    .sum();
+                let grid_count: usize = grid_size
+                    .iter()
+                    .map(|g| Self::count_var_usage(g, var_name))
+                    .sum();
+                let thread_count: usize = thread_group_size
+                    .iter()
+                    .map(|t| Self::count_var_usage(t, var_name))
+                    .sum();
+                args_count + grid_count + thread_count
+            }
+            // Return
             AstNode::Return { value } => Self::count_var_usage(value, var_name),
+            // 関数定義
             AstNode::Function { body, .. } => Self::count_var_usage(body, var_name),
+            // カーネル定義
+            AstNode::Kernel {
+                body,
+                default_grid_size,
+                default_thread_group_size,
+                ..
+            } => {
+                let body_count = Self::count_var_usage(body, var_name);
+                let grid_count: usize = default_grid_size
+                    .iter()
+                    .map(|g| Self::count_var_usage(g, var_name))
+                    .sum();
+                let thread_count: usize = default_thread_group_size
+                    .iter()
+                    .map(|t| Self::count_var_usage(t, var_name))
+                    .sum();
+                body_count + grid_count + thread_count
+            }
+            // プログラム
             AstNode::Program { functions, .. } => functions
                 .iter()
                 .map(|f| Self::count_var_usage(f, var_name))
                 .sum(),
+            // Wildcard等（パターンマッチング用）
             _ => 0,
         }
     }
@@ -130,9 +263,12 @@ impl VariableExpansionSuggester {
     fn substitute_var(expr: &AstNode, var_name: &str, replacement: &AstNode) -> AstNode {
         match expr {
             AstNode::Var(name) if name == var_name => replacement.clone(),
-            AstNode::Var(_) | AstNode::Const(_) | AstNode::Rand | AstNode::Wildcard(_) => {
-                expr.clone()
-            }
+            AstNode::Var(_)
+            | AstNode::Const(_)
+            | AstNode::Rand
+            | AstNode::Wildcard(_)
+            | AstNode::Barrier => expr.clone(),
+            // 二項演算
             AstNode::Add(a, b) => AstNode::Add(
                 Box::new(Self::substitute_var(a, var_name, replacement)),
                 Box::new(Self::substitute_var(b, var_name, replacement)),
@@ -173,6 +309,32 @@ impl VariableExpansionSuggester {
                 Box::new(Self::substitute_var(a, var_name, replacement)),
                 Box::new(Self::substitute_var(b, var_name, replacement)),
             ),
+            // 比較演算
+            AstNode::Lt(a, b) => AstNode::Lt(
+                Box::new(Self::substitute_var(a, var_name, replacement)),
+                Box::new(Self::substitute_var(b, var_name, replacement)),
+            ),
+            AstNode::Le(a, b) => AstNode::Le(
+                Box::new(Self::substitute_var(a, var_name, replacement)),
+                Box::new(Self::substitute_var(b, var_name, replacement)),
+            ),
+            AstNode::Gt(a, b) => AstNode::Gt(
+                Box::new(Self::substitute_var(a, var_name, replacement)),
+                Box::new(Self::substitute_var(b, var_name, replacement)),
+            ),
+            AstNode::Ge(a, b) => AstNode::Ge(
+                Box::new(Self::substitute_var(a, var_name, replacement)),
+                Box::new(Self::substitute_var(b, var_name, replacement)),
+            ),
+            AstNode::Eq(a, b) => AstNode::Eq(
+                Box::new(Self::substitute_var(a, var_name, replacement)),
+                Box::new(Self::substitute_var(b, var_name, replacement)),
+            ),
+            AstNode::Ne(a, b) => AstNode::Ne(
+                Box::new(Self::substitute_var(a, var_name, replacement)),
+                Box::new(Self::substitute_var(b, var_name, replacement)),
+            ),
+            // 単項演算
             AstNode::Recip(a) => {
                 AstNode::Recip(Box::new(Self::substitute_var(a, var_name, replacement)))
             }
@@ -188,6 +350,9 @@ impl VariableExpansionSuggester {
             AstNode::Sin(a) => {
                 AstNode::Sin(Box::new(Self::substitute_var(a, var_name, replacement)))
             }
+            AstNode::Floor(a) => {
+                AstNode::Floor(Box::new(Self::substitute_var(a, var_name, replacement)))
+            }
             AstNode::BitwiseNot(a) => {
                 AstNode::BitwiseNot(Box::new(Self::substitute_var(a, var_name, replacement)))
             }
@@ -195,6 +360,13 @@ impl VariableExpansionSuggester {
                 Box::new(Self::substitute_var(a, var_name, replacement)),
                 dtype.clone(),
             ),
+            // Fused Multiply-Add
+            AstNode::Fma { a, b, c } => AstNode::Fma {
+                a: Box::new(Self::substitute_var(a, var_name, replacement)),
+                b: Box::new(Self::substitute_var(b, var_name, replacement)),
+                c: Box::new(Self::substitute_var(c, var_name, replacement)),
+            },
+            // メモリ操作
             AstNode::Load {
                 ptr,
                 offset,
@@ -211,10 +383,42 @@ impl VariableExpansionSuggester {
                 offset: Box::new(Self::substitute_var(offset, var_name, replacement)),
                 value: Box::new(Self::substitute_var(value, var_name, replacement)),
             },
+            AstNode::Allocate { dtype, size } => AstNode::Allocate {
+                dtype: dtype.clone(),
+                size: Box::new(Self::substitute_var(size, var_name, replacement)),
+            },
+            AstNode::Deallocate { ptr } => AstNode::Deallocate {
+                ptr: Box::new(Self::substitute_var(ptr, var_name, replacement)),
+            },
+            // アトミック操作
+            AstNode::AtomicAdd {
+                ptr,
+                offset,
+                value,
+                dtype,
+            } => AstNode::AtomicAdd {
+                ptr: Box::new(Self::substitute_var(ptr, var_name, replacement)),
+                offset: Box::new(Self::substitute_var(offset, var_name, replacement)),
+                value: Box::new(Self::substitute_var(value, var_name, replacement)),
+                dtype: dtype.clone(),
+            },
+            AstNode::AtomicMax {
+                ptr,
+                offset,
+                value,
+                dtype,
+            } => AstNode::AtomicMax {
+                ptr: Box::new(Self::substitute_var(ptr, var_name, replacement)),
+                offset: Box::new(Self::substitute_var(offset, var_name, replacement)),
+                value: Box::new(Self::substitute_var(value, var_name, replacement)),
+                dtype: dtype.clone(),
+            },
+            // 代入
             AstNode::Assign { var, value } => AstNode::Assign {
                 var: var.clone(),
                 value: Box::new(Self::substitute_var(value, var_name, replacement)),
             },
+            // ブロック
             AstNode::Block { statements, scope } => AstNode::Block {
                 statements: statements
                     .iter()
@@ -222,6 +426,19 @@ impl VariableExpansionSuggester {
                     .collect(),
                 scope: scope.clone(),
             },
+            // 条件分岐
+            AstNode::If {
+                condition,
+                then_body,
+                else_body,
+            } => AstNode::If {
+                condition: Box::new(Self::substitute_var(condition, var_name, replacement)),
+                then_body: Box::new(Self::substitute_var(then_body, var_name, replacement)),
+                else_body: else_body
+                    .as_ref()
+                    .map(|e| Box::new(Self::substitute_var(e, var_name, replacement))),
+            },
+            // ループ
             AstNode::Range {
                 var,
                 start,
@@ -235,6 +452,7 @@ impl VariableExpansionSuggester {
                 stop: Box::new(Self::substitute_var(stop, var_name, replacement)),
                 body: Box::new(Self::substitute_var(body, var_name, replacement)),
             },
+            // 関数呼び出し
             AstNode::Call { name, args } => AstNode::Call {
                 name: name.clone(),
                 args: args
@@ -242,6 +460,42 @@ impl VariableExpansionSuggester {
                     .map(|a| Self::substitute_var(a, var_name, replacement))
                     .collect(),
             },
+            // カーネル呼び出し
+            AstNode::CallKernel {
+                name,
+                args,
+                grid_size,
+                thread_group_size,
+            } => AstNode::CallKernel {
+                name: name.clone(),
+                args: args
+                    .iter()
+                    .map(|a| Self::substitute_var(a, var_name, replacement))
+                    .collect(),
+                grid_size: [
+                    Box::new(Self::substitute_var(&grid_size[0], var_name, replacement)),
+                    Box::new(Self::substitute_var(&grid_size[1], var_name, replacement)),
+                    Box::new(Self::substitute_var(&grid_size[2], var_name, replacement)),
+                ],
+                thread_group_size: [
+                    Box::new(Self::substitute_var(
+                        &thread_group_size[0],
+                        var_name,
+                        replacement,
+                    )),
+                    Box::new(Self::substitute_var(
+                        &thread_group_size[1],
+                        var_name,
+                        replacement,
+                    )),
+                    Box::new(Self::substitute_var(
+                        &thread_group_size[2],
+                        var_name,
+                        replacement,
+                    )),
+                ],
+            },
+            // Return
             AstNode::Return { value } => AstNode::Return {
                 value: Box::new(Self::substitute_var(value, var_name, replacement)),
             },
@@ -268,8 +522,40 @@ impl VariableExpansionSuggester {
                 params: params.clone(),
                 return_type: return_type.clone(),
                 body: Box::new(Self::substitute_var(body, var_name, replacement)),
-                default_grid_size: default_grid_size.clone(),
-                default_thread_group_size: default_thread_group_size.clone(),
+                default_grid_size: [
+                    Box::new(Self::substitute_var(
+                        &default_grid_size[0],
+                        var_name,
+                        replacement,
+                    )),
+                    Box::new(Self::substitute_var(
+                        &default_grid_size[1],
+                        var_name,
+                        replacement,
+                    )),
+                    Box::new(Self::substitute_var(
+                        &default_grid_size[2],
+                        var_name,
+                        replacement,
+                    )),
+                ],
+                default_thread_group_size: [
+                    Box::new(Self::substitute_var(
+                        &default_thread_group_size[0],
+                        var_name,
+                        replacement,
+                    )),
+                    Box::new(Self::substitute_var(
+                        &default_thread_group_size[1],
+                        var_name,
+                        replacement,
+                    )),
+                    Box::new(Self::substitute_var(
+                        &default_thread_group_size[2],
+                        var_name,
+                        replacement,
+                    )),
+                ],
             },
             AstNode::Program {
                 functions,
@@ -281,8 +567,6 @@ impl VariableExpansionSuggester {
                     .collect(),
                 execution_waves: execution_waves.clone(),
             },
-            // その他のノードはそのまま返す
-            _ => expr.clone(),
         }
     }
 
@@ -295,6 +579,29 @@ impl VariableExpansionSuggester {
             if let AstNode::Assign { var, value } = stmt {
                 // 展開対象かチェック
                 if !self.is_expansion_target(var) {
+                    continue;
+                }
+
+                // 変数が自身の右辺で使用されている場合はスキップ（累積パターン: acc = acc + ...）
+                // これにより、ループ内のアキュムレータ（acc = acc + value）が誤って削除されるのを防ぐ
+                if Self::count_var_usage(value, var) > 0 {
+                    trace!(
+                        "Skipping expansion of '{}': self-referential assignment",
+                        var
+                    );
+                    continue;
+                }
+
+                // 後続のstatements内で同じ変数への再代入がある場合はスキップ
+                // （例：acc = 0; for (...) { acc = acc + x }; result = acc）
+                // この場合、accを展開するとループ内のaccが初期値に置換されてしまう
+                let has_reassignment =
+                    Self::has_reassignment_in_statements(&statements[i + 1..], var);
+                if has_reassignment {
+                    trace!(
+                        "Skipping expansion of '{}': variable is reassigned in subsequent statements",
+                        var
+                    );
                     continue;
                 }
 
@@ -385,6 +692,34 @@ impl VariableExpansionSuggester {
                         stop: stop.clone(),
                         body: Box::new(child),
                     });
+                }
+            }
+
+            AstNode::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                // then_body内での展開を試みる
+                let then_candidates = self.collect_expansion_candidates(then_body);
+                for child in then_candidates {
+                    candidates.push(AstNode::If {
+                        condition: condition.clone(),
+                        then_body: Box::new(child),
+                        else_body: else_body.clone(),
+                    });
+                }
+
+                // else_body内での展開を試みる
+                if let Some(else_node) = else_body {
+                    let else_candidates = self.collect_expansion_candidates(else_node);
+                    for child in else_candidates {
+                        candidates.push(AstNode::If {
+                            condition: condition.clone(),
+                            then_body: then_body.clone(),
+                            else_body: Some(Box::new(child)),
+                        });
+                    }
                 }
             }
 
@@ -789,6 +1124,260 @@ mod tests {
             if let AstNode::Assign { var, .. } = &statements[0] {
                 assert_eq!(var, "y");
             }
+        }
+    }
+
+    #[test]
+    fn test_count_var_usage_in_if() {
+        // If節内での変数カウントをテスト
+        // if (x < 10) { y = x } else { y = 0 }
+        let if_node = AstNode::If {
+            condition: Box::new(AstNode::Lt(Box::new(var("x")), Box::new(const_int(10)))),
+            then_body: Box::new(AstNode::Assign {
+                var: "y".to_string(),
+                value: Box::new(var("x")),
+            }),
+            else_body: Some(Box::new(AstNode::Assign {
+                var: "y".to_string(),
+                value: Box::new(const_int(0)),
+            })),
+        };
+
+        // xは条件式で1回 + then_bodyで1回 = 2回使用
+        assert_eq!(
+            VariableExpansionSuggester::count_var_usage(&if_node, "x"),
+            2
+        );
+        // yは代入のターゲットなのでカウントされない
+        assert_eq!(
+            VariableExpansionSuggester::count_var_usage(&if_node, "y"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_count_var_usage_in_comparison() {
+        // 比較演算子内での変数カウントをテスト
+        // a < b, a <= b, a > b, a >= b, a == b, a != b
+        let lt = AstNode::Lt(Box::new(var("a")), Box::new(var("b")));
+        let le = AstNode::Le(Box::new(var("a")), Box::new(var("b")));
+        let gt = AstNode::Gt(Box::new(var("a")), Box::new(var("b")));
+        let ge = AstNode::Ge(Box::new(var("a")), Box::new(var("b")));
+        let eq = AstNode::Eq(Box::new(var("a")), Box::new(var("b")));
+        let ne = AstNode::Ne(Box::new(var("a")), Box::new(var("b")));
+
+        for expr in [&lt, &le, &gt, &ge, &eq, &ne] {
+            assert_eq!(VariableExpansionSuggester::count_var_usage(expr, "a"), 1);
+            assert_eq!(VariableExpansionSuggester::count_var_usage(expr, "b"), 1);
+        }
+    }
+
+    #[test]
+    fn test_substitute_var_in_if() {
+        // If節内での変数置換をテスト
+        // if (x < 10) { store(out, i, x) }
+        let if_node = AstNode::If {
+            condition: Box::new(AstNode::Lt(Box::new(var("x")), Box::new(const_int(10)))),
+            then_body: Box::new(store(var("out"), var("i"), var("x"))),
+            else_body: None,
+        };
+
+        // xを(a + b)で置換
+        let replacement = AstNode::Add(Box::new(var("a")), Box::new(var("b")));
+        let result = VariableExpansionSuggester::substitute_var(&if_node, "x", &replacement);
+
+        // 結果のIf節内でxが置換されている
+        if let AstNode::If {
+            condition,
+            then_body,
+            ..
+        } = &result
+        {
+            // 条件式内のxが置換されている
+            assert_eq!(
+                VariableExpansionSuggester::count_var_usage(condition, "x"),
+                0
+            );
+            assert_eq!(
+                VariableExpansionSuggester::count_var_usage(condition, "a"),
+                1
+            );
+
+            // 本体内のxが置換されている
+            assert_eq!(
+                VariableExpansionSuggester::count_var_usage(then_body, "x"),
+                0
+            );
+            assert_eq!(
+                VariableExpansionSuggester::count_var_usage(then_body, "a"),
+                1
+            );
+        } else {
+            panic!("Expected If node");
+        }
+    }
+
+    #[test]
+    fn test_substitute_var_in_comparison() {
+        // 比較演算子内での変数置換をテスト
+        let lt = AstNode::Lt(Box::new(var("x")), Box::new(const_int(10)));
+        let replacement = AstNode::Mul(Box::new(var("a")), Box::new(const_int(2)));
+        let result = VariableExpansionSuggester::substitute_var(&lt, "x", &replacement);
+
+        // xが置換されている
+        assert_eq!(VariableExpansionSuggester::count_var_usage(&result, "x"), 0);
+        assert_eq!(VariableExpansionSuggester::count_var_usage(&result, "a"), 1);
+
+        // 結果がLt(Mul(a, 2), 10)
+        if let AstNode::Lt(left, right) = &result {
+            assert!(matches!(left.as_ref(), AstNode::Mul(..)));
+            assert!(matches!(right.as_ref(), AstNode::Const(_)));
+        } else {
+            panic!("Expected Lt node");
+        }
+    }
+
+    #[test]
+    fn test_skip_accumulator_pattern() {
+        // 累積パターン（acc = acc + ...）はスキップされるべき
+        let suggester = VariableExpansionSuggester::new();
+
+        // acc = 0
+        // acc = acc + value  <- 自己参照のため展開しない
+        // result = acc
+        let init_acc = AstNode::Assign {
+            var: "acc".to_string(),
+            value: Box::new(const_int(0)),
+        };
+
+        let accumulate = AstNode::Assign {
+            var: "acc".to_string(),
+            value: Box::new(AstNode::Add(Box::new(var("acc")), Box::new(var("value")))),
+        };
+
+        let use_acc = AstNode::Assign {
+            var: "result".to_string(),
+            value: Box::new(var("acc")),
+        };
+
+        let input = block(vec![init_acc, accumulate, use_acc], Scope::new());
+
+        let suggestions = suggester.suggest(&input);
+
+        // 候補は存在するが、累積パターン（acc = acc + value）は展開されない
+        // init_acc（acc = 0）は後続で使用されているため展開候補になる可能性がある
+        for suggestion in &suggestions {
+            if let AstNode::Block { statements, .. } = &suggestion.ast {
+                // acc = acc + value が消えていないことを確認
+                let has_accumulate = statements.iter().any(|stmt| {
+                    if let AstNode::Assign { var, value } = stmt {
+                        var == "acc"
+                            && VariableExpansionSuggester::count_var_usage(value, "acc") > 0
+                    } else {
+                        false
+                    }
+                });
+                assert!(has_accumulate, "Accumulator pattern should not be removed");
+            }
+        }
+    }
+
+    #[test]
+    fn test_variable_used_in_range_body() {
+        // Range（forループ）本体内で使用される変数の展開テスト
+        let suggester = VariableExpansionSuggester::new().with_prefix("tmp");
+
+        // tmp = a + b
+        // for i in 0..10:
+        //   output[i] = tmp * c
+        let assign_tmp = AstNode::Assign {
+            var: "tmp".to_string(),
+            value: Box::new(AstNode::Add(Box::new(var("a")), Box::new(var("b")))),
+        };
+
+        let loop_body = store(
+            var("output"),
+            var("i"),
+            AstNode::Mul(Box::new(var("tmp")), Box::new(var("c"))),
+        );
+
+        let range = AstNode::Range {
+            var: "i".to_string(),
+            start: Box::new(const_int(0)),
+            step: Box::new(const_int(1)),
+            stop: Box::new(const_int(10)),
+            body: Box::new(loop_body),
+        };
+
+        let input = block(vec![assign_tmp, range], Scope::new());
+
+        let suggestions = suggester.suggest(&input);
+
+        // tmpはRange本体内で使用されているので、展開される
+        assert_eq!(suggestions.len(), 1);
+
+        // 展開後、tmpの代入が削除されている
+        if let AstNode::Block { statements, .. } = &suggestions[0].ast {
+            assert_eq!(statements.len(), 1);
+            // Range内でtmpが展開されている
+            if let AstNode::Range { body, .. } = &statements[0] {
+                assert_eq!(VariableExpansionSuggester::count_var_usage(body, "tmp"), 0);
+                // a, bが含まれている
+                assert_eq!(VariableExpansionSuggester::count_var_usage(body, "a"), 1);
+                assert_eq!(VariableExpansionSuggester::count_var_usage(body, "b"), 1);
+            } else {
+                panic!("Expected Range node");
+            }
+        } else {
+            panic!("Expected Block");
+        }
+    }
+
+    #[test]
+    fn test_expansion_in_if_block() {
+        // If文内のBlock内での変数展開をテスト
+        let suggester = VariableExpansionSuggester::new().with_prefix("tmp");
+
+        // if (cond) {
+        //   tmp = a + b
+        //   output = tmp * c
+        // }
+        let assign_tmp = AstNode::Assign {
+            var: "tmp".to_string(),
+            value: Box::new(AstNode::Add(Box::new(var("a")), Box::new(var("b")))),
+        };
+
+        let assign_output = AstNode::Assign {
+            var: "output".to_string(),
+            value: Box::new(AstNode::Mul(Box::new(var("tmp")), Box::new(var("c")))),
+        };
+
+        let if_body = block(vec![assign_tmp, assign_output], Scope::new());
+
+        let input = AstNode::If {
+            condition: Box::new(var("cond")),
+            then_body: Box::new(if_body),
+            else_body: None,
+        };
+
+        let suggestions = suggester.suggest(&input);
+
+        // If文内のBlock内での展開が検出される
+        assert_eq!(suggestions.len(), 1);
+
+        // 展開後、tmpの代入が削除されている
+        if let AstNode::If { then_body, .. } = &suggestions[0].ast {
+            if let AstNode::Block { statements, .. } = then_body.as_ref() {
+                assert_eq!(statements.len(), 1);
+                // outputの式でtmpが展開されている
+                if let AstNode::Assign { value, .. } = &statements[0] {
+                    assert_eq!(VariableExpansionSuggester::count_var_usage(value, "tmp"), 0);
+                }
+            } else {
+                panic!("Expected Block in then_body");
+            }
+        } else {
+            panic!("Expected If node");
         }
     }
 }
