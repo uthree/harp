@@ -2,7 +2,7 @@
 
 use super::device::{MetalDevice, MetalError};
 use super::kernel::MetalKernel;
-use crate::backend::traits::{Compiler, KernelConfig, TypedBuffer};
+use crate::backend::traits::{Compiler, KernelConfig};
 use metal::CompileOptions;
 use std::sync::Arc;
 
@@ -131,7 +131,7 @@ mod tests {
     use super::*;
     use crate::ast::DType;
     use crate::backend::metal::MetalBuffer;
-    use crate::backend::traits::{Buffer, Device};
+    use crate::backend::traits::{Buffer, Device, TypedBuffer};
 
     #[test]
     fn test_metal_simple_kernel() {

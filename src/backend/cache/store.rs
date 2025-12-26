@@ -184,15 +184,10 @@ mod metal_cache {
         let mut stats = METAL_STATS.write().unwrap();
         stats.entries = cache.len();
     }
-
-    /// Metal キャッシュの統計を取得
-    pub fn metal_cache_stats() -> CacheStats {
-        METAL_STATS.read().unwrap().clone()
-    }
 }
 
 #[cfg(all(feature = "metal", target_os = "macos"))]
-pub use metal_cache::{get_metal_kernel, insert_metal_kernel, metal_cache_stats};
+pub use metal_cache::{get_metal_kernel, insert_metal_kernel};
 
 // ============================================================================
 // OpenCLキャッシュ
@@ -252,15 +247,10 @@ mod opencl_cache {
         let mut stats = OPENCL_STATS.write().unwrap();
         stats.entries = cache.len();
     }
-
-    /// OpenCL キャッシュの統計を取得
-    pub fn opencl_cache_stats() -> CacheStats {
-        OPENCL_STATS.read().unwrap().clone()
-    }
 }
 
 #[cfg(feature = "opencl")]
-pub use opencl_cache::{get_opencl_kernel, insert_opencl_kernel, opencl_cache_stats};
+pub use opencl_cache::{get_opencl_kernel, insert_opencl_kernel};
 
 // ============================================================================
 // 汎用インターフェース

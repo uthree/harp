@@ -194,6 +194,7 @@ impl TensorLowerer {
     }
 
     /// 形状変換を伴うlower
+    #[allow(clippy::too_many_arguments)]
     fn lower_with_reshape(
         &self,
         inner: &Arc<TensorInner>,

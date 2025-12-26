@@ -3,7 +3,6 @@
 use crate::ast::DType;
 use crate::backend::traits::{
     Device, DeviceFeature, DeviceInstruction, DeviceProfile, DeviceType, OpKind, SimdCapability,
-    TypedBuffer,
 };
 use ocl::core::{DeviceInfo, DeviceInfoResult};
 use ocl::{Context as OclContext, Device as OclDevice, Platform, Queue};
@@ -331,7 +330,7 @@ mod tests {
     use super::*;
     use crate::ast::DType;
     use crate::backend::opencl::{OpenCLBuffer, OpenCLCompiler};
-    use crate::backend::traits::{Buffer, Compiler, Device, KernelConfig};
+    use crate::backend::traits::{Buffer, Compiler, Device, KernelConfig, TypedBuffer};
 
     #[test]
     fn test_opencl_is_available() {
