@@ -31,7 +31,10 @@ fn vec_approx_eq(a: &[f32], b: &[f32]) -> bool {
 #[cfg(all(feature = "metal", target_os = "macos"))]
 mod metal_tests {
     use super::*;
+    use harp::backend::global::{DeviceKind, set_default_device};
     use harp::backend::metal::MetalDevice;
+    use harp::tensor::{DimDyn, Sqrt, Tensor};
+    use ndarray::{Array2, array};
 
     fn setup_metal() -> bool {
         match MetalDevice::new() {
@@ -458,7 +461,10 @@ mod metal_tests {
 #[cfg(feature = "opencl")]
 mod opencl_tests {
     use super::*;
+    use harp::backend::global::{DeviceKind, set_default_device};
     use harp::backend::opencl::OpenCLDevice;
+    use harp::tensor::{DimDyn, Sqrt, Tensor};
+    use ndarray::{Array2, array};
 
     fn setup_opencl() -> bool {
         match OpenCLDevice::new() {
