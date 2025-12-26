@@ -31,7 +31,9 @@ harp/
 │   │   ├── global.rs     # グローバルデバイス管理
 │   │   ├── opencl/       # OpenCLバックエンド (feature: opencl)
 │   │   └── metal/        # Metalバックエンド (feature: metal)
-│   └── opt/              # 最適化パイプライン（AST最適化）
+│   ├── opt/              # 最適化パイプライン（AST最適化）
+│   └── viz/              # 最適化履歴可視化TUI (feature: viz)
+├── examples/             # サンプルコード
 ├── tests/                # 統合テスト
 └── spec/                 # 仕様書
 ```
@@ -42,6 +44,7 @@ harp/
 |---------|------|
 | `opencl` | OpenCLバックエンドを有効化 |
 | `metal` | Metalバックエンドを有効化（macOSのみ） |
+| `viz` | 最適化履歴可視化TUIを有効化 |
 
 ```toml
 # Cargo.toml での使用例
@@ -92,6 +95,21 @@ GPU実行バックエンド。Renderer traitとDevice/Buffer/Kernel traits。
 AST最適化パイプライン
 
 **仕様書:** [opt.md](opt.md), [opt-ast.md](opt-ast.md)
+
+### viz (feature: viz)
+
+最適化履歴可視化TUI。ratatuiを使用してターミナルで最適化ステップを対話的に確認できる。
+
+**機能:**
+- 左右キー（←/→ または h/l）: ステップ間を移動
+- 上下キー（↑/↓ または j/k）: 候補を選択
+- 2ペインレイアウト: ソースコード（syntectでハイライト）+ 候補リスト
+- ステータスバー: ステップ番号、コスト、Suggester名
+
+**使用例:**
+```bash
+cargo run --features viz --example viz_demo
+```
 
 ## 使用例
 

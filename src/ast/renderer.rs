@@ -31,8 +31,8 @@ where
             let mut mutable_renderer = renderer.clone();
             mutable_renderer.render_program_clike(ast)
         }
-        // 単一のFunctionをレンダリング
-        AstNode::Function { .. } => {
+        // 単一のFunctionまたはKernelをレンダリング
+        AstNode::Function { .. } | AstNode::Kernel { .. } => {
             let mut mutable_renderer = renderer.clone();
             mutable_renderer.render_function_node(ast)
         }

@@ -19,6 +19,11 @@ tempfile = "3.20"
 # OpenCL backend (optional)
 ocl = { version = "0.19", optional = true }
 
+# Visualization (optional)
+ratatui = { version = "0.29", optional = true }
+crossterm = { version = "0.28", optional = true }
+syntect = { version = "5.2", optional = true, default-features = false, features = ["default-syntaxes", "default-themes", "regex-fancy"] }
+
 # Metal backend (optional, macOS only)
 [target.'cfg(target_os = "macos")'.dependencies]
 metal = { version = "0.29", optional = true }
@@ -28,6 +33,7 @@ objc = { version = "0.2", optional = true }
 default = []
 opencl = ["dep:ocl"]
 metal = ["dep:metal", "dep:objc"]
+viz = ["dep:ratatui", "dep:crossterm", "dep:syntect"]
 
 [dev-dependencies]
 env_logger = "0.11"

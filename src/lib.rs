@@ -42,6 +42,10 @@ pub mod opt;
 pub mod renderer;
 pub mod tensor;
 
+// Optional visualization module
+#[cfg(feature = "viz")]
+pub mod viz;
+
 // Re-export types
 pub use ast::{DType, TensorDType};
 
