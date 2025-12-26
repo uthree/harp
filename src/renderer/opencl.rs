@@ -394,6 +394,24 @@ impl CLikeRenderer for OpenCLRenderer {
         }
     }
 
+    fn render_vector_store(
+        &self,
+        ptr_expr: &str,
+        offset_expr: &str,
+        value_expr: &str,
+        dtype: &str,
+    ) -> String {
+        // OpenCLのvstore関数を使用
+        let vec_size = dtype.chars().last().and_then(|c| c.to_digit(10));
+        match vec_size {
+            Some(n) => format!(
+                "vstore{}({}, {} / {}, {})",
+                n, value_expr, offset_expr, n, ptr_expr
+            ),
+            None => format!("{}[{}] = {}", ptr_expr, offset_expr, value_expr),
+        }
+    }
+
     fn render_atomic_add(&self, ptr: &str, offset: &str, value: &str, dtype: &DType) -> String {
         match dtype {
             DType::I64 => {
