@@ -14,21 +14,25 @@ use crate::backend::opencl::OpenCLKernel;
 
 /// キャッシュキー
 ///
-/// グラフの文字列表現とデバイス種類で一意に識別する。
+/// グラフの文字列表現、デバイス種類、デバイス識別子で一意に識別する。
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct KernelCacheKey {
     /// グラフの文字列表現（人間可読）
     graph_repr: String,
     /// デバイス種類
     device_kind: DeviceKind,
+    /// デバイス識別子（ポインタアドレス）
+    /// 同じ種類でも異なるデバイスインスタンスを区別する
+    device_id: usize,
 }
 
 impl KernelCacheKey {
     /// グラフ表現とデバイスからキャッシュキーを作成
-    pub fn new(graph_repr: String, device_kind: DeviceKind) -> Self {
+    pub fn new(graph_repr: String, device_kind: DeviceKind, device_id: usize) -> Self {
         Self {
             graph_repr,
             device_kind,
+            device_id,
         }
     }
 
@@ -41,11 +45,20 @@ impl KernelCacheKey {
     pub fn device_kind(&self) -> DeviceKind {
         self.device_kind
     }
+
+    /// デバイス識別子を取得
+    pub fn device_id(&self) -> usize {
+        self.device_id
+    }
 }
 
 impl std::fmt::Debug for KernelCacheKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "CacheKey({:?}, {})", self.device_kind, &self.graph_repr)
+        write!(
+            f,
+            "CacheKey({:?}, id={:#x}, {})",
+            self.device_kind, self.device_id, &self.graph_repr
+        )
     }
 }
 
@@ -276,25 +289,33 @@ mod tests {
 
     #[test]
     fn test_cache_key_equality() {
-        // 同じグラフ表現と同じデバイスのキーは等しい
-        let key1 = KernelCacheKey::new("Add($0, $1)".to_string(), DeviceKind::Metal);
-        let key2 = KernelCacheKey::new("Add($0, $1)".to_string(), DeviceKind::Metal);
+        // 同じグラフ表現、デバイス、デバイスIDのキーは等しい
+        let key1 = KernelCacheKey::new("Add($0, $1)".to_string(), DeviceKind::Metal, 0x1000);
+        let key2 = KernelCacheKey::new("Add($0, $1)".to_string(), DeviceKind::Metal, 0x1000);
         assert_eq!(key1, key2);
     }
 
     #[test]
     fn test_cache_key_different_graphs() {
         // 異なるグラフ表現は異なるキー
-        let key1 = KernelCacheKey::new("Add($0, $1)".to_string(), DeviceKind::Metal);
-        let key2 = KernelCacheKey::new("Mul($0, $1)".to_string(), DeviceKind::Metal);
+        let key1 = KernelCacheKey::new("Add($0, $1)".to_string(), DeviceKind::Metal, 0x1000);
+        let key2 = KernelCacheKey::new("Mul($0, $1)".to_string(), DeviceKind::Metal, 0x1000);
         assert_ne!(key1, key2);
     }
 
     #[test]
     fn test_cache_key_different_devices() {
-        // 異なるデバイスは異なるキー
-        let key1 = KernelCacheKey::new("Add($0, $1)".to_string(), DeviceKind::Metal);
-        let key2 = KernelCacheKey::new("Add($0, $1)".to_string(), DeviceKind::OpenCL);
+        // 異なるデバイス種類は異なるキー
+        let key1 = KernelCacheKey::new("Add($0, $1)".to_string(), DeviceKind::Metal, 0x1000);
+        let key2 = KernelCacheKey::new("Add($0, $1)".to_string(), DeviceKind::OpenCL, 0x1000);
+        assert_ne!(key1, key2);
+    }
+
+    #[test]
+    fn test_cache_key_different_device_ids() {
+        // 同じ種類でも異なるデバイスIDは異なるキー
+        let key1 = KernelCacheKey::new("Add($0, $1)".to_string(), DeviceKind::OpenCL, 0x1000);
+        let key2 = KernelCacheKey::new("Add($0, $1)".to_string(), DeviceKind::OpenCL, 0x2000);
         assert_ne!(key1, key2);
     }
 
@@ -304,16 +325,17 @@ mod tests {
 
         // HashMapで使えることを確認
         let mut map: HashMap<KernelCacheKey, i32> = HashMap::new();
-        let key = KernelCacheKey::new("test".to_string(), DeviceKind::Metal);
+        let key = KernelCacheKey::new("test".to_string(), DeviceKind::Metal, 0x1000);
         map.insert(key.clone(), 42);
         assert_eq!(map.get(&key), Some(&42));
     }
 
     #[test]
     fn test_cache_key_getters() {
-        let key = KernelCacheKey::new("Graph(...)".to_string(), DeviceKind::OpenCL);
+        let key = KernelCacheKey::new("Graph(...)".to_string(), DeviceKind::OpenCL, 0xABCD);
         assert_eq!(key.graph_repr(), "Graph(...)");
         assert_eq!(key.device_kind(), DeviceKind::OpenCL);
+        assert_eq!(key.device_id(), 0xABCD);
     }
 
     #[test]

@@ -293,9 +293,10 @@ impl<D: Dimension> Tensor<f32, D> {
         let device: std::sync::Arc<MetalDevice> = get_default_device::<MetalDevice>()
             .ok_or_else(|| ForwardError::DeviceUnavailable("Metal device not found".to_string()))?;
 
-        // Generate cache key from graph structure
+        // Generate cache key from graph structure (include device identity)
         let graph_repr = stringify_graph(self);
-        let cache_key = KernelCacheKey::new(graph_repr, DeviceKind::Metal);
+        let device_id = Arc::as_ptr(&device) as usize;
+        let cache_key = KernelCacheKey::new(graph_repr, DeviceKind::Metal, device_id);
 
         // Check cache for compiled kernel
         let compiled: CompiledKernel<_, MetalBuffer> =
@@ -427,9 +428,10 @@ impl<D: Dimension> Tensor<f32, D> {
                 ForwardError::DeviceUnavailable("OpenCL device not found".to_string())
             })?;
 
-        // Generate cache key from graph structure
+        // Generate cache key from graph structure (include device identity)
         let graph_repr = stringify_graph(self);
-        let cache_key = KernelCacheKey::new(graph_repr, DeviceKind::OpenCL);
+        let device_id = Arc::as_ptr(&device) as usize;
+        let cache_key = KernelCacheKey::new(graph_repr, DeviceKind::OpenCL, device_id);
 
         // Check cache for compiled kernel
         let compiled: CompiledKernel<_, OpenCLBuffer> =
