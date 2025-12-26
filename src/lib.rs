@@ -68,7 +68,8 @@ pub use backend::{Buffer, Compiler, Device, Kernel, KernelConfig, Pipeline};
 pub mod prelude {
     // Tensor types (recommended API)
     pub use crate::tensor::{
-        Dim, Dim0, Dim1, Dim2, Dim3, Dim4, Dim5, Dim6, DimDyn, Dimension, Tensor,
+        Dim, Dim0, Dim1, Dim2, Dim3, Dim4, Dim5, Dim6, DimDyn, Dimension, Tensor, Tensor0, Tensor1,
+        Tensor2, Tensor3, Tensor4, Tensor5, Tensor6, TensorDyn,
     };
 
     // Data types

@@ -96,6 +96,27 @@ pub use ops::{ElementwiseOp, ReduceOp, TensorOp, TensorRef};
 pub use primops::{Exp2, Floor, Log2, Recip, Sin, Sqrt};
 pub use shape::{Expr, View};
 
+// ============================================================================
+// Tensor type aliases (similar to ndarray's Array0, Array1, etc.)
+// ============================================================================
+
+/// 0-dimensional tensor (scalar)
+pub type Tensor0 = Tensor<Dim0>;
+/// 1-dimensional tensor (vector)
+pub type Tensor1 = Tensor<Dim1>;
+/// 2-dimensional tensor (matrix)
+pub type Tensor2 = Tensor<Dim2>;
+/// 3-dimensional tensor
+pub type Tensor3 = Tensor<Dim3>;
+/// 4-dimensional tensor (common for batched images: NCHW)
+pub type Tensor4 = Tensor<Dim4>;
+/// 5-dimensional tensor
+pub type Tensor5 = Tensor<Dim5>;
+/// 6-dimensional tensor
+pub type Tensor6 = Tensor<Dim6>;
+/// Dynamic-dimensional tensor
+pub type TensorDyn = Tensor<DimDyn>;
+
 use crate::ast::DType;
 
 /// Gradient function trait for backpropagation
@@ -665,5 +686,21 @@ mod tests {
     fn test_into_dimensioned_panic() {
         let dyn_tensor = Tensor::<DimDyn>::ones_dyn(&[2, 3, 4]);
         let _: Tensor<Dim2> = dyn_tensor.into_dimensioned();
+    }
+
+    #[test]
+    fn test_tensor_type_aliases() {
+        // Test that type aliases work correctly
+        let t0: Tensor0 = Tensor::full([], 1.0);
+        let t1: Tensor1 = Tensor::ones([5]);
+        let t2: Tensor2 = Tensor::zeros([3, 4]);
+        let t3: Tensor3 = Tensor::ones([2, 3, 4]);
+        let t_dyn: TensorDyn = Tensor::ones_dyn(&[2, 3]);
+
+        assert_eq!(t0.ndim(), 0);
+        assert_eq!(t1.ndim(), 1);
+        assert_eq!(t2.ndim(), 2);
+        assert_eq!(t3.ndim(), 3);
+        assert_eq!(t_dyn.ndim(), 2);
     }
 }
