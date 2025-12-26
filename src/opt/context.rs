@@ -34,6 +34,7 @@ impl DeviceCapabilities {
             DeviceFeature::LocalMemory,
             DeviceFeature::AtomicOperations,
             DeviceFeature::SubgroupOperations,
+            DeviceFeature::ParallelKernel,
         ]
         .into_iter()
         .filter(|&f| device.supports_feature(f))
@@ -69,6 +70,7 @@ impl DeviceCapabilities {
                 DeviceFeature::LocalMemory,
                 DeviceFeature::AtomicOperations,
                 DeviceFeature::SubgroupOperations,
+                DeviceFeature::ParallelKernel,
             ]
             .into_iter()
             .collect(),

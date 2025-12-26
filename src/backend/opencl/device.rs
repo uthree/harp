@@ -104,6 +104,7 @@ impl Device for OpenCLDevice {
             DeviceFeature::SubgroupOperations => {
                 extensions.contains("cl_khr_subgroups") || extensions.contains("cl_intel_subgroups")
             }
+            DeviceFeature::ParallelKernel => true, // OpenCL supports parallel kernel execution
         }
     }
 

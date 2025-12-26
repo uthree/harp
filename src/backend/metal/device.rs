@@ -81,6 +81,7 @@ impl Device for MetalDevice {
             DeviceFeature::LocalMemory => true,      // Threadgroup memory is always available
             DeviceFeature::AtomicOperations => true, // Basic atomics supported
             DeviceFeature::SubgroupOperations => true, // SIMD-group functions available
+            DeviceFeature::ParallelKernel => true,   // Metal supports parallel kernel execution
         }
     }
 

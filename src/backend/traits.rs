@@ -32,6 +32,8 @@ pub enum DeviceFeature {
     AtomicOperations,
     /// Subgroup/warp operations support
     SubgroupOperations,
+    /// Parallel kernel execution support (AstNode::Kernel with grid/threadgroup)
+    ParallelKernel,
 }
 
 /// Specific device instructions
