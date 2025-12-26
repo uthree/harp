@@ -2,7 +2,7 @@
 
 use super::device::{MetalDevice, MetalError};
 use super::kernel::MetalKernel;
-use crate::backend::traits::{Compiler, KernelConfig};
+use crate::backend::traits::{Compiler, KernelConfig, TypedBuffer};
 use metal::CompileOptions;
 use std::sync::Arc;
 

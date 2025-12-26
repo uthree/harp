@@ -133,7 +133,7 @@ impl OpenCLBuffer {
         data: &[u8],
     ) -> Result<Self, OpenCLError> {
         let mut buffer = Self::allocate(context, shape, dtype)?;
-        buffer.write_from_host(data)?;
+        TypedBuffer::write_from_host(&mut buffer, data)?;
         Ok(buffer)
     }
 

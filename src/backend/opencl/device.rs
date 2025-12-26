@@ -3,6 +3,7 @@
 use crate::ast::DType;
 use crate::backend::traits::{
     Device, DeviceFeature, DeviceInstruction, DeviceProfile, DeviceType, OpKind, SimdCapability,
+    TypedBuffer,
 };
 use ocl::core::{DeviceInfo, DeviceInfoResult};
 use ocl::{Context as OclContext, Device as OclDevice, Platform, Queue};
@@ -376,9 +377,9 @@ mod tests {
         );
 
         let buffer = buffer.unwrap();
-        assert_eq!(buffer.shape(), &shape);
-        assert_eq!(buffer.dtype(), DType::F32);
-        assert_eq!(buffer.byte_len(), 4 * 4 * 4); // 16 floats * 4 bytes
+        assert_eq!(TypedBuffer::shape(&buffer), &shape);
+        assert_eq!(TypedBuffer::dtype(&buffer), DType::F32);
+        assert_eq!(TypedBuffer::byte_len(&buffer), 4 * 4 * 4); // 16 floats * 4 bytes
     }
 
     #[test]

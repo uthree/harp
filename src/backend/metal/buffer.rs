@@ -133,7 +133,7 @@ impl MetalBuffer {
         data: &[u8],
     ) -> Result<Self, MetalError> {
         let mut buffer = Self::allocate(context, shape, dtype)?;
-        buffer.write_from_host(data)?;
+        TypedBuffer::write_from_host(&mut buffer, data)?;
         Ok(buffer)
     }
 
@@ -157,7 +157,7 @@ unsafe impl Sync for MetalBuffer {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::traits::Device;
+    use crate::backend::traits::{Device, TypedBuffer};
 
     #[test]
     fn test_metal_buffer_allocation() {
@@ -178,9 +178,9 @@ mod tests {
         );
 
         let buffer = buffer.unwrap();
-        assert_eq!(buffer.shape(), &shape);
-        assert_eq!(buffer.dtype(), DType::F32);
-        assert_eq!(buffer.byte_len(), 4 * 4 * 4); // 16 floats * 4 bytes
+        assert_eq!(TypedBuffer::shape(&buffer), &shape);
+        assert_eq!(TypedBuffer::dtype(&buffer), DType::F32);
+        assert_eq!(TypedBuffer::byte_len(&buffer), 4 * 4 * 4); // 16 floats * 4 bytes
     }
 
     #[test]

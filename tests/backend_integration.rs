@@ -8,7 +8,7 @@
 //! - `cargo test --features opencl` for OpenCL backend
 
 use harp::backend::global::{DeviceKind, set_default_device};
-use harp::tensor::{DimDyn, Tensor};
+use harp::tensor::{DimDyn, Sqrt, Tensor};
 use ndarray::{Array2, array};
 
 // ============================================================================
@@ -59,7 +59,7 @@ mod metal_tests {
             return;
         }
 
-        let t = Tensor::<DimDyn>::full_dyn(&[2, 3], 3.14);
+        let t = Tensor::<f32, DimDyn>::full_dyn(&[2, 3], 3.14);
         let result = t.realize();
 
         assert!(result.is_ok(), "realize() failed: {:?}", result.err());
@@ -75,8 +75,8 @@ mod metal_tests {
             return;
         }
 
-        let a = Tensor::<DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2]);
-        let b = Tensor::<DimDyn>::from_data(vec![5.0, 6.0, 7.0, 8.0], vec![2, 2]);
+        let a = Tensor::<f32, DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2]);
+        let b = Tensor::<f32, DimDyn>::from_data(vec![5.0, 6.0, 7.0, 8.0], vec![2, 2]);
         let c = &a + &b;
 
         let result = c.realize();
@@ -98,8 +98,8 @@ mod metal_tests {
             return;
         }
 
-        let a = Tensor::<DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2]);
-        let b = Tensor::<DimDyn>::from_data(vec![2.0, 3.0, 4.0, 5.0], vec![2, 2]);
+        let a = Tensor::<f32, DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2]);
+        let b = Tensor::<f32, DimDyn>::from_data(vec![2.0, 3.0, 4.0, 5.0], vec![2, 2]);
         let c = &a * &b;
 
         let result = c.realize();
@@ -121,7 +121,7 @@ mod metal_tests {
             return;
         }
 
-        let a = Tensor::<DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0], vec![4]);
+        let a = Tensor::<f32, DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0], vec![4]);
         let c = &a + 10.0;
 
         let result = c.realize();
@@ -143,7 +143,7 @@ mod metal_tests {
             return;
         }
 
-        let a = Tensor::<DimDyn>::from_data(vec![1.0, -2.0, 3.0, -4.0], vec![4]);
+        let a = Tensor::<f32, DimDyn>::from_data(vec![1.0, -2.0, 3.0, -4.0], vec![4]);
         let c = -&a;
 
         let result = c.realize();
@@ -165,7 +165,7 @@ mod metal_tests {
             return;
         }
 
-        let a = Tensor::<DimDyn>::from_data(vec![1.0, 4.0, 9.0, 16.0], vec![4]);
+        let a = Tensor::<f32, DimDyn>::from_data(vec![1.0, 4.0, 9.0, 16.0], vec![4]);
         let c = a.sqrt();
 
         let result = c.realize();
@@ -188,9 +188,9 @@ mod metal_tests {
         }
 
         // Test fused operation: (a + b) * c
-        let a = Tensor::<DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0], vec![4]);
-        let b = Tensor::<DimDyn>::from_data(vec![1.0, 1.0, 1.0, 1.0], vec![4]);
-        let c = Tensor::<DimDyn>::from_data(vec![2.0, 2.0, 2.0, 2.0], vec![4]);
+        let a = Tensor::<f32, DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0], vec![4]);
+        let b = Tensor::<f32, DimDyn>::from_data(vec![1.0, 1.0, 1.0, 1.0], vec![4]);
+        let c = Tensor::<f32, DimDyn>::from_data(vec![2.0, 2.0, 2.0, 2.0], vec![4]);
         let result_tensor = (&a + &b) * &c;
 
         let result = result_tensor.realize();
@@ -213,8 +213,8 @@ mod metal_tests {
             return;
         }
 
-        let a = Tensor::<DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]);
-        let sum = a.reduce_sum(&[1], false);
+        let a = Tensor::<f32, DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]);
+        let sum = a.sum(1);
 
         let result = sum.realize();
         assert!(result.is_ok(), "realize() failed: {:?}", result.err());
@@ -242,8 +242,8 @@ mod metal_tests {
         let arr_a: Array2<f32> = array![[1.0, 2.0], [3.0, 4.0]];
         let arr_b: Array2<f32> = array![[5.0, 6.0], [7.0, 8.0]];
 
-        let a = Tensor::<Dim2>::from_ndarray(&arr_a);
-        let b = Tensor::<Dim2>::from_ndarray(&arr_b);
+        let a = Tensor::<f32, Dim2>::from_ndarray(&arr_a);
+        let b = Tensor::<f32, Dim2>::from_ndarray(&arr_b);
         let c = &a + &b;
 
         let result = c.realize();
@@ -274,8 +274,8 @@ mod metal_tests {
         // B = [[1, 2], [3, 4], [5, 6]]
         // C = [[1*1+2*3+3*5, 1*2+2*4+3*6], [4*1+5*3+6*5, 4*2+5*4+6*6]]
         //   = [[22, 28], [49, 64]]
-        let a = Tensor::<DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]);
-        let b = Tensor::<DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![3, 2]);
+        let a = Tensor::<f32, DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]);
+        let b = Tensor::<f32, DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![3, 2]);
         let c = a.matmul(&b);
 
         let result = c.realize();
@@ -299,11 +299,11 @@ mod metal_tests {
 
         // Test: transpose -> contiguous -> add
         // This tests that contiguous correctly materializes the transposed view
-        let a = Tensor::<DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]);
+        let a = Tensor::<f32, DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]);
         // a = [[1, 2, 3], [4, 5, 6]]
         // a.T = [[1, 4], [2, 5], [3, 6]]
         let a_t = a.transpose().contiguous();
-        let b = Tensor::<DimDyn>::from_data(vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0], vec![3, 2]);
+        let b = Tensor::<f32, DimDyn>::from_data(vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0], vec![3, 2]);
         let c = &a_t + &b;
 
         let result = c.realize();
@@ -328,11 +328,11 @@ mod metal_tests {
 
         // Test: ((a + b) * c - d) / e
         // Tests deep fusion of multiple elementwise operations
-        let a = Tensor::<DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2]);
-        let b = Tensor::<DimDyn>::from_data(vec![2.0, 2.0, 2.0, 2.0], vec![2, 2]);
-        let c = Tensor::<DimDyn>::from_data(vec![3.0, 3.0, 3.0, 3.0], vec![2, 2]);
-        let d = Tensor::<DimDyn>::from_data(vec![1.0, 1.0, 1.0, 1.0], vec![2, 2]);
-        let e = Tensor::<DimDyn>::from_data(vec![2.0, 2.0, 2.0, 2.0], vec![2, 2]);
+        let a = Tensor::<f32, DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2]);
+        let b = Tensor::<f32, DimDyn>::from_data(vec![2.0, 2.0, 2.0, 2.0], vec![2, 2]);
+        let c = Tensor::<f32, DimDyn>::from_data(vec![3.0, 3.0, 3.0, 3.0], vec![2, 2]);
+        let d = Tensor::<f32, DimDyn>::from_data(vec![1.0, 1.0, 1.0, 1.0], vec![2, 2]);
+        let e = Tensor::<f32, DimDyn>::from_data(vec![2.0, 2.0, 2.0, 2.0], vec![2, 2]);
 
         // ((1+2)*3-1)/2 = (9-1)/2 = 4
         // ((2+2)*3-1)/2 = (12-1)/2 = 5.5
@@ -361,12 +361,12 @@ mod metal_tests {
 
         // Test: transpose -> reduce_sum
         // This tests reducing on transposed axes
-        let a = Tensor::<DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]);
+        let a = Tensor::<f32, DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]);
         // a = [[1, 2, 3], [4, 5, 6]]
         // a.T = [[1, 4], [2, 5], [3, 6]]
         // Sum along axis 1 of transposed: [1+4, 2+5, 3+6] = [5, 7, 9]
         let a_t = a.transpose();
-        let sum = a_t.reduce_sum(&[1], false);
+        let sum = a_t.sum(1);
 
         let result = sum.realize();
         assert!(result.is_ok(), "realize() failed: {:?}", result.err());
@@ -388,9 +388,9 @@ mod metal_tests {
         }
 
         // Test: reshape -> ops -> reshape
-        let a = Tensor::<DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]);
+        let a = Tensor::<f32, DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]);
         let a_flat = a.reshape_dyn(&[6]);
-        let b = Tensor::<DimDyn>::from_data(vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0], vec![6]);
+        let b = Tensor::<f32, DimDyn>::from_data(vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0], vec![6]);
         let c = &a_flat + &b;
         let c_reshaped = c.reshape_dyn(&[3, 2]);
 
@@ -414,8 +414,8 @@ mod metal_tests {
             return;
         }
 
-        let a = Tensor::<DimDyn>::from_data(vec![1.0, 5.0, 3.0, 2.0, 8.0, 4.0], vec![2, 3]);
-        let max = a.reduce_max(&[1], false);
+        let a = Tensor::<f32, DimDyn>::from_data(vec![1.0, 5.0, 3.0, 2.0, 8.0, 4.0], vec![2, 3]);
+        let max = a.max(1);
 
         let result = max.realize();
         assert!(result.is_ok(), "realize() failed: {:?}", result.err());
@@ -438,8 +438,8 @@ mod metal_tests {
         }
 
         // Test broadcasting: [2, 3] + [3] -> [2, 3]
-        let a = Tensor::<DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]);
-        let b = Tensor::<DimDyn>::from_data(vec![10.0, 20.0, 30.0], vec![3]);
+        let a = Tensor::<f32, DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]);
+        let b = Tensor::<f32, DimDyn>::from_data(vec![10.0, 20.0, 30.0], vec![3]);
         let c = &a + &b;
 
         let result = c.realize();
@@ -485,7 +485,7 @@ mod opencl_tests {
             return;
         }
 
-        let t = Tensor::<DimDyn>::full_dyn(&[2, 3], 3.14);
+        let t = Tensor::<f32, DimDyn>::full_dyn(&[2, 3], 3.14);
         let result = t.realize();
 
         assert!(result.is_ok(), "realize() failed: {:?}", result.err());
@@ -501,8 +501,8 @@ mod opencl_tests {
             return;
         }
 
-        let a = Tensor::<DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2]);
-        let b = Tensor::<DimDyn>::from_data(vec![5.0, 6.0, 7.0, 8.0], vec![2, 2]);
+        let a = Tensor::<f32, DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2]);
+        let b = Tensor::<f32, DimDyn>::from_data(vec![5.0, 6.0, 7.0, 8.0], vec![2, 2]);
         let c = &a + &b;
 
         let result = c.realize();
@@ -524,8 +524,8 @@ mod opencl_tests {
             return;
         }
 
-        let a = Tensor::<DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2]);
-        let b = Tensor::<DimDyn>::from_data(vec![2.0, 3.0, 4.0, 5.0], vec![2, 2]);
+        let a = Tensor::<f32, DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2]);
+        let b = Tensor::<f32, DimDyn>::from_data(vec![2.0, 3.0, 4.0, 5.0], vec![2, 2]);
         let c = &a * &b;
 
         let result = c.realize();
@@ -547,7 +547,7 @@ mod opencl_tests {
             return;
         }
 
-        let a = Tensor::<DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0], vec![4]);
+        let a = Tensor::<f32, DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0], vec![4]);
         let c = &a + 10.0;
 
         let result = c.realize();
@@ -569,7 +569,7 @@ mod opencl_tests {
             return;
         }
 
-        let a = Tensor::<DimDyn>::from_data(vec![1.0, -2.0, 3.0, -4.0], vec![4]);
+        let a = Tensor::<f32, DimDyn>::from_data(vec![1.0, -2.0, 3.0, -4.0], vec![4]);
         let c = -&a;
 
         let result = c.realize();
@@ -591,7 +591,7 @@ mod opencl_tests {
             return;
         }
 
-        let a = Tensor::<DimDyn>::from_data(vec![1.0, 4.0, 9.0, 16.0], vec![4]);
+        let a = Tensor::<f32, DimDyn>::from_data(vec![1.0, 4.0, 9.0, 16.0], vec![4]);
         let c = a.sqrt();
 
         let result = c.realize();
@@ -614,9 +614,9 @@ mod opencl_tests {
         }
 
         // Test fused operation: (a + b) * c
-        let a = Tensor::<DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0], vec![4]);
-        let b = Tensor::<DimDyn>::from_data(vec![1.0, 1.0, 1.0, 1.0], vec![4]);
-        let c = Tensor::<DimDyn>::from_data(vec![2.0, 2.0, 2.0, 2.0], vec![4]);
+        let a = Tensor::<f32, DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0], vec![4]);
+        let b = Tensor::<f32, DimDyn>::from_data(vec![1.0, 1.0, 1.0, 1.0], vec![4]);
+        let c = Tensor::<f32, DimDyn>::from_data(vec![2.0, 2.0, 2.0, 2.0], vec![4]);
         let result_tensor = (&a + &b) * &c;
 
         let result = result_tensor.realize();
@@ -639,8 +639,8 @@ mod opencl_tests {
             return;
         }
 
-        let a = Tensor::<DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]);
-        let sum = a.reduce_sum(&[1], false);
+        let a = Tensor::<f32, DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]);
+        let sum = a.sum(1);
 
         let result = sum.realize();
         assert!(result.is_ok(), "realize() failed: {:?}", result.err());
@@ -668,8 +668,8 @@ mod opencl_tests {
         let arr_a: Array2<f32> = array![[1.0, 2.0], [3.0, 4.0]];
         let arr_b: Array2<f32> = array![[5.0, 6.0], [7.0, 8.0]];
 
-        let a = Tensor::<Dim2>::from_ndarray(&arr_a);
-        let b = Tensor::<Dim2>::from_ndarray(&arr_b);
+        let a = Tensor::<f32, Dim2>::from_ndarray(&arr_a);
+        let b = Tensor::<f32, Dim2>::from_ndarray(&arr_b);
         let c = &a + &b;
 
         let result = c.realize();
@@ -700,8 +700,8 @@ mod opencl_tests {
         // B = [[1, 2], [3, 4], [5, 6]]
         // C = [[1*1+2*3+3*5, 1*2+2*4+3*6], [4*1+5*3+6*5, 4*2+5*4+6*6]]
         //   = [[22, 28], [49, 64]]
-        let a = Tensor::<DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]);
-        let b = Tensor::<DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![3, 2]);
+        let a = Tensor::<f32, DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]);
+        let b = Tensor::<f32, DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![3, 2]);
         let c = a.matmul(&b);
 
         let result = c.realize();
@@ -725,11 +725,11 @@ mod opencl_tests {
 
         // Test: transpose -> contiguous -> add
         // This tests that contiguous correctly materializes the transposed view
-        let a = Tensor::<DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]);
+        let a = Tensor::<f32, DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]);
         // a = [[1, 2, 3], [4, 5, 6]]
         // a.T = [[1, 4], [2, 5], [3, 6]]
         let a_t = a.transpose().contiguous();
-        let b = Tensor::<DimDyn>::from_data(vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0], vec![3, 2]);
+        let b = Tensor::<f32, DimDyn>::from_data(vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0], vec![3, 2]);
         let c = &a_t + &b;
 
         let result = c.realize();
@@ -754,11 +754,11 @@ mod opencl_tests {
 
         // Test: ((a + b) * c - d) / e
         // Tests deep fusion of multiple elementwise operations
-        let a = Tensor::<DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2]);
-        let b = Tensor::<DimDyn>::from_data(vec![2.0, 2.0, 2.0, 2.0], vec![2, 2]);
-        let c = Tensor::<DimDyn>::from_data(vec![3.0, 3.0, 3.0, 3.0], vec![2, 2]);
-        let d = Tensor::<DimDyn>::from_data(vec![1.0, 1.0, 1.0, 1.0], vec![2, 2]);
-        let e = Tensor::<DimDyn>::from_data(vec![2.0, 2.0, 2.0, 2.0], vec![2, 2]);
+        let a = Tensor::<f32, DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2]);
+        let b = Tensor::<f32, DimDyn>::from_data(vec![2.0, 2.0, 2.0, 2.0], vec![2, 2]);
+        let c = Tensor::<f32, DimDyn>::from_data(vec![3.0, 3.0, 3.0, 3.0], vec![2, 2]);
+        let d = Tensor::<f32, DimDyn>::from_data(vec![1.0, 1.0, 1.0, 1.0], vec![2, 2]);
+        let e = Tensor::<f32, DimDyn>::from_data(vec![2.0, 2.0, 2.0, 2.0], vec![2, 2]);
 
         // ((1+2)*3-1)/2 = (9-1)/2 = 4
         // ((2+2)*3-1)/2 = (12-1)/2 = 5.5
@@ -787,12 +787,12 @@ mod opencl_tests {
 
         // Test: transpose -> reduce_sum
         // This tests reducing on transposed axes
-        let a = Tensor::<DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]);
+        let a = Tensor::<f32, DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]);
         // a = [[1, 2, 3], [4, 5, 6]]
         // a.T = [[1, 4], [2, 5], [3, 6]]
         // Sum along axis 1 of transposed: [1+4, 2+5, 3+6] = [5, 7, 9]
         let a_t = a.transpose();
-        let sum = a_t.reduce_sum(&[1], false);
+        let sum = a_t.sum(1);
 
         let result = sum.realize();
         assert!(result.is_ok(), "realize() failed: {:?}", result.err());
@@ -814,9 +814,9 @@ mod opencl_tests {
         }
 
         // Test: reshape -> ops -> reshape
-        let a = Tensor::<DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]);
+        let a = Tensor::<f32, DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]);
         let a_flat = a.reshape_dyn(&[6]);
-        let b = Tensor::<DimDyn>::from_data(vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0], vec![6]);
+        let b = Tensor::<f32, DimDyn>::from_data(vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0], vec![6]);
         let c = &a_flat + &b;
         let c_reshaped = c.reshape_dyn(&[3, 2]);
 
@@ -840,8 +840,8 @@ mod opencl_tests {
             return;
         }
 
-        let a = Tensor::<DimDyn>::from_data(vec![1.0, 5.0, 3.0, 2.0, 8.0, 4.0], vec![2, 3]);
-        let max = a.reduce_max(&[1], false);
+        let a = Tensor::<f32, DimDyn>::from_data(vec![1.0, 5.0, 3.0, 2.0, 8.0, 4.0], vec![2, 3]);
+        let max = a.max(1);
 
         let result = max.realize();
         assert!(result.is_ok(), "realize() failed: {:?}", result.err());
@@ -864,8 +864,8 @@ mod opencl_tests {
         }
 
         // Test broadcasting: [2, 3] + [3] -> [2, 3]
-        let a = Tensor::<DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]);
-        let b = Tensor::<DimDyn>::from_data(vec![10.0, 20.0, 30.0], vec![3]);
+        let a = Tensor::<f32, DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]);
+        let b = Tensor::<f32, DimDyn>::from_data(vec![10.0, 20.0, 30.0], vec![3]);
         let c = &a + &b;
 
         let result = c.realize();
@@ -912,8 +912,8 @@ mod cross_backend_tests {
 
         // Test on Metal
         set_default_device(metal_device.clone(), DeviceKind::Metal);
-        let a_metal = Tensor::<DimDyn>::from_data(input_data.clone(), vec![2, 4]);
-        let b_metal = Tensor::<DimDyn>::from_data(vec![1.0; 8], vec![2, 4]);
+        let a_metal = Tensor::<f32, DimDyn>::from_data(input_data.clone(), vec![2, 4]);
+        let b_metal = Tensor::<f32, DimDyn>::from_data(vec![1.0; 8], vec![2, 4]);
         let c_metal = (&a_metal + &b_metal) * 2.0;
         let metal_result = c_metal
             .realize()
@@ -923,8 +923,8 @@ mod cross_backend_tests {
 
         // Test on OpenCL
         set_default_device(opencl_device.clone(), DeviceKind::OpenCL);
-        let a_opencl = Tensor::<DimDyn>::from_data(input_data.clone(), vec![2, 4]);
-        let b_opencl = Tensor::<DimDyn>::from_data(vec![1.0; 8], vec![2, 4]);
+        let a_opencl = Tensor::<f32, DimDyn>::from_data(input_data.clone(), vec![2, 4]);
+        let b_opencl = Tensor::<f32, DimDyn>::from_data(vec![1.0; 8], vec![2, 4]);
         let c_opencl = (&a_opencl + &b_opencl) * 2.0;
         let opencl_result = c_opencl
             .realize()
