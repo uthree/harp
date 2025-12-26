@@ -131,17 +131,24 @@ impl TensorLowerer {
 
     /// TensorInnerをASTにlower
     fn lower_node(&self, inner: &Arc<TensorInner>, name: &str) -> AstNode {
-        // View/Contiguousの場合は入力を辿って実際の計算ノードを処理
         // 最終的な出力形状はルートノードの形状を使用
-        let (compute_inner, output_shape) = self.find_compute_node(inner);
+        let output_shape = inner.view.shape().to_vec();
+        let output_ndim = output_shape.len();
+
+        // View/Contiguousの場合、入力の compute_shape を取得
+        let (compute_inner, compute_shape) = match &inner.op {
+            TensorOp::View { input } | TensorOp::Contiguous { input } => {
+                let (_, compute_shape) = self.find_compute_node_erased(input.as_ref());
+                (inner.clone(), compute_shape)
+            }
+            _ => (inner.clone(), output_shape.clone()),
+        };
+        let compute_ndim = compute_shape.len();
 
         // 正規化形式に変換
         let (expr, reduce_op, axes) = self.normalize_op(&compute_inner);
-        let compute_ndim = compute_inner.view.shape().len();
-        let compute_shape = compute_inner.view.shape();
 
         // 出力形状が異なる場合はViewコピーを生成
-        let output_ndim = output_shape.len();
         let needs_reshape = output_ndim != compute_ndim;
 
         if needs_reshape {
@@ -153,13 +160,13 @@ impl TensorLowerer {
                 &expr,
                 reduce_op.as_ref(),
                 &axes,
-                compute_shape,
+                &compute_shape,
                 &output_shape,
                 name,
             )
         } else if axes.is_empty() {
             // Elementwiseパス
-            self.lower_elementwise_path(&compute_inner, &expr, compute_ndim, compute_shape, name)
+            self.lower_elementwise_path(&compute_inner, &expr, compute_ndim, &compute_shape, name)
         } else {
             // Reduceパス
             self.lower_reduce_path(
@@ -170,24 +177,6 @@ impl TensorLowerer {
                 compute_ndim,
                 name,
             )
-        }
-    }
-
-    /// View/Contiguousを辿って実際の計算ノードを見つける
-    fn find_compute_node(&self, inner: &Arc<TensorInner>) -> (Arc<TensorInner>, Vec<Expr>) {
-        let output_shape = inner.view.shape().to_vec();
-
-        match &inner.op {
-            TensorOp::View { input } | TensorOp::Contiguous { input } => {
-                // 入力を辿る（出力形状は保持）
-                // InputRefからArc<TensorInner>として再取得する必要がある
-                // 一時的にviewとshapeを取得して再構築
-                let (_, _) = self.find_compute_node_erased(input.as_ref());
-                // Note: This is a workaround - we return the current inner
-                // since we can't easily convert InputRef back to Arc<TensorInner>
-                (inner.clone(), output_shape)
-            }
-            _ => (inner.clone(), output_shape),
         }
     }
 
@@ -306,12 +295,12 @@ impl TensorLowerer {
                         load_dtype,
                     )
                 } else {
-                    // 次元数が異なる場合（reshape）は線形インデックスで再帰
+                    // 次元数が異なる場合（reshape）は線形インデックスを計算して直接アクセス
                     // 出力の線形インデックスがそのまま入力の線形インデックスになる
-                    self.build_input_expr_linear(
+                    let linear_offset = build_linear_offset_with_shape(output_ndim, output_shape);
+                    self.build_input_expr_with_view(
                         view_input.as_ref(),
-                        output_ndim,
-                        output_shape,
+                        linear_offset,
                         buffer_index,
                         load_dtype,
                     )

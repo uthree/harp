@@ -14,9 +14,9 @@
 
 use super::{DimDyn, Dimension, ErasedTensorInner, Tensor, TensorInner, TensorOp};
 use crate::ast::DType;
-use crate::backend::traits::TypedBuffer;
 use crate::backend::Buffer;
 use crate::backend::global::{DeviceKind, get_default_device_kind};
+use crate::backend::traits::TypedBuffer;
 use crate::tensor::shape::{Expr, View};
 use ndarray::{Array, ArrayD, Dimension as NdDimension, IxDyn};
 use std::fmt;

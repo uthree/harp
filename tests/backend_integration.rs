@@ -303,7 +303,8 @@ mod metal_tests {
         // a = [[1, 2, 3], [4, 5, 6]]
         // a.T = [[1, 4], [2, 5], [3, 6]]
         let a_t = a.transpose().contiguous();
-        let b = Tensor::<f32, DimDyn>::from_data(vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0], vec![3, 2]);
+        let b =
+            Tensor::<f32, DimDyn>::from_data(vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0], vec![3, 2]);
         let c = &a_t + &b;
 
         let result = c.realize();
@@ -729,7 +730,8 @@ mod opencl_tests {
         // a = [[1, 2, 3], [4, 5, 6]]
         // a.T = [[1, 4], [2, 5], [3, 6]]
         let a_t = a.transpose().contiguous();
-        let b = Tensor::<f32, DimDyn>::from_data(vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0], vec![3, 2]);
+        let b =
+            Tensor::<f32, DimDyn>::from_data(vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0], vec![3, 2]);
         let c = &a_t + &b;
 
         let result = c.realize();
