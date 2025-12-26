@@ -362,6 +362,91 @@ impl<D: Dimension> Tensor<D> {
 }
 
 // ============================================================================
+// DimDyn to static dimension conversion
+// ============================================================================
+
+impl Tensor<DimDyn> {
+    /// Try to convert to a tensor with static dimension.
+    ///
+    /// Returns `Some(Tensor<Dim<N>>)` if the tensor has exactly N dimensions,
+    /// otherwise returns `None`.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let dyn_tensor: Tensor<DimDyn> = Tensor::ones_dyn(&[2, 3]);
+    /// let static_tensor: Tensor<Dim2> = dyn_tensor.try_into_dim().unwrap();
+    /// ```
+    pub fn try_into_dim<D: Dimension>(&self) -> Option<Tensor<D>> {
+        if D::NDIM == Some(self.ndim()) {
+            Some(Tensor {
+                inner: self.inner.clone(),
+                _dim: PhantomData,
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Convert to a tensor with static dimension, panicking on mismatch.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the tensor's ndim doesn't match the target dimension.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let dyn_tensor: Tensor<DimDyn> = Tensor::ones_dyn(&[2, 3]);
+    /// let static_tensor: Tensor<Dim2> = dyn_tensor.into_dimensioned();
+    /// ```
+    pub fn into_dimensioned<D: Dimension>(&self) -> Tensor<D> {
+        self.try_into_dim().unwrap_or_else(|| {
+            panic!(
+                "Cannot convert Tensor with {} dimensions to Dim<{}>",
+                self.ndim(),
+                D::NDIM.map_or("?".to_string(), |n| n.to_string())
+            )
+        })
+    }
+
+    /// Convert to 0-dimensional tensor (scalar).
+    pub fn into_dim0(&self) -> Tensor<Dim0> {
+        self.into_dimensioned()
+    }
+
+    /// Convert to 1-dimensional tensor.
+    pub fn into_dim1(&self) -> Tensor<Dim1> {
+        self.into_dimensioned()
+    }
+
+    /// Convert to 2-dimensional tensor.
+    pub fn into_dim2(&self) -> Tensor<Dim2> {
+        self.into_dimensioned()
+    }
+
+    /// Convert to 3-dimensional tensor.
+    pub fn into_dim3(&self) -> Tensor<Dim3> {
+        self.into_dimensioned()
+    }
+
+    /// Convert to 4-dimensional tensor.
+    pub fn into_dim4(&self) -> Tensor<Dim4> {
+        self.into_dimensioned()
+    }
+
+    /// Convert to 5-dimensional tensor.
+    pub fn into_dim5(&self) -> Tensor<Dim5> {
+        self.into_dimensioned()
+    }
+
+    /// Convert to 6-dimensional tensor.
+    pub fn into_dim6(&self) -> Tensor<Dim6> {
+        self.into_dimensioned()
+    }
+}
+
+// ============================================================================
 // Backward propagation
 // ============================================================================
 
@@ -536,5 +621,49 @@ mod tests {
 
         // The forked tensor should have a Clone operation
         assert!(matches!(forked.inner.op, TensorOp::Clone { .. }));
+    }
+
+    #[test]
+    fn test_into_dimensioned() {
+        let dyn_tensor = Tensor::<DimDyn>::zeros_dyn(&[3, 4]);
+        let static_tensor: Tensor<Dim2> = dyn_tensor.into_dimensioned();
+        assert_eq!(static_tensor.shape(), &[3, 4]);
+        assert_eq!(static_tensor.ndim(), 2);
+    }
+
+    #[test]
+    fn test_into_dim1() {
+        let dyn_tensor = Tensor::<DimDyn>::ones_dyn(&[5]);
+        let static_tensor = dyn_tensor.into_dim1();
+        assert_eq!(static_tensor.shape(), &[5]);
+    }
+
+    #[test]
+    fn test_into_dim2() {
+        let dyn_tensor = Tensor::<DimDyn>::ones_dyn(&[3, 4]);
+        let static_tensor = dyn_tensor.into_dim2();
+        assert_eq!(static_tensor.shape(), &[3, 4]);
+    }
+
+    #[test]
+    fn test_try_into_dim_success() {
+        let dyn_tensor = Tensor::<DimDyn>::ones_dyn(&[2, 3]);
+        let result: Option<Tensor<Dim2>> = dyn_tensor.try_into_dim();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().shape(), &[2, 3]);
+    }
+
+    #[test]
+    fn test_try_into_dim_failure() {
+        let dyn_tensor = Tensor::<DimDyn>::ones_dyn(&[2, 3, 4]);
+        let result: Option<Tensor<Dim2>> = dyn_tensor.try_into_dim();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "Cannot convert Tensor with 3 dimensions to Dim<2>")]
+    fn test_into_dimensioned_panic() {
+        let dyn_tensor = Tensor::<DimDyn>::ones_dyn(&[2, 3, 4]);
+        let _: Tensor<Dim2> = dyn_tensor.into_dimensioned();
     }
 }
