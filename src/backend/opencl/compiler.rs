@@ -30,13 +30,23 @@ impl Compiler for OpenCLCompiler {
         let program = Program::builder()
             .src(source)
             .devices(device.ocl_device())
-            .build(device.ocl_context())?;
+            .build(device.ocl_context());
 
-        Ok(OpenCLKernel::new(
-            program,
-            Arc::clone(&device.queue),
-            config,
-        ))
+        match program {
+            Ok(prog) => Ok(OpenCLKernel::new(prog, Arc::clone(&device.queue), config)),
+            Err(e) => {
+                // Print the source code for debugging (visible in CI logs)
+                eprintln!(
+                    "\n==================== OpenCL Compilation Failed ====================\n\
+                     Source code:\n{}\n\
+                     ====================================================================\n",
+                    source
+                );
+                log::error!("OpenCL compilation failed. Source code:\n{}", source);
+                log::error!("Compilation error: {:?}", e);
+                Err(e.into())
+            }
+        }
     }
 }
 

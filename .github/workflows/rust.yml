@@ -43,4 +43,4 @@ jobs:
               run: cargo build --verbose --features opencl
 
             - name: Run OpenCL integration tests
-              run: cargo test --verbose --features opencl
+              run: RUST_LOG=error cargo test --verbose --features opencl
