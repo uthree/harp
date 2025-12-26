@@ -9,6 +9,7 @@ mod ui;
 
 pub use app::App;
 pub use highlight::CodeHighlighter;
+// run_with_renderer is a public function defined in this module
 
 use std::io::{self, IsTerminal};
 
@@ -23,6 +24,7 @@ use crossterm::{
 use ratatui::prelude::*;
 
 use crate::opt::ast::history::OptimizationHistory;
+use crate::renderer::c_like::{CLikeRenderer, GenericRenderer};
 
 /// TUI実行時のエラー
 #[derive(Debug)]
@@ -53,7 +55,7 @@ impl From<io::Error> for VizError {
     }
 }
 
-/// 最適化履歴を可視化するTUIを起動
+/// 最適化履歴を可視化するTUIを起動（デフォルトレンダラー）
 ///
 /// # Arguments
 /// * `history` - 表示する最適化履歴
@@ -71,16 +73,42 @@ impl From<io::Error> for VizError {
 /// run(history)?;
 /// ```
 pub fn run(history: OptimizationHistory) -> Result<(), VizError> {
+    run_with_renderer(history, GenericRenderer::new())
+}
+
+/// カスタムレンダラーで最適化履歴を可視化するTUIを起動
+///
+/// # Arguments
+/// * `history` - 表示する最適化履歴
+/// * `renderer` - 使用するレンダラー（例：OpenCLRenderer）
+///
+/// # Returns
+/// * `Result<(), VizError>` - 成功時はOk、エラー時はErr
+///
+/// # Example
+/// ```ignore
+/// use harp::opt::ast::history::OptimizationHistory;
+/// use harp::renderer::opencl::OpenCLRenderer;
+/// use harp::viz::run_with_renderer;
+///
+/// let history = OptimizationHistory::new();
+/// let renderer = OpenCLRenderer::new();
+/// run_with_renderer(history, renderer)?;
+/// ```
+pub fn run_with_renderer<R>(history: OptimizationHistory, renderer: R) -> Result<(), VizError>
+where
+    R: CLikeRenderer + Clone + 'static,
+{
     // stdoutがTTYかチェック
     let stdout = io::stdout();
     if stdout.is_terminal() {
         // stdoutがTTYの場合は直接使用
-        run_with_stdout(history)
+        run_with_stdout_generic(history, renderer)
     } else {
         // stdoutがTTYでない場合は/dev/ttyを試す（Unix系のみ）
         #[cfg(unix)]
         {
-            run_with_tty(history)
+            run_with_tty_generic(history, renderer)
         }
         #[cfg(not(unix))]
         {
@@ -89,15 +117,18 @@ pub fn run(history: OptimizationHistory) -> Result<(), VizError> {
     }
 }
 
-/// stdoutを使用してTUIを実行
-fn run_with_stdout(history: OptimizationHistory) -> Result<(), VizError> {
+/// stdoutを使用してTUIを実行（ジェネリック）
+fn run_with_stdout_generic<R>(history: OptimizationHistory, renderer: R) -> Result<(), VizError>
+where
+    R: CLikeRenderer + Clone + 'static,
+{
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut app = App::new(history);
+    let mut app = App::with_renderer(history, renderer);
     let result = run_app(&mut terminal, &mut app);
 
     disable_raw_mode()?;
@@ -111,9 +142,12 @@ fn run_with_stdout(history: OptimizationHistory) -> Result<(), VizError> {
     result
 }
 
-/// /dev/ttyを使用してTUIを実行（Unix系のみ）
+/// /dev/ttyを使用してTUIを実行（Unix系のみ、ジェネリック）
 #[cfg(unix)]
-fn run_with_tty(history: OptimizationHistory) -> Result<(), VizError> {
+fn run_with_tty_generic<R>(history: OptimizationHistory, renderer: R) -> Result<(), VizError>
+where
+    R: CLikeRenderer + Clone + 'static,
+{
     let tty = File::options()
         .read(true)
         .write(true)
@@ -130,7 +164,7 @@ fn run_with_tty(history: OptimizationHistory) -> Result<(), VizError> {
     let backend = CrosstermBackend::new(tty);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut app = App::new(history);
+    let mut app = App::with_renderer(history, renderer);
     let result = run_app(&mut terminal, &mut app);
 
     disable_raw_mode()?;
@@ -144,8 +178,11 @@ fn run_with_tty(history: OptimizationHistory) -> Result<(), VizError> {
     result
 }
 
-/// メインループ
-fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<(), VizError> {
+/// メインループ（ジェネリック）
+fn run_app<B: Backend, R: CLikeRenderer + Clone>(
+    terminal: &mut Terminal<B>,
+    app: &mut App<R>,
+) -> Result<(), VizError> {
     loop {
         terminal.draw(|f| ui::draw(f, app))?;
 

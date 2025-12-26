@@ -3,12 +3,12 @@
 use crate::ast::AstNode;
 use crate::ast::renderer::render_ast_with;
 use crate::opt::ast::history::{OptimizationHistory, OptimizationSnapshot};
-use crate::renderer::c_like::GenericRenderer;
+use crate::renderer::c_like::{CLikeRenderer, GenericRenderer};
 
 use super::highlight::CodeHighlighter;
 
-/// 可視化アプリケーションの状態
-pub struct App {
+/// 可視化アプリケーションの状態（ジェネリックレンダラー対応）
+pub struct App<R: CLikeRenderer + Clone = GenericRenderer> {
     /// 最適化履歴
     history: OptimizationHistory,
     /// 現在表示中のステップ
@@ -20,13 +20,13 @@ pub struct App {
     /// 終了フラグ
     should_quit: bool,
     /// コードレンダラー
-    renderer: GenericRenderer,
+    renderer: R,
     /// コードのスクロール位置
     scroll_offset: u16,
 }
 
-impl App {
-    /// 新しいアプリケーションを作成
+impl App<GenericRenderer> {
+    /// 新しいアプリケーションを作成（デフォルトレンダラー）
     pub fn new(history: OptimizationHistory) -> Self {
         Self {
             history,
@@ -35,6 +35,21 @@ impl App {
             highlighter: CodeHighlighter::new(),
             should_quit: false,
             renderer: GenericRenderer::new(),
+            scroll_offset: 0,
+        }
+    }
+}
+
+impl<R: CLikeRenderer + Clone> App<R> {
+    /// カスタムレンダラーでアプリケーションを作成
+    pub fn with_renderer(history: OptimizationHistory, renderer: R) -> Self {
+        Self {
+            history,
+            current_step: 0,
+            selected_candidate: 0,
+            highlighter: CodeHighlighter::new(),
+            should_quit: false,
+            renderer,
             scroll_offset: 0,
         }
     }

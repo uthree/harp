@@ -8,10 +8,12 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, Paragraph},
 };
 
+use crate::renderer::c_like::CLikeRenderer;
+
 use super::app::App;
 
 /// メイン描画関数
-pub fn draw(frame: &mut Frame, app: &App) {
+pub fn draw<R: CLikeRenderer + Clone>(frame: &mut Frame, app: &App<R>) {
     // レイアウト: 上部=メインエリア、下部=ステータスバー
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -30,7 +32,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
 }
 
 /// コードパネルを描画
-fn draw_code_panel(frame: &mut Frame, app: &App, area: Rect) {
+fn draw_code_panel<R: CLikeRenderer + Clone>(frame: &mut Frame, app: &App<R>, area: Rect) {
     let highlighted = app.highlight_current_code();
 
     // 行ごとにLineを作成
@@ -66,7 +68,7 @@ fn draw_code_panel(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 /// 候補リストパネルを描画
-fn draw_candidates_panel(frame: &mut Frame, app: &App, area: Rect) {
+fn draw_candidates_panel<R: CLikeRenderer + Clone>(frame: &mut Frame, app: &App<R>, area: Rect) {
     let snapshot = app.current_snapshot();
 
     let items: Vec<ListItem> = if let Some(snapshot) = snapshot {
@@ -145,7 +147,7 @@ fn draw_candidates_panel(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 /// ステータスバーを描画
-fn draw_status_bar(frame: &mut Frame, app: &App, area: Rect) {
+fn draw_status_bar<R: CLikeRenderer + Clone>(frame: &mut Frame, app: &App<R>, area: Rect) {
     let snapshot = app.current_snapshot();
 
     let step_info = format!("Step: {}/{}", app.current_step() + 1, app.total_steps());
