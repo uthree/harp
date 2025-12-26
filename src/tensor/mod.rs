@@ -123,10 +123,15 @@ pub type TensorDyn = Tensor<f32, DimDyn>;
 
 use crate::ast::DType;
 
+// ============================================================================
+// GradFn trait - Generic over FloatDType
+// ============================================================================
+
 /// Gradient function trait for backpropagation
 ///
 /// This trait is implemented by operations that can compute gradients.
-pub trait GradFn: Send + Sync {
+/// Generic over T to support different floating-point types (f32, f64, future f16/bf16).
+pub trait GradFn<T: FloatDType>: Send + Sync {
     /// Compute gradients with respect to inputs
     ///
     /// # Arguments
@@ -134,26 +139,146 @@ pub trait GradFn: Send + Sync {
     ///
     /// # Returns
     /// Gradients for each input tensor
-    fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>>;
+    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>>;
 
     /// Get the input tensors that this gradient function operates on
     ///
     /// This is used to propagate gradients back through the computation graph.
-    fn inputs(&self) -> Vec<Tensor<f32, DimDyn>>;
+    fn inputs(&self) -> Vec<Tensor<T, DimDyn>>;
 
     /// Get the name of this gradient function (for debugging)
     fn name(&self) -> &'static str;
 }
 
-/// Autograd metadata for gradient tracking
+// ============================================================================
+// AutogradMeta - Generic over FloatDType
+// ============================================================================
+
+/// Autograd metadata for gradient tracking (generic over T)
 ///
 /// The presence of this struct indicates that gradient tracking is enabled.
-/// Use `tensor.requires_grad()` (which checks `autograd.is_some()`) to check status.
-pub struct AutogradMeta {
+pub struct AutogradMeta<T: FloatDType> {
     /// Stored gradient (populated after backward())
-    pub(crate) grad: RwLock<Option<Arc<Tensor<f32, DimDyn>>>>,
+    pub(crate) grad: RwLock<Option<Arc<Tensor<T, DimDyn>>>>,
     /// Gradient function for backpropagation
-    pub(crate) grad_fn: Option<Arc<dyn GradFn>>,
+    pub(crate) grad_fn: Option<Arc<dyn GradFn<T>>>,
+}
+
+// ============================================================================
+// AutogradStorage - Type-erased storage for TensorInner
+// ============================================================================
+
+/// Type-erased autograd storage for TensorInner
+///
+/// Uses enum dispatch to support different FloatDType without dynamic dispatch overhead.
+pub enum AutogradStorage {
+    /// f32 autograd metadata
+    F32(AutogradMeta<f32>),
+    /// f64 autograd metadata
+    F64(AutogradMeta<f64>),
+    // Future: F16(AutogradMeta<f16>), BF16(AutogradMeta<bf16>)
+}
+
+impl AutogradStorage {
+    /// Create new f32 autograd storage
+    pub fn new_f32() -> Self {
+        Self::F32(AutogradMeta {
+            grad: RwLock::new(None),
+            grad_fn: None,
+        })
+    }
+
+    /// Create new f64 autograd storage
+    pub fn new_f64() -> Self {
+        Self::F64(AutogradMeta {
+            grad: RwLock::new(None),
+            grad_fn: None,
+        })
+    }
+
+    /// Create new f32 autograd storage with gradient function
+    pub fn new_f32_with_grad_fn(grad_fn: Arc<dyn GradFn<f32>>) -> Self {
+        Self::F32(AutogradMeta {
+            grad: RwLock::new(None),
+            grad_fn: Some(grad_fn),
+        })
+    }
+
+    /// Create new f64 autograd storage with gradient function
+    pub fn new_f64_with_grad_fn(grad_fn: Arc<dyn GradFn<f64>>) -> Self {
+        Self::F64(AutogradMeta {
+            grad: RwLock::new(None),
+            grad_fn: Some(grad_fn),
+        })
+    }
+
+    /// Get f32 autograd metadata if this is F32 variant
+    pub fn as_f32(&self) -> Option<&AutogradMeta<f32>> {
+        match self {
+            Self::F32(meta) => Some(meta),
+            _ => None,
+        }
+    }
+
+    /// Get f64 autograd metadata if this is F64 variant
+    pub fn as_f64(&self) -> Option<&AutogradMeta<f64>> {
+        match self {
+            Self::F64(meta) => Some(meta),
+            _ => None,
+        }
+    }
+}
+
+// ============================================================================
+// FloatDTypeAutograd - Sealed trait for type-safe autograd storage creation
+// ============================================================================
+
+mod sealed {
+    pub trait Sealed {}
+    impl Sealed for f32 {}
+    impl Sealed for f64 {}
+}
+
+/// Extension trait for FloatDType that provides autograd storage creation
+///
+/// This is a sealed trait - only implemented for f32 and f64.
+pub trait FloatDTypeAutograd: FloatDType + sealed::Sealed {
+    /// Create AutogradStorage from AutogradMeta<Self>
+    fn wrap_autograd(meta: AutogradMeta<Self>) -> AutogradStorage;
+
+    /// Create AutogradStorage with gradient function
+    fn wrap_grad_fn(grad_fn: Arc<dyn GradFn<Self>>) -> AutogradStorage;
+
+    /// Create empty AutogradStorage for this type
+    fn new_autograd() -> AutogradStorage;
+}
+
+impl FloatDTypeAutograd for f32 {
+    fn wrap_autograd(meta: AutogradMeta<Self>) -> AutogradStorage {
+        AutogradStorage::F32(meta)
+    }
+
+    fn wrap_grad_fn(grad_fn: Arc<dyn GradFn<Self>>) -> AutogradStorage {
+        AutogradStorage::new_f32_with_grad_fn(grad_fn)
+    }
+
+    fn new_autograd() -> AutogradStorage {
+        AutogradStorage::new_f32()
+    }
+}
+
+impl FloatDTypeAutograd for f64 {
+    fn wrap_autograd(meta: AutogradMeta<Self>) -> AutogradStorage {
+        AutogradStorage::F64(meta)
+    }
+
+    fn wrap_grad_fn(grad_fn: Arc<dyn GradFn<Self>>) -> AutogradStorage {
+        AutogradStorage::new_f64_with_grad_fn(grad_fn)
+    }
+
+    fn new_autograd() -> AutogradStorage {
+        AutogradStorage::new_f64()
+    }
 }
 
 // ============================================================================
@@ -177,7 +302,7 @@ pub struct TensorInner {
     #[allow(dead_code)]
     pub(crate) name: Option<String>,
     /// Autograd metadata (only allocated when requires_grad is true)
-    pub(crate) autograd: Option<AutogradMeta>,
+    pub(crate) autograd: Option<AutogradStorage>,
     /// Executed buffer data (populated after contiguous())
     pub(crate) buffer: RwLock<Option<Vec<f32>>>,
 }
@@ -325,10 +450,42 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         self.inner.autograd.is_some()
     }
 
+    /// Convert to a dynamic dimension tensor
+    pub fn into_dyn(self) -> Tensor<T, DimDyn> {
+        Tensor {
+            inner: self.inner,
+            _dtype: PhantomData,
+            _dim: PhantomData,
+        }
+    }
+
+    /// Get the view of this tensor's memory layout
+    pub fn view(&self) -> &View {
+        &self.inner.view
+    }
+
+    /// Get the operation that produces this tensor
+    pub fn op(&self) -> &TensorOp {
+        &self.inner.op
+    }
+
+    /// Check if this tensor has been executed (buffer is populated)
+    pub fn is_executed(&self) -> bool {
+        self.inner.buffer.read().unwrap().is_some()
+    }
+}
+
+// ============================================================================
+// Autograd-enabled tensor operations (FloatDTypeAutograd only)
+// ============================================================================
+
+impl<T: FloatDTypeAutograd, D: Dimension> Tensor<T, D> {
     /// Enable gradient tracking for this tensor
     ///
     /// Note: This creates a new tensor with gradient tracking enabled.
     /// The original tensor is consumed.
+    ///
+    /// Only available for types that support autograd (f32, f64).
     pub fn set_requires_grad(self, requires_grad: bool) -> Self {
         if requires_grad && self.inner.autograd.is_none() {
             // Create new inner with autograd
@@ -338,10 +495,7 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
                 shape: self.inner.shape.clone(),
                 dtype: self.inner.dtype.clone(),
                 name: self.inner.name.clone(),
-                autograd: Some(AutogradMeta {
-                    grad: RwLock::new(None),
-                    grad_fn: None,
-                }),
+                autograd: Some(T::new_autograd()),
                 buffer: RwLock::new(self.inner.buffer.read().unwrap().clone()),
             };
             Tensor {
@@ -368,30 +522,6 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         } else {
             self
         }
-    }
-
-    /// Convert to a dynamic dimension tensor
-    pub fn into_dyn(self) -> Tensor<T, DimDyn> {
-        Tensor {
-            inner: self.inner,
-            _dtype: PhantomData,
-            _dim: PhantomData,
-        }
-    }
-
-    /// Get the view of this tensor's memory layout
-    pub fn view(&self) -> &View {
-        &self.inner.view
-    }
-
-    /// Get the operation that produces this tensor
-    pub fn op(&self) -> &TensorOp {
-        &self.inner.op
-    }
-
-    /// Check if this tensor has been executed (buffer is populated)
-    pub fn is_executed(&self) -> bool {
-        self.inner.buffer.read().unwrap().is_some()
     }
 }
 
@@ -508,7 +638,12 @@ impl<D: Dimension> Tensor<f32, D> {
 
     /// Perform backward propagation with a custom initial gradient
     pub fn backward_with(&self, grad_output: Tensor<f32, DimDyn>) {
-        if let Some(ref autograd) = self.inner.autograd {
+        if let Some(ref autograd_storage) = self.inner.autograd {
+            // Get f32 autograd metadata
+            let autograd = autograd_storage
+                .as_f32()
+                .expect("f32 tensor should have f32 autograd storage");
+
             // Accumulate gradient
             {
                 let mut grad = autograd.grad.write().unwrap();
@@ -540,16 +675,30 @@ impl<D: Dimension> Tensor<f32, D> {
     ///
     /// Returns None if backward() hasn't been called or if this tensor
     /// doesn't require gradients.
-    pub fn grad(&self) -> Option<Tensor<f32, DimDyn>> {
+    ///
+    /// The returned gradient has the same dimension type as the original tensor.
+    pub fn grad(&self) -> Option<Tensor<f32, D>> {
         self.inner
             .autograd
             .as_ref()
-            .and_then(|ag| ag.grad.read().unwrap().as_ref().map(|g| (**g).clone()))
+            .and_then(|storage| storage.as_f32())
+            .and_then(|ag| {
+                ag.grad.read().unwrap().as_ref().map(|g| {
+                    // Convert from DimDyn to D (same underlying data, different type marker)
+                    Tensor {
+                        inner: g.inner.clone(),
+                        _dtype: PhantomData,
+                        _dim: PhantomData,
+                    }
+                })
+            })
     }
 
     /// Reset the gradient to None
     pub fn zero_grad(&self) {
-        if let Some(ref autograd) = self.inner.autograd {
+        if let Some(ref autograd_storage) = self.inner.autograd
+            && let Some(autograd) = autograd_storage.as_f32()
+        {
             *autograd.grad.write().unwrap() = None;
         }
     }

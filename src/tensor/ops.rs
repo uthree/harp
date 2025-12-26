@@ -11,6 +11,8 @@ use crate::tensor::shape::Expr;
 use crate::tensor::{DimDyn, Tensor};
 
 /// テンソル参照型（共有可能、読み取り専用）
+///
+/// 計算グラフ内での参照に使用。型消去されたDimDynを使用。
 pub type TensorRef = Arc<Tensor<f32, DimDyn>>;
 
 /// Tensor演算の種類

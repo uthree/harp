@@ -1,7 +1,7 @@
 //! Binary primitive operations
 //!
 //! These operations support NumericDType (f32, f64, integers).
-//! Gradient tracking is only available for f32 tensors.
+//! Gradient tracking is available for FloatDType tensors (f32, f64).
 //!
 //! - Add: element-wise addition
 //! - Mul: element-wise multiplication
@@ -10,16 +10,16 @@
 use std::marker::PhantomData;
 use std::ops::Add;
 use std::ops::Mul;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use crate::ast::{DType, Literal};
 use crate::tensor::shape::{Expr, View};
 use crate::tensor::{
-    AutogradMeta, DimDyn, Dimension, ElementwiseOp, GradFn, NumericDType, Tensor, TensorDType,
-    TensorInner, TensorOp,
+    DimDyn, Dimension, ElementwiseOp, FloatDType, FloatDTypeAutograd, GradFn, NumericDType, Tensor,
+    TensorDType, TensorInner, TensorOp,
 };
 
-use super::grad::reduce_grad_for_broadcast;
+use super::grad::reduce_grad_for_broadcast_generic;
 
 // ============================================================================
 // Helper for type conversion
@@ -35,7 +35,7 @@ fn to_graph_ref<T: TensorDType, D: Dimension>(tensor: &Tensor<T, D>) -> Tensor<f
 }
 
 // ============================================================================
-// Binary Gradients (f32 only)
+// Binary Gradients (f32 only for now, infrastructure for generic later)
 // ============================================================================
 
 /// Gradient for Add: z = a + b
@@ -51,10 +51,10 @@ impl AddBackward {
     }
 }
 
-impl GradFn for AddBackward {
+impl GradFn<f32> for AddBackward {
     fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
-        let grad_lhs = reduce_grad_for_broadcast(grad_output, self.lhs.shape());
-        let grad_rhs = reduce_grad_for_broadcast(grad_output, self.rhs.shape());
+        let grad_lhs = reduce_grad_for_broadcast_generic(grad_output, self.lhs.shape());
+        let grad_rhs = reduce_grad_for_broadcast_generic(grad_output, self.rhs.shape());
         vec![grad_lhs, grad_rhs]
     }
 
@@ -80,13 +80,13 @@ impl MulBackward {
     }
 }
 
-impl GradFn for MulBackward {
+impl GradFn<f32> for MulBackward {
     fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
         let grad_lhs_full = grad_output * &self.rhs;
-        let grad_lhs = reduce_grad_for_broadcast(&grad_lhs_full, self.lhs.shape());
+        let grad_lhs = reduce_grad_for_broadcast_generic(&grad_lhs_full, self.lhs.shape());
 
         let grad_rhs_full = grad_output * &self.lhs;
-        let grad_rhs = reduce_grad_for_broadcast(&grad_rhs_full, self.rhs.shape());
+        let grad_rhs = reduce_grad_for_broadcast_generic(&grad_rhs_full, self.rhs.shape());
 
         vec![grad_lhs, grad_rhs]
     }
@@ -113,11 +113,11 @@ impl MaxBackward {
     }
 }
 
-impl GradFn for MaxBackward {
+impl GradFn<f32> for MaxBackward {
     fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
         // Approximation: gradient flows to the larger input
         // TODO: Proper comparison operation needed
-        let grad_lhs = reduce_grad_for_broadcast(grad_output, self.lhs.shape());
+        let grad_lhs = reduce_grad_for_broadcast_generic(grad_output, self.lhs.shape());
         let grad_rhs = Tensor::<f32, DimDyn>::zeros_dyn(self.rhs.shape());
         vec![grad_lhs, grad_rhs]
     }
@@ -135,20 +135,28 @@ impl GradFn for MaxBackward {
 // Helper functions
 // ============================================================================
 
-/// Check if any input requires gradients
-pub(crate) fn any_requires_grad<D1: Dimension, D2: Dimension>(
-    a: &Tensor<f32, D1>,
-    b: &Tensor<f32, D2>,
+/// Check if any input requires gradients (generic over FloatDType)
+pub(crate) fn any_requires_grad_generic<T: FloatDType, D1: Dimension, D2: Dimension>(
+    a: &Tensor<T, D1>,
+    b: &Tensor<T, D2>,
 ) -> bool {
     a.requires_grad() || b.requires_grad()
 }
 
-/// Create a tensor with gradient tracking if needed
-pub(crate) fn with_grad_fn<D: Dimension>(
-    tensor: Tensor<f32, D>,
-    grad_fn: Option<Arc<dyn GradFn>>,
-) -> Tensor<f32, D> {
-    if grad_fn.is_some() {
+/// Check if any input requires gradients (f32 specialized for backwards compatibility)
+pub(crate) fn any_requires_grad<D1: Dimension, D2: Dimension>(
+    a: &Tensor<f32, D1>,
+    b: &Tensor<f32, D2>,
+) -> bool {
+    any_requires_grad_generic(a, b)
+}
+
+/// Create a tensor with gradient tracking if needed (generic over FloatDType)
+pub(crate) fn with_grad_fn_generic<T: FloatDTypeAutograd, D: Dimension>(
+    tensor: Tensor<T, D>,
+    grad_fn: Option<Arc<dyn GradFn<T>>>,
+) -> Tensor<T, D> {
+    if let Some(grad_fn) = grad_fn {
         // Create a new TensorInner with autograd metadata
         let inner = TensorInner {
             op: tensor.inner.op.clone(),
@@ -156,11 +164,8 @@ pub(crate) fn with_grad_fn<D: Dimension>(
             shape: tensor.inner.shape.clone(),
             dtype: tensor.inner.dtype.clone(),
             name: tensor.inner.name.clone(),
-            autograd: Some(AutogradMeta {
-                grad: RwLock::new(None),
-                grad_fn,
-            }),
-            buffer: RwLock::new(None),
+            autograd: Some(T::wrap_grad_fn(grad_fn)),
+            buffer: std::sync::RwLock::new(None),
         };
         Tensor {
             inner: Arc::new(inner),
@@ -170,6 +175,14 @@ pub(crate) fn with_grad_fn<D: Dimension>(
     } else {
         tensor
     }
+}
+
+/// Create a tensor with gradient tracking if needed (f32 specialized for backwards compatibility)
+pub(crate) fn with_grad_fn<D: Dimension>(
+    tensor: Tensor<f32, D>,
+    grad_fn: Option<Arc<dyn GradFn<f32>>>,
+) -> Tensor<f32, D> {
+    with_grad_fn_generic(tensor, grad_fn)
 }
 
 /// Helper to compute result shape for binary operations with broadcasting

@@ -5,12 +5,12 @@
 //! - Reduce(Max): max reduction
 //!
 //! These operations support FloatDType (f32, f64).
-//! Gradient tracking is only available for f32 tensors.
+//! Gradient tracking is currently f32-only (infrastructure for generic in place).
 
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use crate::ast::types::DType;
+use crate::ast::DType;
 use crate::tensor::shape::{Expr, View};
 use crate::tensor::{
     DimDyn, Dimension, FloatDType, GradFn, ReduceOp, Tensor, TensorDType, TensorInner, TensorOp,
@@ -22,7 +22,7 @@ use super::binary::with_grad_fn;
 fn maybe_attach_grad<T: FloatDType, D: Dimension>(
     input: &Tensor<T, D>,
     result: Tensor<T, DimDyn>,
-    grad_fn: impl FnOnce(Tensor<f32, DimDyn>) -> Arc<dyn GradFn>,
+    grad_fn: impl FnOnce(Tensor<f32, DimDyn>) -> Arc<dyn GradFn<f32>>,
 ) -> Tensor<T, DimDyn> {
     // Only attach gradients for f32 tensors that require grad
     if T::DTYPE == DType::F32 && input.requires_grad() {
@@ -63,7 +63,7 @@ fn to_graph_ref<T: TensorDType, D: Dimension>(tensor: &Tensor<T, D>) -> Tensor<f
 }
 
 // ============================================================================
-// Reduce Gradients
+// Reduce Gradients (f32 only for now, infrastructure for generic later)
 // ============================================================================
 
 /// Gradient for Reduce(Add): z = sum(a, axes)
@@ -87,7 +87,7 @@ impl ReduceSumBackward {
     }
 }
 
-impl GradFn for ReduceSumBackward {
+impl GradFn<f32> for ReduceSumBackward {
     fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
         let mut grad = grad_output.clone();
 
@@ -140,7 +140,7 @@ impl ReduceMulBackward {
     }
 }
 
-impl GradFn for ReduceMulBackward {
+impl GradFn<f32> for ReduceMulBackward {
     fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
         let mut grad = grad_output.clone();
 
@@ -198,7 +198,7 @@ impl ReduceMaxBackward {
     }
 }
 
-impl GradFn for ReduceMaxBackward {
+impl GradFn<f32> for ReduceMaxBackward {
     fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
         // Expand gradient to original shape
         let mut grad = grad_output.clone();
@@ -339,6 +339,7 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
     pub fn reduce_mul(&self, axes: &[usize], keepdim: bool) -> Tensor<T, DimDyn> {
         let result = create_reduce(ReduceOp::Prod, self, axes, keepdim);
         let axes = axes.to_vec();
+        // Create f32-typed tensor for gradient operations
         let result_for_grad: Tensor<f32, DimDyn> = Tensor {
             inner: result.inner.clone(),
             _dtype: PhantomData,
@@ -360,6 +361,7 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
     pub fn reduce_max(&self, axes: &[usize], keepdim: bool) -> Tensor<T, DimDyn> {
         let result = create_reduce(ReduceOp::Max, self, axes, keepdim);
         let axes = axes.to_vec();
+        // Create f32-typed tensor for gradient operations
         let result_for_grad: Tensor<f32, DimDyn> = Tensor {
             inner: result.inner.clone(),
             _dtype: PhantomData,

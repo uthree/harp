@@ -11,14 +11,12 @@
 //! - unary.rs: NegBackward, RecipBackward, SqrtBackward, Log2Backward, Exp2Backward, SinBackward
 //! - reduce.rs: ReduceSumBackward, ReduceMulBackward, ReduceMaxBackward
 //!
-//! Note: The GradFn trait and Backward structs are currently f32-only because:
-//! - GradFn is used as a trait object (dyn GradFn) which doesn't support type parameters
-//! - AutogradMeta stores grad_fn as Arc<dyn GradFn>
-//! Full FloatDType support would require architectural changes to the autograd system.
+//! The GradFn trait is generic over T: FloatDType to support gradient computation
+//! for different floating-point types (f32, f64, and future f16/bf16).
 
 use crate::ast::{AstNode, Literal};
 use crate::tensor::ops::ReduceOp;
-use crate::tensor::{DimDyn, Exp2, Floor, GradFn, Log2, Recip, Sin, Sqrt, Tensor};
+use crate::tensor::{DimDyn, Exp2, FloatDType, Floor, GradFn, Log2, Recip, Sin, Sqrt, Tensor};
 use std::collections::HashMap;
 
 // ============================================================================
@@ -27,13 +25,11 @@ use std::collections::HashMap;
 
 /// Reduce gradient to match the original input shape (handle broadcasting)
 ///
-/// Note: Currently f32-only because:
-/// - GradFn trait is f32-only
-/// - reduce_sum and reshape_dyn would need FloatDType implementations first
-pub fn reduce_grad_for_broadcast(
-    grad: &Tensor<f32, DimDyn>,
+/// Generic version for any FloatDType (f32, f64, future f16/bf16).
+pub fn reduce_grad_for_broadcast_generic<T: FloatDType>(
+    grad: &Tensor<T, DimDyn>,
     target_shape: &[usize],
-) -> Tensor<f32, DimDyn> {
+) -> Tensor<T, DimDyn> {
     if grad.shape() == target_shape {
         return grad.clone();
     }
@@ -64,29 +60,39 @@ pub fn reduce_grad_for_broadcast(
     result.reshape_dyn(target_shape)
 }
 
+/// Reduce gradient to match the original input shape (handle broadcasting)
+///
+/// f32 specialized version for backwards compatibility.
+pub fn reduce_grad_for_broadcast(
+    grad: &Tensor<f32, DimDyn>,
+    target_shape: &[usize],
+) -> Tensor<f32, DimDyn> {
+    reduce_grad_for_broadcast_generic(grad, target_shape)
+}
+
 // ============================================================================
 // Clone Gradient (general utility)
 // ============================================================================
 
 /// Gradient for Clone (fork): z = clone(a)
 /// ∂L/∂a = ∂L/∂z (identity - gradient passes through)
-pub struct CloneBackward {
-    input: Tensor<f32, DimDyn>,
+pub struct CloneBackward<T: FloatDType> {
+    input: Tensor<T, DimDyn>,
 }
 
-impl CloneBackward {
-    pub fn new(input: Tensor<f32, DimDyn>) -> Self {
+impl<T: FloatDType> CloneBackward<T> {
+    pub fn new(input: Tensor<T, DimDyn>) -> Self {
         Self { input }
     }
 }
 
-impl GradFn for CloneBackward {
-    fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
+impl<T: FloatDType> GradFn<T> for CloneBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
         // Clone is identity for gradients - just pass through
         vec![grad_output.clone()]
     }
 
-    fn inputs(&self) -> Vec<Tensor<f32, DimDyn>> {
+    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
         vec![self.input.clone()]
     }
 
@@ -294,7 +300,7 @@ impl FusedElementwiseBackward {
     }
 }
 
-impl GradFn for FusedElementwiseBackward {
+impl GradFn<f32> for FusedElementwiseBackward {
     fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
         // Build substitution map from wildcard names to input tensors
         let mut substitution_map: HashMap<String, Tensor<f32, DimDyn>> = HashMap::new();
@@ -381,7 +387,7 @@ impl FusedElementwiseReduceBackward {
     }
 }
 
-impl GradFn for FusedElementwiseReduceBackward {
+impl GradFn<f32> for FusedElementwiseReduceBackward {
     fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
         // First, expand grad_output to match the pre-reduction shape
         let mut grad = grad_output.clone();
