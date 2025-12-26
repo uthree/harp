@@ -748,6 +748,20 @@ where
         self
     }
 
+    /// カスタムプログレス表示器を設定
+    pub fn with_progress<P2: SearchProgress>(self, progress: P2) -> PrunedBfsOptimizer<S, Sel, P2> {
+        PrunedBfsOptimizer {
+            suggester: self.suggester,
+            selector: self.selector,
+            prune_width: self.prune_width,
+            max_steps: self.max_steps,
+            progress: Some(progress),
+            collect_logs: self.collect_logs,
+            max_node_count: self.max_node_count,
+            max_no_improvement_steps: self.max_no_improvement_steps,
+        }
+    }
+
     /// プログレス表示を無効化
     pub fn without_progress(self) -> PrunedBfsOptimizer<S, Sel, NoOpProgress> {
         PrunedBfsOptimizer {
@@ -781,13 +795,14 @@ where
     }
 }
 
-impl<S, Sel, P> AstOptimizer for PrunedBfsOptimizer<S, Sel, P>
+impl<S, Sel, P> PrunedBfsOptimizer<S, Sel, P>
 where
     S: AstSuggester,
     Sel: AstSelector,
     P: SearchProgress,
 {
-    fn optimize(&mut self, ast: AstNode) -> AstNode {
+    /// 履歴を記録しながら最適化を実行
+    pub fn optimize_with_history(&mut self, ast: AstNode) -> (AstNode, OptimizationHistory) {
         use crate::opt::ast::estimator::SimpleCostEstimator;
         use std::collections::VecDeque;
 
@@ -799,6 +814,8 @@ where
             self.prune_width, self.max_steps, self.max_node_count
         );
 
+        let mut history = OptimizationHistory::new();
+
         // BFSキュー: (AST, path)
         let mut queue: VecDeque<BeamEntry> = VecDeque::new();
         queue.push_back(BeamEntry {
@@ -808,6 +825,18 @@ where
 
         let initial_cost = static_estimator.estimate(&ast);
         info!("Initial AST cost: {:.2e}", initial_cost);
+
+        // 初期状態を記録
+        history.add_snapshot(OptimizationSnapshot::with_candidates(
+            0,
+            ast.clone(),
+            initial_cost,
+            "Initial AST".to_string(),
+            0,
+            None,
+            Vec::new(),
+            0,
+        ));
 
         let mut global_best = BeamEntry {
             ast: ast.clone(),
@@ -903,6 +932,23 @@ where
                         ast: ast.clone(),
                         path: path.clone(),
                     };
+
+                    // コスト改善時にスナップショットを記録
+                    let suggester_name = path.last().map(|(name, _)| name.clone());
+                    let snapshot_step = history.len();
+                    history.add_snapshot(OptimizationSnapshot::with_candidates(
+                        snapshot_step,
+                        global_best.ast.clone(),
+                        global_best_cost,
+                        format!(
+                            "Step {}: {} candidates, cost improved",
+                            snapshot_step, num_candidates
+                        ),
+                        0,
+                        suggester_name,
+                        Vec::new(),
+                        num_candidates,
+                    ));
                 }
             }
 
@@ -949,7 +995,22 @@ where
             -improvement_pct
         );
 
-        global_best.ast
+        // 最終結果のパス情報を履歴に記録
+        history.set_final_path(global_best.path.clone());
+
+        (global_best.ast, history)
+    }
+}
+
+impl<S, Sel, P> AstOptimizer for PrunedBfsOptimizer<S, Sel, P>
+where
+    S: AstSuggester,
+    Sel: AstSelector,
+    P: SearchProgress,
+{
+    fn optimize(&mut self, ast: AstNode) -> AstNode {
+        let (optimized, _) = self.optimize_with_history(ast);
+        optimized
     }
 }
 
@@ -1041,6 +1102,20 @@ where
         self
     }
 
+    /// カスタムプログレス表示器を設定
+    pub fn with_progress<P2: SearchProgress>(self, progress: P2) -> PrunedDfsOptimizer<S, Sel, P2> {
+        PrunedDfsOptimizer {
+            suggester: self.suggester,
+            selector: self.selector,
+            prune_width: self.prune_width,
+            max_steps: self.max_steps,
+            progress: Some(progress),
+            collect_logs: self.collect_logs,
+            max_node_count: self.max_node_count,
+            max_no_improvement_steps: self.max_no_improvement_steps,
+        }
+    }
+
     /// プログレス表示を無効化
     pub fn without_progress(self) -> PrunedDfsOptimizer<S, Sel, NoOpProgress> {
         PrunedDfsOptimizer {
@@ -1074,13 +1149,14 @@ where
     }
 }
 
-impl<S, Sel, P> AstOptimizer for PrunedDfsOptimizer<S, Sel, P>
+impl<S, Sel, P> PrunedDfsOptimizer<S, Sel, P>
 where
     S: AstSuggester,
     Sel: AstSelector,
     P: SearchProgress,
 {
-    fn optimize(&mut self, ast: AstNode) -> AstNode {
+    /// 履歴を記録しながら最適化を実行
+    pub fn optimize_with_history(&mut self, ast: AstNode) -> (AstNode, OptimizationHistory) {
         use crate::opt::ast::estimator::SimpleCostEstimator;
 
         let start_time = Instant::now();
@@ -1091,6 +1167,8 @@ where
             self.prune_width, self.max_steps, self.max_node_count
         );
 
+        let mut history = OptimizationHistory::new();
+
         // DFSスタック: (AST, path)
         let mut stack: Vec<BeamEntry> = vec![BeamEntry {
             ast: ast.clone(),
@@ -1099,6 +1177,18 @@ where
 
         let initial_cost = static_estimator.estimate(&ast);
         info!("Initial AST cost: {:.2e}", initial_cost);
+
+        // 初期状態を記録
+        history.add_snapshot(OptimizationSnapshot::with_candidates(
+            0,
+            ast.clone(),
+            initial_cost,
+            "Initial AST".to_string(),
+            0,
+            None,
+            Vec::new(),
+            0,
+        ));
 
         let mut global_best = BeamEntry {
             ast: ast.clone(),
@@ -1188,6 +1278,23 @@ where
                         ast: best_ast.clone(),
                         path: path.clone(),
                     };
+
+                    // コスト改善時にスナップショットを記録
+                    let suggester_name = path.last().map(|(name, _)| name.clone());
+                    let snapshot_step = history.len();
+                    history.add_snapshot(OptimizationSnapshot::with_candidates(
+                        snapshot_step,
+                        global_best.ast.clone(),
+                        global_best_cost,
+                        format!(
+                            "Step {}: {} candidates, cost improved",
+                            snapshot_step, num_candidates
+                        ),
+                        0,
+                        suggester_name,
+                        Vec::new(),
+                        num_candidates,
+                    ));
                 } else {
                     no_improvement_count += 1;
                     if let Some(max_no_improvement) = self.max_no_improvement_steps
@@ -1237,7 +1344,22 @@ where
             -improvement_pct
         );
 
-        global_best.ast
+        // 最終結果のパス情報を履歴に記録
+        history.set_final_path(global_best.path.clone());
+
+        (global_best.ast, history)
+    }
+}
+
+impl<S, Sel, P> AstOptimizer for PrunedDfsOptimizer<S, Sel, P>
+where
+    S: AstSuggester,
+    Sel: AstSelector,
+    P: SearchProgress,
+{
+    fn optimize(&mut self, ast: AstNode) -> AstNode {
+        let (optimized, _) = self.optimize_with_history(ast);
+        optimized
     }
 }
 
