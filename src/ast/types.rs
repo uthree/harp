@@ -1,5 +1,185 @@
 //! データ型とリテラルの定義
 
+use std::fmt::Debug;
+
+// ============================================================================
+// TensorDType trait - Maps Rust types to DType
+// ============================================================================
+
+/// Trait for types that can be used as tensor element types.
+///
+/// This trait provides a compile-time mapping from Rust types to DType values,
+/// enabling type-safe tensor operations.
+///
+/// # Example
+///
+/// ```ignore
+/// use harp::TensorDType;
+///
+/// assert_eq!(f32::DTYPE, DType::F32);
+/// assert_eq!(i32::DTYPE, DType::I32);
+/// ```
+pub trait TensorDType: Clone + Debug + Send + Sync + 'static {
+    /// The corresponding DType for this Rust type
+    const DTYPE: DType;
+
+    /// Convert a value of this type to a Literal
+    fn to_literal(value: Self) -> Literal;
+
+    /// Get the zero value for this type
+    fn zero() -> Self;
+
+    /// Get the one value for this type
+    fn one() -> Self;
+}
+
+impl TensorDType for bool {
+    const DTYPE: DType = DType::Bool;
+    fn to_literal(value: Self) -> Literal {
+        Literal::Bool(value)
+    }
+    fn zero() -> Self {
+        false
+    }
+    fn one() -> Self {
+        true
+    }
+}
+
+impl TensorDType for i8 {
+    const DTYPE: DType = DType::I8;
+    fn to_literal(value: Self) -> Literal {
+        Literal::I8(value)
+    }
+    fn zero() -> Self {
+        0
+    }
+    fn one() -> Self {
+        1
+    }
+}
+
+impl TensorDType for i16 {
+    const DTYPE: DType = DType::I16;
+    fn to_literal(value: Self) -> Literal {
+        Literal::I16(value)
+    }
+    fn zero() -> Self {
+        0
+    }
+    fn one() -> Self {
+        1
+    }
+}
+
+impl TensorDType for i32 {
+    const DTYPE: DType = DType::I32;
+    fn to_literal(value: Self) -> Literal {
+        Literal::I32(value)
+    }
+    fn zero() -> Self {
+        0
+    }
+    fn one() -> Self {
+        1
+    }
+}
+
+impl TensorDType for i64 {
+    const DTYPE: DType = DType::I64;
+    fn to_literal(value: Self) -> Literal {
+        Literal::I64(value)
+    }
+    fn zero() -> Self {
+        0
+    }
+    fn one() -> Self {
+        1
+    }
+}
+
+impl TensorDType for u8 {
+    const DTYPE: DType = DType::U8;
+    fn to_literal(value: Self) -> Literal {
+        Literal::U8(value)
+    }
+    fn zero() -> Self {
+        0
+    }
+    fn one() -> Self {
+        1
+    }
+}
+
+impl TensorDType for u16 {
+    const DTYPE: DType = DType::U16;
+    fn to_literal(value: Self) -> Literal {
+        Literal::U16(value)
+    }
+    fn zero() -> Self {
+        0
+    }
+    fn one() -> Self {
+        1
+    }
+}
+
+impl TensorDType for u32 {
+    const DTYPE: DType = DType::U32;
+    fn to_literal(value: Self) -> Literal {
+        Literal::U32(value)
+    }
+    fn zero() -> Self {
+        0
+    }
+    fn one() -> Self {
+        1
+    }
+}
+
+impl TensorDType for u64 {
+    const DTYPE: DType = DType::U64;
+    fn to_literal(value: Self) -> Literal {
+        Literal::U64(value)
+    }
+    fn zero() -> Self {
+        0
+    }
+    fn one() -> Self {
+        1
+    }
+}
+
+impl TensorDType for f32 {
+    const DTYPE: DType = DType::F32;
+    fn to_literal(value: Self) -> Literal {
+        Literal::F32(value)
+    }
+    fn zero() -> Self {
+        0.0
+    }
+    fn one() -> Self {
+        1.0
+    }
+}
+
+impl TensorDType for f64 {
+    const DTYPE: DType = DType::F64;
+    fn to_literal(value: Self) -> Literal {
+        Literal::F64(value)
+    }
+    fn zero() -> Self {
+        0.0
+    }
+    fn one() -> Self {
+        1.0
+    }
+}
+
+// ============================================================================
+// DType enum
+// ============================================================================
+
 /// ASTノードの型を表す列挙型
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub enum DType {

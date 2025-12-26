@@ -43,7 +43,7 @@ pub mod renderer;
 pub mod tensor;
 
 // Re-export types
-pub use ast::DType;
+pub use ast::{DType, TensorDType};
 
 // Re-export renderer traits
 pub use renderer::Renderer;

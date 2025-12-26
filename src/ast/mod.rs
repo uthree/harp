@@ -9,7 +9,7 @@ pub mod types;
 
 // Re-export commonly used types
 pub use scope::{Mutability, Scope, VarDecl, VarKind};
-pub use types::{DType, Literal};
+pub use types::{DType, Literal, TensorDType};
 
 use crate::tensor::shape::Expr;
 
