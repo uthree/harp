@@ -20,14 +20,14 @@ use super::binary::with_grad_fn;
 /// Gradient for Reduce(Add): z = sum(a, axes)
 /// ∂L/∂a = expand(∂L/∂z)
 pub struct ReduceSumBackward {
-    input: Tensor<DimDyn>,
+    input: Tensor<f32, DimDyn>,
     input_shape: Vec<usize>,
     axes: Vec<usize>,
     keepdim: bool,
 }
 
 impl ReduceSumBackward {
-    pub fn new(input: Tensor<DimDyn>, axes: Vec<usize>, keepdim: bool) -> Self {
+    pub fn new(input: Tensor<f32, DimDyn>, axes: Vec<usize>, keepdim: bool) -> Self {
         let input_shape = input.shape().to_vec();
         Self {
             input,
@@ -39,7 +39,7 @@ impl ReduceSumBackward {
 }
 
 impl GradFn for ReduceSumBackward {
-    fn backward(&self, grad_output: &Tensor<DimDyn>) -> Vec<Tensor<DimDyn>> {
+    fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
         let mut grad = grad_output.clone();
 
         // If keepdim=false, we need to unsqueeze the reduced dimensions
@@ -54,7 +54,7 @@ impl GradFn for ReduceSumBackward {
         vec![grad_expanded]
     }
 
-    fn inputs(&self) -> Vec<Tensor<DimDyn>> {
+    fn inputs(&self) -> Vec<Tensor<f32, DimDyn>> {
         vec![self.input.clone()]
     }
 
@@ -66,8 +66,8 @@ impl GradFn for ReduceSumBackward {
 /// Gradient for Reduce(Mul): z = prod(a, axes)
 /// ∂L/∂a = ∂L/∂z · z / a
 pub struct ReduceMulBackward {
-    input: Tensor<DimDyn>,
-    output: Tensor<DimDyn>,
+    input: Tensor<f32, DimDyn>,
+    output: Tensor<f32, DimDyn>,
     input_shape: Vec<usize>,
     axes: Vec<usize>,
     keepdim: bool,
@@ -75,8 +75,8 @@ pub struct ReduceMulBackward {
 
 impl ReduceMulBackward {
     pub fn new(
-        input: Tensor<DimDyn>,
-        output: Tensor<DimDyn>,
+        input: Tensor<f32, DimDyn>,
+        output: Tensor<f32, DimDyn>,
         axes: Vec<usize>,
         keepdim: bool,
     ) -> Self {
@@ -92,7 +92,7 @@ impl ReduceMulBackward {
 }
 
 impl GradFn for ReduceMulBackward {
-    fn backward(&self, grad_output: &Tensor<DimDyn>) -> Vec<Tensor<DimDyn>> {
+    fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
         let mut grad = grad_output.clone();
 
         if !self.keepdim {
@@ -114,7 +114,7 @@ impl GradFn for ReduceMulBackward {
         vec![(&grad_expanded * &output_expanded) / &self.input]
     }
 
-    fn inputs(&self) -> Vec<Tensor<DimDyn>> {
+    fn inputs(&self) -> Vec<Tensor<f32, DimDyn>> {
         vec![self.input.clone()]
     }
 
@@ -126,7 +126,7 @@ impl GradFn for ReduceMulBackward {
 /// Gradient for Reduce(Max): z = max(a, axes)
 /// ∂L/∂a = ∂L/∂z · (a == max)
 pub struct ReduceMaxBackward {
-    input: Tensor<DimDyn>,
+    input: Tensor<f32, DimDyn>,
     input_shape: Vec<usize>,
     axes: Vec<usize>,
     keepdim: bool,
@@ -134,8 +134,8 @@ pub struct ReduceMaxBackward {
 
 impl ReduceMaxBackward {
     pub fn new(
-        input: Tensor<DimDyn>,
-        _output: Tensor<DimDyn>, // TODO: Use for proper mask where input == max
+        input: Tensor<f32, DimDyn>,
+        _output: Tensor<f32, DimDyn>, // TODO: Use for proper mask where input == max
         axes: Vec<usize>,
         keepdim: bool,
     ) -> Self {
@@ -150,7 +150,7 @@ impl ReduceMaxBackward {
 }
 
 impl GradFn for ReduceMaxBackward {
-    fn backward(&self, grad_output: &Tensor<DimDyn>) -> Vec<Tensor<DimDyn>> {
+    fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
         // Expand gradient to original shape
         let mut grad = grad_output.clone();
         if !self.keepdim {
@@ -165,7 +165,7 @@ impl GradFn for ReduceMaxBackward {
         vec![grad_expanded]
     }
 
-    fn inputs(&self) -> Vec<Tensor<DimDyn>> {
+    fn inputs(&self) -> Vec<Tensor<f32, DimDyn>> {
         vec![self.input.clone()]
     }
 
@@ -202,10 +202,10 @@ fn compute_reduce_shape(input_shape: &[usize], axes: &[usize], keepdim: bool) ->
 /// Create a reduce Tensor using Compute variant
 fn create_reduce<D: Dimension>(
     op: ReduceOp,
-    input: &Tensor<D>,
+    input: &Tensor<f32, D>,
     axes: &[usize],
     keepdim: bool,
-) -> Tensor<DimDyn> {
+) -> Tensor<f32, DimDyn> {
     let result_shape = compute_reduce_shape(input.shape(), axes, keepdim);
     let view = view_from_shape(&result_shape);
 
@@ -220,17 +220,18 @@ fn create_reduce<D: Dimension>(
 
     Tensor {
         inner: Arc::new(inner),
+        _dtype: PhantomData,
         _dim: PhantomData,
     }
 }
 
-impl<D: Dimension> Tensor<D> {
+impl<D: Dimension> Tensor<f32, D> {
     /// Sum reduction along specified axes (primop)
     ///
     /// # Arguments
     /// * `axes` - Axes to reduce over
     /// * `keepdim` - Whether to keep reduced dimensions as size 1
-    pub fn reduce_sum(&self, axes: &[usize], keepdim: bool) -> Tensor<DimDyn> {
+    pub fn reduce_sum(&self, axes: &[usize], keepdim: bool) -> Tensor<f32, DimDyn> {
         let result = create_reduce(ReduceOp::Sum, self, axes, keepdim);
 
         if self.requires_grad() {
@@ -246,7 +247,7 @@ impl<D: Dimension> Tensor<D> {
     /// # Arguments
     /// * `axes` - Axes to reduce over
     /// * `keepdim` - Whether to keep reduced dimensions as size 1
-    pub fn reduce_mul(&self, axes: &[usize], keepdim: bool) -> Tensor<DimDyn> {
+    pub fn reduce_mul(&self, axes: &[usize], keepdim: bool) -> Tensor<f32, DimDyn> {
         let result = create_reduce(ReduceOp::Prod, self, axes, keepdim);
 
         if self.requires_grad() {
@@ -267,7 +268,7 @@ impl<D: Dimension> Tensor<D> {
     /// # Arguments
     /// * `axes` - Axes to reduce over
     /// * `keepdim` - Whether to keep reduced dimensions as size 1
-    pub fn reduce_max(&self, axes: &[usize], keepdim: bool) -> Tensor<DimDyn> {
+    pub fn reduce_max(&self, axes: &[usize], keepdim: bool) -> Tensor<f32, DimDyn> {
         let result = create_reduce(ReduceOp::Max, self, axes, keepdim);
 
         if self.requires_grad() {
@@ -291,28 +292,28 @@ mod tests {
 
     #[test]
     fn test_reduce_sum() {
-        let a = Tensor::<Dim2>::ones([2, 3]);
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
         let s = a.reduce_sum(&[1], false);
         assert_eq!(s.shape(), &[2]);
     }
 
     #[test]
     fn test_reduce_sum_keepdim() {
-        let a = Tensor::<Dim2>::ones([2, 3]);
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
         let s = a.reduce_sum(&[1], true);
         assert_eq!(s.shape(), &[2, 1]);
     }
 
     #[test]
     fn test_reduce_mul() {
-        let a = Tensor::<Dim2>::ones([2, 3]);
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
         let p = a.reduce_mul(&[1], false);
         assert_eq!(p.shape(), &[2]);
     }
 
     #[test]
     fn test_reduce_max() {
-        let a = Tensor::<Dim2>::ones([2, 3]);
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
         let m = a.reduce_max(&[1], false);
         assert_eq!(m.shape(), &[2]);
     }

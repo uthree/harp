@@ -62,7 +62,7 @@ impl fmt::Display for ForwardError {
 
 impl std::error::Error for ForwardError {}
 
-impl<D: Dimension> Tensor<D> {
+impl<D: Dimension> Tensor<f32, D> {
     /// Execute the computation graph and return a new tensor with the result
     ///
     /// This is the primary execution trigger for lazy evaluation (like tinygrad's `.realize()`).
@@ -98,8 +98,8 @@ impl<D: Dimension> Tensor<D> {
     /// set_default_device(device, DeviceKind::Metal);
     ///
     /// // Create lazy computation
-    /// let a = Tensor::<Dim2>::full([3, 4], 1.0);
-    /// let b = Tensor::<Dim2>::full([3, 4], 2.0);
+    /// let a = Tensor::<f32, Dim2>::full([3, 4], 1.0);
+    /// let b = Tensor::<f32, Dim2>::full([3, 4], 2.0);
     /// let c = &a + &b;
     ///
     /// // Execute computation
@@ -108,7 +108,7 @@ impl<D: Dimension> Tensor<D> {
     /// // Get result data
     /// let data = result.data().unwrap();
     /// ```
-    pub fn realize(&self) -> Result<Tensor<D>, ForwardError> {
+    pub fn realize(&self) -> Result<Tensor<f32, D>, ForwardError> {
         // If already executed, return a clone
         if self.is_executed() {
             return Ok(self.clone());
@@ -199,7 +199,7 @@ impl<D: Dimension> Tensor<D> {
 
     /// Internal: Execute realize on Metal device
     #[cfg(all(feature = "metal", target_os = "macos"))]
-    fn realize_metal(&self) -> Result<Tensor<D>, ForwardError> {
+    fn realize_metal(&self) -> Result<Tensor<f32, D>, ForwardError> {
         use crate::backend::global::get_default_device;
         use crate::backend::metal::{MetalBuffer, MetalCompiler, MetalDevice};
         use crate::backend::{BufferSignature, KernelSignature, Pipeline};
@@ -293,13 +293,14 @@ impl<D: Dimension> Tensor<D> {
 
         Ok(Tensor {
             inner: Arc::new(inner),
+            _dtype: PhantomData,
             _dim: PhantomData,
         })
     }
 
     /// Internal: Execute realize on OpenCL device
     #[cfg(feature = "opencl")]
-    fn realize_opencl(&self) -> Result<Tensor<D>, ForwardError> {
+    fn realize_opencl(&self) -> Result<Tensor<f32, D>, ForwardError> {
         use crate::backend::global::get_default_device;
         use crate::backend::opencl::{OpenCLBuffer, OpenCLCompiler, OpenCLDevice};
         use crate::backend::{BufferSignature, KernelSignature, Pipeline};
@@ -395,6 +396,7 @@ impl<D: Dimension> Tensor<D> {
 
         Ok(Tensor {
             inner: Arc::new(inner),
+            _dtype: PhantomData,
             _dim: PhantomData,
         })
     }
@@ -403,7 +405,7 @@ impl<D: Dimension> Tensor<D> {
     ///
     /// This creates a tensor with the buffer already populated,
     /// bypassing the computation graph.
-    pub fn from_data(data: Vec<f32>, shape: Vec<usize>) -> Tensor<DimDyn> {
+    pub fn from_data(data: Vec<f32>, shape: Vec<usize>) -> Tensor<f32, DimDyn> {
         let shape_exprs: Vec<Expr> = shape.iter().map(|&s| Expr::from(s as i64)).collect();
         let view = View::contiguous(shape_exprs);
         let inner = TensorInner {
@@ -418,6 +420,7 @@ impl<D: Dimension> Tensor<D> {
 
         Tensor {
             inner: Arc::new(inner),
+            _dtype: PhantomData,
             _dim: PhantomData,
         }
     }
@@ -450,8 +453,8 @@ impl<D: Dimension> Tensor<D> {
     /// set_default_device(device, DeviceKind::Metal);
     ///
     /// // Create and compute tensor
-    /// let a = Tensor::<Dim2>::full([3, 4], 1.0);
-    /// let b = Tensor::<Dim2>::full([3, 4], 2.0);
+    /// let a = Tensor::<f32, Dim2>::full([3, 4], 1.0);
+    /// let b = Tensor::<f32, Dim2>::full([3, 4], 2.0);
     /// let c = &a + &b;
     ///
     /// // Execute computation
@@ -498,7 +501,7 @@ impl<D: Dimension> Tensor<D> {
     ///
     /// # Example
     /// ```ignore
-    /// let t = Tensor::<Dim2>::full([2, 3], 1.0);
+    /// let t = Tensor::<f32, Dim2>::full([2, 3], 1.0);
     /// t.forward()?;
     /// let arr = t.to_ndarray_dyn().unwrap();
     /// assert_eq!(arr.shape(), &[2, 3]);
@@ -512,7 +515,7 @@ impl<D: Dimension> Tensor<D> {
     /// Convert the tensor to an ndarray with type-safe dimensions
     ///
     /// Returns the data as an ndarray with the dimension type matching the tensor's
-    /// dimension type. This is type-safe: Tensor<Dim2> returns Array<f32, Ix2>, etc.
+    /// dimension type. This is type-safe: Tensor<f32, Dim2> returns Array<f32, Ix2>, etc.
     ///
     /// Returns None if the tensor has not been executed yet.
     ///
@@ -520,7 +523,7 @@ impl<D: Dimension> Tensor<D> {
     /// ```ignore
     /// use ndarray::Ix2;
     ///
-    /// let t = Tensor::<Dim2>::full([2, 3], 1.0);
+    /// let t = Tensor::<f32, Dim2>::full([2, 3], 1.0);
     /// t.forward()?;
     ///
     /// // Type-safe: returns Array<f32, Ix2> automatically
@@ -535,7 +538,7 @@ impl<D: Dimension> Tensor<D> {
     }
 }
 
-impl Tensor<DimDyn> {
+impl Tensor<f32, DimDyn> {
     /// Create a tensor from an ndarray with any dimensions
     ///
     /// This creates a DimDyn tensor with the buffer already populated,
@@ -545,10 +548,10 @@ impl Tensor<DimDyn> {
     /// ```ignore
     /// use ndarray::array;
     /// let arr = array![[1.0, 2.0], [3.0, 4.0]];
-    /// let t = Tensor::<DimDyn>::from_ndarray(&arr);
+    /// let t = Tensor::<f32, DimDyn>::from_ndarray(&arr);
     /// assert_eq!(t.shape(), &[2, 2]);
     /// ```
-    pub fn from_ndarray<ND: NdDimension>(array: &Array<f32, ND>) -> Tensor<DimDyn> {
+    pub fn from_ndarray<ND: NdDimension>(array: &Array<f32, ND>) -> Tensor<f32, DimDyn> {
         let shape: Vec<usize> = array.shape().to_vec();
         let data: Vec<f32> = array
             .as_slice()
@@ -561,13 +564,13 @@ impl Tensor<DimDyn> {
 // Type-safe from_ndarray implementations using macro
 macro_rules! impl_from_ndarray {
     ($dim:ty, $ix:ty, $n:expr) => {
-        impl Tensor<$dim> {
+        impl Tensor<f32, $dim> {
             /// Create a tensor from an ndarray with type-safe dimensions
             ///
             /// This creates a tensor with the buffer already populated,
             /// bypassing the computation graph. The ndarray dimension type
             /// must match the tensor dimension type.
-            pub fn from_ndarray(array: &Array<f32, $ix>) -> Tensor<$dim> {
+            pub fn from_ndarray(array: &Array<f32, $ix>) -> Tensor<f32, $dim> {
                 use super::{TensorInner, TensorOp};
                 use crate::tensor::shape::{Expr, View};
                 use std::sync::RwLock;
@@ -600,6 +603,7 @@ macro_rules! impl_from_ndarray {
 
                 Tensor {
                     inner: Arc::new(inner),
+                    _dtype: PhantomData,
                     _dim: PhantomData,
                 }
             }
@@ -631,7 +635,7 @@ mod tests {
     #[test]
     fn test_from_ndarray_dim1_type_safe() {
         let arr: Array1<f32> = array![1.0, 2.0, 3.0];
-        let tensor = Tensor::<Dim1>::from_ndarray(&arr);
+        let tensor = Tensor::<f32, Dim1>::from_ndarray(&arr);
         assert_eq!(tensor.shape(), &[3]);
         assert_eq!(tensor.data(), Some(vec![1.0, 2.0, 3.0]));
     }
@@ -639,7 +643,7 @@ mod tests {
     #[test]
     fn test_from_ndarray_dim2_type_safe() {
         let arr: Array2<f32> = array![[1.0, 2.0], [3.0, 4.0]];
-        let tensor = Tensor::<Dim2>::from_ndarray(&arr);
+        let tensor = Tensor::<f32, Dim2>::from_ndarray(&arr);
         assert_eq!(tensor.shape(), &[2, 2]);
         assert_eq!(tensor.data(), Some(vec![1.0, 2.0, 3.0, 4.0]));
     }
@@ -647,7 +651,7 @@ mod tests {
     #[test]
     fn test_from_ndarray_dim3_type_safe() {
         let arr: Array3<f32> = Array3::zeros((2, 3, 4));
-        let tensor = Tensor::<Dim3>::from_ndarray(&arr);
+        let tensor = Tensor::<f32, Dim3>::from_ndarray(&arr);
         assert_eq!(tensor.shape(), &[2, 3, 4]);
         assert_eq!(tensor.numel(), 24);
     }
@@ -655,7 +659,7 @@ mod tests {
     #[test]
     fn test_to_ndarray_dim2_type_safe() {
         let arr: Array2<f32> = array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
-        let tensor = Tensor::<Dim2>::from_ndarray(&arr);
+        let tensor = Tensor::<f32, Dim2>::from_ndarray(&arr);
 
         // Type-safe: returns Array2<f32> automatically
         let recovered: Array2<f32> = tensor.to_ndarray().unwrap();
@@ -668,8 +672,8 @@ mod tests {
     fn test_roundtrip_dim2_type_safe() {
         let original: Array2<f32> = array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
 
-        // Convert to Tensor<Dim2>
-        let tensor = Tensor::<Dim2>::from_ndarray(&original);
+        // Convert to Tensor<f32, Dim2>
+        let tensor = Tensor::<f32, Dim2>::from_ndarray(&original);
 
         // Convert back - type-safe!
         let recovered: Array2<f32> = tensor.to_ndarray().unwrap();
@@ -685,7 +689,7 @@ mod tests {
     #[test]
     fn test_from_ndarray_dimdyn() {
         let arr = array![[1.0_f32, 2.0], [3.0, 4.0]];
-        let tensor = Tensor::<DimDyn>::from_ndarray(&arr);
+        let tensor = Tensor::<f32, DimDyn>::from_ndarray(&arr);
         assert_eq!(tensor.shape(), &[2, 2]);
         assert_eq!(tensor.data(), Some(vec![1.0, 2.0, 3.0, 4.0]));
     }
@@ -693,7 +697,7 @@ mod tests {
     #[test]
     fn test_to_ndarray_dimdyn() {
         let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
-        let tensor = Tensor::<DimDyn>::from_data(data.clone(), vec![2, 3]);
+        let tensor = Tensor::<f32, DimDyn>::from_data(data.clone(), vec![2, 3]);
 
         // DimDyn returns ArrayD (IxDyn)
         let arr = tensor.to_ndarray().unwrap();
@@ -703,7 +707,7 @@ mod tests {
     #[test]
     fn test_to_ndarray_dyn_explicit() {
         let arr: Array2<f32> = array![[1.0, 2.0], [3.0, 4.0]];
-        let tensor = Tensor::<Dim2>::from_ndarray(&arr);
+        let tensor = Tensor::<f32, Dim2>::from_ndarray(&arr);
 
         // Can also get dynamic array from static tensor
         let dyn_arr = tensor.to_ndarray_dyn().unwrap();
@@ -713,7 +717,7 @@ mod tests {
     #[test]
     fn test_to_ndarray_not_executed() {
         // Create a tensor that hasn't been executed
-        let tensor = Tensor::<Dim2>::input("x", [2, 3]);
+        let tensor = Tensor::<f32, Dim2>::input("x", [2, 3]);
         // Should return None since it's not executed
         assert!(tensor.to_ndarray().is_none());
     }

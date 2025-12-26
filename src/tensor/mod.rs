@@ -1,6 +1,6 @@
 //! Unified Tensor type for Harp
 //!
-//! This module provides a high-level `Tensor<D>` type that combines:
+//! This module provides a high-level `Tensor<f32, D>` type that combines:
 //! - Lazy evaluation via computation graphs
 //! - Static dimension checking via const generics
 //! - Automatic differentiation (autograd)
@@ -61,7 +61,7 @@
 //! use harp::tensor::{Tensor, Dim2};
 //!
 //! // Create a 2D tensor with gradient tracking
-//! let x = Tensor::<Dim2>::zeros([3, 4]).set_requires_grad(true);
+//! let x = Tensor::<f32, Dim2>::zeros([3, 4]).set_requires_grad(true);
 //!
 //! // Lazy operations (not executed yet)
 //! let y = &x + &x;
@@ -79,6 +79,7 @@
 //! ```
 
 pub mod dimension;
+pub mod dtype;
 pub mod forward;
 pub mod fusion;
 pub mod hlops;
@@ -91,6 +92,9 @@ use std::marker::PhantomData;
 use std::sync::{Arc, RwLock};
 
 pub use dimension::{Dim, Dim0, Dim1, Dim2, Dim3, Dim4, Dim5, Dim6, DimDyn, Dimension};
+pub use dtype::{
+    FloatDType, IntegerDType, NumericDType, SignedIntDType, TensorDType, UnsignedIntDType,
+};
 pub use forward::ForwardError;
 pub use ops::{ElementwiseOp, ReduceOp, TensorOp, TensorRef};
 pub use primops::{Exp2, Floor, Log2, Recip, Sin, Sqrt};
@@ -101,21 +105,21 @@ pub use shape::{Expr, View};
 // ============================================================================
 
 /// 0-dimensional tensor (scalar)
-pub type Tensor0 = Tensor<Dim0>;
+pub type Tensor0 = Tensor<f32, Dim0>;
 /// 1-dimensional tensor (vector)
-pub type Tensor1 = Tensor<Dim1>;
+pub type Tensor1 = Tensor<f32, Dim1>;
 /// 2-dimensional tensor (matrix)
-pub type Tensor2 = Tensor<Dim2>;
+pub type Tensor2 = Tensor<f32, Dim2>;
 /// 3-dimensional tensor
-pub type Tensor3 = Tensor<Dim3>;
+pub type Tensor3 = Tensor<f32, Dim3>;
 /// 4-dimensional tensor (common for batched images: NCHW)
-pub type Tensor4 = Tensor<Dim4>;
+pub type Tensor4 = Tensor<f32, Dim4>;
 /// 5-dimensional tensor
-pub type Tensor5 = Tensor<Dim5>;
+pub type Tensor5 = Tensor<f32, Dim5>;
 /// 6-dimensional tensor
-pub type Tensor6 = Tensor<Dim6>;
+pub type Tensor6 = Tensor<f32, Dim6>;
 /// Dynamic-dimensional tensor
-pub type TensorDyn = Tensor<DimDyn>;
+pub type TensorDyn = Tensor<f32, DimDyn>;
 
 use crate::ast::DType;
 
@@ -130,12 +134,12 @@ pub trait GradFn: Send + Sync {
     ///
     /// # Returns
     /// Gradients for each input tensor
-    fn backward(&self, grad_output: &Tensor<DimDyn>) -> Vec<Tensor<DimDyn>>;
+    fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>>;
 
     /// Get the input tensors that this gradient function operates on
     ///
     /// This is used to propagate gradients back through the computation graph.
-    fn inputs(&self) -> Vec<Tensor<DimDyn>>;
+    fn inputs(&self) -> Vec<Tensor<f32, DimDyn>>;
 
     /// Get the name of this gradient function (for debugging)
     fn name(&self) -> &'static str;
@@ -147,7 +151,7 @@ pub trait GradFn: Send + Sync {
 /// Use `tensor.requires_grad()` (which checks `autograd.is_some()`) to check status.
 pub struct AutogradMeta {
     /// Stored gradient (populated after backward())
-    pub(crate) grad: RwLock<Option<Arc<Tensor<DimDyn>>>>,
+    pub(crate) grad: RwLock<Option<Arc<Tensor<f32, DimDyn>>>>,
     /// Gradient function for backpropagation
     pub(crate) grad_fn: Option<Arc<dyn GradFn>>,
 }
@@ -225,8 +229,8 @@ impl TensorInner {
 /// # Features
 ///
 /// - **Lazy Evaluation**: Operations build a computation graph without immediate execution
-/// - **Static Dimensions**: Use `Tensor<Dim<N>>` for compile-time dimension checking
-/// - **Dynamic Dimensions**: Use `Tensor<DimDyn>` for runtime-determined dimensions
+/// - **Static Dimensions**: Use `Tensor<f32, Dim<N>>` for compile-time dimension checking
+/// - **Dynamic Dimensions**: Use `Tensor<f32, DimDyn>` for runtime-determined dimensions
 /// - **Automatic Differentiation**: Track gradients with `.set_requires_grad(true)`
 /// - **Eager Fusion**: Operations are fused at call time for optimization
 ///
@@ -236,36 +240,41 @@ impl TensorInner {
 /// use harp::tensor::{Tensor, Dim2};
 ///
 /// // Static 2D tensor
-/// let matrix = Tensor::<Dim2>::zeros([3, 4]);
+/// let matrix = Tensor::<f32, Dim2>::zeros([3, 4]);
 ///
 /// // Dynamic dimension tensor
-/// let dynamic = Tensor::<DimDyn>::zeros_dyn(&[3, 4, 5]);
+/// let dynamic = Tensor::<f32, DimDyn>::zeros_dyn(&[3, 4, 5]);
 /// ```
-pub struct Tensor<D: Dimension = DimDyn> {
+pub struct Tensor<T: TensorDType = f32, D: Dimension = DimDyn> {
     /// Internal tensor data (reference counted for efficient sharing)
     pub(crate) inner: Arc<TensorInner>,
+    /// Marker for data type
+    pub(crate) _dtype: PhantomData<T>,
     /// Marker for dimension type
     pub(crate) _dim: PhantomData<D>,
 }
 
 // Implement Send and Sync for Tensor
-unsafe impl<D: Dimension> Send for Tensor<D> {}
-unsafe impl<D: Dimension> Sync for Tensor<D> {}
+unsafe impl<T: TensorDType, D: Dimension> Send for Tensor<T, D> {}
+unsafe impl<T: TensorDType, D: Dimension> Sync for Tensor<T, D> {}
 
-impl<D: Dimension> Clone for Tensor<D> {
+impl<T: TensorDType, D: Dimension> Clone for Tensor<T, D> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
+            _dtype: PhantomData,
             _dim: PhantomData,
         }
     }
 }
 
-impl<D: Dimension> Tensor<D> {
+impl<D: Dimension> Tensor<f32, D> {
     /// Create an explicit branch point in the computation graph (Clone operation)
     ///
     /// Use this when you need to use the same tensor in multiple computation paths.
     /// This creates a Clone operation in the graph that will copy the buffer at execution time.
+    ///
+    /// Note: Only available for f32 tensors due to TensorRef being f32-typed.
     ///
     /// # Example
     /// ```ignore
@@ -274,7 +283,7 @@ impl<D: Dimension> Tensor<D> {
     /// let b = a.sum();         // a consumed → fusion OK
     /// let c = a2 * 2.0;        // a2 is separate path
     /// ```
-    pub fn fork(&self) -> Tensor<D> {
+    pub fn fork(&self) -> Tensor<f32, D> {
         let input = Arc::new(self.clone().into_dyn());
         let inner = TensorInner::new(
             TensorOp::Clone { input },
@@ -284,12 +293,13 @@ impl<D: Dimension> Tensor<D> {
         );
         Tensor {
             inner: Arc::new(inner),
+            _dtype: PhantomData,
             _dim: PhantomData,
         }
     }
 }
 
-impl<D: Dimension> Tensor<D> {
+impl<T: TensorDType, D: Dimension> Tensor<T, D> {
     /// Get the shape of the tensor
     pub fn shape(&self) -> &[usize] {
         &self.inner.shape
@@ -336,6 +346,7 @@ impl<D: Dimension> Tensor<D> {
             };
             Tensor {
                 inner: Arc::new(inner),
+                _dtype: PhantomData,
                 _dim: PhantomData,
             }
         } else if !requires_grad && self.inner.autograd.is_some() {
@@ -351,6 +362,7 @@ impl<D: Dimension> Tensor<D> {
             };
             Tensor {
                 inner: Arc::new(inner),
+                _dtype: PhantomData,
                 _dim: PhantomData,
             }
         } else {
@@ -359,9 +371,10 @@ impl<D: Dimension> Tensor<D> {
     }
 
     /// Convert to a dynamic dimension tensor
-    pub fn into_dyn(self) -> Tensor<DimDyn> {
+    pub fn into_dyn(self) -> Tensor<T, DimDyn> {
         Tensor {
             inner: self.inner,
+            _dtype: PhantomData,
             _dim: PhantomData,
         }
     }
@@ -386,22 +399,23 @@ impl<D: Dimension> Tensor<D> {
 // DimDyn to static dimension conversion
 // ============================================================================
 
-impl Tensor<DimDyn> {
+impl<T: TensorDType> Tensor<T, DimDyn> {
     /// Try to convert to a tensor with static dimension.
     ///
-    /// Returns `Some(Tensor<Dim<N>>)` if the tensor has exactly N dimensions,
+    /// Returns `Some(Tensor<T, Dim<N>>)` if the tensor has exactly N dimensions,
     /// otherwise returns `None`.
     ///
     /// # Examples
     ///
     /// ```ignore
-    /// let dyn_tensor: Tensor<DimDyn> = Tensor::ones_dyn(&[2, 3]);
-    /// let static_tensor: Tensor<Dim2> = dyn_tensor.try_into_dim().unwrap();
+    /// let dyn_tensor: Tensor<f32, DimDyn> = Tensor::ones_dyn(&[2, 3]);
+    /// let static_tensor: Tensor<f32, Dim2> = dyn_tensor.try_into_dim().unwrap();
     /// ```
-    pub fn try_into_dim<D: Dimension>(&self) -> Option<Tensor<D>> {
+    pub fn try_into_dim<D: Dimension>(&self) -> Option<Tensor<T, D>> {
         if D::NDIM == Some(self.ndim()) {
             Some(Tensor {
                 inner: self.inner.clone(),
+                _dtype: PhantomData,
                 _dim: PhantomData,
             })
         } else {
@@ -418,10 +432,10 @@ impl Tensor<DimDyn> {
     /// # Examples
     ///
     /// ```ignore
-    /// let dyn_tensor: Tensor<DimDyn> = Tensor::ones_dyn(&[2, 3]);
-    /// let static_tensor: Tensor<Dim2> = dyn_tensor.into_dimensioned();
+    /// let dyn_tensor: Tensor<f32, DimDyn> = Tensor::ones_dyn(&[2, 3]);
+    /// let static_tensor: Tensor<f32, Dim2> = dyn_tensor.into_dimensioned();
     /// ```
-    pub fn into_dimensioned<D: Dimension>(&self) -> Tensor<D> {
+    pub fn into_dimensioned<D: Dimension>(&self) -> Tensor<T, D> {
         self.try_into_dim().unwrap_or_else(|| {
             panic!(
                 "Cannot convert Tensor with {} dimensions to Dim<{}>",
@@ -432,37 +446,37 @@ impl Tensor<DimDyn> {
     }
 
     /// Convert to 0-dimensional tensor (scalar).
-    pub fn into_dim0(&self) -> Tensor<Dim0> {
+    pub fn into_dim0(&self) -> Tensor<T, Dim0> {
         self.into_dimensioned()
     }
 
     /// Convert to 1-dimensional tensor.
-    pub fn into_dim1(&self) -> Tensor<Dim1> {
+    pub fn into_dim1(&self) -> Tensor<T, Dim1> {
         self.into_dimensioned()
     }
 
     /// Convert to 2-dimensional tensor.
-    pub fn into_dim2(&self) -> Tensor<Dim2> {
+    pub fn into_dim2(&self) -> Tensor<T, Dim2> {
         self.into_dimensioned()
     }
 
     /// Convert to 3-dimensional tensor.
-    pub fn into_dim3(&self) -> Tensor<Dim3> {
+    pub fn into_dim3(&self) -> Tensor<T, Dim3> {
         self.into_dimensioned()
     }
 
     /// Convert to 4-dimensional tensor.
-    pub fn into_dim4(&self) -> Tensor<Dim4> {
+    pub fn into_dim4(&self) -> Tensor<T, Dim4> {
         self.into_dimensioned()
     }
 
     /// Convert to 5-dimensional tensor.
-    pub fn into_dim5(&self) -> Tensor<Dim5> {
+    pub fn into_dim5(&self) -> Tensor<T, Dim5> {
         self.into_dimensioned()
     }
 
     /// Convert to 6-dimensional tensor.
-    pub fn into_dim6(&self) -> Tensor<Dim6> {
+    pub fn into_dim6(&self) -> Tensor<T, Dim6> {
         self.into_dimensioned()
     }
 }
@@ -471,11 +485,13 @@ impl Tensor<DimDyn> {
 // Backward propagation
 // ============================================================================
 
-impl<D: Dimension> Tensor<D> {
+impl<D: Dimension> Tensor<f32, D> {
     /// Perform backward propagation from this tensor
     ///
     /// Computes gradients for all tensors in the computation graph that
     /// have `requires_grad = true`.
+    ///
+    /// Note: Gradient computation is only available for f32 tensors.
     ///
     /// # Panics
     ///
@@ -486,12 +502,12 @@ impl<D: Dimension> Tensor<D> {
         }
 
         // Create initial gradient of ones with same shape
-        let initial_grad = Tensor::<DimDyn>::ones_dyn(self.shape());
+        let initial_grad = Tensor::<f32, DimDyn>::ones_dyn(self.shape());
         self.backward_with(initial_grad);
     }
 
     /// Perform backward propagation with a custom initial gradient
-    pub fn backward_with(&self, grad_output: Tensor<DimDyn>) {
+    pub fn backward_with(&self, grad_output: Tensor<f32, DimDyn>) {
         if let Some(ref autograd) = self.inner.autograd {
             // Accumulate gradient
             {
@@ -524,7 +540,7 @@ impl<D: Dimension> Tensor<D> {
     ///
     /// Returns None if backward() hasn't been called or if this tensor
     /// doesn't require gradients.
-    pub fn grad(&self) -> Option<Tensor<DimDyn>> {
+    pub fn grad(&self) -> Option<Tensor<f32, DimDyn>> {
         self.inner
             .autograd
             .as_ref()
@@ -541,7 +557,7 @@ impl<D: Dimension> Tensor<D> {
     /// Detach this tensor from the computation graph
     ///
     /// Returns a new tensor with the same data but no gradient tracking.
-    pub fn detach(&self) -> Tensor<D> {
+    pub fn detach(&self) -> Tensor<f32, D> {
         let inner = TensorInner {
             op: self.inner.op.clone(),
             view: self.inner.view.clone(),
@@ -553,6 +569,7 @@ impl<D: Dimension> Tensor<D> {
         };
         Tensor {
             inner: Arc::new(inner),
+            _dtype: PhantomData,
             _dim: PhantomData,
         }
     }
@@ -564,7 +581,7 @@ mod tests {
 
     #[test]
     fn test_tensor_zeros_static() {
-        let t = Tensor::<Dim2>::zeros([3, 4]);
+        let t = Tensor::<f32, Dim2>::zeros([3, 4]);
         assert_eq!(t.shape(), &[3, 4]);
         assert_eq!(t.ndim(), 2);
         assert_eq!(t.numel(), 12);
@@ -572,7 +589,7 @@ mod tests {
 
     #[test]
     fn test_tensor_ones_static() {
-        let t = Tensor::<Dim3>::ones([2, 3, 4]);
+        let t = Tensor::<f32, Dim3>::ones([2, 3, 4]);
         assert_eq!(t.shape(), &[2, 3, 4]);
         assert_eq!(t.ndim(), 3);
         assert_eq!(t.numel(), 24);
@@ -580,14 +597,14 @@ mod tests {
 
     #[test]
     fn test_tensor_full_static() {
-        let t = Tensor::<Dim1>::full([10], 2.5);
+        let t = Tensor::<f32, Dim1>::full([10], 2.5);
         assert_eq!(t.shape(), &[10]);
         assert_eq!(t.ndim(), 1);
     }
 
     #[test]
     fn test_tensor_zeros_dynamic() {
-        let t = Tensor::<DimDyn>::zeros_dyn(&[3, 4, 5]);
+        let t = Tensor::<f32, DimDyn>::zeros_dyn(&[3, 4, 5]);
         assert_eq!(t.shape(), &[3, 4, 5]);
         assert_eq!(t.ndim(), 3);
         assert_eq!(t.numel(), 60);
@@ -595,40 +612,40 @@ mod tests {
 
     #[test]
     fn test_tensor_input() {
-        let t = Tensor::<Dim2>::input("x", [10, 20]);
+        let t = Tensor::<f32, Dim2>::input("x", [10, 20]);
         assert_eq!(t.shape(), &[10, 20]);
         assert!(!t.requires_grad());
     }
 
     #[test]
     fn test_into_dyn() {
-        let static_tensor = Tensor::<Dim2>::zeros([3, 4]);
+        let static_tensor = Tensor::<f32, Dim2>::zeros([3, 4]);
         let dyn_tensor = static_tensor.into_dyn();
         assert_eq!(dyn_tensor.shape(), &[3, 4]);
     }
 
     #[test]
     fn test_set_requires_grad() {
-        let t = Tensor::<Dim2>::ones([2, 2]).set_requires_grad(true);
+        let t = Tensor::<f32, Dim2>::ones([2, 2]).set_requires_grad(true);
         assert!(t.requires_grad());
     }
 
     #[test]
     fn test_detach() {
-        let t = Tensor::<Dim2>::ones([2, 2]).set_requires_grad(true);
+        let t = Tensor::<f32, Dim2>::ones([2, 2]).set_requires_grad(true);
         let detached = t.detach();
         assert!(!detached.requires_grad());
     }
 
     #[test]
     fn test_rand() {
-        let t = Tensor::<Dim2>::rand([3, 4]);
+        let t = Tensor::<f32, Dim2>::rand([3, 4]);
         assert_eq!(t.shape(), &[3, 4]);
     }
 
     #[test]
     fn test_fork() {
-        let t = Tensor::<Dim2>::ones([2, 3]);
+        let t = Tensor::<f32, Dim2>::ones([2, 3]);
         let forked = t.fork();
 
         // fork() creates a new tensor with the same shape
@@ -636,7 +653,7 @@ mod tests {
         assert_eq!(forked.dtype(), t.dtype());
 
         // fork() does not preserve gradient tracking
-        let t_grad = Tensor::<Dim2>::ones([2, 3]).set_requires_grad(true);
+        let t_grad = Tensor::<f32, Dim2>::ones([2, 3]).set_requires_grad(true);
         let forked_grad = t_grad.fork();
         assert!(!forked_grad.requires_grad());
 
@@ -646,46 +663,46 @@ mod tests {
 
     #[test]
     fn test_into_dimensioned() {
-        let dyn_tensor = Tensor::<DimDyn>::zeros_dyn(&[3, 4]);
-        let static_tensor: Tensor<Dim2> = dyn_tensor.into_dimensioned();
+        let dyn_tensor = Tensor::<f32, DimDyn>::zeros_dyn(&[3, 4]);
+        let static_tensor: Tensor<f32, Dim2> = dyn_tensor.into_dimensioned();
         assert_eq!(static_tensor.shape(), &[3, 4]);
         assert_eq!(static_tensor.ndim(), 2);
     }
 
     #[test]
     fn test_into_dim1() {
-        let dyn_tensor = Tensor::<DimDyn>::ones_dyn(&[5]);
+        let dyn_tensor = Tensor::<f32, DimDyn>::ones_dyn(&[5]);
         let static_tensor = dyn_tensor.into_dim1();
         assert_eq!(static_tensor.shape(), &[5]);
     }
 
     #[test]
     fn test_into_dim2() {
-        let dyn_tensor = Tensor::<DimDyn>::ones_dyn(&[3, 4]);
+        let dyn_tensor = Tensor::<f32, DimDyn>::ones_dyn(&[3, 4]);
         let static_tensor = dyn_tensor.into_dim2();
         assert_eq!(static_tensor.shape(), &[3, 4]);
     }
 
     #[test]
     fn test_try_into_dim_success() {
-        let dyn_tensor = Tensor::<DimDyn>::ones_dyn(&[2, 3]);
-        let result: Option<Tensor<Dim2>> = dyn_tensor.try_into_dim();
+        let dyn_tensor = Tensor::<f32, DimDyn>::ones_dyn(&[2, 3]);
+        let result: Option<Tensor<f32, Dim2>> = dyn_tensor.try_into_dim();
         assert!(result.is_some());
         assert_eq!(result.unwrap().shape(), &[2, 3]);
     }
 
     #[test]
     fn test_try_into_dim_failure() {
-        let dyn_tensor = Tensor::<DimDyn>::ones_dyn(&[2, 3, 4]);
-        let result: Option<Tensor<Dim2>> = dyn_tensor.try_into_dim();
+        let dyn_tensor = Tensor::<f32, DimDyn>::ones_dyn(&[2, 3, 4]);
+        let result: Option<Tensor<f32, Dim2>> = dyn_tensor.try_into_dim();
         assert!(result.is_none());
     }
 
     #[test]
     #[should_panic(expected = "Cannot convert Tensor with 3 dimensions to Dim<2>")]
     fn test_into_dimensioned_panic() {
-        let dyn_tensor = Tensor::<DimDyn>::ones_dyn(&[2, 3, 4]);
-        let _: Tensor<Dim2> = dyn_tensor.into_dimensioned();
+        let dyn_tensor = Tensor::<f32, DimDyn>::ones_dyn(&[2, 3, 4]);
+        let _: Tensor<f32, Dim2> = dyn_tensor.into_dimensioned();
     }
 
     #[test]

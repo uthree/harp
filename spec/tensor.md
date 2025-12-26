@@ -13,8 +13,9 @@ tinygrad/microgradの設計哲学に基づき、最小のプリミティブ演�
 TensorはTensorInnerを内包し、TensorOpで演算を管理します。入力テンソルはTensorOp内に埋め込まれます。
 
 ```rust
-pub struct Tensor<D: Dimension = DimDyn> {
+pub struct Tensor<T: TensorDType = f32, D: Dimension = DimDyn> {
     inner: Arc<TensorInner>,      // 内部データ（Arc for sharing）
+    _dtype: PhantomData<T>,       // データ型マーカー
     _dim: PhantomData<D>,         // 次元型マーカー
 }
 
@@ -28,8 +29,40 @@ pub struct TensorInner {
     buffer: RwLock<Option<Vec<f32>>>, // 実行結果バッファ
 }
 
-pub type TensorRef = Arc<Tensor<DimDyn>>;
+pub type TensorRef = Arc<Tensor<f32, DimDyn>>;
 ```
+
+### TensorDType トレイト階層
+
+型レベルでのデータ型制約を提供します。
+
+```rust
+pub trait TensorDType: Clone + Send + Sync + 'static {
+    const DTYPE: DType;
+}
+
+// 数値型（算術演算可能）
+pub trait NumericDType: TensorDType {}
+
+// 浮動小数点型（sin, cos, sqrt等が利用可能）
+pub trait FloatDType: NumericDType {}
+
+// 整数型（ビット演算等が利用可能）
+pub trait IntegerDType: NumericDType {}
+
+// 符号付き整数型
+pub trait SignedIntDType: IntegerDType {}
+
+// 符号なし整数型
+pub trait UnsignedIntDType: IntegerDType {}
+```
+
+| 型 | TensorDType | NumericDType | FloatDType | IntegerDType |
+|----|-------------|--------------|------------|--------------|
+| f32, f64 | ○ | ○ | ○ | × |
+| i8, i16, i32, i64 | ○ | ○ | × | ○ (Signed) |
+| u8, u16, u32 | ○ | ○ | × | ○ (Unsigned) |
+| bool | ○ | × | × | × |
 
 ### TensorOp
 
@@ -117,12 +150,12 @@ let c = a2 * 2.0;        // a2は別パス → OK
 
 ### GradFn トレイト
 
-勾配関数のインターフェース。
+勾配関数のインターフェース。勾配計算はf32テンソルに固定されています。
 
 ```rust
 pub trait GradFn: Send + Sync {
-    fn backward(&self, grad_output: &Tensor<DimDyn>) -> Vec<Tensor<DimDyn>>;
-    fn inputs(&self) -> Vec<Tensor<DimDyn>>;
+    fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>>;
+    fn inputs(&self) -> Vec<Tensor<f32, DimDyn>>;
     fn name(&self) -> &'static str;
 }
 ```
@@ -208,14 +241,14 @@ primopsの組み合わせで表現される演算。
 ### テンソル作成
 
 ```rust
-// 静的次元
-let zeros = Tensor::<Dim2>::zeros([3, 4]);
-let ones = Tensor::<Dim2>::ones([3, 4]);
-let full = Tensor::<Dim2>::full([3, 4], 2.5);
-let input = Tensor::<Dim2>::input("x", [3, 4]);
+// 静的次元（f32がデフォルト）
+let zeros = Tensor::<f32, Dim2>::zeros([3, 4]);
+let ones = Tensor::<f32, Dim2>::ones([3, 4]);
+let full = Tensor::<f32, Dim2>::full([3, 4], 2.5);
+let input = Tensor::<f32, Dim2>::input("x", [3, 4]);
 
 // 動的次元
-let zeros = Tensor::<DimDyn>::zeros_dyn(&[3, 4, 5]);
+let zeros = Tensor::<f32, DimDyn>::zeros_dyn(&[3, 4, 5]);
 ```
 
 ### 演算
@@ -249,9 +282,11 @@ let a2 = a.fork();  // Clone演算を追加
 
 ### 勾配追跡
 
+勾配関連の操作はf32テンソルのみで利用可能です（AutogradMeta, GradFnがf32固定のため）。
+
 ```rust
 // 勾配追跡を有効化
-let x = Tensor::<Dim2>::ones([2, 2]).set_requires_grad(true);
+let x = Tensor::<f32, Dim2>::ones([2, 2]).set_requires_grad(true);
 
 // 演算（勾配が自動追跡される）
 let y = &x * &x;
@@ -323,6 +358,7 @@ Compute演算の勾配はシンボリック微分により勾配を計算。
 ```
 src/tensor/
 ├── mod.rs          # Tensor構造体、TensorInner、GradFn
+├── dtype.rs        # TensorDType、NumericDType、FloatDType等のトレイト
 ├── dimension.rs    # Dimension トレイト
 ├── ops.rs          # TensorOp、ElementwiseOp、ReduceOp、TensorRef
 ├── fusion.rs       # Eager Fusion ロジック（can_fuse）
@@ -357,8 +393,8 @@ TensorからASTへの変換を行うLowerer。
 ```rust
 use harp::tensor::lowerer::{TensorLowerer, lower_tensor};
 
-let a = Tensor::<Dim2>::input("a", [2, 3]);
-let b = Tensor::<Dim2>::input("b", [2, 3]);
+let a = Tensor::<f32, Dim2>::input("a", [2, 3]);
+let b = Tensor::<f32, Dim2>::input("b", [2, 3]);
 let c = &a + &b;
 
 // TensorLowererを使用

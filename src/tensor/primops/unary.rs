@@ -27,21 +27,21 @@ use super::binary::with_grad_fn;
 /// Gradient for Neg: z = -a
 /// ∂L/∂a = -∂L/∂z
 pub struct NegBackward {
-    input: Tensor<DimDyn>,
+    input: Tensor<f32, DimDyn>,
 }
 
 impl NegBackward {
-    pub fn new(input: Tensor<DimDyn>) -> Self {
+    pub fn new(input: Tensor<f32, DimDyn>) -> Self {
         Self { input }
     }
 }
 
 impl GradFn for NegBackward {
-    fn backward(&self, grad_output: &Tensor<DimDyn>) -> Vec<Tensor<DimDyn>> {
+    fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
         vec![-grad_output]
     }
 
-    fn inputs(&self) -> Vec<Tensor<DimDyn>> {
+    fn inputs(&self) -> Vec<Tensor<f32, DimDyn>> {
         vec![self.input.clone()]
     }
 
@@ -53,24 +53,24 @@ impl GradFn for NegBackward {
 /// Gradient for Recip: z = 1/a
 /// ∂L/∂a = -∂L/∂z / a² = -∂L/∂z · z²
 pub struct RecipBackward {
-    input: Tensor<DimDyn>,
-    output: Tensor<DimDyn>,
+    input: Tensor<f32, DimDyn>,
+    output: Tensor<f32, DimDyn>,
 }
 
 impl RecipBackward {
-    pub fn new(input: Tensor<DimDyn>, output: Tensor<DimDyn>) -> Self {
+    pub fn new(input: Tensor<f32, DimDyn>, output: Tensor<f32, DimDyn>) -> Self {
         Self { input, output }
     }
 }
 
 impl GradFn for RecipBackward {
-    fn backward(&self, grad_output: &Tensor<DimDyn>) -> Vec<Tensor<DimDyn>> {
+    fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
         // ∂L/∂a = -∂L/∂z · z² where z = 1/a
         let z_squared = &self.output * &self.output;
         vec![-(grad_output * &z_squared)]
     }
 
-    fn inputs(&self) -> Vec<Tensor<DimDyn>> {
+    fn inputs(&self) -> Vec<Tensor<f32, DimDyn>> {
         vec![self.input.clone()]
     }
 
@@ -82,23 +82,23 @@ impl GradFn for RecipBackward {
 /// Gradient for Sqrt: z = √a
 /// ∂L/∂a = ∂L/∂z / (2·√a) = ∂L/∂z / (2·z)
 pub struct SqrtBackward {
-    input: Tensor<DimDyn>,
-    output: Tensor<DimDyn>,
+    input: Tensor<f32, DimDyn>,
+    output: Tensor<f32, DimDyn>,
 }
 
 impl SqrtBackward {
-    pub fn new(input: Tensor<DimDyn>, output: Tensor<DimDyn>) -> Self {
+    pub fn new(input: Tensor<f32, DimDyn>, output: Tensor<f32, DimDyn>) -> Self {
         Self { input, output }
     }
 }
 
 impl GradFn for SqrtBackward {
-    fn backward(&self, grad_output: &Tensor<DimDyn>) -> Vec<Tensor<DimDyn>> {
+    fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
         let two_sqrt = &self.output * 2.0;
         vec![grad_output / &two_sqrt]
     }
 
-    fn inputs(&self) -> Vec<Tensor<DimDyn>> {
+    fn inputs(&self) -> Vec<Tensor<f32, DimDyn>> {
         vec![self.input.clone()]
     }
 
@@ -110,23 +110,23 @@ impl GradFn for SqrtBackward {
 /// Gradient for Log2: z = log₂(a)
 /// ∂L/∂a = ∂L/∂z / (a · ln(2))
 pub struct Log2Backward {
-    input: Tensor<DimDyn>,
+    input: Tensor<f32, DimDyn>,
 }
 
 impl Log2Backward {
-    pub fn new(input: Tensor<DimDyn>) -> Self {
+    pub fn new(input: Tensor<f32, DimDyn>) -> Self {
         Self { input }
     }
 }
 
 impl GradFn for Log2Backward {
-    fn backward(&self, grad_output: &Tensor<DimDyn>) -> Vec<Tensor<DimDyn>> {
+    fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
         let ln2 = std::f32::consts::LN_2;
         let denominator = &self.input * ln2;
         vec![grad_output / &denominator]
     }
 
-    fn inputs(&self) -> Vec<Tensor<DimDyn>> {
+    fn inputs(&self) -> Vec<Tensor<f32, DimDyn>> {
         vec![self.input.clone()]
     }
 
@@ -138,24 +138,24 @@ impl GradFn for Log2Backward {
 /// Gradient for Exp2: z = 2^a
 /// ∂L/∂a = ∂L/∂z · 2^a · ln(2) = ∂L/∂z · z · ln(2)
 pub struct Exp2Backward {
-    input: Tensor<DimDyn>,
-    output: Tensor<DimDyn>,
+    input: Tensor<f32, DimDyn>,
+    output: Tensor<f32, DimDyn>,
 }
 
 impl Exp2Backward {
-    pub fn new(input: Tensor<DimDyn>, output: Tensor<DimDyn>) -> Self {
+    pub fn new(input: Tensor<f32, DimDyn>, output: Tensor<f32, DimDyn>) -> Self {
         Self { input, output }
     }
 }
 
 impl GradFn for Exp2Backward {
-    fn backward(&self, grad_output: &Tensor<DimDyn>) -> Vec<Tensor<DimDyn>> {
+    fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
         let ln2 = std::f32::consts::LN_2;
         let scaled_output = &self.output * ln2;
         vec![grad_output * &scaled_output]
     }
 
-    fn inputs(&self) -> Vec<Tensor<DimDyn>> {
+    fn inputs(&self) -> Vec<Tensor<f32, DimDyn>> {
         vec![self.input.clone()]
     }
 
@@ -167,17 +167,17 @@ impl GradFn for Exp2Backward {
 /// Gradient for Sin: z = sin(a)
 /// ∂L/∂a = ∂L/∂z · cos(a)
 pub struct SinBackward {
-    input: Tensor<DimDyn>,
+    input: Tensor<f32, DimDyn>,
 }
 
 impl SinBackward {
-    pub fn new(input: Tensor<DimDyn>) -> Self {
+    pub fn new(input: Tensor<f32, DimDyn>) -> Self {
         Self { input }
     }
 }
 
 impl GradFn for SinBackward {
-    fn backward(&self, grad_output: &Tensor<DimDyn>) -> Vec<Tensor<DimDyn>> {
+    fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
         // cos(x) = sin(x + π/2)
         use std::f32::consts::FRAC_PI_2;
         let shifted = &self.input + FRAC_PI_2;
@@ -185,7 +185,7 @@ impl GradFn for SinBackward {
         vec![grad_output * &cos_input]
     }
 
-    fn inputs(&self) -> Vec<Tensor<DimDyn>> {
+    fn inputs(&self) -> Vec<Tensor<f32, DimDyn>> {
         vec![self.input.clone()]
     }
 
@@ -245,7 +245,10 @@ fn view_from_shape(shape: &[usize]) -> View {
 }
 
 /// Create a unary elementwise Tensor using Compute variant
-fn create_unary_elementwise<D: Dimension>(op: ElementwiseOp, input: &Tensor<D>) -> Tensor<D> {
+fn create_unary_elementwise<D: Dimension>(
+    op: ElementwiseOp,
+    input: &Tensor<f32, D>,
+) -> Tensor<f32, D> {
     let view = view_from_shape(input.shape());
     let shape = input.shape().to_vec();
 
@@ -257,6 +260,7 @@ fn create_unary_elementwise<D: Dimension>(op: ElementwiseOp, input: &Tensor<D>) 
 
     Tensor {
         inner: Arc::new(inner),
+        _dtype: PhantomData,
         _dim: PhantomData,
     }
 }
@@ -265,10 +269,10 @@ fn create_unary_elementwise<D: Dimension>(op: ElementwiseOp, input: &Tensor<D>) 
 // Neg implementation (std::ops::Neg)
 // ============================================================================
 
-impl<D: Dimension> Neg for &Tensor<D> {
-    type Output = Tensor<D>;
+impl<D: Dimension> Neg for &Tensor<f32, D> {
+    type Output = Tensor<f32, D>;
 
-    fn neg(self) -> Tensor<D> {
+    fn neg(self) -> Tensor<f32, D> {
         let result = create_unary_elementwise(ElementwiseOp::Neg, self);
 
         if self.requires_grad() {
@@ -280,9 +284,9 @@ impl<D: Dimension> Neg for &Tensor<D> {
     }
 }
 
-impl<D: Dimension> Neg for Tensor<D> {
-    type Output = Tensor<D>;
-    fn neg(self) -> Tensor<D> {
+impl<D: Dimension> Neg for Tensor<f32, D> {
+    type Output = Tensor<f32, D>;
+    fn neg(self) -> Tensor<f32, D> {
         -&self
     }
 }
@@ -291,10 +295,10 @@ impl<D: Dimension> Neg for Tensor<D> {
 // Recip implementation
 // ============================================================================
 
-impl<D: Dimension> Recip for &Tensor<D> {
-    type Output = Tensor<D>;
+impl<D: Dimension> Recip for &Tensor<f32, D> {
+    type Output = Tensor<f32, D>;
 
-    fn recip(self) -> Tensor<D> {
+    fn recip(self) -> Tensor<f32, D> {
         let result = create_unary_elementwise(ElementwiseOp::Recip, self);
 
         if self.requires_grad() {
@@ -306,9 +310,9 @@ impl<D: Dimension> Recip for &Tensor<D> {
     }
 }
 
-impl<D: Dimension> Recip for Tensor<D> {
-    type Output = Tensor<D>;
-    fn recip(self) -> Tensor<D> {
+impl<D: Dimension> Recip for Tensor<f32, D> {
+    type Output = Tensor<f32, D>;
+    fn recip(self) -> Tensor<f32, D> {
         (&self).recip()
     }
 }
@@ -317,10 +321,10 @@ impl<D: Dimension> Recip for Tensor<D> {
 // Sqrt implementation
 // ============================================================================
 
-impl<D: Dimension> Sqrt for &Tensor<D> {
-    type Output = Tensor<D>;
+impl<D: Dimension> Sqrt for &Tensor<f32, D> {
+    type Output = Tensor<f32, D>;
 
-    fn sqrt(self) -> Tensor<D> {
+    fn sqrt(self) -> Tensor<f32, D> {
         let result = create_unary_elementwise(ElementwiseOp::Sqrt, self);
 
         if self.requires_grad() {
@@ -332,9 +336,9 @@ impl<D: Dimension> Sqrt for &Tensor<D> {
     }
 }
 
-impl<D: Dimension> Sqrt for Tensor<D> {
-    type Output = Tensor<D>;
-    fn sqrt(self) -> Tensor<D> {
+impl<D: Dimension> Sqrt for Tensor<f32, D> {
+    type Output = Tensor<f32, D>;
+    fn sqrt(self) -> Tensor<f32, D> {
         (&self).sqrt()
     }
 }
@@ -343,10 +347,10 @@ impl<D: Dimension> Sqrt for Tensor<D> {
 // Log2 implementation
 // ============================================================================
 
-impl<D: Dimension> Log2 for &Tensor<D> {
-    type Output = Tensor<D>;
+impl<D: Dimension> Log2 for &Tensor<f32, D> {
+    type Output = Tensor<f32, D>;
 
-    fn log2(self) -> Tensor<D> {
+    fn log2(self) -> Tensor<f32, D> {
         let result = create_unary_elementwise(ElementwiseOp::Log2, self);
 
         if self.requires_grad() {
@@ -358,9 +362,9 @@ impl<D: Dimension> Log2 for &Tensor<D> {
     }
 }
 
-impl<D: Dimension> Log2 for Tensor<D> {
-    type Output = Tensor<D>;
-    fn log2(self) -> Tensor<D> {
+impl<D: Dimension> Log2 for Tensor<f32, D> {
+    type Output = Tensor<f32, D>;
+    fn log2(self) -> Tensor<f32, D> {
         (&self).log2()
     }
 }
@@ -369,10 +373,10 @@ impl<D: Dimension> Log2 for Tensor<D> {
 // Exp2 implementation
 // ============================================================================
 
-impl<D: Dimension> Exp2 for &Tensor<D> {
-    type Output = Tensor<D>;
+impl<D: Dimension> Exp2 for &Tensor<f32, D> {
+    type Output = Tensor<f32, D>;
 
-    fn exp2(self) -> Tensor<D> {
+    fn exp2(self) -> Tensor<f32, D> {
         let result = create_unary_elementwise(ElementwiseOp::Exp2, self);
 
         if self.requires_grad() {
@@ -384,9 +388,9 @@ impl<D: Dimension> Exp2 for &Tensor<D> {
     }
 }
 
-impl<D: Dimension> Exp2 for Tensor<D> {
-    type Output = Tensor<D>;
-    fn exp2(self) -> Tensor<D> {
+impl<D: Dimension> Exp2 for Tensor<f32, D> {
+    type Output = Tensor<f32, D>;
+    fn exp2(self) -> Tensor<f32, D> {
         (&self).exp2()
     }
 }
@@ -395,10 +399,10 @@ impl<D: Dimension> Exp2 for Tensor<D> {
 // Sin implementation
 // ============================================================================
 
-impl<D: Dimension> Sin for &Tensor<D> {
-    type Output = Tensor<D>;
+impl<D: Dimension> Sin for &Tensor<f32, D> {
+    type Output = Tensor<f32, D>;
 
-    fn sin(self) -> Tensor<D> {
+    fn sin(self) -> Tensor<f32, D> {
         let result = create_unary_elementwise(ElementwiseOp::Sin, self);
 
         if self.requires_grad() {
@@ -410,9 +414,9 @@ impl<D: Dimension> Sin for &Tensor<D> {
     }
 }
 
-impl<D: Dimension> Sin for Tensor<D> {
-    type Output = Tensor<D>;
-    fn sin(self) -> Tensor<D> {
+impl<D: Dimension> Sin for Tensor<f32, D> {
+    type Output = Tensor<f32, D>;
+    fn sin(self) -> Tensor<f32, D> {
         (&self).sin()
     }
 }
@@ -421,19 +425,19 @@ impl<D: Dimension> Sin for Tensor<D> {
 // Floor implementation
 // ============================================================================
 
-impl<D: Dimension> Floor for &Tensor<D> {
-    type Output = Tensor<D>;
+impl<D: Dimension> Floor for &Tensor<f32, D> {
+    type Output = Tensor<f32, D>;
 
     /// Floor is non-differentiable (gradient is 0 almost everywhere).
     /// Therefore, gradient tracking is not preserved for this operation.
-    fn floor(self) -> Tensor<D> {
+    fn floor(self) -> Tensor<f32, D> {
         create_unary_elementwise(ElementwiseOp::Floor, self)
     }
 }
 
-impl<D: Dimension> Floor for Tensor<D> {
-    type Output = Tensor<D>;
-    fn floor(self) -> Tensor<D> {
+impl<D: Dimension> Floor for Tensor<f32, D> {
+    type Output = Tensor<f32, D>;
+    fn floor(self) -> Tensor<f32, D> {
         (&self).floor()
     }
 }
@@ -445,49 +449,49 @@ mod tests {
 
     #[test]
     fn test_neg() {
-        let a = Tensor::<Dim2>::ones([2, 3]);
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
         let c = -&a;
         assert_eq!(c.shape(), &[2, 3]);
     }
 
     #[test]
     fn test_recip() {
-        let a = Tensor::<Dim2>::ones([2, 3]);
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
         let c = a.recip();
         assert_eq!(c.shape(), &[2, 3]);
     }
 
     #[test]
     fn test_sqrt() {
-        let a = Tensor::<Dim2>::ones([2, 3]);
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
         let c = a.sqrt();
         assert_eq!(c.shape(), &[2, 3]);
     }
 
     #[test]
     fn test_log2() {
-        let a = Tensor::<Dim2>::ones([2, 3]);
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
         let c = a.log2();
         assert_eq!(c.shape(), &[2, 3]);
     }
 
     #[test]
     fn test_exp2() {
-        let a = Tensor::<Dim2>::ones([2, 3]);
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
         let c = a.exp2();
         assert_eq!(c.shape(), &[2, 3]);
     }
 
     #[test]
     fn test_sin() {
-        let a = Tensor::<Dim2>::ones([2, 3]);
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
         let c = a.sin();
         assert_eq!(c.shape(), &[2, 3]);
     }
 
     #[test]
     fn test_floor() {
-        let a = Tensor::<Dim2>::ones([2, 3]);
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
         let c = a.floor();
         assert_eq!(c.shape(), &[2, 3]);
     }

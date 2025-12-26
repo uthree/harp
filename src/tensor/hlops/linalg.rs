@@ -13,13 +13,13 @@ use crate::tensor::{Dim1, Dim2, DimDyn, Tensor, TensorInner};
 // Type-safe operations for Dim1
 // ============================================================================
 
-impl Tensor<Dim1> {
+impl Tensor<f32, Dim1> {
     /// Type-safe dot product for 1D tensors
     ///
     /// a[K] · b[K] -> scalar
     ///
     /// Returns a scalar tensor (0-dimensional).
-    pub fn dot1(&self, other: &Tensor<Dim1>) -> Tensor<DimDyn> {
+    pub fn dot1(&self, other: &Tensor<f32, Dim1>) -> Tensor<f32, DimDyn> {
         assert_eq!(
             self.shape()[0],
             other.shape()[0],
@@ -37,7 +37,7 @@ impl Tensor<Dim1> {
     /// a[M] ⊗ b[N] -> C[M, N]
     ///
     /// Returns a 2D tensor.
-    pub fn outer1(&self, other: &Tensor<Dim1>) -> Tensor<Dim2> {
+    pub fn outer1(&self, other: &Tensor<f32, Dim1>) -> Tensor<f32, Dim2> {
         let m = self.shape()[0];
         let n = other.shape()[0];
 
@@ -60,6 +60,7 @@ impl Tensor<Dim1> {
                 autograd: None,
                 buffer: std::sync::RwLock::new(None),
             }),
+            _dtype: PhantomData,
             _dim: PhantomData,
         }
     }
@@ -69,13 +70,13 @@ impl Tensor<Dim1> {
 // Type-safe matmul for Dim2
 // ============================================================================
 
-impl Tensor<Dim2> {
+impl Tensor<f32, Dim2> {
     /// Type-safe matrix multiplication for 2D tensors
     ///
     /// A[M, K] @ B[K, N] -> C[M, N]
     ///
     /// This is a type-safe version that preserves the Dim2 type.
-    pub fn matmul2(&self, other: &Tensor<Dim2>) -> Tensor<Dim2> {
+    pub fn matmul2(&self, other: &Tensor<f32, Dim2>) -> Tensor<f32, Dim2> {
         let a_shape = self.shape();
         let b_shape = other.shape();
 
@@ -114,19 +115,20 @@ impl Tensor<Dim2> {
                 autograd: None,
                 buffer: std::sync::RwLock::new(None),
             }),
+            _dtype: PhantomData,
             _dim: PhantomData,
         }
     }
 }
 
-impl Tensor<DimDyn> {
+impl Tensor<f32, DimDyn> {
     /// Matrix multiplication for dynamic tensors (hlop)
     ///
     /// For 2D tensors A[M, K] @ B[K, N] -> C[M, N]
     /// Supports batched matmul and vector-matrix operations.
     ///
-    /// For type-safe 2D matmul, use `Tensor<Dim2>::matmul2` instead.
-    pub fn matmul(&self, other: &Tensor<DimDyn>) -> Tensor<DimDyn> {
+    /// For type-safe 2D matmul, use `Tensor<f32, Dim2>::matmul2` instead.
+    pub fn matmul(&self, other: &Tensor<f32, DimDyn>) -> Tensor<f32, DimDyn> {
         assert!(
             self.ndim() >= 1 && other.ndim() >= 1,
             "matmul requires at least 1D tensors"
@@ -227,8 +229,8 @@ impl Tensor<DimDyn> {
     ///
     /// For 1D tensors: sum(a * b)
     ///
-    /// Delegates to the type-safe `Tensor<Dim1>::dot1` implementation.
-    pub fn dot(&self, other: &Tensor<DimDyn>) -> Tensor<DimDyn> {
+    /// Delegates to the type-safe `Tensor<f32, Dim1>::dot1` implementation.
+    pub fn dot(&self, other: &Tensor<f32, DimDyn>) -> Tensor<f32, DimDyn> {
         // Convert to Dim1 and delegate to type-safe implementation
         self.into_dim1().dot1(&other.into_dim1())
     }
@@ -237,8 +239,8 @@ impl Tensor<DimDyn> {
     ///
     /// For 1D tensors a[M], b[N] -> result[M, N]
     ///
-    /// Delegates to the type-safe `Tensor<Dim1>::outer1` implementation.
-    pub fn outer(&self, other: &Tensor<DimDyn>) -> Tensor<DimDyn> {
+    /// Delegates to the type-safe `Tensor<f32, Dim1>::outer1` implementation.
+    pub fn outer(&self, other: &Tensor<f32, DimDyn>) -> Tensor<f32, DimDyn> {
         // Convert to Dim1 and delegate to type-safe implementation
         self.into_dim1().outer1(&other.into_dim1()).into_dyn()
     }
@@ -281,17 +283,17 @@ mod tests {
 
     #[test]
     fn test_matmul2_type_safe() {
-        let a: Tensor<Dim2> = Tensor::ones([2, 3]);
-        let b: Tensor<Dim2> = Tensor::ones([3, 4]);
-        // matmul2 returns Tensor<Dim2>, not Tensor<DimDyn>
-        let c: Tensor<Dim2> = a.matmul2(&b);
+        let a: Tensor<f32, Dim2> = Tensor::ones([2, 3]);
+        let b: Tensor<f32, Dim2> = Tensor::ones([3, 4]);
+        // matmul2 returns Tensor<f32, Dim2>, not Tensor<f32, DimDyn>
+        let c: Tensor<f32, Dim2> = a.matmul2(&b);
         assert_eq!(c.shape(), &[2, 4]);
     }
 
     #[test]
     fn test_dot1_type_safe() {
-        let a: Tensor<Dim1> = Tensor::ones([3]);
-        let b: Tensor<Dim1> = Tensor::ones([3]);
+        let a: Tensor<f32, Dim1> = Tensor::ones([3]);
+        let b: Tensor<f32, Dim1> = Tensor::ones([3]);
         // dot1 returns scalar (0-dim tensor)
         let c = a.dot1(&b);
         assert_eq!(c.shape(), &[]);
@@ -299,49 +301,49 @@ mod tests {
 
     #[test]
     fn test_outer1_type_safe() {
-        let a: Tensor<Dim1> = Tensor::ones([3]);
-        let b: Tensor<Dim1> = Tensor::ones([4]);
-        // outer1 returns Tensor<Dim2>
-        let c: Tensor<Dim2> = a.outer1(&b);
+        let a: Tensor<f32, Dim1> = Tensor::ones([3]);
+        let b: Tensor<f32, Dim1> = Tensor::ones([4]);
+        // outer1 returns Tensor<f32, Dim2>
+        let c: Tensor<f32, Dim2> = a.outer1(&b);
         assert_eq!(c.shape(), &[3, 4]);
     }
 
     #[test]
     fn test_matmul_dyn() {
-        let a = Tensor::<Dim2>::ones([2, 3]).into_dyn();
-        let b = Tensor::<Dim2>::ones([3, 4]).into_dyn();
+        let a = Tensor::<f32, Dim2>::ones([2, 3]).into_dyn();
+        let b = Tensor::<f32, Dim2>::ones([3, 4]).into_dyn();
         let c = a.matmul(&b);
         assert_eq!(c.shape(), &[2, 4]);
     }
 
     #[test]
     fn test_dot_product() {
-        let a = Tensor::<Dim1>::ones([3]).into_dyn();
-        let b = Tensor::<Dim1>::ones([3]).into_dyn();
+        let a = Tensor::<f32, Dim1>::ones([3]).into_dyn();
+        let b = Tensor::<f32, Dim1>::ones([3]).into_dyn();
         let c = a.dot(&b);
         assert_eq!(c.shape(), &[]);
     }
 
     #[test]
     fn test_outer_product() {
-        let a = Tensor::<Dim1>::ones([3]).into_dyn();
-        let b = Tensor::<Dim1>::ones([4]).into_dyn();
+        let a = Tensor::<f32, Dim1>::ones([3]).into_dyn();
+        let b = Tensor::<f32, Dim1>::ones([4]).into_dyn();
         let c = a.outer(&b);
         assert_eq!(c.shape(), &[3, 4]);
     }
 
     #[test]
     fn test_matvec() {
-        let a = Tensor::<Dim2>::ones([2, 3]).into_dyn();
-        let b = Tensor::<Dim1>::ones([3]).into_dyn();
+        let a = Tensor::<f32, Dim2>::ones([2, 3]).into_dyn();
+        let b = Tensor::<f32, Dim1>::ones([3]).into_dyn();
         let c = a.matmul(&b);
         assert_eq!(c.shape(), &[2]);
     }
 
     #[test]
     fn test_vecmat() {
-        let a = Tensor::<Dim1>::ones([2]).into_dyn();
-        let b = Tensor::<Dim2>::ones([2, 3]).into_dyn();
+        let a = Tensor::<f32, Dim1>::ones([2]).into_dyn();
+        let b = Tensor::<f32, Dim2>::ones([2, 3]).into_dyn();
         let c = a.matmul(&b);
         assert_eq!(c.shape(), &[3]);
     }

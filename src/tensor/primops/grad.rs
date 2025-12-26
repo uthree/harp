@@ -21,7 +21,10 @@ use std::collections::HashMap;
 // ============================================================================
 
 /// Reduce gradient to match the original input shape (handle broadcasting)
-pub fn reduce_grad_for_broadcast(grad: &Tensor<DimDyn>, target_shape: &[usize]) -> Tensor<DimDyn> {
+pub fn reduce_grad_for_broadcast(
+    grad: &Tensor<f32, DimDyn>,
+    target_shape: &[usize],
+) -> Tensor<f32, DimDyn> {
     if grad.shape() == target_shape {
         return grad.clone();
     }
@@ -59,22 +62,22 @@ pub fn reduce_grad_for_broadcast(grad: &Tensor<DimDyn>, target_shape: &[usize]) 
 /// Gradient for Clone (fork): z = clone(a)
 /// ∂L/∂a = ∂L/∂z (identity - gradient passes through)
 pub struct CloneBackward {
-    input: Tensor<DimDyn>,
+    input: Tensor<f32, DimDyn>,
 }
 
 impl CloneBackward {
-    pub fn new(input: Tensor<DimDyn>) -> Self {
+    pub fn new(input: Tensor<f32, DimDyn>) -> Self {
         Self { input }
     }
 }
 
 impl GradFn for CloneBackward {
-    fn backward(&self, grad_output: &Tensor<DimDyn>) -> Vec<Tensor<DimDyn>> {
+    fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
         // Clone is identity for gradients - just pass through
         vec![grad_output.clone()]
     }
 
-    fn inputs(&self) -> Vec<Tensor<DimDyn>> {
+    fn inputs(&self) -> Vec<Tensor<f32, DimDyn>> {
         vec![self.input.clone()]
     }
 
@@ -264,13 +267,13 @@ fn find_wildcards_impl(expr: &AstNode, result: &mut Vec<String>) {
 /// Computes gradients for each input by symbolically differentiating the expression
 /// and then evaluating the derivative with the actual input values.
 pub struct FusedElementwiseBackward {
-    inputs: Vec<Tensor<DimDyn>>,
+    inputs: Vec<Tensor<f32, DimDyn>>,
     /// Precomputed derivative expressions for each input wildcard
     grad_exprs: Vec<(String, AstNode)>,
 }
 
 impl FusedElementwiseBackward {
-    pub fn new(inputs: Vec<Tensor<DimDyn>>, expr: AstNode) -> Self {
+    pub fn new(inputs: Vec<Tensor<f32, DimDyn>>, expr: AstNode) -> Self {
         // Find all wildcards and compute derivatives
         let wildcards = find_wildcards(&expr);
         let grad_exprs: Vec<(String, AstNode)> = wildcards
@@ -283,9 +286,9 @@ impl FusedElementwiseBackward {
 }
 
 impl GradFn for FusedElementwiseBackward {
-    fn backward(&self, grad_output: &Tensor<DimDyn>) -> Vec<Tensor<DimDyn>> {
+    fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
         // Build substitution map from wildcard names to input tensors
-        let mut substitution_map: HashMap<String, Tensor<DimDyn>> = HashMap::new();
+        let mut substitution_map: HashMap<String, Tensor<f32, DimDyn>> = HashMap::new();
         for (i, input) in self.inputs.iter().enumerate() {
             substitution_map.insert(i.to_string(), input.clone());
         }
@@ -312,13 +315,13 @@ impl GradFn for FusedElementwiseBackward {
         while grads.len() < self.inputs.len() {
             // This shouldn't happen normally, but provide zero gradients as fallback
             let idx = grads.len();
-            grads.push(Tensor::<DimDyn>::zeros_dyn(self.inputs[idx].shape()));
+            grads.push(Tensor::<f32, DimDyn>::zeros_dyn(self.inputs[idx].shape()));
         }
 
         grads
     }
 
-    fn inputs(&self) -> Vec<Tensor<DimDyn>> {
+    fn inputs(&self) -> Vec<Tensor<f32, DimDyn>> {
         self.inputs.clone()
     }
 
@@ -331,7 +334,7 @@ impl GradFn for FusedElementwiseBackward {
 ///
 /// Handles the case where elementwise operations are fused with a reduce operation.
 pub struct FusedElementwiseReduceBackward {
-    inputs: Vec<Tensor<DimDyn>>,
+    inputs: Vec<Tensor<f32, DimDyn>>,
     input_shapes: Vec<Vec<usize>>,
     #[allow(dead_code)]
     reduce_op: ReduceOp, // TODO: Use for proper gradient computation (e.g., ReduceMax mask)
@@ -343,7 +346,7 @@ pub struct FusedElementwiseReduceBackward {
 
 impl FusedElementwiseReduceBackward {
     pub fn new(
-        inputs: Vec<Tensor<DimDyn>>,
+        inputs: Vec<Tensor<f32, DimDyn>>,
         expr: AstNode,
         reduce_op: ReduceOp,
         axes: Vec<usize>,
@@ -370,7 +373,7 @@ impl FusedElementwiseReduceBackward {
 }
 
 impl GradFn for FusedElementwiseReduceBackward {
-    fn backward(&self, grad_output: &Tensor<DimDyn>) -> Vec<Tensor<DimDyn>> {
+    fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
         // First, expand grad_output to match the pre-reduction shape
         let mut grad = grad_output.clone();
         if !self.keepdim {
@@ -389,7 +392,7 @@ impl GradFn for FusedElementwiseReduceBackward {
         let grad_expanded = grad.expand(&max_shape);
 
         // Build substitution map
-        let mut substitution_map: HashMap<String, Tensor<DimDyn>> = HashMap::new();
+        let mut substitution_map: HashMap<String, Tensor<f32, DimDyn>> = HashMap::new();
         for (i, input) in self.inputs.iter().enumerate() {
             substitution_map.insert(i.to_string(), input.clone());
         }
@@ -415,13 +418,13 @@ impl GradFn for FusedElementwiseReduceBackward {
         // Ensure we return gradients for all inputs
         while grads.len() < self.inputs.len() {
             let idx = grads.len();
-            grads.push(Tensor::<DimDyn>::zeros_dyn(self.inputs[idx].shape()));
+            grads.push(Tensor::<f32, DimDyn>::zeros_dyn(self.inputs[idx].shape()));
         }
 
         grads
     }
 
-    fn inputs(&self) -> Vec<Tensor<DimDyn>> {
+    fn inputs(&self) -> Vec<Tensor<f32, DimDyn>> {
         self.inputs.clone()
     }
 
@@ -433,19 +436,19 @@ impl GradFn for FusedElementwiseReduceBackward {
 /// Evaluate an AstNode expression with tensor values substituted for wildcards
 fn evaluate_ast_with_tensors(
     expr: &AstNode,
-    substitution: &HashMap<String, Tensor<DimDyn>>,
-) -> Tensor<DimDyn> {
+    substitution: &HashMap<String, Tensor<f32, DimDyn>>,
+) -> Tensor<f32, DimDyn> {
     match expr {
         AstNode::Const(Literal::F32(val)) => {
             // Create a scalar tensor - shape will be broadcast during operations
-            Tensor::<DimDyn>::full_dyn(&[1], *val)
+            Tensor::<f32, DimDyn>::full_dyn(&[1], *val)
         }
-        AstNode::Const(Literal::I32(val)) => Tensor::<DimDyn>::full_dyn(&[1], *val as f32),
+        AstNode::Const(Literal::I32(val)) => Tensor::<f32, DimDyn>::full_dyn(&[1], *val as f32),
 
         AstNode::Wildcard(name) => substitution
             .get(name)
             .cloned()
-            .unwrap_or_else(|| Tensor::<DimDyn>::zeros_dyn(&[1])),
+            .unwrap_or_else(|| Tensor::<f32, DimDyn>::zeros_dyn(&[1])),
 
         AstNode::Add(lhs, rhs) => {
             let l = evaluate_ast_with_tensors(lhs, substitution);
@@ -508,7 +511,7 @@ fn evaluate_ast_with_tensors(
         }
 
         // For unsupported nodes, return zeros
-        _ => Tensor::<DimDyn>::zeros_dyn(&[1]),
+        _ => Tensor::<f32, DimDyn>::zeros_dyn(&[1]),
     }
 }
 
@@ -520,14 +523,14 @@ mod tests {
 
     #[test]
     fn test_add_backward_name() {
-        let t = Tensor::<DimDyn>::ones_dyn(&[2, 3]);
+        let t = Tensor::<f32, DimDyn>::ones_dyn(&[2, 3]);
         let backward = AddBackward::new(t.clone(), t.clone());
         assert_eq!(backward.name(), "AddBackward");
     }
 
     #[test]
     fn test_reduce_grad_for_broadcast_same_shape() {
-        let grad = Tensor::<DimDyn>::ones_dyn(&[2, 3]);
+        let grad = Tensor::<f32, DimDyn>::ones_dyn(&[2, 3]);
         let result = reduce_grad_for_broadcast(&grad, &[2, 3]);
         assert_eq!(result.shape(), &[2, 3]);
     }
@@ -631,8 +634,8 @@ mod tests {
 
     #[test]
     fn test_fused_elementwise_backward_new() {
-        let t1 = Tensor::<DimDyn>::ones_dyn(&[2, 3]);
-        let t2 = Tensor::<DimDyn>::ones_dyn(&[2, 3]);
+        let t1 = Tensor::<f32, DimDyn>::ones_dyn(&[2, 3]);
+        let t2 = Tensor::<f32, DimDyn>::ones_dyn(&[2, 3]);
         let expr = AstNode::Add(Box::new(wildcard("0")), Box::new(wildcard("1")));
 
         let backward = FusedElementwiseBackward::new(vec![t1, t2], expr);
@@ -643,8 +646,8 @@ mod tests {
 
     #[test]
     fn test_fused_elementwise_reduce_backward_new() {
-        let t1 = Tensor::<DimDyn>::ones_dyn(&[2, 3]);
-        let t2 = Tensor::<DimDyn>::ones_dyn(&[2, 3]);
+        let t1 = Tensor::<f32, DimDyn>::ones_dyn(&[2, 3]);
+        let t2 = Tensor::<f32, DimDyn>::ones_dyn(&[2, 3]);
         let expr = AstNode::Mul(Box::new(wildcard("0")), Box::new(wildcard("1")));
 
         let backward =
@@ -666,7 +669,7 @@ mod tests {
     fn test_evaluate_ast_wildcard() {
         let expr = wildcard("0");
         let mut substitution = HashMap::new();
-        let t = Tensor::<DimDyn>::ones_dyn(&[2, 3]);
+        let t = Tensor::<f32, DimDyn>::ones_dyn(&[2, 3]);
         substitution.insert("0".to_string(), t);
         let result = evaluate_ast_with_tensors(&expr, &substitution);
         assert_eq!(result.shape(), &[2, 3]);
@@ -676,8 +679,8 @@ mod tests {
     fn test_evaluate_ast_addition() {
         let expr = AstNode::Add(Box::new(wildcard("0")), Box::new(wildcard("1")));
         let mut substitution = HashMap::new();
-        let t1 = Tensor::<DimDyn>::ones_dyn(&[2, 3]);
-        let t2 = Tensor::<DimDyn>::ones_dyn(&[2, 3]);
+        let t1 = Tensor::<f32, DimDyn>::ones_dyn(&[2, 3]);
+        let t2 = Tensor::<f32, DimDyn>::ones_dyn(&[2, 3]);
         substitution.insert("0".to_string(), t1);
         substitution.insert("1".to_string(), t2);
         let result = evaluate_ast_with_tensors(&expr, &substitution);

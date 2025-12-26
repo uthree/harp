@@ -8,18 +8,18 @@
 
 use crate::tensor::{Dimension, Recip, Tensor};
 
-impl<D: Dimension> Tensor<D> {
+impl<D: Dimension> Tensor<f32, D> {
     /// ReLU activation: max(0, x) (hlop)
     ///
     /// Implemented as: Max(x, 0)
-    pub fn relu(&self) -> Tensor<D> {
+    pub fn relu(&self) -> Tensor<f32, D> {
         self.max_scalar(0.0)
     }
 
     /// Leaky ReLU activation (hlop)
     ///
     /// f(x) = x if x > 0, else alpha * x
-    pub fn leaky_relu(&self, alpha: f32) -> Tensor<D> {
+    pub fn leaky_relu(&self, alpha: f32) -> Tensor<f32, D> {
         // max(x, alpha * x)
         let scaled = self * alpha;
         self.max(&scaled)
@@ -28,7 +28,7 @@ impl<D: Dimension> Tensor<D> {
     /// Sigmoid activation: 1 / (1 + exp(-x)) (hlop)
     ///
     /// Implemented as: Recip(1 + Exp(Neg(x)))
-    pub fn sigmoid(&self) -> Tensor<D> {
+    pub fn sigmoid(&self) -> Tensor<f32, D> {
         let neg_x = -self;
         let exp_neg_x = neg_x.exp();
         let one_plus = exp_neg_x + 1.0;
@@ -38,7 +38,7 @@ impl<D: Dimension> Tensor<D> {
     /// Tanh activation (hlop)
     ///
     /// Implemented as: (exp(2x) - 1) / (exp(2x) + 1)
-    pub fn tanh(&self) -> Tensor<D> {
+    pub fn tanh(&self) -> Tensor<f32, D> {
         // tanh(x) = (e^(2x) - 1) / (e^(2x) + 1)
         let two_x = self * 2.0;
         let exp_2x = two_x.exp();
@@ -50,7 +50,7 @@ impl<D: Dimension> Tensor<D> {
     /// GELU activation (fast approximation) (hlop)
     ///
     /// Approximation: x * sigmoid(1.702 * x)
-    pub fn gelu(&self) -> Tensor<D> {
+    pub fn gelu(&self) -> Tensor<f32, D> {
         let scaled = self * 1.702;
         let sig = scaled.sigmoid();
         self * &sig
@@ -59,7 +59,7 @@ impl<D: Dimension> Tensor<D> {
     /// SiLU (Swish) activation (hlop)
     ///
     /// f(x) = x * sigmoid(x)
-    pub fn silu(&self) -> Tensor<D> {
+    pub fn silu(&self) -> Tensor<f32, D> {
         let sig = self.sigmoid();
         self * &sig
     }
@@ -67,7 +67,7 @@ impl<D: Dimension> Tensor<D> {
     /// Softplus activation (hlop)
     ///
     /// f(x) = ln(1 + exp(x))
-    pub fn softplus(&self) -> Tensor<D> {
+    pub fn softplus(&self) -> Tensor<f32, D> {
         let exp_x = self.exp();
         let one_plus = exp_x + 1.0;
         one_plus.ln()
@@ -76,7 +76,7 @@ impl<D: Dimension> Tensor<D> {
     /// Mish activation (hlop)
     ///
     /// f(x) = x * tanh(softplus(x))
-    pub fn mish(&self) -> Tensor<D> {
+    pub fn mish(&self) -> Tensor<f32, D> {
         let sp = self.softplus();
         let tanh_sp = sp.tanh();
         self * &tanh_sp
@@ -85,7 +85,7 @@ impl<D: Dimension> Tensor<D> {
     /// ELU activation (hlop)
     ///
     /// f(x) = x if x > 0, else alpha * (exp(x) - 1)
-    pub fn elu(&self, alpha: f32) -> Tensor<D> {
+    pub fn elu(&self, alpha: f32) -> Tensor<f32, D> {
         // For x > 0: x
         // For x <= 0: alpha * (exp(x) - 1)
         let exp_x = self.exp();
@@ -103,12 +103,12 @@ impl<D: Dimension> Tensor<D> {
     }
 
     /// Hardtanh: clamp to [-min_val, max_val] (hlop)
-    pub fn hardtanh(&self, min_val: f32, max_val: f32) -> Tensor<D> {
+    pub fn hardtanh(&self, min_val: f32, max_val: f32) -> Tensor<f32, D> {
         self.max_scalar(min_val).min_scalar(max_val)
     }
 
     /// Element-wise minimum with scalar (hlop)
-    pub fn min_scalar(&self, value: f32) -> Tensor<D> {
+    pub fn min_scalar(&self, value: f32) -> Tensor<f32, D> {
         // min(a, b) = -max(-a, -b)
         let neg_self = -self;
         let neg_max = neg_self.max_scalar(-value);
@@ -116,7 +116,7 @@ impl<D: Dimension> Tensor<D> {
     }
 
     /// Clamp values to [min, max] (hlop)
-    pub fn clamp(&self, min: f32, max: f32) -> Tensor<D> {
+    pub fn clamp(&self, min: f32, max: f32) -> Tensor<f32, D> {
         self.max_scalar(min).min_scalar(max)
     }
 }
@@ -128,56 +128,56 @@ mod tests {
 
     #[test]
     fn test_relu() {
-        let a = Tensor::<Dim2>::full([2, 3], -1.0);
+        let a = Tensor::<f32, Dim2>::full([2, 3], -1.0);
         let r = a.relu();
         assert_eq!(r.shape(), &[2, 3]);
     }
 
     #[test]
     fn test_leaky_relu() {
-        let a = Tensor::<Dim2>::full([2, 3], -1.0);
+        let a = Tensor::<f32, Dim2>::full([2, 3], -1.0);
         let r = a.leaky_relu(0.01);
         assert_eq!(r.shape(), &[2, 3]);
     }
 
     #[test]
     fn test_sigmoid() {
-        let a = Tensor::<Dim2>::zeros([2, 3]);
+        let a = Tensor::<f32, Dim2>::zeros([2, 3]);
         let r = a.sigmoid();
         assert_eq!(r.shape(), &[2, 3]);
     }
 
     #[test]
     fn test_tanh() {
-        let a = Tensor::<Dim2>::zeros([2, 3]);
+        let a = Tensor::<f32, Dim2>::zeros([2, 3]);
         let r = a.tanh();
         assert_eq!(r.shape(), &[2, 3]);
     }
 
     #[test]
     fn test_gelu() {
-        let a = Tensor::<Dim2>::ones([2, 3]);
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
         let r = a.gelu();
         assert_eq!(r.shape(), &[2, 3]);
     }
 
     #[test]
     fn test_silu() {
-        let a = Tensor::<Dim2>::ones([2, 3]);
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
         let r = a.silu();
         assert_eq!(r.shape(), &[2, 3]);
     }
 
     #[test]
     fn test_softplus() {
-        let a = Tensor::<Dim2>::ones([2, 3]);
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
         let r = a.softplus();
         assert_eq!(r.shape(), &[2, 3]);
     }
 
     #[test]
     fn test_clamp() {
-        let a = Tensor::<Dim2>::full([2, 3], 5.0);
+        let a = Tensor::<f32, Dim2>::full([2, 3], 5.0);
         let r = a.clamp(-1.0, 1.0);
         assert_eq!(r.shape(), &[2, 3]);
     }

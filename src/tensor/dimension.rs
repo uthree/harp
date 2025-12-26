@@ -65,7 +65,7 @@ pub trait Dimension: Clone + Debug + Send + Sync + 'static {
 /// use harp::tensor::Dim;
 ///
 /// // Create tensors with specific dimensions
-/// let tensor_1d: Tensor<Dim<1>> = Tensor::zeros([10]);
+/// let tensor_1d: Tensor<f32, Dim<1>> = Tensor::zeros([10]);
 /// let tensor_2d: Tensor<Dim<2>> = Tensor::zeros([3, 4]);
 /// let tensor_3d: Tensor<Dim<3>> = Tensor::zeros([2, 3, 4]);
 /// ```

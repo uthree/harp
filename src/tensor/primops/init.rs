@@ -21,7 +21,7 @@ fn view_from_shape(shape: &[usize]) -> View {
 // Static dimension constructors
 // ============================================================================
 
-impl<const N: usize> Tensor<Dim<N>>
+impl<const N: usize> Tensor<f32, Dim<N>>
 where
     Dim<N>: Dimension,
 {
@@ -47,6 +47,7 @@ where
         );
         Self {
             inner: Arc::new(inner),
+            _dtype: PhantomData,
             _dim: PhantomData,
         }
     }
@@ -66,6 +67,7 @@ where
         );
         Self {
             inner: Arc::new(inner),
+            _dtype: PhantomData,
             _dim: PhantomData,
         }
     }
@@ -77,6 +79,7 @@ where
         let inner = TensorInner::new(TensorOp::Rand, view, shape_vec, DType::F32);
         Self {
             inner: Arc::new(inner),
+            _dtype: PhantomData,
             _dim: PhantomData,
         }
     }
@@ -86,7 +89,7 @@ where
 // Dynamic dimension constructors
 // ============================================================================
 
-impl Tensor<DimDyn> {
+impl Tensor<f32, DimDyn> {
     /// Create a tensor filled with zeros (dynamic shape)
     pub fn zeros_dyn(shape: &[usize]) -> Self {
         Self::full_dyn(shape, 0.0)
@@ -109,6 +112,7 @@ impl Tensor<DimDyn> {
         );
         Self {
             inner: Arc::new(inner),
+            _dtype: PhantomData,
             _dim: PhantomData,
         }
     }
@@ -128,6 +132,7 @@ impl Tensor<DimDyn> {
         );
         Self {
             inner: Arc::new(inner),
+            _dtype: PhantomData,
             _dim: PhantomData,
         }
     }
@@ -139,6 +144,7 @@ impl Tensor<DimDyn> {
         let inner = TensorInner::new(TensorOp::Rand, view, shape_vec, DType::F32);
         Self {
             inner: Arc::new(inner),
+            _dtype: PhantomData,
             _dim: PhantomData,
         }
     }
@@ -151,37 +157,37 @@ mod tests {
 
     #[test]
     fn test_zeros() {
-        let t = Tensor::<Dim2>::zeros([3, 4]);
+        let t = Tensor::<f32, Dim2>::zeros([3, 4]);
         assert_eq!(t.shape(), &[3, 4]);
     }
 
     #[test]
     fn test_ones() {
-        let t = Tensor::<Dim3>::ones([2, 3, 4]);
+        let t = Tensor::<f32, Dim3>::ones([2, 3, 4]);
         assert_eq!(t.shape(), &[2, 3, 4]);
     }
 
     #[test]
     fn test_full() {
-        let t = Tensor::<Dim1>::full([10], 2.5);
+        let t = Tensor::<f32, Dim1>::full([10], 2.5);
         assert_eq!(t.shape(), &[10]);
     }
 
     #[test]
     fn test_rand() {
-        let t = Tensor::<Dim2>::rand([3, 4]);
+        let t = Tensor::<f32, Dim2>::rand([3, 4]);
         assert_eq!(t.shape(), &[3, 4]);
     }
 
     #[test]
     fn test_zeros_dyn() {
-        let t = Tensor::<DimDyn>::zeros_dyn(&[3, 4, 5]);
+        let t = Tensor::<f32, DimDyn>::zeros_dyn(&[3, 4, 5]);
         assert_eq!(t.shape(), &[3, 4, 5]);
     }
 
     #[test]
     fn test_rand_dyn() {
-        let t = Tensor::<DimDyn>::rand_dyn(&[3, 4]);
+        let t = Tensor::<f32, DimDyn>::rand_dyn(&[3, 4]);
         assert_eq!(t.shape(), &[3, 4]);
     }
 }

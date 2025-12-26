@@ -18,8 +18,8 @@
 //! use harp::tensor::{Tensor, Dim2};
 //! use harp::tensor::lowerer::TensorLowerer;
 //!
-//! let a = Tensor::<Dim2>::input("a", [2, 3]);
-//! let b = Tensor::<Dim2>::input("b", [2, 3]);
+//! let a = Tensor::<f32, Dim2>::input("a", [2, 3]);
+//! let b = Tensor::<f32, Dim2>::input("b", [2, 3]);
 //! let c = &a + &b;
 //!
 //! let mut lowerer = TensorLowerer::new();
@@ -74,7 +74,7 @@ impl TensorLowerer {
     ///
     /// # Returns
     /// ASTプログラム
-    pub fn lower(&mut self, tensor: &Tensor<DimDyn>) -> AstNode {
+    pub fn lower(&mut self, tensor: &Tensor<f32, DimDyn>) -> AstNode {
         // 入力バッファを収集
         self.collect_input_buffers(&tensor.inner);
 
@@ -247,7 +247,7 @@ impl TensorLowerer {
     /// 線形インデックスで入力テンソルの式を構築
     fn build_input_expr_linear(
         &self,
-        input: &Tensor<DimDyn>,
+        input: &Tensor<f32, DimDyn>,
         output_ndim: usize,
         output_shape: &[Expr],
         buffer_index: &mut usize,
@@ -333,7 +333,7 @@ impl TensorLowerer {
     /// View経由でBufferにアクセスする式を構築
     fn build_input_expr_with_view(
         &self,
-        input: &Tensor<DimDyn>,
+        input: &Tensor<f32, DimDyn>,
         offset: AstNode,
         buffer_index: &mut usize,
         load_dtype: &AstDType,
@@ -405,7 +405,7 @@ impl TensorLowerer {
     /// 入力インデックスを適切に再マッピングする。
     fn build_input_expr(
         &self,
-        input: &Tensor<DimDyn>,
+        input: &Tensor<f32, DimDyn>,
         ndim: usize,
         buffer_index: &mut usize,
         load_dtype: &AstDType,
@@ -576,7 +576,7 @@ impl TensorLowerer {
     ///
     /// ブロードキャストを考慮：入力の次元数がループ次元数より小さい場合、
     /// 先頭の軸を無視してオフセットを計算する
-    fn build_input_offset(&self, src: &Tensor<DimDyn>, loop_ndim: usize) -> AstNode {
+    fn build_input_offset(&self, src: &Tensor<f32, DimDyn>, loop_ndim: usize) -> AstNode {
         let src_ndim = src.inner.view.shape().len();
 
         if src_ndim == loop_ndim {
@@ -695,7 +695,7 @@ impl Default for TensorLowerer {
 }
 
 /// TensorをASTに変換する簡易関数
-pub fn lower_tensor(tensor: &Tensor<DimDyn>) -> AstNode {
+pub fn lower_tensor(tensor: &Tensor<f32, DimDyn>) -> AstNode {
     let mut lowerer = TensorLowerer::new();
     lowerer.lower(tensor)
 }
@@ -707,8 +707,8 @@ mod tests {
 
     #[test]
     fn test_lower_simple_add() {
-        let a = Tensor::<Dim2>::input("a", [2, 3]);
-        let b = Tensor::<Dim2>::input("b", [2, 3]);
+        let a = Tensor::<f32, Dim2>::input("a", [2, 3]);
+        let b = Tensor::<f32, Dim2>::input("b", [2, 3]);
         let c = &a + &b;
 
         let mut lowerer = TensorLowerer::new();
@@ -728,7 +728,7 @@ mod tests {
 
     #[test]
     fn test_lower_fused_operations() {
-        let a = Tensor::<Dim2>::input("a", [4, 4]);
+        let a = Tensor::<f32, Dim2>::input("a", [4, 4]);
         let b = a.recip().sqrt(); // Fused: recip -> sqrt
 
         let mut lowerer = TensorLowerer::new();
@@ -744,7 +744,7 @@ mod tests {
 
     #[test]
     fn test_lower_reduce() {
-        let a = Tensor::<Dim2>::input("a", [4, 4]);
+        let a = Tensor::<f32, Dim2>::input("a", [4, 4]);
         let b = a.reduce_sum(&[1], false);
 
         let mut lowerer = TensorLowerer::new();
@@ -760,7 +760,7 @@ mod tests {
 
     #[test]
     fn test_lower_const_fill() {
-        let a = Tensor::<Dim2>::full([2, 3], 1.0);
+        let a = Tensor::<f32, Dim2>::full([2, 3], 1.0);
 
         let mut lowerer = TensorLowerer::new();
         let ast = lowerer.lower(&a.into_dyn());
