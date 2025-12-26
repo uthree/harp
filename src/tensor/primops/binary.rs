@@ -16,23 +16,10 @@ use crate::ast::{DType, Literal};
 use crate::tensor::shape::{Expr, View};
 use crate::tensor::{
     DimDyn, Dimension, ElementwiseOp, FloatDType, FloatDTypeAutograd, GradFn, NumericDType, Tensor,
-    TensorDType, TensorInner, TensorOp,
+    TensorInner, TensorOp,
 };
 
 use super::grad::reduce_grad_for_broadcast_generic;
-
-// ============================================================================
-// Helper for type conversion
-// ============================================================================
-
-/// Convert any Tensor<T, D> to Tensor<f32, DimDyn> for graph operations.
-fn to_graph_ref<T: TensorDType, D: Dimension>(tensor: &Tensor<T, D>) -> Tensor<f32, DimDyn> {
-    Tensor {
-        inner: tensor.inner.clone(),
-        _dtype: PhantomData,
-        _dim: PhantomData,
-    }
-}
 
 // ============================================================================
 // Binary Gradients (generic over FloatDType)
@@ -246,7 +233,7 @@ fn create_binary_elementwise<T: NumericDType, D: Dimension>(
     let view = view_from_shape(&result_shape);
 
     // Create Compute operation with inputs embedded
-    let inputs = vec![Arc::new(to_graph_ref(lhs)), Arc::new(to_graph_ref(rhs))];
+    let inputs = vec![lhs.as_input_ref(), rhs.as_input_ref()];
     let expr = op.to_ast(2);
 
     let inner = TensorInner::new(

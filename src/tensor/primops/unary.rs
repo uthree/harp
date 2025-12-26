@@ -16,27 +16,10 @@ use std::sync::Arc;
 
 use crate::tensor::shape::{Expr, View};
 use crate::tensor::{
-    DimDyn, Dimension, ElementwiseOp, FloatDType, GradFn, Tensor, TensorDType, TensorInner,
-    TensorOp,
+    DimDyn, Dimension, ElementwiseOp, FloatDType, GradFn, Tensor, TensorInner, TensorOp,
 };
 
 use super::binary::{with_grad_fn, with_grad_fn_generic};
-
-// ============================================================================
-// Helper for type conversion
-// ============================================================================
-
-/// Convert any Tensor<T, D> to Tensor<f32, DimDyn> for graph operations.
-///
-/// This is safe because the tensor's layout is the same for all T,
-/// and the actual dtype is stored in TensorInner at runtime.
-fn to_graph_ref<T: TensorDType, D: Dimension>(tensor: &Tensor<T, D>) -> Tensor<f32, DimDyn> {
-    Tensor {
-        inner: tensor.inner.clone(),
-        _dtype: PhantomData,
-        _dim: PhantomData,
-    }
-}
 
 // ============================================================================
 // Unary Gradients (generic over FloatDType)
@@ -369,8 +352,8 @@ fn create_unary_elementwise<T: FloatDType, D: Dimension>(
     let view = view_from_shape(input.shape());
     let shape = input.shape().to_vec();
 
-    // Convert to f32-typed tensor for graph operations (TensorRef is f32-based)
-    let inputs = vec![Arc::new(to_graph_ref(input))];
+    // Convert to InputRef for graph operations
+    let inputs = vec![input.as_input_ref()];
     let expr = op.to_ast(1);
 
     // Use the actual dtype from the input

@@ -12,25 +12,12 @@ use std::sync::Arc;
 
 use crate::tensor::shape::{Expr, View};
 use crate::tensor::{
-    DimDyn, Dimension, FloatDType, GradFn, ReduceOp, Tensor, TensorDType, TensorInner, TensorOp,
+    DimDyn, Dimension, FloatDType, GradFn, ReduceOp, Tensor, TensorInner, TensorOp,
 };
 
 use super::binary::with_grad_fn_generic;
 use super::unary::Recip;
 use crate::tensor::FloatDTypeAutograd;
-
-// ============================================================================
-// Helper for type conversion
-// ============================================================================
-
-/// Convert any Tensor<T, D> to Tensor<f32, DimDyn> for graph operations.
-fn to_graph_ref<T: TensorDType, D: Dimension>(tensor: &Tensor<T, D>) -> Tensor<f32, DimDyn> {
-    Tensor {
-        inner: tensor.inner.clone(),
-        _dtype: PhantomData,
-        _dim: PhantomData,
-    }
-}
 
 // ============================================================================
 // Reduce Gradients (generic over FloatDType)
@@ -265,7 +252,7 @@ fn create_reduce<T: FloatDType, D: Dimension>(
     let view = view_from_shape(&result_shape);
 
     // Create Compute operation with reduce
-    let input_ref = Arc::new(to_graph_ref(input));
+    let input_ref = input.as_input_ref();
     let inner = TensorInner::new(
         TensorOp::reduce(input_ref, op, axes.to_vec(), keepdim),
         view,

@@ -3,17 +3,67 @@
 //! 入力テンソルをTensorOp内に埋め込む設計。
 //! Compute演算で全てのElementwise/Reduce演算を統一的に表現。
 
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use crate::ast::DType;
 use crate::ast::{AstNode, Literal};
-use crate::tensor::shape::Expr;
-use crate::tensor::{DimDyn, Tensor};
+use crate::backend::Buffer;
+use crate::tensor::shape::{Expr, View};
 
-/// テンソル参照型（共有可能、読み取り専用）
+// ============================================================================
+// ErasedTensorInner - 型消去されたテンソル内部データへのインターフェース
+// ============================================================================
+
+/// 型消去されたTensorInnerへのインターフェース
 ///
-/// 計算グラフ内での参照に使用。型消去されたDimDynを使用。
-pub type TensorRef = Arc<Tensor<f32, DimDyn>>;
+/// グラフ走査とLowering/Forward処理で使用。
+/// TensorInnerがこのトレイトを実装し、InputRefとして参照される。
+///
+/// # Note
+/// InputRefのクローンは`Arc::clone(&input_ref)`で行う。
+pub trait ErasedTensorInner: Send + Sync {
+    /// 演算の種類を取得
+    fn op(&self) -> &TensorOp;
+
+    /// Viewを取得
+    fn view(&self) -> &View;
+
+    /// 形状を取得
+    fn shape(&self) -> &[usize];
+
+    /// データ型を取得
+    fn dtype(&self) -> DType;
+
+    /// 名前を取得
+    fn name(&self) -> Option<&str>;
+
+    /// バッファへのアクセス（RwLock経由）
+    fn buffer(&self) -> &RwLock<Option<Box<dyn Buffer>>>;
+
+    /// バッファが存在するか
+    fn has_buffer(&self) -> bool {
+        self.buffer().read().unwrap().is_some()
+    }
+
+    /// バッファデータをホストに読み出し
+    fn read_buffer(&self) -> Option<Vec<u8>> {
+        self.buffer()
+            .read()
+            .ok()?
+            .as_ref()
+            .and_then(|b| b.read_to_host().ok())
+    }
+}
+
+/// 入力テンソルへの型消去参照
+///
+/// 計算グラフ内での入力参照に使用。
+/// グラフ走査可能かつ型安全なAPIとの橋渡しを行う。
+pub type InputRef = Arc<dyn ErasedTensorInner>;
+
+// 後方互換性のためのエイリアス（非推奨、将来削除予定）
+#[deprecated(note = "Use InputRef instead")]
+pub type TensorRef = InputRef;
 
 /// Tensor演算の種類
 ///
@@ -47,19 +97,19 @@ pub enum TensorOp {
     // 単項演算（1入力）
     // ============================================================
     /// View変更（メモリコピーなし）
-    View { input: TensorRef },
+    View { input: InputRef },
 
     /// Viewに従って要素を並べ直す（実体化）
-    Contiguous { input: TensorRef },
+    Contiguous { input: InputRef },
 
     /// 型変換
     Cast {
-        input: TensorRef,
+        input: InputRef,
         target_dtype: DType,
     },
 
     /// 分岐点を作成（バッファコピー）
-    Clone { input: TensorRef },
+    Clone { input: InputRef },
 
     // ============================================================
     // 統一計算演算（Compute）
@@ -71,7 +121,7 @@ pub enum TensorOp {
     /// - Fused: 任意のexpr + reduce_op
     Compute {
         /// 入力テンソル群（Wildcard("0"), Wildcard("1"), ... に対応）
-        inputs: Vec<TensorRef>,
+        inputs: Vec<InputRef>,
         /// 計算式（AstNode）
         expr: AstNode,
         /// 縮約演算（オプション）
@@ -87,19 +137,19 @@ pub enum TensorOp {
     // ============================================================
     /// パディング
     Pad {
-        input: TensorRef,
+        input: InputRef,
         padding: Vec<(Expr, Expr)>,
         value: f32,
     },
 
     /// スライス
     Slice {
-        input: TensorRef,
+        input: InputRef,
         ranges: Vec<(usize, usize)>,
     },
 
     /// 結合
-    Concat { inputs: Vec<TensorRef>, axis: usize },
+    Concat { inputs: Vec<InputRef>, axis: usize },
 }
 
 /// Elementwise演算の種類
@@ -132,7 +182,7 @@ pub enum ReduceOp {
 
 impl TensorOp {
     /// Elementwise演算を作成
-    pub fn elementwise(inputs: Vec<TensorRef>, expr: AstNode) -> Self {
+    pub fn elementwise(inputs: Vec<InputRef>, expr: AstNode) -> Self {
         Self::Compute {
             inputs,
             expr,
@@ -143,7 +193,7 @@ impl TensorOp {
     }
 
     /// Reduce演算を作成
-    pub fn reduce(input: TensorRef, op: ReduceOp, axes: Vec<usize>, keepdim: bool) -> Self {
+    pub fn reduce(input: InputRef, op: ReduceOp, axes: Vec<usize>, keepdim: bool) -> Self {
         Self::Compute {
             inputs: vec![input],
             expr: AstNode::Wildcard("0".to_string()),
@@ -155,7 +205,7 @@ impl TensorOp {
 
     /// 融合演算を作成
     pub fn fused(
-        inputs: Vec<TensorRef>,
+        inputs: Vec<InputRef>,
         expr: AstNode,
         reduce_op: ReduceOp,
         axes: Vec<usize>,
@@ -209,7 +259,7 @@ impl TensorOp {
     }
 
     /// 入力テンソルを取得
-    pub fn inputs(&self) -> Vec<&TensorRef> {
+    pub fn inputs(&self) -> Vec<&InputRef> {
         match self {
             TensorOp::Buffer { .. }
             | TensorOp::Const(_)

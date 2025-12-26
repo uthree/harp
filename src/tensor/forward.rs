@@ -12,7 +12,7 @@
 //! - `data()`: Returns the computed data if available.
 //! - `from_data()`: Creates a tensor with pre-populated buffer data.
 
-use super::{DimDyn, Dimension, Tensor, TensorInner, TensorOp};
+use super::{DimDyn, Dimension, ErasedTensorInner, Tensor, TensorInner, TensorOp};
 use crate::ast::DType;
 use crate::backend::Buffer;
 use crate::backend::global::{DeviceKind, get_default_device_kind};
@@ -215,51 +215,51 @@ impl<D: Dimension> Tensor<f32, D> {
         }
 
         fn collect_recursive(
-            inner: &Arc<TensorInner>,
+            inner: &dyn ErasedTensorInner,
             visited: &mut HashSet<usize>,
             inputs: &mut Vec<(Vec<f32>, Vec<usize>)>,
         ) {
-            let ptr = Arc::as_ptr(inner) as usize;
+            let ptr = inner as *const dyn ErasedTensorInner as *const () as usize;
             if visited.contains(&ptr) {
                 return;
             }
             visited.insert(ptr);
 
-            match &inner.op {
+            match inner.op() {
                 // Leaf nodes with data
                 TensorOp::Executed => {
                     // Get data from buffer (now Buffer)
-                    if let Ok(guard) = inner.buffer.read()
+                    if let Ok(guard) = inner.buffer().read()
                         && let Some(buf) = guard.as_ref()
                         && let Ok(bytes) = buf.read_to_host()
                     {
                         let data = bytes_to_f32(&bytes);
-                        inputs.push((data, inner.shape.clone()));
+                        inputs.push((data, inner.shape().to_vec()));
                     }
                 }
                 TensorOp::Buffer { .. } => {
                     // Named buffer - also get data if available
-                    if let Ok(guard) = inner.buffer.read()
+                    if let Ok(guard) = inner.buffer().read()
                         && let Some(buf) = guard.as_ref()
                         && let Ok(bytes) = buf.read_to_host()
                     {
                         let data = bytes_to_f32(&bytes);
-                        inputs.push((data, inner.shape.clone()));
+                        inputs.push((data, inner.shape().to_vec()));
                     }
                 }
                 // Compute operations - recurse into inputs
                 TensorOp::Compute { .. } => {
-                    for input in inner.op.inputs() {
+                    for input in inner.op().inputs() {
                         // Skip const inputs as the lowerer embeds them directly
-                        if !matches!(&input.inner.op, TensorOp::Const(_)) {
-                            collect_recursive(&input.inner, visited, inputs);
+                        if !matches!(input.op(), TensorOp::Const(_)) {
+                            collect_recursive(input.as_ref(), visited, inputs);
                         }
                     }
                 }
                 // Other operations - recurse into inputs
                 _ => {
-                    for input in inner.op.inputs() {
-                        collect_recursive(&input.inner, visited, inputs);
+                    for input in inner.op().inputs() {
+                        collect_recursive(input.as_ref(), visited, inputs);
                     }
                 }
             }
@@ -267,7 +267,7 @@ impl<D: Dimension> Tensor<f32, D> {
 
         let mut visited = HashSet::new();
         let mut inputs = Vec::new();
-        collect_recursive(&self.inner, &mut visited, &mut inputs);
+        collect_recursive(self.inner.as_ref(), &mut visited, &mut inputs);
         inputs
     }
 

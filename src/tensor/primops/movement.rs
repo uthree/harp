@@ -14,19 +14,6 @@ use std::sync::Arc;
 use crate::tensor::shape::{Expr, View};
 use crate::tensor::{Dim, DimDyn, Dimension, Tensor, TensorDType, TensorInner, TensorOp};
 
-// ============================================================================
-// Helper for type conversion
-// ============================================================================
-
-/// Convert any Tensor<T, D> to Tensor<f32, DimDyn> for graph operations.
-fn to_graph_ref<T: TensorDType, D: Dimension>(tensor: &Tensor<T, D>) -> Tensor<f32, DimDyn> {
-    Tensor {
-        inner: tensor.inner.clone(),
-        _dtype: PhantomData,
-        _dim: PhantomData,
-    }
-}
-
 /// Helper to create View from usize shape
 fn view_from_shape(shape: &[usize]) -> View {
     let shape_exprs: Vec<Expr> = shape.iter().map(|&s| Expr::from(s as i64)).collect();
@@ -101,7 +88,7 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         );
 
         let view = view_from_shape(&new_shape);
-        let input = Arc::new(to_graph_ref(self));
+        let input = self.as_input_ref();
         let inner = TensorInner::new(TensorOp::View { input }, view, new_shape.to_vec(), T::DTYPE);
         Tensor {
             inner: Arc::new(inner),
@@ -123,7 +110,7 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         );
 
         let view = view_from_shape(new_shape);
-        let input = Arc::new(to_graph_ref(self));
+        let input = self.as_input_ref();
         let inner = TensorInner::new(TensorOp::View { input }, view, new_shape.to_vec(), T::DTYPE);
         Tensor {
             inner: Arc::new(inner),
@@ -153,7 +140,7 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
 
         // Create a view with broadcast to the new shape
         let view = view_from_shape(&new_shape);
-        let input = Arc::new(to_graph_ref(self));
+        let input = self.as_input_ref();
         let inner = TensorInner::new(TensorOp::View { input }, view, new_shape, T::DTYPE);
         Tensor {
             inner: Arc::new(inner),
@@ -167,7 +154,7 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
     /// Returns a tensor with the same data but guaranteed contiguous memory.
     pub fn contiguous(&self) -> Tensor<T, D> {
         let view = view_from_shape(self.shape());
-        let input = Arc::new(to_graph_ref(self));
+        let input = self.as_input_ref();
         let inner = TensorInner::new(
             TensorOp::Contiguous { input },
             view,
@@ -194,7 +181,7 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
 
         let new_shape: Vec<usize> = axes.iter().map(|&i| self.shape()[i]).collect();
         let new_view = self.inner.view.clone().permute(axes.to_vec());
-        let input = Arc::new(to_graph_ref(self));
+        let input = self.as_input_ref();
         let inner = TensorInner::new(TensorOp::View { input }, new_view, new_shape, T::DTYPE);
         Tensor {
             inner: Arc::new(inner),
@@ -275,7 +262,7 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
             offset: input_offset,
         };
 
-        let input = Arc::new(to_graph_ref(self));
+        let input = self.as_input_ref();
         let inner = TensorInner::new(TensorOp::View { input }, view, new_shape.to_vec(), T::DTYPE);
         Tensor {
             inner: Arc::new(inner),

@@ -98,7 +98,7 @@ pub use dtype::{
     FloatDType, IntegerDType, NumericDType, SignedIntDType, TensorDType, UnsignedIntDType,
 };
 pub use forward::ForwardError;
-pub use ops::{ElementwiseOp, ReduceOp, TensorOp, TensorRef};
+pub use ops::{ElementwiseOp, ErasedTensorInner, InputRef, ReduceOp, TensorOp};
 pub use primops::{Exp2, Floor, Log2, Recip, Sin, Sqrt};
 pub use shape::{Expr, View};
 
@@ -353,6 +353,36 @@ impl TensorInner {
 }
 
 // ============================================================================
+// ErasedTensorInner implementation for TensorInner
+// ============================================================================
+
+impl ErasedTensorInner for TensorInner {
+    fn op(&self) -> &TensorOp {
+        &self.op
+    }
+
+    fn view(&self) -> &View {
+        &self.view
+    }
+
+    fn shape(&self) -> &[usize] {
+        &self.shape
+    }
+
+    fn dtype(&self) -> DType {
+        self.dtype.clone()
+    }
+
+    fn name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
+
+    fn buffer(&self) -> &RwLock<Option<Box<dyn Buffer>>> {
+        &self.buffer
+    }
+}
+
+// ============================================================================
 // Tensor: The main tensor type
 // ============================================================================
 
@@ -420,7 +450,7 @@ impl<D: Dimension> Tensor<f32, D> {
     /// let c = a2 * 2.0;        // a2 is separate path
     /// ```
     pub fn fork(&self) -> Tensor<f32, D> {
-        let input = Arc::new(self.clone().into_dyn());
+        let input = self.as_input_ref();
         let inner = TensorInner::new(
             TensorOp::Clone { input },
             self.inner.view.clone(),
@@ -436,6 +466,14 @@ impl<D: Dimension> Tensor<f32, D> {
 }
 
 impl<T: TensorDType, D: Dimension> Tensor<T, D> {
+    /// Convert to InputRef for use in TensorOp
+    ///
+    /// This creates a type-erased reference that can be stored in TensorOp
+    /// for graph traversal while maintaining the computation graph.
+    pub fn as_input_ref(&self) -> InputRef {
+        Arc::clone(&self.inner) as InputRef
+    }
+
     /// Get the shape of the tensor
     pub fn shape(&self) -> &[usize] {
         &self.inner.shape
