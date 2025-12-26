@@ -60,7 +60,7 @@ fn draw_code_panel<R: CLikeRenderer + Clone>(frame: &mut Frame, app: &App<R>, ar
             Block::default()
                 .title(title)
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Cyan)),
+                .border_style(Style::default()),
         )
         .scroll((app.scroll_offset(), 0));
 
@@ -140,7 +140,7 @@ fn draw_candidates_panel<R: CLikeRenderer + Clone>(frame: &mut Frame, app: &App<
         Block::default()
             .title(" Candidates ")
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Magenta)),
+            .border_style(Style::default()),
     );
 
     frame.render_widget(list, area);
@@ -169,7 +169,7 @@ fn draw_status_bar<R: CLikeRenderer + Clone>(frame: &mut Frame, app: &App<R>, ar
     );
 
     let paragraph = Paragraph::new(status_text)
-        .style(Style::default().bg(Color::DarkGray).fg(Color::White))
+        .style(Style::default().fg(Color::White))
         .block(Block::default().borders(Borders::ALL));
 
     frame.render_widget(paragraph, area);
