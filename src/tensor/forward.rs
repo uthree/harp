@@ -10,8 +10,6 @@
 //! - `data()`: Returns the computed data if available.
 //! - `from_data()`: Creates a tensor with pre-populated buffer data.
 
-#[cfg(any(all(feature = "metal", target_os = "macos"), feature = "opencl"))]
-use super::ErasedTensorInner;
 use super::{DimDyn, Dimension, Tensor, TensorInner, TensorOp};
 use crate::ast::DType;
 use crate::backend::Buffer;
@@ -133,9 +131,7 @@ impl std::error::Error for ForwardError {}
 ///
 /// This is a standalone function that can be called from TensorInner::realize_core.
 #[cfg(any(all(feature = "metal", target_os = "macos"), feature = "opencl"))]
-pub(crate) fn collect_input_data_inner(
-    inner: &dyn ErasedTensorInner,
-) -> Vec<(Vec<f32>, Vec<usize>)> {
+pub(crate) fn collect_input_data_inner(inner: &TensorInner) -> Vec<(Vec<f32>, Vec<usize>)> {
     use std::collections::HashSet;
 
     /// Convert bytes to Vec<f32>
@@ -150,11 +146,11 @@ pub(crate) fn collect_input_data_inner(
     }
 
     fn collect_recursive(
-        inner: &dyn ErasedTensorInner,
+        inner: &TensorInner,
         visited: &mut HashSet<usize>,
         inputs: &mut Vec<(Vec<f32>, Vec<usize>)>,
     ) {
-        let ptr = inner as *const dyn ErasedTensorInner as *const () as usize;
+        let ptr = inner as *const TensorInner as usize;
         if visited.contains(&ptr) {
             return;
         }
@@ -224,7 +220,7 @@ impl TensorInner {
     /// Core realize processing (callable from &self)
     ///
     /// This is the internal implementation of realize that can be called from
-    /// ErasedTensorInner::realize_recursive without needing Arc.
+    /// TensorInner::realize_recursive without needing Arc.
     #[cfg(any(all(feature = "metal", target_os = "macos"), feature = "opencl"))]
     pub(crate) fn realize_core(&self) -> Result<(), ForwardError> {
         // If already executed (has buffer), skip
@@ -552,7 +548,6 @@ impl<D: Dimension> Tensor<f32, D> {
     pub fn realize(&self) -> Result<&Self, ForwardError> {
         // Use realize_recursive to automatically realize all input tensors first
         // This enables "auto-realize" of intermediate results
-        use crate::tensor::ops::ErasedTensorInner;
         self.inner
             .realize_recursive()
             .map_err(ForwardError::ExecutionError)?;
@@ -749,7 +744,6 @@ impl_from_ndarray!(Dim6, Ix6, 6);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tensor::ops::ErasedTensorInner;
     use crate::tensor::{Dim1, Dim2, Dim3};
     use ndarray::{Array1, Array2, Array3, array};
 

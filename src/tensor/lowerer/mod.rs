@@ -32,7 +32,7 @@ pub mod helpers;
 use std::collections::HashMap;
 
 use crate::ast::{AstKernelCallInfo, AstNode, DType as AstDType, Mutability, Scope, helper::*};
-use crate::tensor::ops::{ErasedTensorInner, ReduceOp, TensorOp};
+use crate::tensor::ops::{ReduceOp, TensorOp};
 use crate::tensor::shape::Expr;
 use crate::tensor::{DimDyn, Tensor, TensorInner};
 
@@ -77,16 +77,16 @@ impl TensorLowerer {
         self.lower_inner(tensor.inner.as_ref())
     }
 
-    /// ErasedTensorInnerからASTに変換（内部用）
+    /// TensorInnerからASTに変換（内部用）
     ///
-    /// realize_core処理で使用するため、ErasedTensorInnerを直接受け取る版
+    /// realize_core処理で使用するため、TensorInnerを直接受け取る版
     ///
     /// # Arguments
     /// * `inner` - 変換するテンソル内部表現
     ///
     /// # Returns
     /// ASTプログラム
-    pub fn lower_inner(&mut self, inner: &dyn ErasedTensorInner) -> AstNode {
+    pub fn lower_inner(&mut self, inner: &TensorInner) -> AstNode {
         // 入力バッファを収集
         self.collect_input_buffers(inner);
 
@@ -106,8 +106,8 @@ impl TensorLowerer {
     }
 
     /// 入力バッファを収集
-    fn collect_input_buffers(&mut self, inner: &dyn ErasedTensorInner) {
-        let ptr = inner as *const dyn ErasedTensorInner as *const () as *const TensorInner;
+    fn collect_input_buffers(&mut self, inner: &TensorInner) {
+        let ptr = inner as *const TensorInner;
         if self.visited.contains_key(&ptr) {
             return;
         }
@@ -144,8 +144,8 @@ impl TensorLowerer {
         name
     }
 
-    /// ErasedTensorInnerをASTにlower（内部用）
-    fn lower_node_erased(&self, inner: &dyn ErasedTensorInner, name: &str) -> AstNode {
+    /// TensorInnerをASTにlower（内部用）
+    fn lower_node_erased(&self, inner: &TensorInner, name: &str) -> AstNode {
         // 最終的な出力形状はルートノードの形状を使用
         let output_shape = inner.view().shape().to_vec();
         let output_ndim = output_shape.len();
@@ -195,8 +195,8 @@ impl TensorLowerer {
         }
     }
 
-    /// View/Contiguousを辿って実際の計算ノードを見つける (ErasedTensorInner版)
-    fn find_compute_node_erased(&self, inner: &dyn ErasedTensorInner) -> (Vec<Expr>, Vec<Expr>) {
+    /// View/Contiguousを辿って実際の計算ノードを見つける (TensorInner版)
+    fn find_compute_node_erased(&self, inner: &TensorInner) -> (Vec<Expr>, Vec<Expr>) {
         let output_shape = inner.view().shape().to_vec();
 
         match inner.op() {
@@ -208,11 +208,11 @@ impl TensorLowerer {
         }
     }
 
-    /// 形状変換を伴うlower（ErasedTensorInner版）
+    /// 形状変換を伴うlower（TensorInner版）
     #[allow(clippy::too_many_arguments)]
     fn lower_with_reshape_erased(
         &self,
-        inner: &dyn ErasedTensorInner,
+        inner: &TensorInner,
         expr: &AstNode,
         reduce_op: Option<&ReduceOp>,
         axes: &[usize],
@@ -269,7 +269,7 @@ impl TensorLowerer {
     /// 線形インデックスで入力テンソルの式を構築
     fn build_input_expr_linear(
         &self,
-        input: &dyn ErasedTensorInner,
+        input: &TensorInner,
         output_ndim: usize,
         output_shape: &[Expr],
         buffer_index: &mut usize,
@@ -355,7 +355,7 @@ impl TensorLowerer {
     /// View経由でBufferにアクセスする式を構築
     fn build_input_expr_with_view(
         &self,
-        input: &dyn ErasedTensorInner,
+        input: &TensorInner,
         offset: AstNode,
         buffer_index: &mut usize,
         load_dtype: &AstDType,
@@ -378,13 +378,10 @@ impl TensorLowerer {
         }
     }
 
-    /// TensorOpを正規化形式に変換（ErasedTensorInner版）
+    /// TensorOpを正規化形式に変換（TensorInner版）
     ///
     /// Returns: (expr, reduce_op, axes)
-    fn normalize_op_erased(
-        &self,
-        inner: &dyn ErasedTensorInner,
-    ) -> (AstNode, Option<ReduceOp>, Vec<usize>) {
+    fn normalize_op_erased(&self, inner: &TensorInner) -> (AstNode, Option<ReduceOp>, Vec<usize>) {
         match inner.op() {
             // 統一Compute演算
             TensorOp::Compute {
@@ -430,7 +427,7 @@ impl TensorLowerer {
     /// 入力インデックスを適切に再マッピングする。
     fn build_input_expr(
         &self,
-        input: &dyn ErasedTensorInner,
+        input: &TensorInner,
         ndim: usize,
         buffer_index: &mut usize,
         load_dtype: &AstDType,
@@ -477,10 +474,10 @@ impl TensorLowerer {
         }
     }
 
-    /// Elementwiseパスでlower（ErasedTensorInner版）
+    /// Elementwiseパスでlower（TensorInner版）
     fn lower_elementwise_path_erased(
         &self,
-        inner: &dyn ErasedTensorInner,
+        inner: &TensorInner,
         expr: &AstNode,
         ndim: usize,
         shape: &[Expr],
@@ -517,10 +514,10 @@ impl TensorLowerer {
         )
     }
 
-    /// Reduceパスでlower（ErasedTensorInner版）
+    /// Reduceパスでlower（TensorInner版）
     fn lower_reduce_path_erased(
         &self,
-        inner: &dyn ErasedTensorInner,
+        inner: &TensorInner,
         expr: &AstNode,
         reduce_op: &ReduceOp,
         axes: &[usize],
@@ -606,7 +603,7 @@ impl TensorLowerer {
     ///
     /// ブロードキャストを考慮：入力の次元数がループ次元数より小さい場合、
     /// 先頭の軸を無視してオフセットを計算する
-    fn build_input_offset(&self, src: &dyn ErasedTensorInner, loop_ndim: usize) -> AstNode {
+    fn build_input_offset(&self, src: &TensorInner, loop_ndim: usize) -> AstNode {
         let src_ndim = src.view().shape().len();
 
         if src_ndim == loop_ndim {
@@ -628,7 +625,7 @@ impl TensorLowerer {
     /// 入力は最後のsrc_ndim軸にマッピングされる
     fn build_broadcast_offset(
         &self,
-        inner: &dyn ErasedTensorInner,
+        inner: &TensorInner,
         src_ndim: usize,
         loop_ndim: usize,
     ) -> AstNode {
@@ -657,7 +654,7 @@ impl TensorLowerer {
     }
 
     /// TensorInnerのオフセットを構築
-    fn build_offset_for_tensor(&self, inner: &dyn ErasedTensorInner, ndim: usize) -> AstNode {
+    fn build_offset_for_tensor(&self, inner: &TensorInner, ndim: usize) -> AstNode {
         match inner.op() {
             TensorOp::Buffer { .. } => {
                 // Bufferノードは自身のviewを使用
@@ -730,10 +727,10 @@ pub fn lower_tensor(tensor: &Tensor<f32, DimDyn>) -> AstNode {
     lowerer.lower(tensor)
 }
 
-/// ErasedTensorInnerからASTに変換する簡易関数（内部用）
+/// TensorInnerからASTに変換する簡易関数（内部用）
 ///
-/// realize_core処理で使用するため、ErasedTensorInnerを直接受け取る版
-pub fn lower_tensor_inner(inner: &dyn ErasedTensorInner) -> AstNode {
+/// realize_core処理で使用するため、TensorInnerを直接受け取る版
+pub fn lower_tensor_inner(inner: &TensorInner) -> AstNode {
     let mut lowerer = TensorLowerer::new();
     lowerer.lower_inner(inner)
 }

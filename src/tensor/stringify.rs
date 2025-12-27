@@ -9,8 +9,9 @@ use std::fmt::Write;
 use crate::ast::AstNode;
 use crate::tensor::Tensor;
 use crate::tensor::TensorDType;
+use crate::tensor::TensorInner;
 use crate::tensor::dimension::Dimension;
-use crate::tensor::ops::{ErasedTensorInner, InputRef, TensorOp};
+use crate::tensor::ops::{InputRef, TensorOp};
 use crate::tensor::shape::View;
 
 /// グラフを文字列化する
@@ -28,7 +29,7 @@ pub fn stringify_graph<T: TensorDType, D: Dimension>(tensor: &Tensor<T, D>) -> S
 /// TensorInnerからグラフを文字列化する（内部用）
 ///
 /// realize処理で使用するため、TensorInnerを直接受け取る版
-pub fn stringify_graph_inner(inner: &dyn ErasedTensorInner) -> String {
+pub fn stringify_graph_inner(inner: &TensorInner) -> String {
     let mut stringifier = GraphStringifier::new();
     stringifier.visit(inner)
 }
@@ -53,8 +54,8 @@ impl GraphStringifier {
     }
 
     /// ノードを訪問して文字列化
-    fn visit(&mut self, inner: &dyn ErasedTensorInner) -> String {
-        let ptr = inner as *const dyn ErasedTensorInner as *const () as usize;
+    fn visit(&mut self, inner: &TensorInner) -> String {
+        let ptr = inner as *const TensorInner as usize;
 
         // DAG: 既に訪問済みなら参照を返す
         if let Some(cached) = self.visited.get(&ptr) {
@@ -72,7 +73,7 @@ impl GraphStringifier {
     }
 
     /// TensorOpを文字列化
-    fn stringify_op(&mut self, inner: &dyn ErasedTensorInner) -> String {
+    fn stringify_op(&mut self, inner: &TensorInner) -> String {
         let shape = inner.shape();
         let dtype = inner.dtype();
 
@@ -178,8 +179,8 @@ impl GraphStringifier {
     }
 
     /// 入力ノードに位置インデックスを割り当て
-    fn get_or_assign_input_position(&mut self, inner: &dyn ErasedTensorInner) -> usize {
-        let ptr = inner as *const dyn ErasedTensorInner as *const () as usize;
+    fn get_or_assign_input_position(&mut self, inner: &TensorInner) -> usize {
+        let ptr = inner as *const TensorInner as usize;
         *self.input_positions.entry(ptr).or_insert_with(|| {
             let pos = self.next_input_position;
             self.next_input_position += 1;

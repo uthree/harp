@@ -3,80 +3,18 @@
 //! 入力テンソルをTensorOp内に埋め込む設計。
 //! Compute演算で全てのElementwise/Reduce演算を統一的に表現。
 
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
-use crate::ast::DType;
-use crate::ast::{AstNode, Literal};
-use crate::backend::Buffer;
-use crate::tensor::shape::{Expr, View};
+use crate::ast::{AstNode, DType, Literal};
+use crate::tensor::shape::Expr;
 
-// ============================================================================
-// ErasedTensorInner - 型消去されたテンソル内部データへのインターフェース
-// ============================================================================
+use super::TensorInner;
 
-/// 型消去されたTensorInnerへのインターフェース
-///
-/// グラフ走査とLowering/Forward処理で使用。
-/// TensorInnerがこのトレイトを実装し、InputRefとして参照される。
-///
-/// # Note
-/// InputRefのクローンは`Arc::clone(&input_ref)`で行う。
-pub trait ErasedTensorInner: Send + Sync {
-    /// 演算の種類を取得
-    fn op(&self) -> &TensorOp;
-
-    /// Viewを取得
-    fn view(&self) -> &View;
-
-    /// 形状を取得
-    fn shape(&self) -> &[usize];
-
-    /// データ型を取得
-    fn dtype(&self) -> DType;
-
-    /// 名前を取得
-    fn name(&self) -> Option<&str>;
-
-    /// バッファへのアクセス（RwLock経由）
-    fn buffer(&self) -> &RwLock<Option<Box<dyn Buffer>>>;
-
-    /// バッファが存在するか
-    fn has_buffer(&self) -> bool {
-        self.buffer().read().unwrap().is_some()
-    }
-
-    /// バッファデータをホストに読み出し
-    fn read_buffer(&self) -> Option<Vec<u8>> {
-        self.buffer()
-            .read()
-            .ok()?
-            .as_ref()
-            .and_then(|b| b.read_to_host().ok())
-    }
-
-    /// 自身を再帰的にrealizeする
-    ///
-    /// 1. 既にバッファがあればスキップ
-    /// 2. Compute操作なら入力を先にrealize
-    /// 3. 自身をrealize
-    ///
-    /// # Returns
-    /// 成功時はOk(()), 失敗時はエラー文字列
-    fn realize_recursive(&self) -> Result<(), String> {
-        // デフォルト実装：サポートしない型用
-        Err("realize_recursive not supported for this type".to_string())
-    }
-}
-
-/// 入力テンソルへの型消去参照
+/// 入力テンソルへの参照
 ///
 /// 計算グラフ内での入力参照に使用。
-/// グラフ走査可能かつ型安全なAPIとの橋渡しを行う。
-pub type InputRef = Arc<dyn ErasedTensorInner>;
-
-// 後方互換性のためのエイリアス（非推奨、将来削除予定）
-#[deprecated(note = "Use InputRef instead")]
-pub type TensorRef = InputRef;
+/// `Arc<TensorInner>`の型エイリアス。
+pub type InputRef = Arc<TensorInner>;
 
 /// Tensor演算の種類
 ///

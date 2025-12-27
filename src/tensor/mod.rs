@@ -98,7 +98,7 @@ pub use dimension::{Dim, Dim0, Dim1, Dim2, Dim3, Dim4, Dim5, Dim6, DimDyn, Dimen
 pub use dtype::{NumericDType, TensorDType};
 // IntegerDType, SignedIntDType, UnsignedIntDType, NumericInitDType are defined below
 pub use forward::ForwardError;
-pub use ops::{ElementwiseOp, ErasedTensorInner, InputRef, ReduceOp, TensorOp};
+pub use ops::{ElementwiseOp, InputRef, ReduceOp, TensorOp};
 pub use primops::{Exp2, Floor, Log2, Recip, Sin, Sqrt};
 pub use shape::{Expr, View};
 
@@ -514,35 +514,49 @@ impl TensorInner {
             .as_ref()
             .map(|buf| buf.clone_buffer())
     }
-}
 
-// ============================================================================
-// ErasedTensorInner implementation for TensorInner
-// ============================================================================
-
-impl ErasedTensorInner for TensorInner {
-    fn op(&self) -> &TensorOp {
+    /// 演算の種類を取得
+    pub fn op(&self) -> &TensorOp {
         &self.op
     }
 
-    fn view(&self) -> &View {
+    /// Viewを取得
+    pub fn view(&self) -> &View {
         &self.view
     }
 
-    fn shape(&self) -> &[usize] {
+    /// 形状を取得
+    pub fn shape(&self) -> &[usize] {
         &self.shape
     }
 
-    fn dtype(&self) -> DType {
+    /// データ型を取得
+    pub fn dtype(&self) -> DType {
         self.dtype.clone()
     }
 
-    fn name(&self) -> Option<&str> {
+    /// 名前を取得
+    pub fn name(&self) -> Option<&str> {
         self.name.as_deref()
     }
 
-    fn buffer(&self) -> &RwLock<Option<Box<dyn Buffer>>> {
+    /// バッファへのアクセス（RwLock経由）
+    pub fn buffer(&self) -> &RwLock<Option<Box<dyn Buffer>>> {
         &self.buffer
+    }
+
+    /// バッファが存在するか
+    pub fn has_buffer(&self) -> bool {
+        self.buffer.read().unwrap().is_some()
+    }
+
+    /// バッファデータをホストに読み出し
+    pub fn read_buffer(&self) -> Option<Vec<u8>> {
+        self.buffer
+            .read()
+            .ok()?
+            .as_ref()
+            .and_then(|b| b.read_to_host().ok())
     }
 
     /// 自身を再帰的にrealizeする
@@ -551,7 +565,7 @@ impl ErasedTensorInner for TensorInner {
     /// 2. Compute操作なら入力を先にrealize
     /// 3. 自身をrealize_core()でrealize
     #[cfg(any(all(feature = "metal", target_os = "macos"), feature = "opencl"))]
-    fn realize_recursive(&self) -> Result<(), String> {
+    pub fn realize_recursive(&self) -> Result<(), String> {
         // 既にバッファがあればスキップ
         if self.buffer.read().unwrap().is_some() {
             return Ok(());
