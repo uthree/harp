@@ -104,17 +104,9 @@ impl Tensor<f32, Dim2> {
         // Sum over K dimension: [M, K, N] -> [M, N]
         let result_dyn = product.sum(1);
 
-        // Convert back to Dim2
+        // Convert back to Dim2 preserving autograd info
         Tensor {
-            inner: Arc::new(TensorInner {
-                op: result_dyn.inner.op.clone(),
-                view: result_dyn.inner.view.clone(),
-                shape: result_dyn.inner.shape.clone(),
-                dtype: result_dyn.inner.dtype.clone(),
-                name: result_dyn.inner.name.clone(),
-                autograd: None,
-                buffer: std::sync::RwLock::new(None),
-            }),
+            inner: result_dyn.inner.clone(),
             _dtype: PhantomData,
             _dim: PhantomData,
         }
