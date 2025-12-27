@@ -1,11 +1,11 @@
 //! TensorLowerer - TensorをASTへ変換
 //!
 //! Tensorツリーをトラバースし、ASTプログラムを生成する。
-//! 統一Compute演算を使用して全ての計算を処理。
+//! 統一MapReduce演算を使用して全ての計算を処理。
 //!
 //! # 設計
 //!
-//! 全ての計算演算をCompute形式で統一:
+//! 全ての計算演算をMapReduce形式で統一:
 //! - Elementwise: reduce_op = None, axes = []
 //! - Reduce: expr = Wildcard("0"), reduce_op = Some(op), axes = [...]
 //! - Fused: 任意のexpr + reduce_op
@@ -319,7 +319,7 @@ impl TensorLowerer {
 
         match input.op() {
             TensorOp::Const(lit) | TensorOp::ConstFill(lit) => AstNode::Const(lit.clone()),
-            TensorOp::Compute {
+            TensorOp::MapReduce {
                 inputs: nested_inputs,
                 expr: nested_expr,
                 reduce_op: None,
@@ -438,7 +438,7 @@ impl TensorLowerer {
     fn normalize_op_erased(&self, inner: &TensorInner) -> (AstNode, Option<ReduceOp>, Vec<usize>) {
         match inner.op() {
             // 統一Compute演算
-            TensorOp::Compute {
+            TensorOp::MapReduce {
                 expr,
                 reduce_op,
                 axes,
@@ -513,7 +513,7 @@ impl TensorLowerer {
                 // 定数は直接埋め込み
                 AstNode::Const(lit.clone())
             }
-            TensorOp::Compute {
+            TensorOp::MapReduce {
                 inputs: nested_inputs,
                 expr: nested_expr,
                 reduce_op: None,
@@ -745,7 +745,7 @@ impl TensorLowerer {
                 // 入力がViewの場合、そのstride情報を使ってアクセス
                 self.build_offset_for_tensor(input.as_ref(), ndim)
             }
-            TensorOp::Compute { .. } => {
+            TensorOp::MapReduce { .. } => {
                 // Compute演算の結果は連続メモリ
                 let shape = inner.view().shape();
                 build_contiguous_offset_with_shape(ndim, Some(shape))

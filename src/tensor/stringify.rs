@@ -126,7 +126,7 @@ impl GraphStringifier {
             }
 
             // 統一計算演算
-            TensorOp::Compute {
+            TensorOp::MapReduce {
                 inputs,
                 expr,
                 reduce_op,
@@ -137,7 +137,7 @@ impl GraphStringifier {
                 let children_str = children.join(", ");
                 let expr_str = self.stringify_ast(expr);
 
-                let mut result = format!("Compute([{}], expr={}", children_str, expr_str);
+                let mut result = format!("MapReduce([{}], expr={}", children_str, expr_str);
 
                 if let Some(op) = reduce_op {
                     write!(result, ", reduce={:?}", op).unwrap();
@@ -296,7 +296,7 @@ mod tests {
         println!("Graph repr: {}", repr);
 
         // 基本的な構造が含まれていることを確認
-        assert!(repr.contains("Compute"));
+        assert!(repr.contains("MapReduce"));
         assert!(repr.contains("Buffer"));
         assert!(repr.contains("$0"));
         assert!(repr.contains("$1"));

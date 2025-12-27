@@ -39,7 +39,7 @@
 //!
 //! ## Eager Fusion
 //!
-//! Operations are fused at call time using the unified Compute variant.
+//! Operations are fused at call time using the unified MapReduce variant.
 //!
 //! ## Ownership-based Fusion Control
 //!
@@ -562,10 +562,10 @@ impl TensorInner {
     /// 自身を再帰的にrealizeする
     ///
     /// 1. 既にバッファがあればスキップ
-    /// 2. Compute操作なら入力を先にrealize
+    /// 2. MapReduce操作なら入力を先にrealize
     /// 3. 自身をrealize_core()でrealize
     ///
-    /// View/Buffer/Executed等はrealizeしない（親のComputeが直接参照する）
+    /// View/Buffer/Executed等はrealizeしない（親のMapReduceが直接参照する）
     #[cfg(any(all(feature = "metal", target_os = "macos"), feature = "opencl"))]
     pub fn realize_recursive(&self) -> Result<(), String> {
         // 既にバッファがあればスキップ
@@ -593,8 +593,8 @@ impl TensorInner {
             _ => {}
         }
 
-        // Compute操作なら入力を先にrealize
-        if let TensorOp::Compute { inputs, .. } = &self.op {
+        // MapReduce操作なら入力を先にrealize
+        if let TensorOp::MapReduce { inputs, .. } = &self.op {
             for input in inputs {
                 input.realize_recursive()?;
             }

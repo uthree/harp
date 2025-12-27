@@ -4,7 +4,7 @@
 //!
 //! ## 融合パターン
 //!
-//! 新しいCompute統一設計では、演算は全てCompute variant で表現される:
+//! 新しいMapReduce統一設計では、演算は全てMapReduce variant で表現される:
 //! - Elementwise: reduce_op = None, axes = []
 //! - Reduce: expr = Wildcard("0"), reduce_op = Some(...), axes = [...]
 //! - Fused: 任意のexpr + reduce_op
@@ -205,12 +205,12 @@ pub fn can_fuse(parent: &TensorOp, child: &TensorOp) -> bool {
     match (parent, child) {
         // Elementwise Compute + Elementwise Compute は融合可能
         (
-            TensorOp::Compute {
+            TensorOp::MapReduce {
                 reduce_op: None,
                 axes: p_axes,
                 ..
             },
-            TensorOp::Compute {
+            TensorOp::MapReduce {
                 reduce_op: None,
                 axes: c_axes,
                 ..
@@ -219,12 +219,12 @@ pub fn can_fuse(parent: &TensorOp, child: &TensorOp) -> bool {
 
         // Elementwise Compute + Reduce Compute は融合可能
         (
-            TensorOp::Compute {
+            TensorOp::MapReduce {
                 reduce_op: None,
                 axes: p_axes,
                 ..
             },
-            TensorOp::Compute {
+            TensorOp::MapReduce {
                 reduce_op: Some(_), ..
             },
         ) if p_axes.is_empty() => true,

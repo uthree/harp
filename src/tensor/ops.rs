@@ -1,7 +1,7 @@
 //! TensorOp - Tensor演算の定義
 //!
 //! 入力テンソルをTensorOp内に埋め込む設計。
-//! Compute演算で全てのElementwise/Reduce演算を統一的に表現。
+//! MapReduce演算で全てのElementwise/Reduce演算を統一的に表現。
 
 use std::sync::Arc;
 
@@ -70,7 +70,7 @@ pub enum TensorOp {
     /// - Elementwise: reduce_op = None, axes = []
     /// - Reduce: expr = Wildcard("0"), reduce_op = Some(...), axes = [...]
     /// - Fused: 任意のexpr + reduce_op
-    Compute {
+    MapReduce {
         /// 入力テンソル群（Wildcard("0"), Wildcard("1"), ... に対応）
         inputs: Vec<InputRef>,
         /// 計算式（AstNode）
@@ -144,7 +144,7 @@ pub enum ReduceOp {
 impl TensorOp {
     /// Elementwise演算を作成
     pub fn elementwise(inputs: Vec<InputRef>, expr: AstNode) -> Self {
-        Self::Compute {
+        Self::MapReduce {
             inputs,
             expr,
             reduce_op: None,
@@ -155,7 +155,7 @@ impl TensorOp {
 
     /// Reduce演算を作成
     pub fn reduce(input: InputRef, op: ReduceOp, axes: Vec<usize>, keepdim: bool) -> Self {
-        Self::Compute {
+        Self::MapReduce {
             inputs: vec![input],
             expr: AstNode::Wildcard("0".to_string()),
             reduce_op: Some(op),
@@ -172,7 +172,7 @@ impl TensorOp {
         axes: Vec<usize>,
         keepdim: bool,
     ) -> Self {
-        Self::Compute {
+        Self::MapReduce {
             inputs,
             expr,
             reduce_op: Some(reduce_op),
@@ -185,7 +185,7 @@ impl TensorOp {
     pub fn is_elementwise(&self) -> bool {
         matches!(
             self,
-            TensorOp::Compute {
+            TensorOp::MapReduce {
                 reduce_op: None,
                 axes,
                 ..
@@ -197,7 +197,7 @@ impl TensorOp {
     pub fn is_reduce(&self) -> bool {
         matches!(
             self,
-            TensorOp::Compute {
+            TensorOp::MapReduce {
                 reduce_op: Some(_),
                 ..
             }
@@ -236,7 +236,7 @@ impl TensorOp {
             | TensorOp::Pad { input, .. }
             | TensorOp::Slice { input, .. } => vec![input],
 
-            TensorOp::Compute { inputs, .. } | TensorOp::Concat { inputs, .. } => {
+            TensorOp::MapReduce { inputs, .. } | TensorOp::Concat { inputs, .. } => {
                 inputs.iter().collect()
             }
         }
@@ -258,7 +258,7 @@ impl std::fmt::Debug for TensorOp {
                 write!(f, "Cast {{ target_dtype: {:?} }}", target_dtype)
             }
             TensorOp::Clone { .. } => write!(f, "Clone"),
-            TensorOp::Compute {
+            TensorOp::MapReduce {
                 expr,
                 reduce_op,
                 axes,
@@ -267,7 +267,7 @@ impl std::fmt::Debug for TensorOp {
             } => {
                 write!(
                     f,
-                    "Compute {{ expr: {:?}, reduce_op: {:?}, axes: {:?}, keepdim: {} }}",
+                    "MapReduce {{ expr: {:?}, reduce_op: {:?}, axes: {:?}, keepdim: {} }}",
                     expr, reduce_op, axes, keepdim
                 )
             }
