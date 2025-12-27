@@ -320,7 +320,7 @@ impl LoopInliningSuggester {
                         _ => 1,
                     }
                 }
-                eprintln!(
+                trace!(
                     "collect_inlining_candidates: inlined Range has {} stmts, {} Stores",
                     count_stmts(&inlined),
                     count_stores(&inlined)
@@ -358,7 +358,7 @@ impl LoopInliningSuggester {
                             statements: new_stmts,
                             scope: scope.clone(),
                         };
-                        eprintln!(
+                        trace!(
                             "collect_inlining_candidates Block: replaced stmt[{}], result has {} stmts, {} Stores",
                             i,
                             count_stmts_debug(&new_block),

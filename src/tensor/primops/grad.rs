@@ -904,7 +904,9 @@ mod tests {
         let _grad_y = y.backward_create_graph();
 
         // First derivative should exist
-        let first_deriv = x.grad().expect("x should have gradient after backward_create_graph");
+        let first_deriv = x
+            .grad()
+            .expect("x should have gradient after backward_create_graph");
         assert_eq!(first_deriv.shape(), &[1]);
 
         // The gradient should have requires_grad=true (key feature of backward_create_graph)
@@ -929,7 +931,10 @@ mod tests {
 
         // First derivative: dy/dx = 2x
         let first_deriv = x.grad().expect("x should have gradient");
-        assert!(first_deriv.requires_grad(), "first_deriv should require grad");
+        assert!(
+            first_deriv.requires_grad(),
+            "first_deriv should require grad"
+        );
 
         // Reset x's gradient for second derivative computation
         x.zero_grad();

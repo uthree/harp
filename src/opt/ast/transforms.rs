@@ -6,6 +6,7 @@ use crate::ast::{
     AstNode, DType, Literal, Mutability, Scope,
     helper::{assign, const_int, empty_block, idiv, range, var as helper_var},
 };
+use log::trace;
 use std::collections::HashSet;
 
 /// AST内のすべての変数名を収集する
@@ -231,7 +232,7 @@ pub fn inline_small_loop(loop_node: &AstNode, max_iterations: usize) -> Option<A
             let mut statements = Vec::new();
             let mut current = start_val;
 
-            eprintln!(
+            trace!(
                 "inline_small_loop: Unrolling loop {} from {} to {} (step {})",
                 var, start_val, stop_val, step_val
             );
@@ -240,7 +241,7 @@ pub fn inline_small_loop(loop_node: &AstNode, max_iterations: usize) -> Option<A
                 let var_value = const_int(current as i64);
                 let replaced_body = replace_var_in_ast(body, var, &var_value);
 
-                eprintln!(
+                trace!(
                     "inline_small_loop: Iteration {} = {}, replaced_body type: {:?}",
                     var,
                     current,
@@ -253,12 +254,12 @@ pub fn inline_small_loop(loop_node: &AstNode, max_iterations: usize) -> Option<A
                     ..
                 } = &replaced_body
                 {
-                    eprintln!(
+                    trace!(
                         "inline_small_loop: Block with {} statements, extending",
                         inner_stmts.len()
                     );
                     for (i, stmt) in inner_stmts.iter().enumerate() {
-                        eprintln!(
+                        trace!(
                             "inline_small_loop:   stmt[{}]: {:?}",
                             i,
                             std::mem::discriminant(stmt)
@@ -278,7 +279,7 @@ pub fn inline_small_loop(loop_node: &AstNode, max_iterations: usize) -> Option<A
                 current += step_val;
             }
 
-            eprintln!(
+            trace!(
                 "inline_small_loop: Total statements after unrolling: {}",
                 statements.len()
             );
@@ -288,10 +289,10 @@ pub fn inline_small_loop(loop_node: &AstNode, max_iterations: usize) -> Option<A
                 .iter()
                 .filter(|s| matches!(s, AstNode::Store { .. }))
                 .count();
-            eprintln!("inline_small_loop: Store count: {}", store_count);
+            trace!("inline_small_loop: Store count: {}", store_count);
             if store_count != iterations {
-                eprintln!(
-                    "WARNING: Expected {} Store nodes but found {}!",
+                trace!(
+                    "inline_small_loop: Expected {} Store nodes but found {}",
                     iterations, store_count
                 );
             }
