@@ -17,7 +17,6 @@
 
 use harp::backend::Device;
 use harp::backend::opencl::{OpenCLDevice, OpenCLRenderer};
-use harp::opt::ast::BeamSearchOptimizer;
 use harp::opt::IndicatifProgress;
 use harp::opt::ast::rules::all_rules_with_search;
 use harp::opt::ast::suggesters::{
@@ -26,6 +25,7 @@ use harp::opt::ast::suggesters::{
     LoopInterchangeSuggester, LoopTilingSuggester, RuleBaseSuggester, VariableExpansionSuggester,
     VectorizationSuggester,
 };
+use harp::opt::ast::{BeamSearchOptimizer, PrunedDfsOptimizer};
 use harp::tensor::lowerer::TensorLowerer;
 use harp::tensor::{Dim2, Tensor};
 
@@ -95,7 +95,7 @@ fn main() {
 
     // ビームサーチ最適化器を構成
     let mut optimizer = BeamSearchOptimizer::new(suggester)
-        .with_beam_width(5)
+        .with_beam_width(4)
         .with_max_steps(30)
         .with_collect_logs(true)
         .with_no_improvement_limit(Some(5))

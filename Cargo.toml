@@ -42,9 +42,5 @@ serial_test = "3.2"
 rstest = "0.24"
 
 [[example]]
-name = "viz_demo"
-required-features = ["viz"]
-
-[[example]]
 name = "viz_matmul_demo"
 required-features = ["viz", "opencl"]
