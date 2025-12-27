@@ -156,51 +156,26 @@ pub(crate) fn collect_input_data_inner(inner: &TensorInner) -> Vec<(Vec<f32>, Ve
         }
         visited.insert(ptr);
 
-        match inner.op() {
-            // Leaf nodes with data
-            TensorOp::Executed => {
-                // Get data from buffer (now Buffer)
-                if let Ok(guard) = inner.buffer().read()
-                    && let Some(buf) = guard.as_ref()
-                    && let Ok(bytes) = buf.read_to_host()
-                {
-                    let data = bytes_to_f32(&bytes);
-                    inputs.push((data, inner.shape().to_vec()));
-                }
+        // バッファを持つノードはすべて入力として扱う（ConstFill, Compute等も含む）
+        // これにより collect_input_buffers (lowerer) と同じ順序で入力を収集する
+        if inner.has_buffer() {
+            if let Some(bytes) = inner.read_buffer() {
+                let data = bytes_to_f32(&bytes);
+                inputs.push((data, inner.shape().to_vec()));
             }
-            TensorOp::Buffer { .. } => {
-                // Named buffer - also get data if available
-                if let Ok(guard) = inner.buffer().read()
-                    && let Some(buf) = guard.as_ref()
-                    && let Ok(bytes) = buf.read_to_host()
-                {
-                    let data = bytes_to_f32(&bytes);
-                    inputs.push((data, inner.shape().to_vec()));
-                }
-            }
-            // Compute operations - check buffer first, then recurse into inputs
-            TensorOp::Compute { .. } => {
-                // If this Compute node already has a buffer (realized), use it
-                if inner.has_buffer()
-                    && let Some(bytes) = inner.read_buffer()
-                {
-                    let data = bytes_to_f32(&bytes);
-                    inputs.push((data, inner.shape().to_vec()));
-                    return; // This node is already realized, don't recurse
-                }
+            return;
+        }
 
-                // Otherwise, recurse into inputs
+        match inner.op() {
+            // Const is embedded directly by the lowerer, skip it
+            TensorOp::Const(_) => {}
+            // Other operations - recurse into inputs
+            _ => {
                 for input in inner.op().inputs() {
                     // Skip const inputs as the lowerer embeds them directly
                     if !matches!(input.op(), TensorOp::Const(_)) {
                         collect_recursive(input.as_ref(), visited, inputs);
                     }
-                }
-            }
-            // Other operations - recurse into inputs
-            _ => {
-                for input in inner.op().inputs() {
-                    collect_recursive(input.as_ref(), visited, inputs);
                 }
             }
         }

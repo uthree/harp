@@ -113,6 +113,18 @@ impl TensorLowerer {
         }
         self.visited.insert(ptr, true);
 
+        // バッファを持つノードは入力バッファとして扱う（Compute含む）
+        // これにより collect_input_data_inner と同じ順序で入力を収集する
+        if inner.has_buffer() {
+            if !self.executed_names.contains_key(&ptr) {
+                let name = format!("data{}", self.executed_counter);
+                self.executed_counter += 1;
+                self.executed_names.insert(ptr, name.clone());
+                self.input_buffer_names.push(name);
+            }
+            return;
+        }
+
         match inner.op() {
             TensorOp::Buffer { name } => {
                 if !self.input_buffer_names.contains(name) {
@@ -121,6 +133,7 @@ impl TensorLowerer {
             }
             TensorOp::Executed => {
                 // Executedテンソルは既存データを持つので入力バッファとして扱う
+                // （通常は上のhas_buffer()で処理されるが、バッファがない場合もある）
                 if !self.executed_names.contains_key(&ptr) {
                     let name = format!("data{}", self.executed_counter);
                     self.executed_counter += 1;
@@ -275,6 +288,28 @@ impl TensorLowerer {
         buffer_index: &mut usize,
         load_dtype: &AstDType,
     ) -> AstNode {
+        // バッファを持つノードは入力バッファとして扱う（realized済みCompute含む）
+        // バッファのデータは常にcontiguousなので、適切なオフセット計算を使用
+        if input.has_buffer() {
+            let input_shape = input.view().shape();
+            let input_ndim = input_shape.len();
+
+            let src_offset = if input_ndim == output_ndim {
+                // 次元数が同じ場合はcontiguousオフセット
+                build_contiguous_offset_with_shape(output_ndim, Some(input_shape))
+            } else if input_ndim < output_ndim {
+                // ブロードキャスト: 入力の次元数 < ループの次元数
+                self.build_broadcast_offset(input, input_ndim, output_ndim)
+            } else {
+                // input_ndim > output_ndim: 入力のshapeを使用
+                build_contiguous_offset_with_shape(input_ndim, Some(input_shape))
+            };
+
+            let idx = *buffer_index;
+            *buffer_index += 1;
+            return load(var(ph::input(idx)), src_offset, load_dtype.clone());
+        }
+
         match input.op() {
             TensorOp::Const(lit) | TensorOp::ConstFill(lit) => AstNode::Const(lit.clone()),
             TensorOp::Compute {
@@ -360,6 +395,18 @@ impl TensorLowerer {
         buffer_index: &mut usize,
         load_dtype: &AstDType,
     ) -> AstNode {
+        // バッファを持つノードは入力バッファとして扱う（realized済みCompute含む）
+        // バッファのデータは常にcontiguousなので、contiguousオフセットを使用
+        if input.has_buffer() {
+            let input_shape = input.view().shape();
+            let input_ndim = input_shape.len();
+            // contiguousオフセットを計算（バッファはcontiguousデータを持つ）
+            let src_offset = build_contiguous_offset_with_shape(input_ndim, Some(input_shape));
+            let idx = *buffer_index;
+            *buffer_index += 1;
+            return load(var(ph::input(idx)), src_offset, load_dtype.clone());
+        }
+
         match input.op() {
             TensorOp::Buffer { .. } => {
                 let idx = *buffer_index;
@@ -432,6 +479,28 @@ impl TensorLowerer {
         buffer_index: &mut usize,
         load_dtype: &AstDType,
     ) -> AstNode {
+        // バッファを持つノードは入力バッファとして扱う（realized済みCompute含む）
+        // バッファのデータは常にcontiguousなので、適切なオフセット計算を使用
+        if input.has_buffer() {
+            let input_shape = input.view().shape();
+            let input_ndim = input_shape.len();
+
+            let src_offset = if input_ndim == ndim {
+                // 次元数が同じ場合はcontiguousオフセット
+                build_contiguous_offset_with_shape(ndim, Some(input_shape))
+            } else if input_ndim < ndim {
+                // ブロードキャスト: 入力の次元数 < ループの次元数
+                self.build_broadcast_offset(input, input_ndim, ndim)
+            } else {
+                // input_ndim > ndim: 通常発生しないが、入力のshapeを使用
+                build_contiguous_offset_with_shape(input_ndim, Some(input_shape))
+            };
+
+            let idx = *buffer_index;
+            *buffer_index += 1;
+            return load(var(ph::input(idx)), src_offset, load_dtype.clone());
+        }
+
         match input.op() {
             TensorOp::Const(lit) | TensorOp::ConstFill(lit) => {
                 // 定数は直接埋め込み
