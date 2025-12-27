@@ -85,6 +85,39 @@ pub fn elementwise_to_ast(op: &ElementwiseOp, input_indices: &[usize]) -> AstNod
             let input = wildcard(input_indices[0].to_string());
             floor(input)
         }
+
+        // ビット演算（二項）
+        ElementwiseOp::BitAnd => {
+            let lhs = wildcard(input_indices[0].to_string());
+            let rhs = wildcard(input_indices[1].to_string());
+            bitand(lhs, rhs)
+        }
+        ElementwiseOp::BitOr => {
+            let lhs = wildcard(input_indices[0].to_string());
+            let rhs = wildcard(input_indices[1].to_string());
+            bitor(lhs, rhs)
+        }
+        ElementwiseOp::BitXor => {
+            let lhs = wildcard(input_indices[0].to_string());
+            let rhs = wildcard(input_indices[1].to_string());
+            bitxor(lhs, rhs)
+        }
+        ElementwiseOp::Shl => {
+            let lhs = wildcard(input_indices[0].to_string());
+            let rhs = wildcard(input_indices[1].to_string());
+            shl(lhs, rhs)
+        }
+        ElementwiseOp::Shr => {
+            let lhs = wildcard(input_indices[0].to_string());
+            let rhs = wildcard(input_indices[1].to_string());
+            shr(lhs, rhs)
+        }
+
+        // ビット演算（単項）
+        ElementwiseOp::BitNot => {
+            let input = wildcard(input_indices[0].to_string());
+            bitnot(input)
+        }
     }
 }
 

@@ -6,8 +6,9 @@
 //! ## Categories
 //!
 //! - **Initialization**: Const, Rand
-//! - **Binary**: Add, Mul, Max, Idiv
+//! - **Binary**: Add, Mul, Max, Idiv, Rem
 //! - **Unary**: Neg, Recip, Sqrt, Log2, Exp2, Sin
+//! - **Bitwise**: BitAnd, BitOr, BitXor, BitNot, Shl, Shr
 //! - **Reduce**: Reduce(Add), Reduce(Mul), Reduce(Max)
 //! - **Movement**: Squeeze, Unsqueeze, Repeat, Reshape, Contiguous
 //!
@@ -17,6 +18,7 @@
 //! Fused operations also have gradient support via symbolic differentiation.
 
 mod binary;
+mod bitwise;
 mod grad;
 mod init;
 mod movement;

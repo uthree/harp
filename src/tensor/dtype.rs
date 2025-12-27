@@ -7,9 +7,26 @@
 //! - `FloatDType`: Floating-point types (f32, f64) - support transcendental functions and gradients
 //! - `IntegerDType`: Integer types - support bitwise operations
 //! - `SignedIntDType`: Signed integer types (i8, i16, i32, i64)
-//! - `UnsignedIntDType`: Unsigned integer types (u8, u16, u32)
+//! - `UnsignedIntDType`: Unsigned integer types (u8, u16, u32, u64)
 
 use crate::ast::DType;
+
+// ============================================================================
+// Macros for impl generation
+// ============================================================================
+
+/// Macro to implement integer type base traits (TensorDType, NumericDType)
+/// IntegerDType and its subtypes are implemented in mod.rs with extended functionality
+macro_rules! impl_integer_base {
+    ($($ty:ty => $dtype:expr);+ $(;)?) => {
+        $(
+            impl TensorDType for $ty {
+                const DTYPE: DType = $dtype;
+            }
+            impl NumericDType for $ty {}
+        )+
+    };
+}
 
 // ============================================================================
 // TensorDType trait hierarchy
@@ -31,18 +48,7 @@ pub trait TensorDType: Clone + Send + Sync + 'static {
 pub trait NumericDType: TensorDType {}
 
 // FloatDType is defined in mod.rs with autograd methods
-
-/// Marker trait for integer types (signed and unsigned).
-///
-/// Types implementing this trait support:
-/// - Bitwise operations (and, or, xor, shl, shr)
-pub trait IntegerDType: NumericDType {}
-
-/// Marker trait for signed integer types (i8, i16, i32, i64).
-pub trait SignedIntDType: IntegerDType {}
-
-/// Marker trait for unsigned integer types (u8, u16, u32).
-pub trait UnsignedIntDType: IntegerDType {}
+// IntegerDType, SignedIntDType, UnsignedIntDType are defined in mod.rs with extended functionality
 
 // ============================================================================
 // TensorDType implementations
@@ -59,51 +65,17 @@ impl NumericDType for f32 {}
 impl NumericDType for f64 {}
 // FloatDType implementations are in mod.rs
 
-// Signed integer types
-impl TensorDType for i8 {
-    const DTYPE: DType = DType::I8;
-}
-impl TensorDType for i16 {
-    const DTYPE: DType = DType::I16;
-}
-impl TensorDType for i32 {
-    const DTYPE: DType = DType::I32;
-}
-impl TensorDType for i64 {
-    const DTYPE: DType = DType::I64;
-}
-impl NumericDType for i8 {}
-impl NumericDType for i16 {}
-impl NumericDType for i32 {}
-impl NumericDType for i64 {}
-impl IntegerDType for i8 {}
-impl IntegerDType for i16 {}
-impl IntegerDType for i32 {}
-impl IntegerDType for i64 {}
-impl SignedIntDType for i8 {}
-impl SignedIntDType for i16 {}
-impl SignedIntDType for i32 {}
-impl SignedIntDType for i64 {}
-
-// Unsigned integer types
-impl TensorDType for u8 {
-    const DTYPE: DType = DType::U8;
-}
-impl TensorDType for u16 {
-    const DTYPE: DType = DType::U16;
-}
-impl TensorDType for u32 {
-    const DTYPE: DType = DType::U32;
-}
-impl NumericDType for u8 {}
-impl NumericDType for u16 {}
-impl NumericDType for u32 {}
-impl IntegerDType for u8 {}
-impl IntegerDType for u16 {}
-impl IntegerDType for u32 {}
-impl UnsignedIntDType for u8 {}
-impl UnsignedIntDType for u16 {}
-impl UnsignedIntDType for u32 {}
+// Integer types (via macro) - IntegerDType impl is in mod.rs
+impl_integer_base!(
+    i8  => DType::I8;
+    i16 => DType::I16;
+    i32 => DType::I32;
+    i64 => DType::I64;
+    u8  => DType::U8;
+    u16 => DType::U16;
+    u32 => DType::U32;
+    u64 => DType::U64;
+);
 
 // Boolean type (not numeric)
 impl TensorDType for bool {
@@ -133,6 +105,7 @@ mod tests {
         assert_eq!(u8::DTYPE, DType::U8);
         assert_eq!(u16::DTYPE, DType::U16);
         assert_eq!(u32::DTYPE, DType::U32);
+        assert_eq!(u64::DTYPE, DType::U64);
     }
 
     #[test]
@@ -142,9 +115,6 @@ mod tests {
 
     // Type-level tests: ensure trait bounds work as expected
     fn requires_numeric<T: NumericDType>() {}
-    fn requires_integer<T: IntegerDType>() {}
-    fn requires_signed<T: SignedIntDType>() {}
-    fn requires_unsigned<T: UnsignedIntDType>() {}
 
     #[test]
     fn test_trait_bounds() {
@@ -152,14 +122,14 @@ mod tests {
         requires_numeric::<f32>();
         requires_numeric::<f64>();
 
-        // Signed integers satisfy NumericDType, IntegerDType, SignedIntDType
+        // Integer types satisfy NumericDType (IntegerDType is tested in mod.rs)
+        requires_numeric::<i8>();
+        requires_numeric::<i16>();
         requires_numeric::<i32>();
-        requires_integer::<i32>();
-        requires_signed::<i32>();
-
-        // Unsigned integers satisfy NumericDType, IntegerDType, UnsignedIntDType
+        requires_numeric::<i64>();
+        requires_numeric::<u8>();
+        requires_numeric::<u16>();
         requires_numeric::<u32>();
-        requires_integer::<u32>();
-        requires_unsigned::<u32>();
+        requires_numeric::<u64>();
     }
 }

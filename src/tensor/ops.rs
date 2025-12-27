@@ -170,6 +170,16 @@ pub enum ElementwiseOp {
     Sin,
     Sqrt,
     Floor,
+
+    // ビット演算（二項）
+    BitAnd,
+    BitOr,
+    BitXor,
+    Shl,
+    Shr,
+
+    // ビット演算（単項）
+    BitNot,
 }
 
 /// 縮約演算の種類
@@ -324,7 +334,16 @@ impl ElementwiseOp {
     pub fn is_binary(&self) -> bool {
         matches!(
             self,
-            Self::Add | Self::Mul | Self::Max | Self::Rem | Self::Idiv
+            Self::Add
+                | Self::Mul
+                | Self::Max
+                | Self::Rem
+                | Self::Idiv
+                | Self::BitAnd
+                | Self::BitOr
+                | Self::BitXor
+                | Self::Shl
+                | Self::Shr
         )
     }
 
@@ -348,6 +367,12 @@ impl ElementwiseOp {
             Self::Sin => "sin",
             Self::Sqrt => "sqrt",
             Self::Floor => "floor",
+            Self::BitAnd => "bitand",
+            Self::BitOr => "bitor",
+            Self::BitXor => "bitxor",
+            Self::Shl => "shl",
+            Self::Shr => "shr",
+            Self::BitNot => "bitnot",
         }
     }
 
@@ -364,12 +389,18 @@ impl ElementwiseOp {
             ElementwiseOp::Sin => sin(wildcard("0")),
             ElementwiseOp::Sqrt => sqrt(wildcard("0")),
             ElementwiseOp::Floor => floor(wildcard("0")),
+            ElementwiseOp::BitNot => bitnot(wildcard("0")),
             // 二項演算
             ElementwiseOp::Add if input_count == 2 => add(wildcard("0"), wildcard("1")),
             ElementwiseOp::Mul if input_count == 2 => mul(wildcard("0"), wildcard("1")),
             ElementwiseOp::Max if input_count == 2 => max(wildcard("0"), wildcard("1")),
             ElementwiseOp::Rem if input_count == 2 => rem(wildcard("0"), wildcard("1")),
             ElementwiseOp::Idiv if input_count == 2 => idiv(wildcard("0"), wildcard("1")),
+            ElementwiseOp::BitAnd if input_count == 2 => bitand(wildcard("0"), wildcard("1")),
+            ElementwiseOp::BitOr if input_count == 2 => bitor(wildcard("0"), wildcard("1")),
+            ElementwiseOp::BitXor if input_count == 2 => bitxor(wildcard("0"), wildcard("1")),
+            ElementwiseOp::Shl if input_count == 2 => shl(wildcard("0"), wildcard("1")),
+            ElementwiseOp::Shr if input_count == 2 => shr(wildcard("0"), wildcard("1")),
             // Fallback for binary ops with wrong input count
             _ => panic!(
                 "Binary op {:?} requires 2 inputs, got {}",

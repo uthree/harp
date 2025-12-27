@@ -95,7 +95,8 @@ use std::sync::{Arc, RwLock};
 use crate::backend::Buffer;
 
 pub use dimension::{Dim, Dim0, Dim1, Dim2, Dim3, Dim4, Dim5, Dim6, DimDyn, Dimension};
-pub use dtype::{IntegerDType, NumericDType, SignedIntDType, TensorDType, UnsignedIntDType};
+pub use dtype::{NumericDType, TensorDType};
+// IntegerDType, SignedIntDType, UnsignedIntDType, NumericInitDType are defined below
 pub use forward::ForwardError;
 pub use ops::{ElementwiseOp, ErasedTensorInner, InputRef, ReduceOp, TensorOp};
 pub use primops::{Exp2, Floor, Log2, Recip, Sin, Sqrt};
@@ -305,6 +306,146 @@ impl FloatDType for f64 {
         AutogradStorage::new_f64()
     }
 }
+
+// ============================================================================
+// IntegerDType - Sealed trait for integer types
+// ============================================================================
+
+mod sealed_int {
+    pub trait Sealed {}
+    impl Sealed for i8 {}
+    impl Sealed for i16 {}
+    impl Sealed for i32 {}
+    impl Sealed for i64 {}
+    impl Sealed for u8 {}
+    impl Sealed for u16 {}
+    impl Sealed for u32 {}
+    impl Sealed for u64 {}
+}
+
+/// Trait for integer types (i8, i16, i32, i64, u8, u16, u32, u64)
+///
+/// This is a sealed trait. Provides:
+/// - Bitwise operations (and, or, xor, shl, shr)
+/// - Integer division and remainder
+pub trait IntegerDType: NumericDType + sealed_int::Sealed {
+    /// Zero value for this type
+    const ZERO: Self;
+    /// One value for this type
+    const ONE: Self;
+
+    /// Convert value to Literal for ConstFill operations
+    fn to_literal(val: Self) -> Literal;
+}
+
+/// Trait for signed integer types (i8, i16, i32, i64)
+pub trait SignedIntDType: IntegerDType {}
+
+/// Trait for unsigned integer types (u8, u16, u32, u64)
+pub trait UnsignedIntDType: IntegerDType {}
+
+/// Macro to implement IntegerDType for signed integers
+macro_rules! impl_signed_int_dtype {
+    ($($ty:ty => $literal:ident);+ $(;)?) => {
+        $(
+            impl IntegerDType for $ty {
+                const ZERO: Self = 0;
+                const ONE: Self = 1;
+                fn to_literal(val: Self) -> Literal {
+                    Literal::$literal(val)
+                }
+            }
+            impl SignedIntDType for $ty {}
+        )+
+    };
+}
+
+/// Macro to implement IntegerDType for unsigned integers
+macro_rules! impl_unsigned_int_dtype {
+    ($($ty:ty => $literal:ident);+ $(;)?) => {
+        $(
+            impl IntegerDType for $ty {
+                const ZERO: Self = 0;
+                const ONE: Self = 1;
+                fn to_literal(val: Self) -> Literal {
+                    Literal::$literal(val)
+                }
+            }
+            impl UnsignedIntDType for $ty {}
+        )+
+    };
+}
+
+impl_signed_int_dtype!(
+    i8  => I8;
+    i16 => I16;
+    i32 => I32;
+    i64 => I64;
+);
+
+impl_unsigned_int_dtype!(
+    u8  => U8;
+    u16 => U16;
+    u32 => U32;
+    u64 => U64;
+);
+
+// ============================================================================
+// NumericInitDType - Common trait for numeric types with initialization
+// ============================================================================
+
+/// Trait for numeric types that support tensor initialization
+///
+/// This is a common trait that both FloatDType and IntegerDType implement,
+/// allowing unified initialization methods (zeros, ones, full, input) for
+/// all numeric tensor types.
+pub trait NumericInitDType: NumericDType {
+    /// Zero value for this type
+    const ZERO: Self;
+    /// One value for this type
+    const ONE: Self;
+
+    /// Convert value to Literal for ConstFill operations
+    fn to_literal(val: Self) -> Literal;
+}
+
+// Blanket implementations for FloatDType and IntegerDType
+impl<T: FloatDType> NumericInitDType for T {
+    const ZERO: Self = <T as FloatDType>::ZERO;
+    const ONE: Self = <T as FloatDType>::ONE;
+
+    fn to_literal(val: Self) -> Literal {
+        <T as FloatDType>::to_literal(val)
+    }
+}
+
+// Note: IntegerDType implementation is done via macro below
+
+/// Macro to implement NumericInitDType for integer types
+macro_rules! impl_numeric_init_for_int {
+    ($($ty:ty => $literal:ident);+ $(;)?) => {
+        $(
+            impl NumericInitDType for $ty {
+                const ZERO: Self = 0;
+                const ONE: Self = 1;
+                fn to_literal(val: Self) -> Literal {
+                    Literal::$literal(val)
+                }
+            }
+        )+
+    };
+}
+
+impl_numeric_init_for_int!(
+    i8  => I8;
+    i16 => I16;
+    i32 => I32;
+    i64 => I64;
+    u8  => U8;
+    u16 => U16;
+    u32 => U32;
+    u64 => U64;
+);
 
 // ============================================================================
 // TensorInner: Internal tensor data

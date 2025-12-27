@@ -15,8 +15,8 @@ use std::sync::Arc;
 use crate::ast::{DType, Literal};
 use crate::tensor::shape::{Expr, View};
 use crate::tensor::{
-    DimDyn, Dimension, ElementwiseOp, FloatDType, GradFn, NumericDType, Tensor, TensorInner,
-    TensorOp,
+    DimDyn, Dimension, ElementwiseOp, FloatDType, GradFn, IntegerDType, NumericDType, Tensor,
+    TensorInner, TensorOp,
 };
 
 use super::grad::reduce_grad_for_broadcast_generic;
@@ -432,17 +432,39 @@ impl<D: Dimension> Tensor<f64, D> {
 }
 
 // ============================================================================
-// Idiv: integer division (floor division)
-// TODO: Requires floor() support in graph ops
+// Integer operations: Idiv and Rem (IntegerDType only)
 // ============================================================================
 
-// impl<D: Dimension> Tensor<f32, D> {
-//     /// Integer division (floor division)
-//     pub fn idiv(&self, other: &Tensor<f32, impl Dimension>) -> Tensor<f32, D> {
-//         // Requires floor() primop support
-//         todo!("idiv requires floor() support in graph ops")
-//     }
-// }
+impl<T: IntegerDType, D: Dimension> Tensor<T, D> {
+    /// Integer division (floor division)
+    ///
+    /// Computes element-wise integer division `self / other`.
+    /// For negative dividends, this uses truncation toward zero (like Rust's `/` operator).
+    ///
+    /// # Example
+    /// ```ignore
+    /// let a = Tensor::<i32, Dim2>::full([2, 3], 7);
+    /// let b = Tensor::<i32, Dim2>::full([2, 3], 3);
+    /// let c = a.idiv(&b); // Results in [[2, 2, 2], [2, 2, 2]]
+    /// ```
+    pub fn idiv(&self, other: &Tensor<T, impl Dimension>) -> Tensor<T, D> {
+        create_binary_elementwise(ElementwiseOp::Idiv, self, other)
+    }
+
+    /// Remainder (modulo) operation
+    ///
+    /// Computes element-wise remainder `self % other`.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let a = Tensor::<i32, Dim2>::full([2, 3], 7);
+    /// let b = Tensor::<i32, Dim2>::full([2, 3], 3);
+    /// let c = a.rem(&b); // Results in [[1, 1, 1], [1, 1, 1]]
+    /// ```
+    pub fn rem(&self, other: &Tensor<T, impl Dimension>) -> Tensor<T, D> {
+        create_binary_elementwise(ElementwiseOp::Rem, self, other)
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -523,6 +545,39 @@ mod tests {
     fn test_maximum_scalar_f64() {
         let a = Tensor::<f64, Dim2>::full([2, 3], -1.0);
         let c = a.maximum_scalar(0.0);
+        assert_eq!(c.shape(), &[2, 3]);
+    }
+
+    // Integer operation tests
+    #[test]
+    fn test_idiv_i32() {
+        let a = Tensor::<i32, Dim2>::full([2, 3], 7);
+        let b = Tensor::<i32, Dim2>::full([2, 3], 3);
+        let c = a.idiv(&b);
+        assert_eq!(c.shape(), &[2, 3]);
+    }
+
+    #[test]
+    fn test_rem_i32() {
+        let a = Tensor::<i32, Dim2>::full([2, 3], 7);
+        let b = Tensor::<i32, Dim2>::full([2, 3], 3);
+        let c = a.rem(&b);
+        assert_eq!(c.shape(), &[2, 3]);
+    }
+
+    #[test]
+    fn test_idiv_u64() {
+        let a = Tensor::<u64, Dim2>::full([2, 3], 10);
+        let b = Tensor::<u64, Dim2>::full([2, 3], 3);
+        let c = a.idiv(&b);
+        assert_eq!(c.shape(), &[2, 3]);
+    }
+
+    #[test]
+    fn test_rem_u64() {
+        let a = Tensor::<u64, Dim2>::full([2, 3], 10);
+        let b = Tensor::<u64, Dim2>::full([2, 3], 3);
+        let c = a.rem(&b);
         assert_eq!(c.shape(), &[2, 3]);
     }
 }

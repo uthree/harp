@@ -27,6 +27,16 @@ pub fn build_elementwise_expr(op: &ElementwiseOp) -> AstNode {
         ElementwiseOp::Sin => sin(wildcard("0")),
         ElementwiseOp::Sqrt => sqrt(wildcard("0")),
         ElementwiseOp::Floor => AstNode::Floor(Box::new(wildcard("0"))),
+
+        // ビット演算（二項）
+        ElementwiseOp::BitAnd => bitand(wildcard("0"), wildcard("1")),
+        ElementwiseOp::BitOr => bitor(wildcard("0"), wildcard("1")),
+        ElementwiseOp::BitXor => bitxor(wildcard("0"), wildcard("1")),
+        ElementwiseOp::Shl => shl(wildcard("0"), wildcard("1")),
+        ElementwiseOp::Shr => shr(wildcard("0"), wildcard("1")),
+
+        // ビット演算（単項）
+        ElementwiseOp::BitNot => bitnot(wildcard("0")),
     }
 }
 

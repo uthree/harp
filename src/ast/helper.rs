@@ -37,6 +37,14 @@ impl_binary_helper!(ge, Ge, "Create a greater-than-or-equal comparison: a >= b")
 impl_binary_helper!(eq, Eq, "Create an equality comparison: a == b");
 impl_binary_helper!(ne, Ne, "Create a not-equal comparison: a != b");
 
+// Bitwise operation helpers
+impl_binary_helper!(bitand, BitwiseAnd, "Create a bitwise AND: a & b");
+impl_binary_helper!(bitor, BitwiseOr, "Create a bitwise OR: a | b");
+impl_binary_helper!(bitxor, BitwiseXor, "Create a bitwise XOR: a ^ b");
+impl_unary_helper!(bitnot, BitwiseNot, "Create a bitwise NOT: !a");
+impl_binary_helper!(shl, LeftShift, "Create a left shift: a << b");
+impl_binary_helper!(shr, RightShift, "Create a right shift: a >> b");
+
 // Unary operation helpers
 impl_unary_helper!(recip, Recip, "Create a reciprocal node: 1 / a");
 impl_unary_helper!(sqrt, Sqrt, "Create a square root node: sqrt(a)");

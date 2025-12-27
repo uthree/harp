@@ -67,8 +67,20 @@ pub trait UnsignedIntDType: IntegerDType {}
 |----|-------------|--------------|------------|--------------|
 | f32, f64 | ○ | ○ | ○ | × |
 | i8, i16, i32, i64 | ○ | ○ | × | ○ (Signed) |
-| u8, u16, u32 | ○ | ○ | × | ○ (Unsigned) |
+| u8, u16, u32, u64 | ○ | ○ | × | ○ (Unsigned) |
 | bool | ○ | × | × | × |
+
+**NumericInitDType**: 初期化操作のための共通トレイト
+
+```rust
+pub trait NumericInitDType: NumericDType {
+    const ZERO: Self;
+    const ONE: Self;
+    fn to_literal(val: Self) -> Literal;
+}
+```
+
+FloatDType と IntegerDType の両方がこのトレイトを実装しており、`zeros`, `ones`, `full`, `input` などの初期化メソッドが統一的に利用可能です。
 
 ### TensorOp
 
@@ -192,8 +204,18 @@ pub trait GradFn<T: FloatDType>: Send + Sync {
 | `Add` | 加算 | NumericDType |
 | `Mul` | 乗算 | NumericDType |
 | `Max` | 最大値 | NumericDType |
-| `Idiv` | 整数除算 | NumericDType |
-| `Rem` | 剰余 | NumericDType |
+| `Idiv` | 整数除算 | IntegerDType |
+| `Rem` | 剰余 | IntegerDType |
+
+#### ビット演算
+| 演算 | 説明 | 型制約 |
+|------|------|--------|
+| `BitAnd` | ビットAND | IntegerDType |
+| `BitOr` | ビットOR | IntegerDType |
+| `BitXor` | ビットXOR | IntegerDType |
+| `BitNot` | ビットNOT | IntegerDType |
+| `Shl` | 左シフト | IntegerDType |
+| `Shr` | 右シフト | IntegerDType |
 
 #### 要素ごとの演算（単項）
 | 演算 | 説明 | 型制約 |
@@ -393,12 +415,13 @@ src/tensor/
 │   ├── reduction.rs
 │   └── transcendental.rs
 └── primops/        # プリミティブ演算
-    ├── binary.rs
-    ├── grad.rs
-    ├── init.rs
-    ├── movement.rs
-    ├── reduce.rs
-    └── unary.rs
+    ├── binary.rs   # 二項演算（Add, Mul, Max, Idiv, Rem）
+    ├── bitwise.rs  # ビット演算（IntegerDType専用）
+    ├── grad.rs     # 勾配関数
+    ├── init.rs     # 初期化（zeros, ones, full）
+    ├── movement.rs # 形状変更
+    ├── reduce.rs   # 縮約演算
+    └── unary.rs    # 単項演算
 ```
 
 ## TensorLowerer
