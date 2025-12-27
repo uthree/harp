@@ -18,6 +18,7 @@
 use harp::backend::Device;
 use harp::backend::opencl::{OpenCLDevice, OpenCLRenderer};
 use harp::opt::ast::BeamSearchOptimizer;
+use harp::opt::IndicatifProgress;
 use harp::opt::ast::rules::all_rules_with_search;
 use harp::opt::ast::suggesters::{
     CompositeSuggester, FunctionInliningSuggester, GroupParallelizationSuggester,
@@ -98,7 +99,7 @@ fn main() {
         .with_max_steps(30)
         .with_collect_logs(true)
         .with_no_improvement_limit(Some(5))
-        .without_progress(); // TUIと干渉しないようにプログレスを無効化
+        .with_progress(IndicatifProgress::new());
 
     println!("Running optimization...");
 
