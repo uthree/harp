@@ -884,6 +884,82 @@ impl<D: Dimension> Tensor<f32, D> {
         }
     }
 
+    /// Perform backward propagation while retaining the computation graph
+    ///
+    /// This enables higher-order derivatives (e.g., second derivatives) by
+    /// creating gradients that themselves have `requires_grad = true`.
+    ///
+    /// # Returns
+    ///
+    /// The initial gradient tensor, which can be used to compute higher-order
+    /// derivatives by calling `.grad()` on it after backward propagation.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Compute second derivative: d²(x³)/dx² = 6x
+    /// let x = Tensor::<f32, Dim1>::full([1], 2.0).set_requires_grad(true);
+    /// let y = &x * &x * &x;  // y = x³
+    /// let grad_y = y.backward_create_graph();
+    /// // First derivative: dy/dx = 3x² (stored in x.grad())
+    /// // grad_y has requires_grad=true, so we can differentiate again
+    /// grad_y.backward();
+    /// // Second derivative: d²y/dx² = 6x (now in x.grad())
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if this tensor does not require gradients.
+    pub fn backward_create_graph(&self) -> Tensor<f32, DimDyn> {
+        if self.inner.autograd.is_none() {
+            panic!("backward_create_graph() called on tensor that doesn't require gradients");
+        }
+
+        // Create initial gradient with requires_grad=true to build computation graph
+        let initial_grad = Tensor::<f32, DimDyn>::ones_dyn(self.shape()).set_requires_grad(true);
+        self.backward_with_create_graph(initial_grad.clone());
+        initial_grad
+    }
+
+    /// Perform backward propagation with a custom initial gradient while retaining
+    /// the computation graph for higher-order derivatives.
+    ///
+    /// Unlike `backward_with`, gradients computed during this backward pass will
+    /// themselves have `requires_grad = true`, allowing further differentiation.
+    pub fn backward_with_create_graph(&self, grad_output: Tensor<f32, DimDyn>) {
+        if let Some(ref autograd_storage) = self.inner.autograd {
+            // Get f32 autograd metadata
+            let autograd = autograd_storage
+                .as_f32()
+                .expect("f32 tensor should have f32 autograd storage");
+
+            // Accumulate gradient
+            {
+                let mut grad = autograd.grad.write().unwrap();
+                if let Some(existing) = grad.take() {
+                    // Add to existing gradient (this addition is also tracked in the graph)
+                    let new_grad = &(*existing) + &grad_output;
+                    *grad = Some(Arc::new(new_grad));
+                } else {
+                    *grad = Some(Arc::new(grad_output.clone()));
+                }
+            }
+
+            // Propagate to inputs via grad_fn
+            if let Some(ref grad_fn) = autograd.grad_fn {
+                let input_grads = grad_fn.backward(&grad_output);
+                let inputs = grad_fn.inputs();
+
+                // Propagate gradients to each input tensor (using create_graph version)
+                for (input, grad) in inputs.into_iter().zip(input_grads.into_iter()) {
+                    if input.requires_grad() {
+                        input.backward_with_create_graph(grad);
+                    }
+                }
+            }
+        }
+    }
+
     /// Get the accumulated gradient for this tensor
     ///
     /// Returns None if backward() hasn't been called or if this tensor
@@ -989,6 +1065,66 @@ impl<D: Dimension> Tensor<f64, D> {
                 for (input, grad) in inputs.into_iter().zip(input_grads.into_iter()) {
                     if input.requires_grad() {
                         input.backward_with(grad);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Perform backward propagation while retaining the computation graph
+    ///
+    /// This enables higher-order derivatives (e.g., second derivatives) by
+    /// creating gradients that themselves have `requires_grad = true`.
+    ///
+    /// # Returns
+    ///
+    /// The initial gradient tensor, which can be used to compute higher-order
+    /// derivatives by calling `.grad()` on it after backward propagation.
+    ///
+    /// # Panics
+    ///
+    /// Panics if this tensor does not require gradients.
+    pub fn backward_create_graph(&self) -> Tensor<f64, DimDyn> {
+        if self.inner.autograd.is_none() {
+            panic!("backward_create_graph() called on tensor that doesn't require gradients");
+        }
+
+        // Create initial gradient with requires_grad=true to build computation graph
+        let initial_grad = Tensor::<f64, DimDyn>::ones_dyn(self.shape()).set_requires_grad(true);
+        self.backward_with_create_graph(initial_grad.clone());
+        initial_grad
+    }
+
+    /// Perform backward propagation with a custom initial gradient while retaining
+    /// the computation graph for higher-order derivatives.
+    pub fn backward_with_create_graph(&self, grad_output: Tensor<f64, DimDyn>) {
+        if let Some(ref autograd_storage) = self.inner.autograd {
+            // Get f64 autograd metadata
+            let autograd = autograd_storage
+                .as_f64()
+                .expect("f64 tensor should have f64 autograd storage");
+
+            // Accumulate gradient
+            {
+                let mut grad = autograd.grad.write().unwrap();
+                if let Some(existing) = grad.take() {
+                    // Add to existing gradient
+                    let new_grad = &(*existing) + &grad_output;
+                    *grad = Some(Arc::new(new_grad));
+                } else {
+                    *grad = Some(Arc::new(grad_output.clone()));
+                }
+            }
+
+            // Propagate to inputs via grad_fn
+            if let Some(ref grad_fn) = autograd.grad_fn {
+                let input_grads = grad_fn.backward(&grad_output);
+                let inputs = grad_fn.inputs();
+
+                // Propagate gradients to each input tensor (using create_graph version)
+                for (input, grad) in inputs.into_iter().zip(input_grads.into_iter()) {
+                    if input.requires_grad() {
+                        input.backward_with_create_graph(grad);
                     }
                 }
             }

@@ -536,6 +536,7 @@ fn evaluate_ast_with_tensors(
 mod tests {
     use super::*;
     use crate::ast::helper::wildcard;
+    use crate::prelude::Dim1;
     use crate::tensor::primops::binary::AddBackward;
 
     #[test]
@@ -883,5 +884,105 @@ mod tests {
         // Check gradient: dc/da = 1
         let grad_a = a.grad().expect("a should have gradient");
         assert_eq!(grad_a.shape(), &[2, 3]);
+    }
+
+    // ========================================================================
+    // Higher-order derivative tests
+    // ========================================================================
+
+    #[test]
+    fn test_f32_backward_create_graph_builds_graph() {
+        // Test that backward_create_graph creates gradients with requires_grad=true
+        // y = x², dy/dx = 2x
+        // The gradient 2x should have requires_grad=true when using backward_create_graph
+        let x = Tensor::<f32, Dim1>::full([1], 3.0).set_requires_grad(true);
+
+        // y = x * x = x²
+        let y = &x * &x;
+
+        // First backward with create_graph
+        let _grad_y = y.backward_create_graph();
+
+        // First derivative should exist
+        let first_deriv = x.grad().expect("x should have gradient after backward_create_graph");
+        assert_eq!(first_deriv.shape(), &[1]);
+
+        // The gradient should have requires_grad=true (key feature of backward_create_graph)
+        // This allows computing higher-order derivatives
+        assert!(
+            first_deriv.requires_grad(),
+            "Gradient from backward_create_graph should have requires_grad=true"
+        );
+    }
+
+    #[test]
+    fn test_f32_second_derivative_x_squared() {
+        // Test: y = x², dy/dx = 2x, d²y/dx² = 2
+        // At x = 3: dy/dx = 6, d²y/dx² = 2
+        let x = Tensor::<f32, Dim1>::full([1], 3.0).set_requires_grad(true);
+
+        // y = x * x = x²
+        let y = &x * &x;
+
+        // First backward with create_graph
+        let _grad_y = y.backward_create_graph();
+
+        // First derivative: dy/dx = 2x
+        let first_deriv = x.grad().expect("x should have gradient");
+        assert!(first_deriv.requires_grad(), "first_deriv should require grad");
+
+        // Reset x's gradient for second derivative computation
+        x.zero_grad();
+
+        // Second backward: differentiate the first derivative
+        // first_deriv = 2x, so d(first_deriv)/dx = 2
+        first_deriv.backward();
+
+        // Second derivative should now be in x.grad()
+        let second_deriv = x.grad().expect("x should have second derivative");
+        assert_eq!(second_deriv.shape(), &[1]);
+    }
+
+    #[test]
+    fn test_f64_backward_create_graph_builds_graph() {
+        // Same test for f64
+        let x = Tensor::<f64, Dim1>::full([1], 2.0).set_requires_grad(true);
+
+        // y = x * x * x = x³
+        let y = &(&x * &x) * &x;
+
+        // First backward with create_graph
+        let _grad_y = y.backward_create_graph();
+
+        // First derivative should exist
+        let first_deriv = x.grad().expect("x should have gradient");
+        assert_eq!(first_deriv.shape(), &[1]);
+
+        // The gradient should have requires_grad=true
+        assert!(
+            first_deriv.requires_grad(),
+            "Gradient from backward_create_graph should have requires_grad=true"
+        );
+    }
+
+    #[test]
+    fn test_f32_create_graph_product() {
+        // Test: y = x * z where both require gradients
+        // dy/dx = z, dy/dz = x
+        let x = Tensor::<f32, Dim1>::full([1], 2.0).set_requires_grad(true);
+        let z = Tensor::<f32, Dim1>::full([1], 3.0).set_requires_grad(true);
+
+        let y = &x * &z;
+
+        // First backward with create_graph
+        let _grad_y = y.backward_create_graph();
+
+        // Both should have gradients
+        let dx = x.grad().expect("x should have gradient");
+        let dz = z.grad().expect("z should have gradient");
+
+        // Both gradients should have requires_grad=true
+        assert!(dx.requires_grad(), "dx should require grad");
+        assert!(dz.requires_grad(), "dz should require grad");
     }
 }
