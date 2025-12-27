@@ -30,7 +30,6 @@ pub mod expr_builder;
 pub mod helpers;
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use crate::ast::{AstKernelCallInfo, AstNode, DType as AstDType, Mutability, Scope, helper::*};
 use crate::tensor::ops::{ErasedTensorInner, ReduceOp, TensorOp};
@@ -75,16 +74,32 @@ impl TensorLowerer {
     /// # Returns
     /// ASTプログラム
     pub fn lower(&mut self, tensor: &Tensor<f32, DimDyn>) -> AstNode {
+        self.lower_inner(tensor.inner.as_ref())
+    }
+
+    /// ErasedTensorInnerからASTに変換（内部用）
+    ///
+    /// realize_core処理で使用するため、ErasedTensorInnerを直接受け取る版
+    ///
+    /// # Arguments
+    /// * `inner` - 変換するテンソル内部表現
+    ///
+    /// # Returns
+    /// ASTプログラム
+    pub fn lower_inner(&mut self, inner: &dyn ErasedTensorInner) -> AstNode {
         // 入力バッファを収集
-        self.collect_input_buffers(tensor.inner.as_ref());
+        self.collect_input_buffers(inner);
 
         // メインカーネル関数を生成
         let kernel_name = self.next_kernel_name();
-        let kernel_fn = self.lower_node(&tensor.inner, &kernel_name);
+        let kernel_fn = self.lower_node_erased(inner, &kernel_name);
 
         // 出力形状を取得
-        let output_shape = tensor.shape().to_vec();
-        let numel: usize = output_shape.iter().product();
+        let output_shape = inner.view().shape().to_vec();
+        let numel: usize = output_shape
+            .iter()
+            .map(|e| e.as_const().unwrap_or(1) as usize)
+            .product();
 
         // Programとしてラップ
         self.wrap_as_program(vec![kernel_fn], &kernel_name, numel)
@@ -129,24 +144,24 @@ impl TensorLowerer {
         name
     }
 
-    /// TensorInnerをASTにlower
-    fn lower_node(&self, inner: &Arc<TensorInner>, name: &str) -> AstNode {
+    /// ErasedTensorInnerをASTにlower（内部用）
+    fn lower_node_erased(&self, inner: &dyn ErasedTensorInner, name: &str) -> AstNode {
         // 最終的な出力形状はルートノードの形状を使用
-        let output_shape = inner.view.shape().to_vec();
+        let output_shape = inner.view().shape().to_vec();
         let output_ndim = output_shape.len();
 
         // View/Contiguousの場合、入力の compute_shape を取得
-        let (compute_inner, compute_shape) = match &inner.op {
+        let compute_shape = match inner.op() {
             TensorOp::View { input } | TensorOp::Contiguous { input } => {
                 let (_, compute_shape) = self.find_compute_node_erased(input.as_ref());
-                (inner.clone(), compute_shape)
+                compute_shape
             }
-            _ => (inner.clone(), output_shape.clone()),
+            _ => output_shape.clone(),
         };
         let compute_ndim = compute_shape.len();
 
         // 正規化形式に変換
-        let (expr, reduce_op, axes) = self.normalize_op(&compute_inner);
+        let (expr, reduce_op, axes) = self.normalize_op_erased(inner);
 
         // 出力形状が異なる場合はViewコピーを生成
         let needs_reshape = output_ndim != compute_ndim;
@@ -155,8 +170,8 @@ impl TensorLowerer {
             // View経由で形状が変わる場合は、計算ノードの形状でカーネルを生成し、
             // 出力時にreshape相当の処理を行う
             // ただし、最終出力形状に合わせたループ構造にする必要がある
-            self.lower_with_reshape(
-                &compute_inner,
+            self.lower_with_reshape_erased(
+                inner,
                 &expr,
                 reduce_op.as_ref(),
                 &axes,
@@ -166,11 +181,11 @@ impl TensorLowerer {
             )
         } else if axes.is_empty() {
             // Elementwiseパス
-            self.lower_elementwise_path(&compute_inner, &expr, compute_ndim, &compute_shape, name)
+            self.lower_elementwise_path_erased(inner, &expr, compute_ndim, &compute_shape, name)
         } else {
             // Reduceパス
-            self.lower_reduce_path(
-                &compute_inner,
+            self.lower_reduce_path_erased(
+                inner,
                 &expr,
                 reduce_op.as_ref().unwrap(),
                 &axes,
@@ -193,11 +208,11 @@ impl TensorLowerer {
         }
     }
 
-    /// 形状変換を伴うlower
+    /// 形状変換を伴うlower（ErasedTensorInner版）
     #[allow(clippy::too_many_arguments)]
-    fn lower_with_reshape(
+    fn lower_with_reshape_erased(
         &self,
-        inner: &Arc<TensorInner>,
+        inner: &dyn ErasedTensorInner,
         expr: &AstNode,
         reduce_op: Option<&ReduceOp>,
         axes: &[usize],
@@ -208,7 +223,7 @@ impl TensorLowerer {
         // 形状変換を伴う場合、出力形状でループを生成し、
         // 入力オフセットは線形インデックスで計算
 
-        let load_dtype = dtype_to_ast(&inner.dtype);
+        let load_dtype = dtype_to_ast(&inner.dtype());
         let output_ndim = output_shape.len();
 
         if reduce_op.is_some() || !axes.is_empty() {
@@ -363,11 +378,14 @@ impl TensorLowerer {
         }
     }
 
-    /// TensorOpを正規化形式に変換
+    /// TensorOpを正規化形式に変換（ErasedTensorInner版）
     ///
     /// Returns: (expr, reduce_op, axes)
-    fn normalize_op(&self, inner: &Arc<TensorInner>) -> (AstNode, Option<ReduceOp>, Vec<usize>) {
-        match &inner.op {
+    fn normalize_op_erased(
+        &self,
+        inner: &dyn ErasedTensorInner,
+    ) -> (AstNode, Option<ReduceOp>, Vec<usize>) {
+        match inner.op() {
             // 統一Compute演算
             TensorOp::Compute {
                 expr,
@@ -400,8 +418,8 @@ impl TensorLowerer {
             TensorOp::Buffer { .. } => (wildcard("0"), None, vec![]),
 
             // 未対応の演算
-            _ => {
-                panic!("Cannot normalize op: {:?}", inner.op);
+            op => {
+                panic!("Cannot normalize op: {:?}", op);
             }
         }
     }
@@ -459,16 +477,16 @@ impl TensorLowerer {
         }
     }
 
-    /// Elementwiseパスでlower
-    fn lower_elementwise_path(
+    /// Elementwiseパスでlower（ErasedTensorInner版）
+    fn lower_elementwise_path_erased(
         &self,
-        inner: &Arc<TensorInner>,
+        inner: &dyn ErasedTensorInner,
         expr: &AstNode,
         ndim: usize,
         shape: &[Expr],
         name: &str,
     ) -> AstNode {
-        let load_dtype = dtype_to_ast(&inner.dtype);
+        let load_dtype = dtype_to_ast(&inner.dtype());
 
         // 各入力の式を再帰的に構築
         let mut mappings = HashMap::new();
@@ -499,10 +517,10 @@ impl TensorLowerer {
         )
     }
 
-    /// Reduceパスでlower
-    fn lower_reduce_path(
+    /// Reduceパスでlower（ErasedTensorInner版）
+    fn lower_reduce_path_erased(
         &self,
-        inner: &Arc<TensorInner>,
+        inner: &dyn ErasedTensorInner,
         expr: &AstNode,
         reduce_op: &ReduceOp,
         axes: &[usize],
@@ -514,13 +532,13 @@ impl TensorLowerer {
         let input_shape = if let Some(input) = inputs.first() {
             input.view().shape()
         } else {
-            inner.view.shape()
+            inner.view().shape()
         };
 
         // 入力テンソルの次元数を使用（出力テンソルの次元数ではなく）
         let input_ndim = input_shape.len();
 
-        let load_dtype = dtype_to_ast(&inner.dtype);
+        let load_dtype = dtype_to_ast(&inner.dtype());
 
         // 各入力のload式を構築（elementwise Computeは展開）
         let mut mappings = HashMap::new();
@@ -535,7 +553,7 @@ impl TensorLowerer {
         let value_expr = expr.substitute(&mappings);
 
         // アキュムレータ初期化と更新
-        let (init_value, accumulate_fn) = build_reduce_accumulator(reduce_op, &inner.dtype);
+        let (init_value, accumulate_fn) = build_reduce_accumulator(reduce_op, &inner.dtype());
 
         // 出力オフセット（縮約軸を除く）
         let output_offset =
@@ -560,7 +578,7 @@ impl TensorLowerer {
         let mut scope = Scope::new();
         let _ = scope.declare(
             acc_var.to_string(),
-            dtype_to_ast(&inner.dtype),
+            dtype_to_ast(&inner.dtype()),
             Mutability::Mutable,
         );
 
@@ -710,6 +728,14 @@ impl Default for TensorLowerer {
 pub fn lower_tensor(tensor: &Tensor<f32, DimDyn>) -> AstNode {
     let mut lowerer = TensorLowerer::new();
     lowerer.lower(tensor)
+}
+
+/// ErasedTensorInnerからASTに変換する簡易関数（内部用）
+///
+/// realize_core処理で使用するため、ErasedTensorInnerを直接受け取る版
+pub fn lower_tensor_inner(inner: &dyn ErasedTensorInner) -> AstNode {
+    let mut lowerer = TensorLowerer::new();
+    lowerer.lower_inner(inner)
 }
 
 #[cfg(test)]

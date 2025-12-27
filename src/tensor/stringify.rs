@@ -25,6 +25,14 @@ pub fn stringify_graph<T: TensorDType, D: Dimension>(tensor: &Tensor<T, D>) -> S
     stringifier.visit(tensor.inner.as_ref())
 }
 
+/// TensorInnerからグラフを文字列化する（内部用）
+///
+/// realize処理で使用するため、TensorInnerを直接受け取る版
+pub fn stringify_graph_inner(inner: &dyn ErasedTensorInner) -> String {
+    let mut stringifier = GraphStringifier::new();
+    stringifier.visit(inner)
+}
+
 /// グラフ文字列化のための訪問者
 struct GraphStringifier {
     /// ポインタ → 入力位置インデックスのマッピング

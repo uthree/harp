@@ -544,6 +544,29 @@ impl ErasedTensorInner for TensorInner {
     fn buffer(&self) -> &RwLock<Option<Box<dyn Buffer>>> {
         &self.buffer
     }
+
+    /// 自身を再帰的にrealizeする
+    ///
+    /// 1. 既にバッファがあればスキップ
+    /// 2. Compute操作なら入力を先にrealize
+    /// 3. 自身をrealize_core()でrealize
+    #[cfg(any(all(feature = "metal", target_os = "macos"), feature = "opencl"))]
+    fn realize_recursive(&self) -> Result<(), String> {
+        // 既にバッファがあればスキップ
+        if self.buffer.read().unwrap().is_some() {
+            return Ok(());
+        }
+
+        // Compute操作なら入力を先にrealize
+        if let TensorOp::Compute { inputs, .. } = &self.op {
+            for input in inputs {
+                input.realize_recursive()?;
+            }
+        }
+
+        // 自身をrealize
+        self.realize_core().map_err(|e| e.to_string())
+    }
 }
 
 // ============================================================================

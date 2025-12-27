@@ -53,6 +53,19 @@ pub trait ErasedTensorInner: Send + Sync {
             .as_ref()
             .and_then(|b| b.read_to_host().ok())
     }
+
+    /// 自身を再帰的にrealizeする
+    ///
+    /// 1. 既にバッファがあればスキップ
+    /// 2. Compute操作なら入力を先にrealize
+    /// 3. 自身をrealize
+    ///
+    /// # Returns
+    /// 成功時はOk(()), 失敗時はエラー文字列
+    fn realize_recursive(&self) -> Result<(), String> {
+        // デフォルト実装：サポートしない型用
+        Err("realize_recursive not supported for this type".to_string())
+    }
 }
 
 /// 入力テンソルへの型消去参照
