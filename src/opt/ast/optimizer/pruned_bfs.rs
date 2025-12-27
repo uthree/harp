@@ -367,6 +367,7 @@ where
 mod tests {
     use super::*;
     use crate::ast::Literal;
+    use crate::ast::helper::const_int;
     use crate::astpat;
     use crate::opt::ast::suggesters::RuleBaseSuggester;
 
@@ -393,14 +394,11 @@ mod tests {
             .without_progress();
 
         // (42 + 0) を最適化
-        let input = AstNode::Add(
-            Box::new(AstNode::Const(Literal::I64(42))),
-            Box::new(AstNode::Const(Literal::I64(0))),
-        );
+        let input = const_int(42) + const_int(0);
 
         let result = optimizer.optimize(input);
         // 最終的に42に簡約されるはず
-        assert_eq!(result, AstNode::Const(Literal::I64(42)));
+        assert_eq!(result, const_int(42));
     }
 
     #[test]
@@ -418,20 +416,11 @@ mod tests {
             .without_progress();
 
         // ((2 + 3) * 1) + 0 を最適化
-        let input = AstNode::Add(
-            Box::new(AstNode::Mul(
-                Box::new(AstNode::Add(
-                    Box::new(AstNode::Const(Literal::I64(2))),
-                    Box::new(AstNode::Const(Literal::I64(3))),
-                )),
-                Box::new(AstNode::Const(Literal::I64(1))),
-            )),
-            Box::new(AstNode::Const(Literal::I64(0))),
-        );
+        let input = ((const_int(2) + const_int(3)) * const_int(1)) + const_int(0);
 
         let result = optimizer.optimize(input);
         // 最終的に5に簡約されるはず
-        assert_eq!(result, AstNode::Const(Literal::I64(5)));
+        assert_eq!(result, const_int(5));
     }
 
     #[test]
@@ -451,7 +440,7 @@ mod tests {
             .without_progress();
 
         // ルールが適用されない入力
-        let input = AstNode::Const(Literal::I64(42));
+        let input = const_int(42);
         let result = optimizer.optimize(input.clone());
 
         // 変更されないはず
@@ -473,13 +462,10 @@ mod tests {
             .with_max_steps(10)
             .without_progress();
 
-        let input = AstNode::Add(
-            Box::new(AstNode::Const(Literal::I64(5))),
-            Box::new(AstNode::Const(Literal::I64(0))),
-        );
+        let input = const_int(5) + const_int(0);
 
         let result = optimizer.optimize(input);
         // 枝刈り幅1でも最適化できるはず
-        assert_eq!(result, AstNode::Const(Literal::I64(5)));
+        assert_eq!(result, const_int(5));
     }
 }

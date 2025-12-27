@@ -895,7 +895,7 @@ impl FreeVariableCollector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::helper::{load, store};
+    use crate::ast::helper::{assign, block, const_f32, load, range, store};
 
     #[test]
     fn test_parallelizable_simple_elementwise() {
@@ -906,13 +906,7 @@ mod tests {
             var("i"),
             load(var("input"), var("i"), DType::F32),
         );
-        let range = AstNode::Range {
-            var: "i".to_string(),
-            start: Box::new(const_int(0)),
-            step: Box::new(const_int(1)),
-            stop: Box::new(var("N")),
-            body: Box::new(body),
-        };
+        let range = range("i", const_int(0), const_int(1), var("N"), body);
 
         assert!(is_range_parallelizable(&range));
     }
@@ -921,20 +915,8 @@ mod tests {
     fn test_not_parallelizable_external_write() {
         // for i in 0..N { sum = sum + Load(input, i) }
         // -> 並列化不可（sumへの外部書き込み）
-        let body = AstNode::Assign {
-            var: "sum".to_string(),
-            value: Box::new(AstNode::Add(
-                Box::new(var("sum")),
-                Box::new(load(var("input"), var("i"), DType::F32)),
-            )),
-        };
-        let range = AstNode::Range {
-            var: "i".to_string(),
-            start: Box::new(const_int(0)),
-            step: Box::new(const_int(1)),
-            stop: Box::new(var("N")),
-            body: Box::new(body),
-        };
+        let body = assign("sum", var("sum") + load(var("input"), var("i"), DType::F32));
+        let range = range("i", const_int(0), const_int(1), var("N"), body);
 
         assert!(!is_range_parallelizable(&range));
     }
@@ -948,13 +930,7 @@ mod tests {
             const_int(0), // 固定オフセット
             load(var("input"), var("i"), DType::F32),
         );
-        let range = AstNode::Range {
-            var: "i".to_string(),
-            start: Box::new(const_int(0)),
-            step: Box::new(const_int(1)),
-            stop: Box::new(var("N")),
-            body: Box::new(body),
-        };
+        let range = range("i", const_int(0), const_int(1), var("N"), body);
 
         assert!(!is_range_parallelizable(&range));
     }
@@ -962,13 +938,10 @@ mod tests {
     #[test]
     fn test_substitute_var() {
         // i + 1 を tid で置換 -> tid + 1
-        let expr = AstNode::Add(Box::new(var("i")), Box::new(const_int(1)));
+        let expr = var("i") + const_int(1);
         let result = substitute_var(&expr, "i", &var("tid"));
 
-        assert_eq!(
-            result,
-            AstNode::Add(Box::new(var("tid")), Box::new(const_int(1)))
-        );
+        assert_eq!(result, var("tid") + const_int(1));
     }
 
     #[test]
@@ -984,31 +957,16 @@ mod tests {
             .declare("acc".to_string(), DType::F32, Mutability::Mutable)
             .unwrap();
 
-        let body = AstNode::Block {
-            statements: vec![
-                AstNode::Assign {
-                    var: "acc".to_string(),
-                    value: Box::new(AstNode::Const(crate::ast::Literal::F32(0.0))),
-                },
-                AstNode::Assign {
-                    var: "acc".to_string(),
-                    value: Box::new(AstNode::Add(
-                        Box::new(var("acc")),
-                        Box::new(load(var("input"), var("i"), DType::F32)),
-                    )),
-                },
+        let body = block(
+            vec![
+                assign("acc", const_f32(0.0)),
+                assign("acc", var("acc") + load(var("input"), var("i"), DType::F32)),
                 store(var("output"), var("i"), var("acc")),
             ],
-            scope: Box::new(scope),
-        };
+            scope,
+        );
 
-        let range = AstNode::Range {
-            var: "i".to_string(),
-            start: Box::new(const_int(0)),
-            step: Box::new(const_int(1)),
-            stop: Box::new(var("N")),
-            body: Box::new(body),
-        };
+        let range = range("i", const_int(0), const_int(1), var("N"), body);
 
         assert!(is_range_parallelizable(&range));
     }
@@ -1029,49 +987,24 @@ mod tests {
             .declare("acc".to_string(), DType::F32, Mutability::Mutable)
             .unwrap();
 
-        let inner_body = AstNode::Assign {
-            var: "acc".to_string(),
-            value: Box::new(AstNode::Add(
-                Box::new(var("acc")),
-                Box::new(load(
-                    var("input"),
-                    AstNode::Add(
-                        Box::new(AstNode::Mul(Box::new(var("i")), Box::new(var("M")))),
-                        Box::new(var("j")),
-                    ),
-                    DType::F32,
-                )),
-            )),
-        };
+        let inner_body = assign(
+            "acc",
+            var("acc") + load(var("input"), var("i") * var("M") + var("j"), DType::F32),
+        );
 
-        let inner_loop = AstNode::Range {
-            var: "j".to_string(),
-            start: Box::new(const_int(0)),
-            step: Box::new(const_int(1)),
-            stop: Box::new(var("M")),
-            body: Box::new(inner_body),
-        };
+        let inner_loop = range("j", const_int(0), const_int(1), var("M"), inner_body);
 
-        let body = AstNode::Block {
-            statements: vec![
-                AstNode::Assign {
-                    var: "acc".to_string(),
-                    value: Box::new(AstNode::Const(crate::ast::Literal::F32(0.0))),
-                },
+        let body = block(
+            vec![
+                assign("acc", const_f32(0.0)),
                 inner_loop,
                 store(var("output"), var("i"), var("acc")),
             ],
-            scope: Box::new(scope),
-        };
+            scope,
+        );
 
-        let range = AstNode::Range {
-            var: "i".to_string(),
-            start: Box::new(const_int(0)),
-            step: Box::new(const_int(1)),
-            stop: Box::new(var("N")),
-            body: Box::new(body),
-        };
+        let outer_range = range("i", const_int(0), const_int(1), var("N"), body);
 
-        assert!(is_range_parallelizable(&range));
+        assert!(is_range_parallelizable(&outer_range));
     }
 }

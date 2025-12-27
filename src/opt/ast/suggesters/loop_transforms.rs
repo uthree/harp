@@ -912,7 +912,7 @@ impl AstSuggester for LoopInterchangeSuggester {
 #[cfg(test)]
 mod interchange_tests {
     use super::*;
-    use crate::ast::Literal;
+    use crate::ast::helper::{const_int, range, var};
 
     #[test]
     fn test_loop_interchange_basic() {
@@ -920,23 +920,17 @@ mod interchange_tests {
 
         // 外側ループ: for i in 0..M step 1 { 内側ループ }
         // 内側ループ: for j in 0..N step 1 { body }
-        let inner_body = Box::new(AstNode::Var("x".to_string()));
+        let inner_body = var("x");
 
-        let inner_loop = AstNode::Range {
-            var: "j".to_string(),
-            start: Box::new(AstNode::Const(Literal::I64(0))),
-            step: Box::new(AstNode::Const(Literal::I64(1))),
-            stop: Box::new(AstNode::Const(Literal::I64(10))),
-            body: inner_body.clone(),
-        };
+        let inner_loop = range(
+            "j",
+            const_int(0),
+            const_int(1),
+            const_int(10),
+            inner_body.clone(),
+        );
 
-        let outer_loop = AstNode::Range {
-            var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::I64(0))),
-            step: Box::new(AstNode::Const(Literal::I64(1))),
-            stop: Box::new(AstNode::Const(Literal::I64(20))),
-            body: Box::new(inner_loop),
-        };
+        let outer_loop = range("i", const_int(0), const_int(1), const_int(20), inner_loop);
 
         let suggestions = suggester.suggest(&outer_loop);
 
@@ -962,7 +956,7 @@ mod interchange_tests {
                 // 内側がiになっているはず
                 assert_eq!(new_inner_var, "i");
                 // 最も内側のbodyは変わらないはず
-                assert_eq!(new_inner_body.as_ref(), inner_body.as_ref());
+                assert_eq!(new_inner_body.as_ref(), &inner_body);
             } else {
                 panic!("Expected inner Range node");
             }
@@ -976,13 +970,7 @@ mod interchange_tests {
         let suggester = LoopInterchangeSuggester::new();
 
         // 単一のループ（ネストしていない）
-        let single_loop = AstNode::Range {
-            var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::I64(0))),
-            step: Box::new(AstNode::Const(Literal::I64(1))),
-            stop: Box::new(AstNode::Const(Literal::I64(10))),
-            body: Box::new(AstNode::Var("x".to_string())),
-        };
+        let single_loop = range("i", const_int(0), const_int(1), const_int(10), var("x"));
 
         let suggestions = suggester.suggest(&single_loop);
 
@@ -995,31 +983,17 @@ mod interchange_tests {
         let suggester = LoopInterchangeSuggester::new();
 
         // 3重ネストループ: for i { for j { for k { body } } }
-        let innermost_body = Box::new(AstNode::Var("x".to_string()));
+        let innermost_body = var("x");
 
-        let k_loop = AstNode::Range {
-            var: "k".to_string(),
-            start: Box::new(AstNode::Const(Literal::I64(0))),
-            step: Box::new(AstNode::Const(Literal::I64(1))),
-            stop: Box::new(AstNode::Const(Literal::I64(5))),
-            body: innermost_body,
-        };
-
-        let j_loop = AstNode::Range {
-            var: "j".to_string(),
-            start: Box::new(AstNode::Const(Literal::I64(0))),
-            step: Box::new(AstNode::Const(Literal::I64(1))),
-            stop: Box::new(AstNode::Const(Literal::I64(10))),
-            body: Box::new(k_loop),
-        };
-
-        let i_loop = AstNode::Range {
-            var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::I64(0))),
-            step: Box::new(AstNode::Const(Literal::I64(1))),
-            stop: Box::new(AstNode::Const(Literal::I64(20))),
-            body: Box::new(j_loop),
-        };
+        let k_loop = range(
+            "k",
+            const_int(0),
+            const_int(1),
+            const_int(5),
+            innermost_body,
+        );
+        let j_loop = range("j", const_int(0), const_int(1), const_int(10), k_loop);
+        let i_loop = range("i", const_int(0), const_int(1), const_int(20), j_loop);
 
         let suggestions = suggester.suggest(&i_loop);
 

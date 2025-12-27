@@ -565,26 +565,17 @@ impl AstSuggester for CseSuggester {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::helper::{block, const_int, store, var};
+    use crate::ast::helper::{assign, block, const_int, range, store, var};
 
     #[test]
     fn test_simple_cse() {
         let suggester = CseSuggester::new();
 
         // y = (a * (a + 1)) + (a * (a + 1))
-        let common_expr = AstNode::Mul(
-            Box::new(var("a")),
-            Box::new(AstNode::Add(Box::new(var("a")), Box::new(const_int(1)))),
-        );
-        let expr = AstNode::Add(Box::new(common_expr.clone()), Box::new(common_expr));
+        let common_expr = var("a") * (var("a") + const_int(1));
+        let expr = common_expr.clone() + common_expr;
 
-        let input = block(
-            vec![AstNode::Assign {
-                var: "y".to_string(),
-                value: Box::new(expr),
-            }],
-            Scope::new(),
-        );
+        let input = block(vec![assign("y", expr)], Scope::new());
 
         let suggestions = suggester.suggest(&input);
 
@@ -621,13 +612,7 @@ mod tests {
         let suggester = CseSuggester::new();
 
         // y = a + a は単純すぎてCSE対象外
-        let input = block(
-            vec![AstNode::Assign {
-                var: "y".to_string(),
-                value: Box::new(AstNode::Add(Box::new(var("a")), Box::new(var("a")))),
-            }],
-            Scope::new(),
-        );
+        let input = block(vec![assign("y", var("a") + var("a"))], Scope::new());
 
         let suggestions = suggester.suggest(&input);
 
@@ -643,23 +628,10 @@ mod tests {
         // x = ((a + b) * c) + e
         // y = ((a + b) * c) + f
         // 共通部分式: (a + b) * c (コスト2)
-        let common_expr = AstNode::Mul(
-            Box::new(AstNode::Add(Box::new(var("a")), Box::new(var("b")))),
-            Box::new(var("c")),
-        );
+        let common_expr = (var("a") + var("b")) * var("c");
 
-        let stmt1 = AstNode::Assign {
-            var: "x".to_string(),
-            value: Box::new(AstNode::Add(
-                Box::new(common_expr.clone()),
-                Box::new(var("e")),
-            )),
-        };
-
-        let stmt2 = AstNode::Assign {
-            var: "y".to_string(),
-            value: Box::new(AstNode::Add(Box::new(common_expr), Box::new(var("f")))),
-        };
+        let stmt1 = assign("x", common_expr.clone() + var("e"));
+        let stmt2 = assign("y", common_expr + var("f"));
 
         let input = block(vec![stmt1, stmt2], Scope::new());
 
@@ -681,22 +653,19 @@ mod tests {
         // for i in 0..10:
         //   output[i] = (a * (b + c)) + (a * (b + c))
         // 共通部分式: a * (b + c) (コスト2)
-        let common_expr = AstNode::Mul(
-            Box::new(var("a")),
-            Box::new(AstNode::Add(Box::new(var("b")), Box::new(var("c")))),
-        );
-        let expr = AstNode::Add(Box::new(common_expr.clone()), Box::new(common_expr));
+        let common_expr = var("a") * (var("b") + var("c"));
+        let expr = common_expr.clone() + common_expr;
 
         let loop_body = block(vec![store(var("output"), var("i"), expr)], Scope::new());
 
         let input = block(
-            vec![AstNode::Range {
-                var: "i".to_string(),
-                start: Box::new(const_int(0)),
-                step: Box::new(const_int(1)),
-                stop: Box::new(const_int(10)),
-                body: Box::new(loop_body),
-            }],
+            vec![range(
+                "i",
+                const_int(0),
+                const_int(1),
+                const_int(10),
+                loop_body,
+            )],
             Scope::new(),
         );
 
@@ -725,12 +694,12 @@ mod tests {
         assert_eq!(CseSuggester::expr_cost(&var("x")), 0);
 
         // 単純な加算はコスト1
-        let add = AstNode::Add(Box::new(var("a")), Box::new(var("b")));
+        let add = var("a") + var("b");
         assert_eq!(CseSuggester::expr_cost(&add), 1);
 
         // ネストした式はコストが加算される
         // (a + b) * c -> cost = 1 (mul) + 1 (add) = 2
-        let nested = AstNode::Mul(Box::new(add), Box::new(var("c")));
+        let nested = add * var("c");
         assert_eq!(CseSuggester::expr_cost(&nested), 2);
     }
 
@@ -738,19 +707,10 @@ mod tests {
     fn test_cse_with_custom_prefix() {
         let suggester = CseSuggester::new().with_prefix("temp");
 
-        let common_expr = AstNode::Mul(
-            Box::new(var("a")),
-            Box::new(AstNode::Add(Box::new(var("a")), Box::new(const_int(1)))),
-        );
-        let expr = AstNode::Add(Box::new(common_expr.clone()), Box::new(common_expr));
+        let common_expr = var("a") * (var("a") + const_int(1));
+        let expr = common_expr.clone() + common_expr;
 
-        let input = block(
-            vec![AstNode::Assign {
-                var: "y".to_string(),
-                value: Box::new(expr),
-            }],
-            Scope::new(),
-        );
+        let input = block(vec![assign("y", expr)], Scope::new());
 
         let suggestions = suggester.suggest(&input);
 
@@ -773,18 +733,9 @@ mod tests {
         let suggester = CseSuggester::new();
 
         // 1回しか出現しない式はCSE対象外
-        let expr = AstNode::Mul(
-            Box::new(var("a")),
-            Box::new(AstNode::Add(Box::new(var("b")), Box::new(const_int(1)))),
-        );
+        let expr = var("a") * (var("b") + const_int(1));
 
-        let input = block(
-            vec![AstNode::Assign {
-                var: "y".to_string(),
-                value: Box::new(expr),
-            }],
-            Scope::new(),
-        );
+        let input = block(vec![assign("y", expr)], Scope::new());
 
         let suggestions = suggester.suggest(&input);
 

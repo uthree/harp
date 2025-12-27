@@ -838,7 +838,7 @@ impl AstSuggester for VariableExpansionSuggester {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::helper::{block, const_int, store, var};
+    use crate::ast::helper::{assign, block, const_int, if_then, range, store, var};
 
     #[test]
     fn test_simple_expansion() {
@@ -847,20 +847,10 @@ mod tests {
 
         // x = (a * (a + 1))
         // y = x + x
-        let common_expr = AstNode::Mul(
-            Box::new(var("a")),
-            Box::new(AstNode::Add(Box::new(var("a")), Box::new(const_int(1)))),
-        );
+        let common_expr = var("a") * (var("a") + const_int(1));
 
-        let assign_x = AstNode::Assign {
-            var: "x".to_string(),
-            value: Box::new(common_expr.clone()),
-        };
-
-        let assign_y = AstNode::Assign {
-            var: "y".to_string(),
-            value: Box::new(AstNode::Add(Box::new(var("x")), Box::new(var("x")))),
-        };
+        let assign_x = assign("x", common_expr.clone());
+        let assign_y = assign("y", var("x") + var("x"));
 
         let input = block(vec![assign_x, assign_y], Scope::new());
 
@@ -893,23 +883,9 @@ mod tests {
         // cse_tmp_0 = (a + b)  <- 対象
         // regular_var = (c + d)  <- 対象外
         // y = cse_tmp_0 + regular_var
-        let assign_cse = AstNode::Assign {
-            var: "cse_tmp_0".to_string(),
-            value: Box::new(AstNode::Add(Box::new(var("a")), Box::new(var("b")))),
-        };
-
-        let assign_regular = AstNode::Assign {
-            var: "regular_var".to_string(),
-            value: Box::new(AstNode::Add(Box::new(var("c")), Box::new(var("d")))),
-        };
-
-        let assign_y = AstNode::Assign {
-            var: "y".to_string(),
-            value: Box::new(AstNode::Add(
-                Box::new(var("cse_tmp_0")),
-                Box::new(var("regular_var")),
-            )),
-        };
+        let assign_cse = assign("cse_tmp_0", var("a") + var("b"));
+        let assign_regular = assign("regular_var", var("c") + var("d"));
+        let assign_y = assign("y", var("cse_tmp_0") + var("regular_var"));
 
         let input = block(vec![assign_cse, assign_regular, assign_y], Scope::new());
 
@@ -949,15 +925,8 @@ mod tests {
 
         // x = (a + b)  <- 2回使用されるので展開対象外
         // y = x + x
-        let assign_x = AstNode::Assign {
-            var: "x".to_string(),
-            value: Box::new(AstNode::Add(Box::new(var("a")), Box::new(var("b")))),
-        };
-
-        let assign_y = AstNode::Assign {
-            var: "y".to_string(),
-            value: Box::new(AstNode::Add(Box::new(var("x")), Box::new(var("x")))),
-        };
+        let assign_x = assign("x", var("a") + var("b"));
+        let assign_y = assign("y", var("x") + var("x"));
 
         let input = block(vec![assign_x, assign_y], Scope::new());
 
@@ -976,15 +945,8 @@ mod tests {
 
         // x = (a + b)  <- 1回のみ使用
         // y = x * c
-        let assign_x = AstNode::Assign {
-            var: "x".to_string(),
-            value: Box::new(AstNode::Add(Box::new(var("a")), Box::new(var("b")))),
-        };
-
-        let assign_y = AstNode::Assign {
-            var: "y".to_string(),
-            value: Box::new(AstNode::Mul(Box::new(var("x")), Box::new(var("c")))),
-        };
+        let assign_x = assign("x", var("a") + var("b"));
+        let assign_y = assign("y", var("x") * var("c"));
 
         let input = block(vec![assign_x, assign_y], Scope::new());
 
@@ -1005,15 +967,8 @@ mod tests {
 
         // x = (a + b)  <- 使用されていない
         // y = c * d
-        let assign_x = AstNode::Assign {
-            var: "x".to_string(),
-            value: Box::new(AstNode::Add(Box::new(var("a")), Box::new(var("b")))),
-        };
-
-        let assign_y = AstNode::Assign {
-            var: "y".to_string(),
-            value: Box::new(AstNode::Mul(Box::new(var("c")), Box::new(var("d")))),
-        };
+        let assign_x = assign("x", var("a") + var("b"));
+        let assign_y = assign("y", var("c") * var("d"));
 
         let input = block(vec![assign_x, assign_y], Scope::new());
 
@@ -1037,27 +992,19 @@ mod tests {
         // for i in 0..10:
         //   tmp = a + b
         //   output[i] = tmp * c
-        let assign_tmp = AstNode::Assign {
-            var: "tmp".to_string(),
-            value: Box::new(AstNode::Add(Box::new(var("a")), Box::new(var("b")))),
-        };
-
-        let store_output = store(
-            var("output"),
-            var("i"),
-            AstNode::Mul(Box::new(var("tmp")), Box::new(var("c"))),
-        );
+        let assign_tmp = assign("tmp", var("a") + var("b"));
+        let store_output = store(var("output"), var("i"), var("tmp") * var("c"));
 
         let loop_body = block(vec![assign_tmp, store_output], Scope::new());
 
         let input = block(
-            vec![AstNode::Range {
-                var: "i".to_string(),
-                start: Box::new(const_int(0)),
-                step: Box::new(const_int(1)),
-                stop: Box::new(const_int(10)),
-                body: Box::new(loop_body),
-            }],
+            vec![range(
+                "i",
+                const_int(0),
+                const_int(1),
+                const_int(10),
+                loop_body,
+            )],
             Scope::new(),
         );
 
@@ -1080,20 +1027,17 @@ mod tests {
     #[test]
     fn test_count_var_usage() {
         // a + b -> aの使用回数は1
-        let expr1 = AstNode::Add(Box::new(var("a")), Box::new(var("b")));
+        let expr1 = var("a") + var("b");
         assert_eq!(VariableExpansionSuggester::count_var_usage(&expr1, "a"), 1);
         assert_eq!(VariableExpansionSuggester::count_var_usage(&expr1, "b"), 1);
         assert_eq!(VariableExpansionSuggester::count_var_usage(&expr1, "c"), 0);
 
         // a + a -> aの使用回数は2
-        let expr2 = AstNode::Add(Box::new(var("a")), Box::new(var("a")));
+        let expr2 = var("a") + var("a");
         assert_eq!(VariableExpansionSuggester::count_var_usage(&expr2, "a"), 2);
 
         // (a + b) * a -> aの使用回数は2
-        let expr3 = AstNode::Mul(
-            Box::new(AstNode::Add(Box::new(var("a")), Box::new(var("b")))),
-            Box::new(var("a")),
-        );
+        let expr3 = (var("a") + var("b")) * var("a");
         assert_eq!(VariableExpansionSuggester::count_var_usage(&expr3, "a"), 2);
     }
 
@@ -1101,15 +1045,9 @@ mod tests {
     fn test_cse_and_expansion_roundtrip() {
         // CSEと展開は互いに逆操作
         // 元の式: y = (a * b) + (a * b)
-        let common_expr = AstNode::Mul(Box::new(var("a")), Box::new(var("b")));
+        let common_expr = var("a") * var("b");
         let _original = block(
-            vec![AstNode::Assign {
-                var: "y".to_string(),
-                value: Box::new(AstNode::Add(
-                    Box::new(common_expr.clone()),
-                    Box::new(common_expr),
-                )),
-            }],
+            vec![assign("y", common_expr.clone() + common_expr)],
             Scope::new(),
         );
 
@@ -1118,17 +1056,8 @@ mod tests {
         // y = cse_tmp_0 + cse_tmp_0
         let cse_applied = block(
             vec![
-                AstNode::Assign {
-                    var: "cse_tmp_0".to_string(),
-                    value: Box::new(AstNode::Mul(Box::new(var("a")), Box::new(var("b")))),
-                },
-                AstNode::Assign {
-                    var: "y".to_string(),
-                    value: Box::new(AstNode::Add(
-                        Box::new(var("cse_tmp_0")),
-                        Box::new(var("cse_tmp_0")),
-                    )),
-                },
+                assign("cse_tmp_0", var("a") * var("b")),
+                assign("y", var("cse_tmp_0") + var("cse_tmp_0")),
             ],
             Scope::new(),
         );
@@ -1155,14 +1084,8 @@ mod tests {
         // if (x < 10) { y = x } else { y = 0 }
         let if_node = AstNode::If {
             condition: Box::new(AstNode::Lt(Box::new(var("x")), Box::new(const_int(10)))),
-            then_body: Box::new(AstNode::Assign {
-                var: "y".to_string(),
-                value: Box::new(var("x")),
-            }),
-            else_body: Some(Box::new(AstNode::Assign {
-                var: "y".to_string(),
-                value: Box::new(const_int(0)),
-            })),
+            then_body: Box::new(assign("y", var("x"))),
+            else_body: Some(Box::new(assign("y", const_int(0)))),
         };
 
         // xは条件式で1回 + then_bodyで1回 = 2回使用
@@ -1198,14 +1121,13 @@ mod tests {
     fn test_substitute_var_in_if() {
         // If節内での変数置換をテスト
         // if (x < 10) { store(out, i, x) }
-        let if_node = AstNode::If {
-            condition: Box::new(AstNode::Lt(Box::new(var("x")), Box::new(const_int(10)))),
-            then_body: Box::new(store(var("out"), var("i"), var("x"))),
-            else_body: None,
-        };
+        let if_node = if_then(
+            AstNode::Lt(Box::new(var("x")), Box::new(const_int(10))),
+            store(var("out"), var("i"), var("x")),
+        );
 
         // xを(a + b)で置換
-        let replacement = AstNode::Add(Box::new(var("a")), Box::new(var("b")));
+        let replacement = var("a") + var("b");
         let result = VariableExpansionSuggester::substitute_var(&if_node, "x", &replacement);
 
         // 結果のIf節内でxが置換されている
@@ -1243,7 +1165,7 @@ mod tests {
     fn test_substitute_var_in_comparison() {
         // 比較演算子内での変数置換をテスト
         let lt = AstNode::Lt(Box::new(var("x")), Box::new(const_int(10)));
-        let replacement = AstNode::Mul(Box::new(var("a")), Box::new(const_int(2)));
+        let replacement = var("a") * const_int(2);
         let result = VariableExpansionSuggester::substitute_var(&lt, "x", &replacement);
 
         // xが置換されている
@@ -1267,20 +1189,9 @@ mod tests {
         // acc = 0
         // acc = acc + value  <- 自己参照のため展開しない
         // result = acc
-        let init_acc = AstNode::Assign {
-            var: "acc".to_string(),
-            value: Box::new(const_int(0)),
-        };
-
-        let accumulate = AstNode::Assign {
-            var: "acc".to_string(),
-            value: Box::new(AstNode::Add(Box::new(var("acc")), Box::new(var("value")))),
-        };
-
-        let use_acc = AstNode::Assign {
-            var: "result".to_string(),
-            value: Box::new(var("acc")),
-        };
+        let init_acc = assign("acc", const_int(0));
+        let accumulate = assign("acc", var("acc") + var("value"));
+        let use_acc = assign("result", var("acc"));
 
         let input = block(vec![init_acc, accumulate, use_acc], Scope::new());
 
@@ -1312,26 +1223,11 @@ mod tests {
         // tmp = a + b
         // for i in 0..10:
         //   output[i] = tmp * c
-        let assign_tmp = AstNode::Assign {
-            var: "tmp".to_string(),
-            value: Box::new(AstNode::Add(Box::new(var("a")), Box::new(var("b")))),
-        };
+        let assign_tmp = assign("tmp", var("a") + var("b"));
+        let loop_body = store(var("output"), var("i"), var("tmp") * var("c"));
+        let loop_range = range("i", const_int(0), const_int(1), const_int(10), loop_body);
 
-        let loop_body = store(
-            var("output"),
-            var("i"),
-            AstNode::Mul(Box::new(var("tmp")), Box::new(var("c"))),
-        );
-
-        let range = AstNode::Range {
-            var: "i".to_string(),
-            start: Box::new(const_int(0)),
-            step: Box::new(const_int(1)),
-            stop: Box::new(const_int(10)),
-            body: Box::new(loop_body),
-        };
-
-        let input = block(vec![assign_tmp, range], Scope::new());
+        let input = block(vec![assign_tmp, loop_range], Scope::new());
 
         let suggestions = suggester.suggest(&input);
 
@@ -1364,23 +1260,12 @@ mod tests {
         //   tmp = a + b
         //   output = tmp * c
         // }
-        let assign_tmp = AstNode::Assign {
-            var: "tmp".to_string(),
-            value: Box::new(AstNode::Add(Box::new(var("a")), Box::new(var("b")))),
-        };
-
-        let assign_output = AstNode::Assign {
-            var: "output".to_string(),
-            value: Box::new(AstNode::Mul(Box::new(var("tmp")), Box::new(var("c")))),
-        };
+        let assign_tmp = assign("tmp", var("a") + var("b"));
+        let assign_output = assign("output", var("tmp") * var("c"));
 
         let if_body = block(vec![assign_tmp, assign_output], Scope::new());
 
-        let input = AstNode::If {
-            condition: Box::new(var("cond")),
-            then_body: Box::new(if_body),
-            else_body: None,
-        };
+        let input = if_then(var("cond"), if_body);
 
         let suggestions = suggester.suggest(&input);
 
