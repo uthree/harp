@@ -153,7 +153,7 @@ impl Tensor<f32, DimDyn> {
             // [K] -> [1, K], matmul, then squeeze
             let a_2d = self.unsqueeze(0).into_dim2();
             let b_2d = other.into_dim2();
-            return a_2d.matmul2(&b_2d).into_dyn().squeeze_dim(0);
+            return a_2d.matmul2(&b_2d).into_dyn().squeeze(0);
         }
 
         // 2D @ 1D -> 1D (matrix-vector)
@@ -167,7 +167,7 @@ impl Tensor<f32, DimDyn> {
             // [K] -> [K, 1], matmul, then squeeze
             let a_2d = self.into_dim2();
             let b_2d = other.unsqueeze(1).into_dim2();
-            return a_2d.matmul2(&b_2d).into_dyn().squeeze_dim(1);
+            return a_2d.matmul2(&b_2d).into_dyn().squeeze(1);
         }
 
         // 2D @ 2D -> 2D (standard matrix multiplication)

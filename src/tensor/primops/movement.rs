@@ -22,19 +22,22 @@ fn view_from_shape(shape: &[usize]) -> View {
 }
 
 impl<T: TensorDType, D: Dimension> Tensor<T, D> {
-    /// Squeeze: remove dimensions of size 1 (primop)
-    pub fn squeeze(&self) -> Tensor<T, DimDyn> {
-        let new_shape: Vec<usize> = self.shape().iter().filter(|&&s| s != 1).copied().collect();
-        if new_shape.is_empty() {
-            // Scalar case - keep at least one dimension
-            self.reshape_dyn(&[1])
-        } else {
-            self.reshape_dyn(&new_shape)
-        }
-    }
-
-    /// Squeeze a specific dimension (primop)
-    pub fn squeeze_dim(&self, dim: usize) -> Tensor<T, DimDyn> {
+    /// Squeeze: remove a specific dimension of size 1 (primop)
+    ///
+    /// Removes the dimension at position `dim` which must have size 1.
+    /// Returns a tensor with one fewer dimension (`D::Smaller`).
+    ///
+    /// # Type Safety
+    /// - `Dim<N>` → `Dim<N-1>`
+    /// - `DimDyn` → `DimDyn`
+    ///
+    /// # Example
+    /// ```ignore
+    /// let a: Tensor<f32, Dim3> = Tensor::ones([2, 1, 3]);
+    /// let b: Tensor<f32, Dim2> = a.squeeze(1); // Remove dim 1
+    /// assert_eq!(b.shape(), &[2, 3]);
+    /// ```
+    pub fn squeeze(&self, dim: usize) -> Tensor<T, D::Smaller> {
         assert!(
             dim < self.ndim(),
             "Dimension {} out of range for tensor with {} dimensions",
@@ -54,11 +57,33 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         if new_shape.is_empty() {
             new_shape.push(1);
         }
-        self.reshape_dyn(&new_shape)
+
+        let view = view_from_shape(&new_shape);
+        let input = self.as_input_ref();
+        let inner = TensorInner::new(TensorOp::View { input }, view, new_shape, T::DTYPE);
+        Tensor {
+            inner: Arc::new(inner),
+            _dtype: PhantomData,
+            _dim: PhantomData,
+        }
     }
 
     /// Unsqueeze: add a dimension of size 1 at the specified position (primop)
-    pub fn unsqueeze(&self, dim: usize) -> Tensor<T, DimDyn> {
+    ///
+    /// Adds a new dimension of size 1 at position `dim`.
+    /// Returns a tensor with one more dimension (`D::Larger`).
+    ///
+    /// # Type Safety
+    /// - `Dim<N>` → `Dim<N+1>`
+    /// - `DimDyn` → `DimDyn`
+    ///
+    /// # Example
+    /// ```ignore
+    /// let a: Tensor<f32, Dim2> = Tensor::ones([2, 3]);
+    /// let b: Tensor<f32, Dim3> = a.unsqueeze(0); // Add dim at position 0
+    /// assert_eq!(b.shape(), &[1, 2, 3]);
+    /// ```
+    pub fn unsqueeze(&self, dim: usize) -> Tensor<T, D::Larger> {
         assert!(
             dim <= self.ndim(),
             "Dimension {} out of range for tensor with {} dimensions",
@@ -68,7 +93,15 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
 
         let mut new_shape = self.shape().to_vec();
         new_shape.insert(dim, 1);
-        self.reshape_dyn(&new_shape)
+
+        let view = view_from_shape(&new_shape);
+        let input = self.as_input_ref();
+        let inner = TensorInner::new(TensorOp::View { input }, view, new_shape, T::DTYPE);
+        Tensor {
+            inner: Arc::new(inner),
+            _dtype: PhantomData,
+            _dim: PhantomData,
+        }
     }
 
     /// Reshape to a new static shape (primop)
@@ -298,9 +331,10 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         self.reshape([self.numel()])
     }
 
-    /// Pad tensor with a specified value
+    /// Pad tensor with a specified value - type-safe version
     ///
     /// Adds padding to the tensor along each dimension.
+    /// The number of dimensions is preserved.
     ///
     /// # Arguments
     /// * `padding` - Slice of (before, after) padding for each dimension.
@@ -311,10 +345,10 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
     /// ```ignore
     /// let a = Tensor::<f32, Dim2>::ones([2, 3]);
     /// // Pad with 1 before and 2 after on dim 0, 0 before and 1 after on dim 1
-    /// let padded = a.pad(&[(1, 2), (0, 1)], PadValue::Zero);
+    /// let padded: Tensor<f32, Dim2> = a.pad(&[(1, 2), (0, 1)], PadValue::Zero);
     /// assert_eq!(padded.shape(), &[5, 4]); // [2+1+2, 3+0+1]
     /// ```
-    pub fn pad(&self, padding: &[(usize, usize)], value: PadValue) -> Tensor<T, DimDyn> {
+    pub fn pad(&self, padding: &[(usize, usize)], value: PadValue) -> Tensor<T, D> {
         assert_eq!(
             padding.len(),
             self.ndim(),
@@ -351,8 +385,8 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         }
     }
 
-    /// Pad tensor with zeros (convenience method for sum reduction)
-    pub fn pad_zero(&self, padding: &[(usize, usize)]) -> Tensor<T, DimDyn> {
+    /// Pad tensor with zeros (convenience method for sum reduction) - type-safe version
+    pub fn pad_zero(&self, padding: &[(usize, usize)]) -> Tensor<T, D> {
         self.pad(padding, PadValue::Zero)
     }
 }
@@ -364,15 +398,8 @@ mod tests {
 
     #[test]
     fn test_squeeze() {
-        let a = Tensor::<f32, DimDyn>::ones_dyn(&[1, 2, 1, 3]);
-        let b = a.squeeze();
-        assert_eq!(b.shape(), &[2, 3]);
-    }
-
-    #[test]
-    fn test_squeeze_dim() {
         let a = Tensor::<f32, DimDyn>::ones_dyn(&[1, 2, 3]);
-        let b = a.squeeze_dim(0);
+        let b = a.squeeze(0);
         assert_eq!(b.shape(), &[2, 3]);
     }
 
@@ -433,13 +460,6 @@ mod tests {
     }
 
     // f64 tests
-    #[test]
-    fn test_squeeze_f64() {
-        let a = Tensor::<f64, DimDyn>::ones_dyn(&[1, 2, 1, 3]);
-        let b = a.squeeze();
-        assert_eq!(b.shape(), &[2, 3]);
-    }
-
     #[test]
     fn test_unsqueeze_f64() {
         let a = Tensor::<f64, Dim2>::ones([2, 3]);
@@ -516,5 +536,68 @@ mod tests {
         let a = Tensor::<f32, crate::tensor::Dim1>::ones([5]);
         let b = a.pad(&[(2, 3)], PadValue::One);
         assert_eq!(b.shape(), &[10]); // 5+2+3
+    }
+
+    // Type-safe dimension tests
+    #[test]
+    fn test_squeeze_type_safe() {
+        use crate::tensor::{Dim1, Dim3};
+
+        // Dim3 -> Dim2 (squeeze one dimension)
+        let a = Tensor::<f32, Dim3>::ones([2, 1, 3]);
+        let b: Tensor<f32, Dim2> = a.squeeze(1);
+        assert_eq!(b.shape(), &[2, 3]);
+
+        // Dim2 -> Dim1 (squeeze one dimension)
+        let c = Tensor::<f32, Dim2>::ones([1, 5]);
+        let d: Tensor<f32, Dim1> = c.squeeze(0);
+        assert_eq!(d.shape(), &[5]);
+    }
+
+    #[test]
+    fn test_unsqueeze_type_safe() {
+        use crate::tensor::{Dim1, Dim3};
+
+        // Dim2 -> Dim3 (unsqueeze adds one dimension)
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
+        let b: Tensor<f32, Dim3> = a.unsqueeze(0);
+        assert_eq!(b.shape(), &[1, 2, 3]);
+
+        // Dim1 -> Dim2 (unsqueeze adds one dimension)
+        let c = Tensor::<f32, Dim1>::ones([5]);
+        let d: Tensor<f32, Dim2> = c.unsqueeze(1);
+        assert_eq!(d.shape(), &[5, 1]);
+    }
+
+    #[test]
+    fn test_pad_type_safe() {
+        use crate::tensor::Dim3;
+
+        // Dim2 -> Dim2 (pad preserves dimension)
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
+        let b: Tensor<f32, Dim2> = a.pad(&[(1, 1), (2, 2)], PadValue::Zero);
+        assert_eq!(b.shape(), &[4, 7]);
+
+        // Dim3 -> Dim3 (pad preserves dimension)
+        let c = Tensor::<f32, Dim3>::ones([2, 3, 4]);
+        let d: Tensor<f32, Dim3> = c.pad_zero(&[(0, 1), (1, 0), (2, 2)]);
+        assert_eq!(d.shape(), &[3, 4, 8]);
+    }
+
+    #[test]
+    fn test_chained_squeeze_unsqueeze() {
+        use crate::tensor::{Dim1, Dim3};
+
+        // Dim2 -> Dim3 -> Dim2
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
+        let b: Tensor<f32, Dim3> = a.unsqueeze(0);
+        let c: Tensor<f32, Dim2> = b.squeeze(0);
+        assert_eq!(c.shape(), &[2, 3]);
+
+        // Dim1 -> Dim2 -> Dim1
+        let d = Tensor::<f32, Dim1>::ones([5]);
+        let e: Tensor<f32, Dim2> = d.unsqueeze(0);
+        let f: Tensor<f32, Dim1> = e.squeeze(0);
+        assert_eq!(f.shape(), &[5]);
     }
 }

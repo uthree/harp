@@ -347,7 +347,25 @@ let mean = x.mean(&[1], false);
 
 // 分岐
 let a2 = a.fork();  // Clone演算を追加
+
+// 形状変更（型安全）
+let b: Tensor<f32, Dim3> = a.unsqueeze(0);   // Dim2 → Dim3
+let c: Tensor<f32, Dim1> = b.squeeze(0);     // Dim2 → Dim1
+let d: Tensor<f32, Dim2> = a.pad(&[(1, 1), (2, 2)], PadValue::Zero); // Dim2 → Dim2
 ```
+
+### 型安全な形状操作
+
+`Dimension`トレイトの関連型を使用した型安全なAPI:
+
+| 演算 | 入力次元 | 出力次元 | 説明 |
+|------|----------|----------|------|
+| `squeeze(dim)` | `D` | `D::Smaller` | 指定次元を削除（size=1必須） |
+| `unsqueeze(dim)` | `D` | `D::Larger` | 指定位置に次元追加 |
+| `pad(padding, value)` | `D` | `D` | パディング（次元数保持） |
+| `contiguous()` | `D` | `D` | メモリレイアウト正規化 |
+| `flatten()` | `D` | `Dim<1>` | 1次元に展開 |
+| `reshape([...])` | `D` | `Dim<M>` | 静的形状への変換 |
 
 ### 勾配追跡
 
