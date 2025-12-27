@@ -1,14 +1,12 @@
 //! Forward execution for Tensor
 //!
-//! This module provides the forward() and realize() implementations which
-//! compile and execute the lazy computation graph on the default device.
+//! This module provides the realize() implementation which compiles and
+//! executes the lazy computation graph on the default device.
 //!
 //! ## Key Methods
 //!
 //! - `realize()`: The primary execution trigger (like tinygrad). Compiles the
-//!   computation graph and executes it on the device, returning a new tensor
-//!   with the result.
-//! - `forward()`: Legacy method that stores result in autograd's cached_data.
+//!   computation graph, executes it on the device, and stores the result in self.
 //! - `data()`: Returns the computed data if available.
 //! - `from_data()`: Creates a tensor with pre-populated buffer data.
 
@@ -124,7 +122,7 @@ impl fmt::Display for ForwardError {
 impl std::error::Error for ForwardError {}
 
 impl<D: Dimension> Tensor<f32, D> {
-    /// Execute the computation graph and return a new tensor with the result
+    /// Execute the computation graph and store the result in self
     ///
     /// This is the primary execution trigger for lazy evaluation (like tinygrad's `.realize()`).
     /// It:
@@ -132,13 +130,13 @@ impl<D: Dimension> Tensor<f32, D> {
     /// 2. Builds a Graph from the internal computation graph
     /// 3. Compiles and optimizes the graph using Pipeline
     /// 4. Executes the kernel on the device
-    /// 5. Returns a new Tensor with the computed buffer
+    /// 5. Stores the computed buffer in self
     ///
     /// Each realize() call = one kernel execution.
     ///
     /// # Returns
     ///
-    /// A new Tensor with the computed result stored in its buffer.
+    /// A reference to self, allowing method chaining.
     ///
     /// # Errors
     ///
@@ -164,15 +162,15 @@ impl<D: Dimension> Tensor<f32, D> {
     /// let c = &a + &b;
     ///
     /// // Execute computation
-    /// let result = c.realize()?;
+    /// c.realize()?;
     ///
     /// // Get result data
-    /// let data = result.data().unwrap();
+    /// let data = c.data().unwrap();
     /// ```
-    pub fn realize(&self) -> Result<Tensor<f32, D>, ForwardError> {
-        // If already executed, return a clone
+    pub fn realize(&self) -> Result<&Self, ForwardError> {
+        // If already executed, return self
         if self.is_executed() {
-            return Ok(self.clone());
+            return Ok(self);
         }
 
         let device_kind = get_default_device_kind();
@@ -276,7 +274,7 @@ impl<D: Dimension> Tensor<f32, D> {
 
     /// Internal: Execute realize on Metal device
     #[cfg(all(feature = "metal", target_os = "macos"))]
-    fn realize_metal(&self) -> Result<Tensor<f32, D>, ForwardError> {
+    fn realize_metal(&self) -> Result<&Self, ForwardError> {
         use crate::backend::cache::{
             KernelCacheKey, MetalCacheEntry, get_metal_kernel, insert_metal_kernel,
         };
@@ -389,27 +387,17 @@ impl<D: Dimension> Tensor<f32, D> {
             .execute(&input_refs, &mut output_refs)
             .map_err(|e| ForwardError::ExecutionError(format!("Execution failed: {:?}", e)))?;
 
-        // Store GPU buffer directly (no host readback)
-        let inner = TensorInner {
-            op: TensorOp::Executed,
-            view: self.inner.view.clone(),
-            shape: self.inner.shape.clone(),
-            dtype: self.inner.dtype.clone(),
-            name: self.inner.name.clone(),
-            autograd: None,
-            buffer: RwLock::new(Some(Box::new(output_buffer) as Box<dyn Buffer>)),
-        };
+        // Store GPU buffer directly in self
+        if let Ok(mut guard) = self.inner.buffer.write() {
+            *guard = Some(Box::new(output_buffer) as Box<dyn Buffer>);
+        }
 
-        Ok(Tensor {
-            inner: Arc::new(inner),
-            _dtype: PhantomData,
-            _dim: PhantomData,
-        })
+        Ok(self)
     }
 
     /// Internal: Execute realize on OpenCL device
     #[cfg(feature = "opencl")]
-    fn realize_opencl(&self) -> Result<Tensor<f32, D>, ForwardError> {
+    fn realize_opencl(&self) -> Result<&Self, ForwardError> {
         use crate::backend::cache::{
             KernelCacheKey, OpenCLCacheEntry, get_opencl_kernel, insert_opencl_kernel,
         };
@@ -524,22 +512,12 @@ impl<D: Dimension> Tensor<f32, D> {
             .execute(&input_refs, &mut output_refs)
             .map_err(|e| ForwardError::ExecutionError(format!("Execution failed: {:?}", e)))?;
 
-        // Store GPU buffer directly (no host readback)
-        let inner = TensorInner {
-            op: TensorOp::Executed,
-            view: self.inner.view.clone(),
-            shape: self.inner.shape.clone(),
-            dtype: self.inner.dtype.clone(),
-            name: self.inner.name.clone(),
-            autograd: None,
-            buffer: RwLock::new(Some(Box::new(output_buffer) as Box<dyn Buffer>)),
-        };
+        // Store GPU buffer directly in self
+        if let Ok(mut guard) = self.inner.buffer.write() {
+            *guard = Some(Box::new(output_buffer) as Box<dyn Buffer>);
+        }
 
-        Ok(Tensor {
-            inner: Arc::new(inner),
-            _dtype: PhantomData,
-            _dim: PhantomData,
-        })
+        Ok(self)
     }
 
     /// Create an executed tensor from raw data
@@ -565,59 +543,6 @@ impl<D: Dimension> Tensor<f32, D> {
             _dtype: PhantomData,
             _dim: PhantomData,
         }
-    }
-
-    /// Execute the lazy computation graph on the default device (legacy)
-    ///
-    /// This method:
-    /// 1. Gets the global default device
-    /// 2. Builds a Graph from the internal GraphNode
-    /// 3. Compiles and optimizes the graph using Pipeline
-    /// 4. Executes the kernel on the device
-    /// 5. Stores the result in cached_data
-    ///
-    /// # Errors
-    ///
-    /// Returns `ForwardError` if:
-    /// - No default device is set
-    /// - The device backend is not available (feature not enabled)
-    /// - Compilation fails
-    /// - Execution fails
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// use harp::tensor::{Tensor, Dim2};
-    /// use harp::backend::{set_default_device, DeviceKind};
-    ///
-    /// // Set up device
-    /// let device = ...; // Get Metal or OpenCL device
-    /// set_default_device(device, DeviceKind::Metal);
-    ///
-    /// // Create and compute tensor
-    /// let a = Tensor::<f32, Dim2>::full([3, 4], 1.0);
-    /// let b = Tensor::<f32, Dim2>::full([3, 4], 2.0);
-    /// let c = &a + &b;
-    ///
-    /// // Execute computation
-    /// c.forward()?;
-    ///
-    /// // Get result
-    /// let data = c.data().unwrap();
-    /// ```
-    pub fn forward(&self) -> Result<(), ForwardError> {
-        // Call realize() to execute and get result
-        let result = self.realize()?;
-
-        // Clone the result buffer back to self
-        if let Ok(result_guard) = result.inner.buffer.read()
-            && let Some(result_buf) = result_guard.as_ref()
-            && let Ok(mut guard) = self.inner.buffer.write()
-        {
-            *guard = Some(result_buf.clone_buffer());
-        }
-
-        Ok(())
     }
 
     /// Get the computed data from the tensor

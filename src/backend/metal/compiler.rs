@@ -131,7 +131,7 @@ mod tests {
     use super::*;
     use crate::ast::DType;
     use crate::backend::metal::MetalBuffer;
-    use crate::backend::traits::{Buffer, Device, TypedBuffer};
+    use crate::backend::traits::{Device, TypedBuffer};
 
     #[test]
     fn test_metal_simple_kernel() {

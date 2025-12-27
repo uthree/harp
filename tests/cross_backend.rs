@@ -35,22 +35,16 @@ fn test_cross_backend_consistency() {
     let a_metal = Tensor::<f32, DimDyn>::from_data(input_data.clone(), vec![2, 4]);
     let b_metal = Tensor::<f32, DimDyn>::from_data(vec![1.0; 8], vec![2, 4]);
     let c_metal = (&a_metal + &b_metal) * 2.0;
-    let metal_result = c_metal
-        .realize()
-        .ok()
-        .and_then(|t| t.data())
-        .expect("Metal execution failed");
+    c_metal.realize().expect("Metal execution failed");
+    let metal_result = c_metal.data().expect("Metal data missing");
 
     // Test on OpenCL
     set_default_device(opencl_device.clone(), DeviceKind::OpenCL);
     let a_opencl = Tensor::<f32, DimDyn>::from_data(input_data.clone(), vec![2, 4]);
     let b_opencl = Tensor::<f32, DimDyn>::from_data(vec![1.0; 8], vec![2, 4]);
     let c_opencl = (&a_opencl + &b_opencl) * 2.0;
-    let opencl_result = c_opencl
-        .realize()
-        .ok()
-        .and_then(|t| t.data())
-        .expect("OpenCL execution failed");
+    c_opencl.realize().expect("OpenCL execution failed");
+    let opencl_result = c_opencl.data().expect("OpenCL data missing");
 
     // Compare results
     assert!(

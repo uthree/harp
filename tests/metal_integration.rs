@@ -36,7 +36,7 @@ fn test_metal_const_fill() {
 
     assert!(result.is_ok(), "realize() failed: {:?}", result.err());
 
-    let data = result.unwrap().data().expect("No data after realize");
+    let data = t.data().expect("No data after realize");
     assert_eq!(data.len(), 6);
     assert!(data.iter().all(|&x| approx_eq(x, 3.14)));
 }
@@ -54,7 +54,7 @@ fn test_metal_add() {
     let result = c.realize();
     assert!(result.is_ok(), "realize() failed: {:?}", result.err());
 
-    let data = result.unwrap().data().expect("No data after realize");
+    let data = c.data().expect("No data after realize");
     let expected = vec![6.0, 8.0, 10.0, 12.0];
     assert!(
         vec_approx_eq(&data, &expected),
@@ -77,7 +77,7 @@ fn test_metal_mul() {
     let result = c.realize();
     assert!(result.is_ok(), "realize() failed: {:?}", result.err());
 
-    let data = result.unwrap().data().expect("No data after realize");
+    let data = c.data().expect("No data after realize");
     let expected = vec![2.0, 6.0, 12.0, 20.0];
     assert!(
         vec_approx_eq(&data, &expected),
@@ -99,7 +99,7 @@ fn test_metal_scalar_add() {
     let result = c.realize();
     assert!(result.is_ok(), "realize() failed: {:?}", result.err());
 
-    let data = result.unwrap().data().expect("No data after realize");
+    let data = c.data().expect("No data after realize");
     let expected = vec![11.0, 12.0, 13.0, 14.0];
     assert!(
         vec_approx_eq(&data, &expected),
@@ -121,7 +121,7 @@ fn test_metal_neg() {
     let result = c.realize();
     assert!(result.is_ok(), "realize() failed: {:?}", result.err());
 
-    let data = result.unwrap().data().expect("No data after realize");
+    let data = c.data().expect("No data after realize");
     let expected = vec![-1.0, 2.0, -3.0, 4.0];
     assert!(
         vec_approx_eq(&data, &expected),
@@ -143,7 +143,7 @@ fn test_metal_sqrt() {
     let result = c.realize();
     assert!(result.is_ok(), "realize() failed: {:?}", result.err());
 
-    let data = result.unwrap().data().expect("No data after realize");
+    let data = c.data().expect("No data after realize");
     let expected = vec![1.0, 2.0, 3.0, 4.0];
     assert!(
         vec_approx_eq(&data, &expected),
@@ -168,7 +168,7 @@ fn test_metal_fused_ops() {
     let result = result_tensor.realize();
     assert!(result.is_ok(), "realize() failed: {:?}", result.err());
 
-    let data = result.unwrap().data().expect("No data after realize");
+    let data = result_tensor.data().expect("No data after realize");
     // (1+1)*2=4, (2+1)*2=6, (3+1)*2=8, (4+1)*2=10
     let expected = vec![4.0, 6.0, 8.0, 10.0];
     assert!(
@@ -191,7 +191,7 @@ fn test_metal_reduce_sum() {
     let result = sum.realize();
     assert!(result.is_ok(), "realize() failed: {:?}", result.err());
 
-    let data = result.unwrap().data().expect("No data after realize");
+    let data = sum.data().expect("No data after realize");
     // Row 0: 1+2+3=6, Row 1: 4+5+6=15
     let expected = vec![6.0, 15.0];
     assert!(
@@ -253,7 +253,7 @@ fn test_metal_matmul() {
     let result = c.realize();
     assert!(result.is_ok(), "realize() failed: {:?}", result.err());
 
-    let data = result.unwrap().data().expect("No data after realize");
+    let data = c.data().expect("No data after realize");
     let expected = vec![22.0, 28.0, 49.0, 64.0];
     assert!(
         vec_approx_eq(&data, &expected),
@@ -281,7 +281,7 @@ fn test_metal_contiguous_with_ops() {
     let result = c.realize();
     assert!(result.is_ok(), "realize() failed: {:?}", result.err());
 
-    let data = result.unwrap().data().expect("No data after realize");
+    let data = c.data().expect("No data after realize");
     // [[1+10, 4+20], [2+30, 5+40], [3+50, 6+60]] = [[11, 24], [32, 45], [53, 66]]
     let expected = vec![11.0, 24.0, 32.0, 45.0, 53.0, 66.0];
     assert!(
@@ -315,7 +315,7 @@ fn test_metal_deep_fusion_chain() {
     let result = result_tensor.realize();
     assert!(result.is_ok(), "realize() failed: {:?}", result.err());
 
-    let data = result.unwrap().data().expect("No data after realize");
+    let data = result_tensor.data().expect("No data after realize");
     let expected = vec![4.0, 5.5, 7.0, 8.5];
     assert!(
         vec_approx_eq(&data, &expected),
@@ -343,7 +343,7 @@ fn test_metal_transpose_reduce() {
     let result = sum.realize();
     assert!(result.is_ok(), "realize() failed: {:?}", result.err());
 
-    let data = result.unwrap().data().expect("No data after realize");
+    let data = sum.data().expect("No data after realize");
     let expected = vec![5.0, 7.0, 9.0];
     assert!(
         vec_approx_eq(&data, &expected),
@@ -369,7 +369,7 @@ fn test_metal_reshape_ops() {
     let result = c_reshaped.realize();
     assert!(result.is_ok(), "realize() failed: {:?}", result.err());
 
-    let data = result.unwrap().data().expect("No data after realize");
+    let data = c_reshaped.data().expect("No data after realize");
     // [2, 3, 4, 5, 6, 7] reshaped to [3, 2]
     let expected = vec![2.0, 3.0, 4.0, 5.0, 6.0, 7.0];
     assert!(
@@ -392,7 +392,7 @@ fn test_metal_reduce_max() {
     let result = max.realize();
     assert!(result.is_ok(), "realize() failed: {:?}", result.err());
 
-    let data = result.unwrap().data().expect("No data after realize");
+    let data = max.data().expect("No data after realize");
     // Row 0: max(1, 5, 3) = 5, Row 1: max(2, 8, 4) = 8
     let expected = vec![5.0, 8.0];
     assert!(
@@ -417,7 +417,7 @@ fn test_metal_broadcast_add() {
     let result = c.realize();
     assert!(result.is_ok(), "realize() failed: {:?}", result.err());
 
-    let data = result.unwrap().data().expect("No data after realize");
+    let data = c.data().expect("No data after realize");
     // [[1+10, 2+20, 3+30], [4+10, 5+20, 6+30]] = [[11, 22, 33], [14, 25, 36]]
     let expected = vec![11.0, 22.0, 33.0, 14.0, 25.0, 36.0];
     assert!(

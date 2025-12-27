@@ -331,7 +331,7 @@ mod tests {
     use super::*;
     use crate::ast::DType;
     use crate::backend::opencl::{OpenCLBuffer, OpenCLCompiler};
-    use crate::backend::traits::{Buffer, Compiler, Device, KernelConfig, TypedBuffer};
+    use crate::backend::traits::{Compiler, Device, KernelConfig, TypedBuffer};
 
     #[test]
     fn test_opencl_is_available() {

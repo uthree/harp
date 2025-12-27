@@ -10,6 +10,8 @@ use std::collections::HashMap;
 /// Device type classification
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum DeviceType {
+    /// CPU device
+    Cpu,
     /// Pure C backend (sequential, no parallelization)
     C,
     IntegratedGpu,

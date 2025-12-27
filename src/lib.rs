@@ -20,8 +20,9 @@
 //! // 遅延評価される演算
 //! let result = &a + &b;
 //!
-//! // 実行（realize()で計算を実行）
-//! let computed = result.realize().unwrap();
+//! // 実行（realize()で計算を実行し、データを取得）
+//! result.realize().unwrap();
+//! let data = result.data().unwrap();
 //! ```
 //!
 //! # バックエンド
