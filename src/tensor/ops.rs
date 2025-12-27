@@ -85,12 +85,6 @@ pub enum TensorOp {
     // ============================================================
     // 構造演算
     // ============================================================
-    /// スライス
-    Slice {
-        input: InputRef,
-        ranges: Vec<(usize, usize)>,
-    },
-
     /// 結合
     Concat { inputs: Vec<InputRef>, axis: usize },
 }
@@ -269,8 +263,7 @@ impl TensorOp {
             TensorOp::View { input }
             | TensorOp::Contiguous { input }
             | TensorOp::Cast { input, .. }
-            | TensorOp::Clone { input }
-            | TensorOp::Slice { input, .. } => vec![input],
+            | TensorOp::Clone { input } => vec![input],
 
             TensorOp::MapReduce { inputs, .. } | TensorOp::Concat { inputs, .. } => {
                 inputs.iter().collect()
@@ -307,7 +300,6 @@ impl std::fmt::Debug for TensorOp {
                     expr, reduce_op, axes, keepdim
                 )
             }
-            TensorOp::Slice { ranges, .. } => write!(f, "Slice {{ ranges: {:?} }}", ranges),
             TensorOp::Concat { axis, .. } => write!(f, "Concat {{ axis: {} }}", axis),
         }
     }

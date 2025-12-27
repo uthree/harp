@@ -112,7 +112,6 @@ pub enum TensorOp {
     },
 
     // 構造演算
-    Slice { input: TensorRef, ranges: Vec<(usize, usize)> },
     Concat { inputs: Vec<TensorRef>, axis: usize },
 }
 ```
@@ -276,7 +275,8 @@ pub trait GradFn<T: FloatDType>: Send + Sync {
 | `View` | メモリコピーなしのView変更 |
 | `Contiguous` | メモリレイアウト正規化・実行トリガー |
 | `Pad` | パディング（View::Padded経由） |
-| `Slice` | スライス |
+| `Slice` | スライス（View::Linear経由、ゼロコピー） |
+| `Concat` | テンソル結合（複数入力を条件分岐で処理） |
 
 #### 特殊
 | 演算 | 説明 |
@@ -352,6 +352,12 @@ let a2 = a.fork();  // Clone演算を追加
 let b: Tensor<f32, Dim3> = a.unsqueeze(0);   // Dim2 → Dim3
 let c: Tensor<f32, Dim1> = b.squeeze(0);     // Dim2 → Dim1
 let d: Tensor<f32, Dim2> = a.pad(&[(1, 1), (2, 2)], PadValue::Zero); // Dim2 → Dim2
+
+// スライス（ゼロコピー、View経由）
+let sliced = a.slice(&[(1, 3), (0, 2)]);     // 範囲指定で部分テンソル取得
+
+// 結合
+let combined = Tensor::concat(&[&a, &b], 0); // axis=0で結合
 ```
 
 ### 型安全な形状操作
@@ -363,6 +369,8 @@ let d: Tensor<f32, Dim2> = a.pad(&[(1, 1), (2, 2)], PadValue::Zero); // Dim2 →
 | `squeeze(dim)` | `D` | `D::Smaller` | 指定次元を削除（size=1必須） |
 | `unsqueeze(dim)` | `D` | `D::Larger` | 指定位置に次元追加 |
 | `pad(padding, value)` | `D` | `D` | パディング（次元数保持） |
+| `slice(ranges)` | `D` | `D` | スライス（次元数保持、ゼロコピー） |
+| `concat(tensors, axis)` | `&[&Tensor<T, D>]` | `D` | 静的メソッド、テンソル結合 |
 | `contiguous()` | `D` | `D` | メモリレイアウト正規化 |
 | `flatten()` | `D` | `Dim<1>` | 1次元に展開 |
 | `reshape([...])` | `D` | `Dim<M>` | 静的形状への変換 |

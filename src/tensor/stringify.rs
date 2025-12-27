@@ -154,10 +154,6 @@ impl GraphStringifier {
             }
 
             // 構造演算
-            TensorOp::Slice { input, ranges } => {
-                let child = self.visit_input(input);
-                format!("Slice({}, ranges={:?})", child, ranges)
-            }
             TensorOp::Concat { inputs, axis } => {
                 let children: Vec<String> = inputs.iter().map(|i| self.visit_input(i)).collect();
                 format!("Concat([{}], axis={})", children.join(", "), axis)

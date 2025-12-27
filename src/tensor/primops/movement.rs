@@ -11,7 +11,7 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use crate::tensor::ops::PadValue;
+use crate::tensor::ops::{InputRef, PadValue};
 use crate::tensor::shape::{Expr, View};
 use crate::tensor::{Dim, DimDyn, Dimension, Tensor, TensorDType, TensorInner, TensorOp};
 
@@ -389,6 +389,190 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
     pub fn pad_zero(&self, padding: &[(usize, usize)]) -> Tensor<T, D> {
         self.pad(padding, PadValue::Zero)
     }
+
+    /// Slice: extract a sub-tensor by specifying ranges for each dimension (primop)
+    ///
+    /// Creates a view into a portion of the tensor. This is a zero-copy operation
+    /// that modifies the offset and shape of the view.
+    ///
+    /// # Arguments
+    /// * `ranges` - Slice of (start, end) for each dimension. Must have length equal
+    ///   to the number of dimensions.
+    ///
+    /// # Panics
+    /// * If `ranges.len()` doesn't match the tensor's number of dimensions
+    /// * If any range is out of bounds
+    /// * If any `start >= end`
+    ///
+    /// # Example
+    /// ```ignore
+    /// let a = Tensor::<f32, Dim2>::ones([4, 5]);
+    /// let b = a.slice(&[(1, 3), (2, 5)]); // Extract [2, 3] sub-tensor
+    /// assert_eq!(b.shape(), &[2, 3]);
+    /// ```
+    pub fn slice(&self, ranges: &[(usize, usize)]) -> Tensor<T, D> {
+        assert_eq!(
+            ranges.len(),
+            self.ndim(),
+            "Slice ranges length {} must match tensor dimensions {}",
+            ranges.len(),
+            self.ndim()
+        );
+
+        let old_shape = self.shape();
+
+        // Validate ranges
+        for (i, &(start, end)) in ranges.iter().enumerate() {
+            assert!(
+                start < end,
+                "Slice range start {} must be less than end {} at dimension {}",
+                start,
+                end,
+                i
+            );
+            assert!(
+                end <= old_shape[i],
+                "Slice range end {} exceeds dimension size {} at dimension {}",
+                end,
+                old_shape[i],
+                i
+            );
+        }
+
+        // Calculate new shape
+        let new_shape: Vec<usize> = ranges.iter().map(|&(start, end)| end - start).collect();
+
+        // Get strides from current view
+        let (input_strides, input_offset) = match &self.inner.view {
+            View::Linear {
+                strides, offset, ..
+            } => (strides.clone(), offset.clone()),
+            View::IndexExpr { .. } => {
+                // For IndexExpr, use contiguous strides
+                let mut strides = vec![Expr::from(1); old_shape.len()];
+                for i in (0..old_shape.len() - 1).rev() {
+                    strides[i] = Expr::from((old_shape[i + 1..].iter().product::<usize>()) as i64);
+                }
+                (strides, Expr::from(0))
+            }
+            View::Padded { inner, .. } => {
+                // For Padded, use the inner view's strides
+                match inner.as_ref() {
+                    View::Linear {
+                        strides, offset, ..
+                    } => (strides.clone(), offset.clone()),
+                    _ => {
+                        let mut strides = vec![Expr::from(1); old_shape.len()];
+                        for i in (0..old_shape.len() - 1).rev() {
+                            strides[i] =
+                                Expr::from((old_shape[i + 1..].iter().product::<usize>()) as i64);
+                        }
+                        (strides, Expr::from(0))
+                    }
+                }
+            }
+        };
+
+        // Calculate new offset: input_offset + sum(start[i] * stride[i])
+        let mut new_offset = input_offset;
+        for (i, &(start, _)) in ranges.iter().enumerate() {
+            if start > 0 {
+                new_offset = new_offset + input_strides[i].clone() * Expr::from(start as i64);
+            }
+        }
+
+        // Create new view with updated shape and offset (strides remain the same)
+        let new_shape_exprs: Vec<Expr> = new_shape.iter().map(|&s| Expr::from(s as i64)).collect();
+        let view = View::Linear {
+            shape: new_shape_exprs,
+            strides: input_strides,
+            offset: new_offset,
+        };
+
+        let input = self.as_input_ref();
+        let inner = TensorInner::new(TensorOp::View { input }, view, new_shape, T::DTYPE);
+
+        Tensor {
+            inner: Arc::new(inner),
+            _dtype: PhantomData,
+            _dim: PhantomData,
+        }
+    }
+
+    /// Concatenate multiple tensors along a specified axis (primop)
+    ///
+    /// All tensors must have the same shape except for the concatenation axis.
+    /// Returns a new tensor with the concatenated data.
+    ///
+    /// # Arguments
+    /// * `tensors` - Slice of tensor references to concatenate
+    /// * `axis` - The axis along which to concatenate
+    ///
+    /// # Panics
+    /// * If `tensors` is empty
+    /// * If `axis` is out of bounds
+    /// * If tensors have different shapes on non-axis dimensions
+    ///
+    /// # Example
+    /// ```ignore
+    /// let a = Tensor::<f32, Dim2>::ones([2, 3]);
+    /// let b = Tensor::<f32, Dim2>::ones([4, 3]);
+    /// let c = Tensor::concat(&[&a, &b], 0); // [6, 3]
+    /// ```
+    pub fn concat(tensors: &[&Tensor<T, D>], axis: usize) -> Tensor<T, D> {
+        assert!(!tensors.is_empty(), "Cannot concatenate empty tensor list");
+
+        let first = tensors[0];
+        let ndim = first.ndim();
+
+        assert!(
+            axis < ndim,
+            "Axis {} is out of bounds for tensor with {} dimensions",
+            axis,
+            ndim
+        );
+
+        // Validate all tensors have compatible shapes
+        for (i, tensor) in tensors.iter().enumerate().skip(1) {
+            assert_eq!(
+                tensor.ndim(),
+                ndim,
+                "All tensors must have the same number of dimensions. Tensor 0 has {} dims, tensor {} has {} dims",
+                ndim,
+                i,
+                tensor.ndim()
+            );
+
+            for (dim, (&size_first, &size_other)) in
+                first.shape().iter().zip(tensor.shape().iter()).enumerate()
+            {
+                if dim != axis {
+                    assert_eq!(
+                        size_first, size_other,
+                        "Tensors must have same shape on non-axis dimensions. Dimension {} mismatch: {} vs {}",
+                        dim, size_first, size_other
+                    );
+                }
+            }
+        }
+
+        // Calculate output shape
+        let mut new_shape = first.shape().to_vec();
+        let axis_size: usize = tensors.iter().map(|t| t.shape()[axis]).sum();
+        new_shape[axis] = axis_size;
+
+        // Collect inputs
+        let inputs: Vec<InputRef> = tensors.iter().map(|t| t.as_input_ref()).collect();
+
+        let view = view_from_shape(&new_shape);
+        let inner = TensorInner::new(TensorOp::Concat { inputs, axis }, view, new_shape, T::DTYPE);
+
+        Tensor {
+            inner: Arc::new(inner),
+            _dtype: PhantomData,
+            _dim: PhantomData,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -599,5 +783,140 @@ mod tests {
         let e: Tensor<f32, Dim2> = d.unsqueeze(0);
         let f: Tensor<f32, Dim1> = e.squeeze(0);
         assert_eq!(f.shape(), &[5]);
+    }
+
+    // Slice tests
+    #[test]
+    fn test_slice_basic() {
+        let a = Tensor::<f32, Dim2>::ones([4, 5]);
+        let b = a.slice(&[(1, 3), (2, 5)]);
+        assert_eq!(b.shape(), &[2, 3]);
+    }
+
+    #[test]
+    fn test_slice_full_range() {
+        let a = Tensor::<f32, Dim2>::ones([4, 5]);
+        let b = a.slice(&[(0, 4), (0, 5)]);
+        assert_eq!(b.shape(), &[4, 5]);
+    }
+
+    #[test]
+    fn test_slice_single_element() {
+        use crate::tensor::Dim1;
+        let a = Tensor::<f32, Dim1>::ones([10]);
+        let b = a.slice(&[(5, 6)]);
+        assert_eq!(b.shape(), &[1]);
+    }
+
+    #[test]
+    fn test_slice_3d() {
+        use crate::tensor::Dim3;
+        let a = Tensor::<f32, Dim3>::ones([4, 5, 6]);
+        let b = a.slice(&[(1, 3), (0, 5), (2, 4)]);
+        assert_eq!(b.shape(), &[2, 5, 2]);
+    }
+
+    #[test]
+    fn test_slice_type_safe() {
+        // Slice preserves dimension type
+        let a = Tensor::<f32, Dim2>::ones([4, 5]);
+        let b: Tensor<f32, Dim2> = a.slice(&[(1, 3), (2, 5)]);
+        assert_eq!(b.shape(), &[2, 3]);
+    }
+
+    #[test]
+    fn test_slice_f64() {
+        let a = Tensor::<f64, Dim2>::ones([4, 5]);
+        let b = a.slice(&[(0, 2), (1, 4)]);
+        assert_eq!(b.shape(), &[2, 3]);
+    }
+
+    #[test]
+    #[should_panic(expected = "must be less than end")]
+    fn test_slice_invalid_range() {
+        let a = Tensor::<f32, Dim2>::ones([4, 5]);
+        let _ = a.slice(&[(3, 1), (0, 5)]); // start > end
+    }
+
+    #[test]
+    #[should_panic(expected = "exceeds dimension size")]
+    fn test_slice_out_of_bounds() {
+        let a = Tensor::<f32, Dim2>::ones([4, 5]);
+        let _ = a.slice(&[(0, 4), (0, 10)]); // end > dim size
+    }
+
+    // Concat tests
+    #[test]
+    fn test_concat_axis0() {
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
+        let b = Tensor::<f32, Dim2>::ones([4, 3]);
+        let c = Tensor::concat(&[&a, &b], 0);
+        assert_eq!(c.shape(), &[6, 3]);
+    }
+
+    #[test]
+    fn test_concat_axis1() {
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
+        let b = Tensor::<f32, Dim2>::ones([2, 5]);
+        let c = Tensor::concat(&[&a, &b], 1);
+        assert_eq!(c.shape(), &[2, 8]);
+    }
+
+    #[test]
+    fn test_concat_multiple() {
+        let a = Tensor::<f32, Dim2>::ones([1, 3]);
+        let b = Tensor::<f32, Dim2>::ones([2, 3]);
+        let c = Tensor::<f32, Dim2>::ones([3, 3]);
+        let d = Tensor::concat(&[&a, &b, &c], 0);
+        assert_eq!(d.shape(), &[6, 3]);
+    }
+
+    #[test]
+    fn test_concat_3d() {
+        use crate::tensor::Dim3;
+        let a = Tensor::<f32, Dim3>::ones([2, 3, 4]);
+        let b = Tensor::<f32, Dim3>::ones([2, 5, 4]);
+        let c = Tensor::concat(&[&a, &b], 1);
+        assert_eq!(c.shape(), &[2, 8, 4]);
+    }
+
+    #[test]
+    fn test_concat_type_safe() {
+        // Concat preserves dimension type
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
+        let b = Tensor::<f32, Dim2>::ones([4, 3]);
+        let c: Tensor<f32, Dim2> = Tensor::concat(&[&a, &b], 0);
+        assert_eq!(c.shape(), &[6, 3]);
+    }
+
+    #[test]
+    fn test_concat_f64() {
+        let a = Tensor::<f64, Dim2>::ones([2, 3]);
+        let b = Tensor::<f64, Dim2>::ones([4, 3]);
+        let c = Tensor::concat(&[&a, &b], 0);
+        assert_eq!(c.shape(), &[6, 3]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Cannot concatenate empty")]
+    fn test_concat_empty() {
+        let empty: &[&Tensor<f32, Dim2>] = &[];
+        let _ = Tensor::concat(empty, 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "out of bounds")]
+    fn test_concat_invalid_axis() {
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
+        let b = Tensor::<f32, Dim2>::ones([4, 3]);
+        let _ = Tensor::concat(&[&a, &b], 5);
+    }
+
+    #[test]
+    #[should_panic(expected = "same shape on non-axis")]
+    fn test_concat_shape_mismatch() {
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
+        let b = Tensor::<f32, Dim2>::ones([4, 5]); // Different non-axis dimension
+        let _ = Tensor::concat(&[&a, &b], 0);
     }
 }

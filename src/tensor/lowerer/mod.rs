@@ -171,6 +171,11 @@ impl TensorLowerer {
             return self.lower_pad_erased(inner, input.as_ref(), padding, *default_value, name);
         }
 
+        // Concatは特別処理（複数入力から条件分岐で選択）
+        if let TensorOp::Concat { inputs, axis } = inner.op() {
+            return self.lower_concat_erased(inner, inputs, *axis, name);
+        }
+
         // 最終的な出力形状はルートノードの形状を使用
         let output_shape = inner.view().shape().to_vec();
         let output_ndim = output_shape.len();
@@ -784,6 +789,128 @@ impl TensorLowerer {
             AstDType::Tuple(vec![]),
             body,
         )
+    }
+
+    /// Concat演算をlower
+    ///
+    /// 複数の入力テンソルをaxis軸に沿って結合
+    /// 条件分岐で適切な入力からロードする
+    fn lower_concat_erased(
+        &self,
+        outer: &TensorInner,
+        inputs: &[crate::tensor::ops::InputRef],
+        axis: usize,
+        name: &str,
+    ) -> AstNode {
+        let output_shape = outer.view().shape();
+        let ndim = output_shape.len();
+        let load_dtype = dtype_to_ast(&outer.dtype());
+
+        // 出力オフセット（contiguous）
+        let output_offset = build_contiguous_offset_with_shape(ndim, Some(&output_shape));
+
+        // 各入力テンソルのaxis方向のサイズと累積オフセットを計算
+        let mut cumulative_offset: i64 = 0;
+        let mut boundaries: Vec<i64> = Vec::new();
+
+        for input in inputs.iter() {
+            let input_shape = input.view().shape();
+            let axis_size = input_shape[axis].expect_const("concat input axis size must be const");
+            cumulative_offset += axis_size;
+            boundaries.push(cumulative_offset);
+        }
+
+        // 条件分岐を構築（後ろから構築してネスト）
+        // if ridx[axis] < boundary[0]: load from input[0]
+        // else if ridx[axis] < boundary[1]: load from input[1] (offset adjusted)
+        // ...
+
+        // まず最後の入力のロードを構築（else節）
+        let last_idx = inputs.len() - 1;
+        let last_offset_adj = if last_idx > 0 {
+            boundaries[last_idx - 1]
+        } else {
+            0
+        };
+        let mut result_expr = self.build_concat_load(
+            &inputs[last_idx],
+            axis,
+            ndim,
+            last_offset_adj,
+            &load_dtype,
+            last_idx,
+        );
+
+        // 残りの入力について条件分岐を追加（後ろから前へ）
+        for i in (0..last_idx).rev() {
+            let offset_adj = if i > 0 { boundaries[i - 1] } else { 0 };
+            let boundary = boundaries[i];
+
+            // 条件: ridx[axis] < boundary
+            let cond = AstNode::Lt(Box::new(var(ph::ridx(axis))), Box::new(const_int(boundary)));
+
+            // then節: この入力からロード
+            let then_expr =
+                self.build_concat_load(&inputs[i], axis, ndim, offset_adj, &load_dtype, i);
+
+            // Select文で条件分岐
+            result_expr = AstNode::Select {
+                cond: Box::new(cond),
+                then_val: Box::new(then_expr),
+                else_val: Box::new(result_expr),
+            };
+        }
+
+        // Store文を作成
+        let store_stmt = store(var(ph::OUTPUT), output_offset, result_expr);
+
+        // ループでラップ
+        let body = wrap_with_loops_with_shape(ndim, vec![store_stmt], Some(&output_shape));
+
+        function(
+            Some(name.to_string()),
+            vec![],
+            AstDType::Tuple(vec![]),
+            body,
+        )
+    }
+
+    /// Concat用の入力ロード式を構築
+    fn build_concat_load(
+        &self,
+        input: &crate::tensor::ops::InputRef,
+        axis: usize,
+        ndim: usize,
+        offset_adjustment: i64,
+        load_dtype: &AstDType,
+        input_idx: usize,
+    ) -> AstNode {
+        let input_shape = input.view().shape();
+
+        // 入力オフセットを計算
+        // ridx[i] をそのまま使用、ただしaxis方向は offset_adjustment を引く
+        let mut input_offset = const_int(0);
+
+        for dim in (0..ndim).rev() {
+            let idx = if dim == axis && offset_adjustment != 0 {
+                var(ph::ridx(dim)) - const_int(offset_adjustment)
+            } else {
+                var(ph::ridx(dim))
+            };
+
+            if dim == ndim - 1 {
+                input_offset = idx;
+            } else {
+                // stride = product of inner dimensions
+                let mut stride: AstNode = input_shape[dim + 1].clone().into();
+                for inner_shape in input_shape.iter().take(ndim).skip(dim + 2) {
+                    stride = stride * Into::<AstNode>::into(inner_shape.clone());
+                }
+                input_offset = idx * stride + input_offset;
+            }
+        }
+
+        load(var(ph::input(input_idx)), input_offset, load_dtype.clone())
     }
 
     /// 入力テンソルのオフセットを構築
