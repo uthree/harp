@@ -5,9 +5,12 @@
 
 use std::marker::PhantomData;
 use std::sync::Arc;
+use std::sync::RwLock;
 
 use crate::ast::DType;
 use crate::ast::Literal;
+use crate::backend::Buffer;
+use crate::tensor::forward::VecBuffer;
 use crate::tensor::shape::{Expr, View};
 use crate::tensor::{
     Dim, DimDyn, Dimension, FloatDType, IntegerDType, NumericInitDType, Tensor, TensorInner,
@@ -18,6 +21,80 @@ use crate::tensor::{
 fn view_from_shape(shape: &[usize]) -> View {
     let shape_exprs: Vec<Expr> = shape.iter().map(|&s| Expr::from(s as i64)).collect();
     View::contiguous(shape_exprs)
+}
+
+/// Generate random f32 values in [0, 1)
+///
+/// Uses a simple Xorshift PRNG for fast random number generation.
+/// Thread-local state ensures thread safety without locks.
+fn generate_random_f32(count: usize) -> Vec<f32> {
+    use std::cell::RefCell;
+
+    thread_local! {
+        static STATE: RefCell<u64> = const { RefCell::new(0) };
+    }
+
+    // Initialize seed if needed
+    STATE.with(|state| {
+        let mut s = state.borrow_mut();
+        if *s == 0 {
+            // Use current time as seed
+            *s = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos() as u64)
+                .unwrap_or(0x12345678deadbeef);
+        }
+    });
+
+    let mut result = Vec::with_capacity(count);
+    STATE.with(|state| {
+        let mut s = state.borrow_mut();
+        for _ in 0..count {
+            // Xorshift64
+            *s ^= *s << 13;
+            *s ^= *s >> 7;
+            *s ^= *s << 17;
+            // Convert to [0, 1) range
+            let val = (*s as f32) / (u64::MAX as f32);
+            result.push(val);
+        }
+    });
+    result
+}
+
+/// Generate random f64 values in [0, 1)
+fn generate_random_f64(count: usize) -> Vec<f64> {
+    use std::cell::RefCell;
+
+    thread_local! {
+        static STATE: RefCell<u64> = const { RefCell::new(0) };
+    }
+
+    // Initialize seed if needed
+    STATE.with(|state| {
+        let mut s = state.borrow_mut();
+        if *s == 0 {
+            *s = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos() as u64)
+                .unwrap_or(0x12345678deadbeef);
+        }
+    });
+
+    let mut result = Vec::with_capacity(count);
+    STATE.with(|state| {
+        let mut s = state.borrow_mut();
+        for _ in 0..count {
+            // Xorshift64
+            *s ^= *s << 13;
+            *s ^= *s >> 7;
+            *s ^= *s << 17;
+            // Convert to [0, 1) range
+            let val = (*s as f64) / (u64::MAX as f64);
+            result.push(val);
+        }
+    });
+    result
 }
 
 // ============================================================================
@@ -76,10 +153,24 @@ where
     }
 
     /// Create a tensor with uniform random values [0, 1)
+    ///
+    /// Random values are generated on the CPU and stored in a buffer.
+    /// This ensures compatibility with all backends (OpenCL, Metal, etc.).
     pub fn rand(shape: [usize; N]) -> Self {
         let shape_vec: Vec<usize> = shape.to_vec();
+        let numel: usize = shape_vec.iter().product();
+        let data = generate_random_f32(numel);
         let view = view_from_shape(&shape_vec);
-        let inner = TensorInner::new(TensorOp::Rand, view, shape_vec, DType::F32);
+        let vec_buffer = VecBuffer::from_vec(&data, shape_vec.clone(), DType::F32);
+        let inner = TensorInner {
+            op: TensorOp::Executed,
+            view,
+            shape: shape_vec,
+            dtype: DType::F32,
+            name: None,
+            autograd: None,
+            buffer: RwLock::new(Some(Box::new(vec_buffer) as Box<dyn Buffer>)),
+        };
         Self {
             inner: Arc::new(inner),
             _dtype: PhantomData,
@@ -144,10 +235,24 @@ where
     }
 
     /// Create a tensor with uniform random values [0, 1)
+    ///
+    /// Random values are generated on the CPU and stored in a buffer.
+    /// This ensures compatibility with all backends (OpenCL, Metal, etc.).
     pub fn rand(shape: [usize; N]) -> Self {
         let shape_vec: Vec<usize> = shape.to_vec();
+        let numel: usize = shape_vec.iter().product();
+        let data = generate_random_f64(numel);
         let view = view_from_shape(&shape_vec);
-        let inner = TensorInner::new(TensorOp::Rand, view, shape_vec, DType::F64);
+        let vec_buffer = VecBuffer::from_vec(&data, shape_vec.clone(), DType::F64);
+        let inner = TensorInner {
+            op: TensorOp::Executed,
+            view,
+            shape: shape_vec,
+            dtype: DType::F64,
+            name: None,
+            autograd: None,
+            buffer: RwLock::new(Some(Box::new(vec_buffer) as Box<dyn Buffer>)),
+        };
         Self {
             inner: Arc::new(inner),
             _dtype: PhantomData,
@@ -212,10 +317,36 @@ impl<T: NumericInitDType> Tensor<T, DimDyn> {
 // rand_dyn is only available for FloatDType
 impl<T: FloatDType> Tensor<T, DimDyn> {
     /// Create a tensor with uniform random values [0, 1) (dynamic shape)
+    ///
+    /// Random values are generated on the CPU and stored in a buffer.
+    /// This ensures compatibility with all backends (OpenCL, Metal, etc.).
     pub fn rand_dyn(shape: &[usize]) -> Self {
         let shape_vec = shape.to_vec();
+        let numel: usize = shape_vec.iter().product();
         let view = view_from_shape(&shape_vec);
-        let inner = TensorInner::new(TensorOp::Rand, view, shape_vec, T::DTYPE);
+
+        // Generate random data based on dtype
+        let vec_buffer: Box<dyn Buffer> = match T::DTYPE {
+            DType::F32 => {
+                let data = generate_random_f32(numel);
+                Box::new(VecBuffer::from_vec(&data, shape_vec.clone(), DType::F32))
+            }
+            DType::F64 => {
+                let data = generate_random_f64(numel);
+                Box::new(VecBuffer::from_vec(&data, shape_vec.clone(), DType::F64))
+            }
+            _ => unreachable!("FloatDType only supports F32 and F64"),
+        };
+
+        let inner = TensorInner {
+            op: TensorOp::Executed,
+            view,
+            shape: shape_vec,
+            dtype: T::DTYPE,
+            name: None,
+            autograd: None,
+            buffer: RwLock::new(Some(vec_buffer)),
+        };
         Self {
             inner: Arc::new(inner),
             _dtype: PhantomData,

@@ -53,6 +53,9 @@ pub struct TensorLowerer {
     executed_names: HashMap<*const TensorInner, String>,
     /// Executedテンソルカウンタ
     executed_counter: usize,
+    /// テンソルポインタ -> バッファインデックスのマッピング
+    /// 同じテンソルが複数回参照される場合に同じインデックスを再利用するため
+    buffer_index_map: HashMap<*const TensorInner, usize>,
 }
 
 impl TensorLowerer {
@@ -64,6 +67,7 @@ impl TensorLowerer {
             visited: HashMap::new(),
             executed_names: HashMap::new(),
             executed_counter: 0,
+            buffer_index_map: HashMap::new(),
         }
     }
 
@@ -159,7 +163,7 @@ impl TensorLowerer {
     }
 
     /// TensorInnerをASTにlower（内部用）
-    fn lower_node_erased(&self, inner: &TensorInner, name: &str) -> AstNode {
+    fn lower_node_erased(&mut self, inner: &TensorInner, name: &str) -> AstNode {
         // View::Paddedは特別処理（条件分岐が必要）
         if let TensorOp::View { input } = inner.op()
             && let View::Padded {
@@ -248,7 +252,7 @@ impl TensorLowerer {
     /// 形状変換を伴うlower（TensorInner版）
     #[allow(clippy::too_many_arguments)]
     fn lower_with_reshape_erased(
-        &self,
+        &mut self,
         inner: &TensorInner,
         expr: &AstNode,
         reduce_op: Option<&ReduceOp>,
@@ -305,13 +309,15 @@ impl TensorLowerer {
 
     /// 線形インデックスで入力テンソルの式を構築
     fn build_input_expr_linear(
-        &self,
+        &mut self,
         input: &TensorInner,
         output_ndim: usize,
         output_shape: &[Expr],
         buffer_index: &mut usize,
         load_dtype: &AstDType,
     ) -> AstNode {
+        let ptr = input as *const TensorInner;
+
         // バッファを持つノードは入力バッファとして扱う（realized済みCompute含む）
         // バッファのデータは常にcontiguousなので、適切なオフセット計算を使用
         if input.has_buffer() {
@@ -329,8 +335,15 @@ impl TensorLowerer {
                 build_contiguous_offset_with_shape(input_ndim, Some(&input_shape))
             };
 
-            let idx = *buffer_index;
-            *buffer_index += 1;
+            // 既にこのテンソルにインデックスが割り当てられているか確認
+            let idx = if let Some(&existing_idx) = self.buffer_index_map.get(&ptr) {
+                existing_idx
+            } else {
+                let idx = *buffer_index;
+                *buffer_index += 1;
+                self.buffer_index_map.insert(ptr, idx);
+                idx
+            };
             return load(var(ph::input(idx)), src_offset, load_dtype.clone());
         }
 
@@ -397,15 +410,29 @@ impl TensorLowerer {
             TensorOp::Buffer { .. } => {
                 // Bufferからload（線形インデックス使用）
                 let linear_offset = build_linear_offset_with_shape(output_ndim, output_shape);
-                let idx = *buffer_index;
-                *buffer_index += 1;
+                // 既にこのテンソルにインデックスが割り当てられているか確認
+                let idx = if let Some(&existing_idx) = self.buffer_index_map.get(&ptr) {
+                    existing_idx
+                } else {
+                    let idx = *buffer_index;
+                    *buffer_index += 1;
+                    self.buffer_index_map.insert(ptr, idx);
+                    idx
+                };
                 load(var(ph::input(idx)), linear_offset, load_dtype.clone())
             }
             _ => {
                 // その他は線形オフセットでload
                 let linear_offset = build_linear_offset_with_shape(output_ndim, output_shape);
-                let idx = *buffer_index;
-                *buffer_index += 1;
+                // 既にこのテンソルにインデックスが割り当てられているか確認
+                let idx = if let Some(&existing_idx) = self.buffer_index_map.get(&ptr) {
+                    existing_idx
+                } else {
+                    let idx = *buffer_index;
+                    *buffer_index += 1;
+                    self.buffer_index_map.insert(ptr, idx);
+                    idx
+                };
                 load(var(ph::input(idx)), linear_offset, load_dtype.clone())
             }
         }
@@ -413,12 +440,14 @@ impl TensorLowerer {
 
     /// View経由でBufferにアクセスする式を構築
     fn build_input_expr_with_view(
-        &self,
+        &mut self,
         input: &TensorInner,
         offset: AstNode,
         buffer_index: &mut usize,
         load_dtype: &AstDType,
     ) -> AstNode {
+        let ptr = input as *const TensorInner;
+
         // バッファを持つノードは入力バッファとして扱う（realized済みCompute含む）
         // バッファのデータは常にcontiguousなので、contiguousオフセットを使用
         if input.has_buffer() {
@@ -426,15 +455,29 @@ impl TensorLowerer {
             let input_ndim = input_shape.len();
             // contiguousオフセットを計算（バッファはcontiguousデータを持つ）
             let src_offset = build_contiguous_offset_with_shape(input_ndim, Some(&input_shape));
-            let idx = *buffer_index;
-            *buffer_index += 1;
+            // 既にこのテンソルにインデックスが割り当てられているか確認
+            let idx = if let Some(&existing_idx) = self.buffer_index_map.get(&ptr) {
+                existing_idx
+            } else {
+                let idx = *buffer_index;
+                *buffer_index += 1;
+                self.buffer_index_map.insert(ptr, idx);
+                idx
+            };
             return load(var(ph::input(idx)), src_offset, load_dtype.clone());
         }
 
         match input.op() {
             TensorOp::Buffer { .. } => {
-                let idx = *buffer_index;
-                *buffer_index += 1;
+                // 既にこのテンソルにインデックスが割り当てられているか確認
+                let idx = if let Some(&existing_idx) = self.buffer_index_map.get(&ptr) {
+                    existing_idx
+                } else {
+                    let idx = *buffer_index;
+                    *buffer_index += 1;
+                    self.buffer_index_map.insert(ptr, idx);
+                    idx
+                };
                 load(var(ph::input(idx)), offset, load_dtype.clone())
             }
             TensorOp::View { input: nested } | TensorOp::Contiguous { input: nested } => {
@@ -442,8 +485,15 @@ impl TensorLowerer {
                 self.build_input_expr_with_view(nested.as_ref(), offset, buffer_index, load_dtype)
             }
             _ => {
-                let idx = *buffer_index;
-                *buffer_index += 1;
+                // 既にこのテンソルにインデックスが割り当てられているか確認
+                let idx = if let Some(&existing_idx) = self.buffer_index_map.get(&ptr) {
+                    existing_idx
+                } else {
+                    let idx = *buffer_index;
+                    *buffer_index += 1;
+                    self.buffer_index_map.insert(ptr, idx);
+                    idx
+                };
                 load(var(ph::input(idx)), offset, load_dtype.clone())
             }
         }
@@ -496,13 +546,19 @@ impl TensorLowerer {
     ///
     /// Compute演算の入力を辿り、Bufferに達するまで式を展開する。
     /// 入力インデックスを適切に再マッピングする。
+    ///
+    /// 重要: 同じテンソルが複数回参照される場合（例: a + a）、
+    /// 同じバッファインデックスを再利用する。これにより、カーネル引数の数と
+    /// 実際に渡されるバッファの数が一致する。
     fn build_input_expr(
-        &self,
+        &mut self,
         input: &TensorInner,
         ndim: usize,
         buffer_index: &mut usize,
         load_dtype: &AstDType,
     ) -> AstNode {
+        let ptr = input as *const TensorInner;
+
         // バッファを持つノードは入力バッファとして扱う（realized済みCompute含む）
         // バッファのデータは常にcontiguousなので、適切なオフセット計算を使用
         if input.has_buffer() {
@@ -520,8 +576,15 @@ impl TensorLowerer {
                 build_contiguous_offset_with_shape(input_ndim, Some(&input_shape))
             };
 
-            let idx = *buffer_index;
-            *buffer_index += 1;
+            // 既にこのテンソルにインデックスが割り当てられているか確認
+            let idx = if let Some(&existing_idx) = self.buffer_index_map.get(&ptr) {
+                existing_idx
+            } else {
+                let idx = *buffer_index;
+                *buffer_index += 1;
+                self.buffer_index_map.insert(ptr, idx);
+                idx
+            };
             return load(var(ph::input(idx)), src_offset, load_dtype.clone());
         }
 
@@ -553,15 +616,29 @@ impl TensorLowerer {
             TensorOp::Buffer { .. } | TensorOp::View { .. } | TensorOp::Contiguous { .. } => {
                 // Bufferまたはメモリ操作の場合、loadを生成
                 let src_offset = self.build_input_offset(input, ndim);
-                let idx = *buffer_index;
-                *buffer_index += 1;
+                // 既にこのテンソルにインデックスが割り当てられているか確認
+                let idx = if let Some(&existing_idx) = self.buffer_index_map.get(&ptr) {
+                    existing_idx
+                } else {
+                    let idx = *buffer_index;
+                    *buffer_index += 1;
+                    self.buffer_index_map.insert(ptr, idx);
+                    idx
+                };
                 load(var(ph::input(idx)), src_offset, load_dtype.clone())
             }
             _ => {
                 // その他の演算（Reduce結果など）もloadで処理
                 let src_offset = self.build_input_offset(input, ndim);
-                let idx = *buffer_index;
-                *buffer_index += 1;
+                // 既にこのテンソルにインデックスが割り当てられているか確認
+                let idx = if let Some(&existing_idx) = self.buffer_index_map.get(&ptr) {
+                    existing_idx
+                } else {
+                    let idx = *buffer_index;
+                    *buffer_index += 1;
+                    self.buffer_index_map.insert(ptr, idx);
+                    idx
+                };
                 load(var(ph::input(idx)), src_offset, load_dtype.clone())
             }
         }
@@ -569,7 +646,7 @@ impl TensorLowerer {
 
     /// Elementwiseパスでlower（TensorInner版）
     fn lower_elementwise_path_erased(
-        &self,
+        &mut self,
         inner: &TensorInner,
         expr: &AstNode,
         ndim: usize,
@@ -609,7 +686,7 @@ impl TensorLowerer {
 
     /// Reduceパスでlower（TensorInner版）
     fn lower_reduce_path_erased(
-        &self,
+        &mut self,
         inner: &TensorInner,
         expr: &AstNode,
         reduce_op: &ReduceOp,
@@ -1121,5 +1198,89 @@ mod tests {
             }
             _ => panic!("Expected AstNode::Program"),
         }
+    }
+
+    /// Test that the same tensor referenced multiple times uses the same buffer index
+    ///
+    /// This verifies that `a + a` generates a kernel with only 1 input buffer,
+    /// not 2 input buffers. This is critical for correct kernel argument counts.
+    #[test]
+    fn test_lower_same_tensor_multiple_references() {
+        let a = Tensor::<f32, Dim2>::input("a", [2, 3]);
+        // a + a should use the same buffer index for both references
+        let c = &a + &a;
+
+        let mut lowerer = TensorLowerer::new();
+        let ast = lowerer.lower(&c.clone().into_dyn());
+
+        // Verify AST is a Program
+        match &ast {
+            AstNode::Program { functions, .. } => {
+                assert!(!functions.is_empty());
+            }
+            _ => panic!("Expected AstNode::Program"),
+        }
+
+        // Verify only 1 input buffer was collected
+        // (since both inputs reference the same tensor)
+        assert_eq!(
+            lowerer.input_buffer_names.len(),
+            1,
+            "Same tensor referenced twice should result in 1 input buffer, not 2"
+        );
+    }
+
+    /// Test that different tensors get different buffer indices
+    #[test]
+    fn test_lower_different_tensors() {
+        let a = Tensor::<f32, Dim2>::input("a", [2, 3]);
+        let b = Tensor::<f32, Dim2>::input("b", [2, 3]);
+        let c = &a + &b;
+
+        let mut lowerer = TensorLowerer::new();
+        let ast = lowerer.lower(&c.clone().into_dyn());
+
+        // Verify AST is a Program
+        match &ast {
+            AstNode::Program { functions, .. } => {
+                assert!(!functions.is_empty());
+            }
+            _ => panic!("Expected AstNode::Program"),
+        }
+
+        // Verify 2 input buffers were collected
+        assert_eq!(
+            lowerer.input_buffer_names.len(),
+            2,
+            "Two different tensors should result in 2 input buffers"
+        );
+    }
+
+    /// Test mixed case: some same, some different tensors
+    #[test]
+    fn test_lower_mixed_tensor_references() {
+        let a = Tensor::<f32, Dim2>::input("a", [2, 3]);
+        let b = Tensor::<f32, Dim2>::input("b", [2, 3]);
+        // (a + b) + a: should have 2 inputs (a and b), with 'a' referenced twice
+        let sum1 = &a + &b;
+        let c = &sum1 + &a;
+
+        let mut lowerer = TensorLowerer::new();
+        let ast = lowerer.lower(&c.clone().into_dyn());
+
+        // Verify AST is a Program
+        match &ast {
+            AstNode::Program { functions, .. } => {
+                assert!(!functions.is_empty());
+            }
+            _ => panic!("Expected AstNode::Program"),
+        }
+
+        // Verify 2 input buffers were collected (a and b, not 3)
+        assert_eq!(
+            lowerer.input_buffer_names.len(),
+            2,
+            "Two different tensors (a and b) should result in 2 input buffers, not 3"
+        );
     }
 }

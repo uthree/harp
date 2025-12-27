@@ -102,6 +102,200 @@ pub struct ConcatBackward<T: FloatDType, D: Dimension> {
     axis: usize,
 }
 
+// ============================================================================
+// View Operation Gradients
+// ============================================================================
+
+/// Gradient for Squeeze: y = squeeze(x, dim)
+/// ∂L/∂x = unsqueeze(∂L/∂y, dim)
+pub struct SqueezeBackward<T: FloatDType> {
+    input: Tensor<T, DimDyn>,
+    dim: usize,
+}
+
+impl<T: FloatDType> SqueezeBackward<T> {
+    pub fn new(input: Tensor<T, DimDyn>, dim: usize) -> Self {
+        Self { input, dim }
+    }
+}
+
+impl<T: FloatDType> GradFn<T> for SqueezeBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
+        // unsqueeze the gradient back at the squeezed dimension
+        vec![grad_output.unsqueeze(self.dim)]
+    }
+
+    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
+        vec![self.input.clone()]
+    }
+
+    fn name(&self) -> &'static str {
+        "SqueezeBackward"
+    }
+}
+
+/// Gradient for Unsqueeze: y = unsqueeze(x, dim)
+/// ∂L/∂x = squeeze(∂L/∂y, dim)
+pub struct UnsqueezeBackward<T: FloatDType> {
+    input: Tensor<T, DimDyn>,
+    dim: usize,
+}
+
+impl<T: FloatDType> UnsqueezeBackward<T> {
+    pub fn new(input: Tensor<T, DimDyn>, dim: usize) -> Self {
+        Self { input, dim }
+    }
+}
+
+impl<T: FloatDType> GradFn<T> for UnsqueezeBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
+        // squeeze the gradient back at the unsqueezed dimension
+        vec![grad_output.squeeze(self.dim)]
+    }
+
+    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
+        vec![self.input.clone()]
+    }
+
+    fn name(&self) -> &'static str {
+        "UnsqueezeBackward"
+    }
+}
+
+/// Gradient for Reshape: y = reshape(x, new_shape)
+/// ∂L/∂x = reshape(∂L/∂y, original_shape)
+pub struct ReshapeBackward<T: FloatDType> {
+    input: Tensor<T, DimDyn>,
+    original_shape: Vec<usize>,
+}
+
+impl<T: FloatDType> ReshapeBackward<T> {
+    pub fn new(input: Tensor<T, DimDyn>, original_shape: Vec<usize>) -> Self {
+        Self {
+            input,
+            original_shape,
+        }
+    }
+}
+
+impl<T: FloatDType> GradFn<T> for ReshapeBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
+        // reshape gradient back to original shape
+        vec![grad_output.reshape_dyn(&self.original_shape)]
+    }
+
+    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
+        vec![self.input.clone()]
+    }
+
+    fn name(&self) -> &'static str {
+        "ReshapeBackward"
+    }
+}
+
+/// Gradient for Expand: y = expand(x, new_shape)
+/// ∂L/∂x = sum(∂L/∂y) over broadcast dimensions
+pub struct ExpandBackward<T: FloatDType> {
+    input: Tensor<T, DimDyn>,
+    original_shape: Vec<usize>,
+}
+
+impl<T: FloatDType> ExpandBackward<T> {
+    pub fn new(input: Tensor<T, DimDyn>, original_shape: Vec<usize>) -> Self {
+        Self {
+            input,
+            original_shape,
+        }
+    }
+}
+
+impl<T: FloatDType> GradFn<T> for ExpandBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
+        // Sum gradients over dimensions that were broadcast
+        // A dimension was broadcast if original_shape[i] == 1 and grad_output.shape()[i] > 1
+        let grad_shape = grad_output.shape();
+        let mut result = grad_output.clone();
+
+        // Find axes to reduce (where original was 1 but grad is larger)
+        // Process in reverse order to preserve indices
+        for i in (0..self.original_shape.len()).rev() {
+            if self.original_shape[i] == 1 && grad_shape[i] > 1 {
+                // Sum over this dimension (keepdim=true by using sum then unsqueeze)
+                result = result.sum(i).unsqueeze(i);
+            }
+        }
+
+        vec![result]
+    }
+
+    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
+        vec![self.input.clone()]
+    }
+
+    fn name(&self) -> &'static str {
+        "ExpandBackward"
+    }
+}
+
+/// Gradient for Permute: y = permute(x, axes)
+/// ∂L/∂x = permute(∂L/∂y, inverse_axes)
+pub struct PermuteBackward<T: FloatDType> {
+    input: Tensor<T, DimDyn>,
+    axes: Vec<usize>,
+}
+
+impl<T: FloatDType> PermuteBackward<T> {
+    pub fn new(input: Tensor<T, DimDyn>, axes: Vec<usize>) -> Self {
+        Self { input, axes }
+    }
+}
+
+impl<T: FloatDType> GradFn<T> for PermuteBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
+        // Compute inverse permutation
+        let mut inverse_axes = vec![0; self.axes.len()];
+        for (i, &axis) in self.axes.iter().enumerate() {
+            inverse_axes[axis] = i;
+        }
+        vec![grad_output.permute(&inverse_axes)]
+    }
+
+    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
+        vec![self.input.clone()]
+    }
+
+    fn name(&self) -> &'static str {
+        "PermuteBackward"
+    }
+}
+
+/// Gradient for Transpose: y = transpose(x)
+/// ∂L/∂x = transpose(∂L/∂y)
+pub struct TransposeBackward<T: FloatDType> {
+    input: Tensor<T, DimDyn>,
+}
+
+impl<T: FloatDType> TransposeBackward<T> {
+    pub fn new(input: Tensor<T, DimDyn>) -> Self {
+        Self { input }
+    }
+}
+
+impl<T: FloatDType> GradFn<T> for TransposeBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
+        // Transpose is its own inverse
+        vec![grad_output.transpose()]
+    }
+
+    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
+        vec![self.input.clone()]
+    }
+
+    fn name(&self) -> &'static str {
+        "TransposeBackward"
+    }
+}
+
 impl<T: FloatDType, D: Dimension> ConcatBackward<T, D> {
     pub fn new(inputs: Vec<Tensor<T, D>>, axis: usize) -> Self {
         Self { inputs, axis }
@@ -148,22 +342,12 @@ fn view_from_shape(shape: &[usize]) -> View {
 }
 
 impl<T: TensorDType, D: Dimension> Tensor<T, D> {
-    /// Squeeze: remove a specific dimension of size 1 (primop)
-    ///
-    /// Removes the dimension at position `dim` which must have size 1.
-    /// Returns a tensor with one fewer dimension (`D::Smaller`).
-    ///
-    /// # Type Safety
-    /// - `Dim<N>` → `Dim<N-1>`
-    /// - `DimDyn` → `DimDyn`
-    ///
-    /// # Example
-    /// ```ignore
-    /// let a: Tensor<f32, Dim3> = Tensor::ones([2, 1, 3]);
-    /// let b: Tensor<f32, Dim2> = a.squeeze(1); // Remove dim 1
-    /// assert_eq!(b.shape(), &[2, 3]);
-    /// ```
-    pub fn squeeze(&self, dim: usize) -> Tensor<T, D::Smaller> {
+    // ========================================================================
+    // Internal helper methods for view operations (no gradient tracking)
+    // ========================================================================
+
+    /// Internal squeeze implementation without gradient tracking
+    pub(crate) fn squeeze_impl(&self, dim: usize) -> Tensor<T, D::Smaller> {
         assert!(
             dim < self.ndim(),
             "Dimension {} out of range for tensor with {} dimensions",
@@ -194,22 +378,8 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         }
     }
 
-    /// Unsqueeze: add a dimension of size 1 at the specified position (primop)
-    ///
-    /// Adds a new dimension of size 1 at position `dim`.
-    /// Returns a tensor with one more dimension (`D::Larger`).
-    ///
-    /// # Type Safety
-    /// - `Dim<N>` → `Dim<N+1>`
-    /// - `DimDyn` → `DimDyn`
-    ///
-    /// # Example
-    /// ```ignore
-    /// let a: Tensor<f32, Dim2> = Tensor::ones([2, 3]);
-    /// let b: Tensor<f32, Dim3> = a.unsqueeze(0); // Add dim at position 0
-    /// assert_eq!(b.shape(), &[1, 2, 3]);
-    /// ```
-    pub fn unsqueeze(&self, dim: usize) -> Tensor<T, D::Larger> {
+    /// Internal unsqueeze implementation without gradient tracking
+    pub(crate) fn unsqueeze_impl(&self, dim: usize) -> Tensor<T, D::Larger> {
         assert!(
             dim <= self.ndim(),
             "Dimension {} out of range for tensor with {} dimensions",
@@ -230,10 +400,8 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         }
     }
 
-    /// Reshape to a new static shape (primop)
-    ///
-    /// Total number of elements must remain the same.
-    pub fn reshape<const M: usize>(&self, new_shape: [usize; M]) -> Tensor<T, Dim<M>>
+    /// Internal reshape implementation without gradient tracking
+    pub(crate) fn reshape_impl<const M: usize>(&self, new_shape: [usize; M]) -> Tensor<T, Dim<M>>
     where
         Dim<M>: Dimension,
     {
@@ -257,8 +425,8 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         }
     }
 
-    /// Reshape to dynamic shape (primop)
-    pub fn reshape_dyn(&self, new_shape: &[usize]) -> Tensor<T, DimDyn> {
+    /// Internal reshape_dyn implementation without gradient tracking
+    pub(crate) fn reshape_dyn_impl(&self, new_shape: &[usize]) -> Tensor<T, DimDyn> {
         let new_numel: usize = new_shape.iter().product();
         assert_eq!(
             self.numel(),
@@ -277,6 +445,35 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
             _dtype: PhantomData,
             _dim: PhantomData,
         }
+    }
+
+    /// Internal permute implementation without gradient tracking
+    pub(crate) fn permute_impl(&self, axes: &[usize]) -> Tensor<T, DimDyn> {
+        assert_eq!(
+            axes.len(),
+            self.ndim(),
+            "Permutation must have same number of axes as tensor dimensions"
+        );
+
+        let new_shape: Vec<usize> = axes.iter().map(|&i| self.shape()[i]).collect();
+        let new_view = self.inner.view.clone().permute(axes.to_vec());
+        let input = self.as_input_ref();
+        let inner = TensorInner::new(TensorOp::View { input }, new_view, new_shape, T::DTYPE);
+        Tensor {
+            inner: Arc::new(inner),
+            _dtype: PhantomData,
+            _dim: PhantomData,
+        }
+    }
+
+    /// Internal transpose implementation without gradient tracking
+    pub(crate) fn transpose_impl(&self) -> Tensor<T, DimDyn> {
+        assert!(self.ndim() >= 2, "Transpose requires at least 2 dimensions");
+
+        let mut axes: Vec<usize> = (0..self.ndim()).collect();
+        let n = axes.len();
+        axes.swap(n - 2, n - 1);
+        self.permute_impl(&axes)
     }
 
     /// Repeat tensor along each dimension (primop)
@@ -328,43 +525,8 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         }
     }
 
-    /// Permute tensor dimensions
-    ///
-    /// # Arguments
-    /// * `axes` - New order of dimensions
-    pub fn permute(&self, axes: &[usize]) -> Tensor<T, DimDyn> {
-        assert_eq!(
-            axes.len(),
-            self.ndim(),
-            "Permutation must have same number of axes as tensor dimensions"
-        );
-
-        let new_shape: Vec<usize> = axes.iter().map(|&i| self.shape()[i]).collect();
-        let new_view = self.inner.view.clone().permute(axes.to_vec());
-        let input = self.as_input_ref();
-        let inner = TensorInner::new(TensorOp::View { input }, new_view, new_shape, T::DTYPE);
-        Tensor {
-            inner: Arc::new(inner),
-            _dtype: PhantomData,
-            _dim: PhantomData,
-        }
-    }
-
-    /// Transpose the tensor (swap last two dimensions)
-    pub fn transpose(&self) -> Tensor<T, DimDyn> {
-        assert!(self.ndim() >= 2, "Transpose requires at least 2 dimensions");
-
-        let mut axes: Vec<usize> = (0..self.ndim()).collect();
-        let n = axes.len();
-        axes.swap(n - 2, n - 1);
-        self.permute(&axes)
-    }
-
-    /// Expand tensor to a larger shape (broadcast)
-    ///
-    /// Dimensions of size 1 can be expanded to larger sizes.
-    /// The stride for expanded dimensions is set to 0 to enable broadcasting.
-    pub fn expand(&self, new_shape: &[usize]) -> Tensor<T, DimDyn> {
+    /// Internal expand implementation without gradient tracking
+    pub(crate) fn expand_impl(&self, new_shape: &[usize]) -> Tensor<T, DimDyn> {
         assert_eq!(
             new_shape.len(),
             self.ndim(),
@@ -452,9 +614,12 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         }
     }
 
-    /// Flatten tensor to 1D
+    /// Flatten tensor to 1D (no gradient tracking version)
+    ///
+    /// Note: For FloatDType tensors that need gradient tracking,
+    /// use the reshape method instead.
     pub fn flatten(&self) -> Tensor<T, Dim<1>> {
-        self.reshape([self.numel()])
+        self.reshape_impl([self.numel()])
     }
 }
 
@@ -728,6 +893,158 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
         let grad_fn = if any_requires_grad {
             let input_tensors: Vec<Tensor<T, D>> = tensors.iter().map(|&t| t.clone()).collect();
             Some(Arc::new(ConcatBackward::new(input_tensors, axis)) as Arc<dyn GradFn<T>>)
+        } else {
+            None
+        };
+
+        with_grad_fn_generic(result, grad_fn)
+    }
+
+    // ========================================================================
+    // View operations with gradient tracking
+    // ========================================================================
+
+    /// Squeeze: remove a specific dimension of size 1 (with gradient tracking)
+    ///
+    /// Removes the dimension at position `dim` which must have size 1.
+    /// Returns a tensor with one fewer dimension (`D::Smaller`).
+    ///
+    /// # Type Safety
+    /// - `Dim<N>` → `Dim<N-1>`
+    /// - `DimDyn` → `DimDyn`
+    ///
+    /// # Example
+    /// ```ignore
+    /// let a: Tensor<f32, Dim3> = Tensor::ones([2, 1, 3]);
+    /// let b: Tensor<f32, Dim2> = a.squeeze(1); // Remove dim 1
+    /// assert_eq!(b.shape(), &[2, 3]);
+    /// ```
+    pub fn squeeze(&self, dim: usize) -> Tensor<T, D::Smaller> {
+        let result = self.squeeze_impl(dim);
+
+        let grad_fn = if self.requires_grad() {
+            Some(Arc::new(SqueezeBackward::new(self.clone().into_dyn(), dim)) as Arc<dyn GradFn<T>>)
+        } else {
+            None
+        };
+
+        with_grad_fn_generic(result, grad_fn)
+    }
+
+    /// Unsqueeze: add a dimension of size 1 at the specified position (with gradient tracking)
+    ///
+    /// Adds a new dimension of size 1 at position `dim`.
+    /// Returns a tensor with one more dimension (`D::Larger`).
+    ///
+    /// # Type Safety
+    /// - `Dim<N>` → `Dim<N+1>`
+    /// - `DimDyn` → `DimDyn`
+    ///
+    /// # Example
+    /// ```ignore
+    /// let a: Tensor<f32, Dim2> = Tensor::ones([2, 3]);
+    /// let b: Tensor<f32, Dim3> = a.unsqueeze(0); // Add dim at position 0
+    /// assert_eq!(b.shape(), &[1, 2, 3]);
+    /// ```
+    pub fn unsqueeze(&self, dim: usize) -> Tensor<T, D::Larger> {
+        let result = self.unsqueeze_impl(dim);
+
+        let grad_fn = if self.requires_grad() {
+            Some(
+                Arc::new(UnsqueezeBackward::new(self.clone().into_dyn(), dim))
+                    as Arc<dyn GradFn<T>>,
+            )
+        } else {
+            None
+        };
+
+        with_grad_fn_generic(result, grad_fn)
+    }
+
+    /// Reshape to a new static shape (with gradient tracking)
+    ///
+    /// Total number of elements must remain the same.
+    pub fn reshape<const M: usize>(&self, new_shape: [usize; M]) -> Tensor<T, Dim<M>>
+    where
+        Dim<M>: Dimension,
+    {
+        let original_shape = self.shape().to_vec();
+        let result = self.reshape_impl(new_shape);
+
+        let grad_fn = if self.requires_grad() {
+            Some(Arc::new(ReshapeBackward::new(
+                self.clone().into_dyn(),
+                original_shape,
+            )) as Arc<dyn GradFn<T>>)
+        } else {
+            None
+        };
+
+        with_grad_fn_generic(result, grad_fn)
+    }
+
+    /// Reshape to dynamic shape (with gradient tracking)
+    pub fn reshape_dyn(&self, new_shape: &[usize]) -> Tensor<T, DimDyn> {
+        let original_shape = self.shape().to_vec();
+        let result = self.reshape_dyn_impl(new_shape);
+
+        let grad_fn = if self.requires_grad() {
+            Some(Arc::new(ReshapeBackward::new(
+                self.clone().into_dyn(),
+                original_shape,
+            )) as Arc<dyn GradFn<T>>)
+        } else {
+            None
+        };
+
+        with_grad_fn_generic(result, grad_fn)
+    }
+
+    /// Expand tensor to a larger shape (broadcast) with gradient tracking
+    ///
+    /// Dimensions of size 1 can be expanded to larger sizes.
+    /// The stride for expanded dimensions is set to 0 to enable broadcasting.
+    pub fn expand(&self, new_shape: &[usize]) -> Tensor<T, DimDyn> {
+        let original_shape = self.shape().to_vec();
+        let result = self.expand_impl(new_shape);
+
+        let grad_fn = if self.requires_grad() {
+            Some(
+                Arc::new(ExpandBackward::new(self.clone().into_dyn(), original_shape))
+                    as Arc<dyn GradFn<T>>,
+            )
+        } else {
+            None
+        };
+
+        with_grad_fn_generic(result, grad_fn)
+    }
+
+    /// Permute tensor dimensions (with gradient tracking)
+    ///
+    /// # Arguments
+    /// * `axes` - New order of dimensions
+    pub fn permute(&self, axes: &[usize]) -> Tensor<T, DimDyn> {
+        let result = self.permute_impl(axes);
+
+        let grad_fn = if self.requires_grad() {
+            Some(
+                Arc::new(PermuteBackward::new(self.clone().into_dyn(), axes.to_vec()))
+                    as Arc<dyn GradFn<T>>,
+            )
+        } else {
+            None
+        };
+
+        with_grad_fn_generic(result, grad_fn)
+    }
+
+    /// Transpose the tensor (swap last two dimensions) with gradient tracking
+    pub fn transpose(&self) -> Tensor<T, DimDyn> {
+        let result = self.transpose_impl();
+
+        let grad_fn = if self.requires_grad() {
+            Some(Arc::new(TransposeBackward::new(self.clone().into_dyn())) as Arc<dyn GradFn<T>>)
         } else {
             None
         };
@@ -1237,5 +1554,158 @@ mod tests {
         let d = Tensor::<f32, Dim2>::ones([4, 3]);
         let concated = Tensor::concat(&[&c, &d], 0);
         assert!(!concated.requires_grad());
+    }
+
+    // ========================================================================
+    // Gradient tests for view operations (squeeze, unsqueeze, reshape, expand, etc.)
+    // ========================================================================
+
+    #[test]
+    fn test_squeeze_backward_shape() {
+        use crate::tensor::Dim3;
+        let a = Tensor::<f32, Dim3>::ones([2, 1, 3]).set_requires_grad(true);
+        let squeezed = a.squeeze(1);
+
+        assert!(squeezed.requires_grad());
+        assert_eq!(squeezed.shape(), &[2, 3]);
+
+        squeezed.backward();
+
+        let grad_a = a.grad().expect("a should have gradient");
+        assert_eq!(grad_a.shape(), &[2, 1, 3]); // Same as original input
+    }
+
+    #[test]
+    fn test_unsqueeze_backward_shape() {
+        let a = Tensor::<f32, Dim2>::ones([2, 3]).set_requires_grad(true);
+        let unsqueezed = a.unsqueeze(1);
+
+        assert!(unsqueezed.requires_grad());
+        assert_eq!(unsqueezed.shape(), &[2, 1, 3]);
+
+        unsqueezed.backward();
+
+        let grad_a = a.grad().expect("a should have gradient");
+        assert_eq!(grad_a.shape(), &[2, 3]); // Same as original input
+    }
+
+    #[test]
+    fn test_reshape_backward_shape() {
+        let a = Tensor::<f32, Dim2>::ones([2, 3]).set_requires_grad(true);
+        let reshaped = a.reshape([3, 2]);
+
+        assert!(reshaped.requires_grad());
+        assert_eq!(reshaped.shape(), &[3, 2]);
+
+        reshaped.backward();
+
+        let grad_a = a.grad().expect("a should have gradient");
+        assert_eq!(grad_a.shape(), &[2, 3]); // Same as original input
+    }
+
+    #[test]
+    fn test_reshape_dyn_backward_shape() {
+        let a = Tensor::<f32, Dim2>::ones([2, 3]).set_requires_grad(true);
+        let reshaped = a.reshape_dyn(&[6]);
+
+        assert!(reshaped.requires_grad());
+        assert_eq!(reshaped.shape(), &[6]);
+
+        reshaped.backward();
+
+        let grad_a = a.grad().expect("a should have gradient");
+        assert_eq!(grad_a.shape(), &[2, 3]); // Same as original input
+    }
+
+    #[test]
+    fn test_expand_backward_shape() {
+        let a = Tensor::<f32, Dim2>::ones([1, 3]).set_requires_grad(true);
+        let expanded = a.expand(&[4, 3]);
+
+        assert!(expanded.requires_grad());
+        assert_eq!(expanded.shape(), &[4, 3]);
+
+        expanded.backward();
+
+        let grad_a = a.grad().expect("a should have gradient");
+        assert_eq!(grad_a.shape(), &[1, 3]); // Same as original input
+    }
+
+    #[test]
+    fn test_permute_backward_shape() {
+        let a = Tensor::<f32, Dim2>::ones([2, 3]).set_requires_grad(true);
+        let permuted = a.permute(&[1, 0]);
+
+        assert!(permuted.requires_grad());
+        assert_eq!(permuted.shape(), &[3, 2]);
+
+        permuted.backward();
+
+        let grad_a = a.grad().expect("a should have gradient");
+        assert_eq!(grad_a.shape(), &[2, 3]); // Same as original input
+    }
+
+    #[test]
+    fn test_transpose_backward_shape() {
+        let a = Tensor::<f32, Dim2>::ones([2, 3]).set_requires_grad(true);
+        let transposed = a.transpose();
+
+        assert!(transposed.requires_grad());
+        assert_eq!(transposed.shape(), &[3, 2]);
+
+        transposed.backward();
+
+        let grad_a = a.grad().expect("a should have gradient");
+        assert_eq!(grad_a.shape(), &[2, 3]); // Same as original input
+    }
+
+    #[test]
+    fn test_chained_view_ops_backward() {
+        // Test that gradients flow through chained view operations
+        let a = Tensor::<f32, Dim2>::ones([2, 3]).set_requires_grad(true);
+        let b = a.unsqueeze(0); // [1, 2, 3]
+        let c = b.expand(&[4, 2, 3]); // [4, 2, 3]
+        let d = c.reshape_dyn(&[8, 3]); // [8, 3]
+
+        assert!(d.requires_grad());
+        d.backward();
+
+        let grad_a = a.grad().expect("a should have gradient");
+        assert_eq!(grad_a.shape(), &[2, 3]);
+    }
+
+    #[test]
+    fn test_squeeze_unsqueeze_inverse_backward() {
+        // squeeze and unsqueeze are inverses
+        let a = Tensor::<f32, Dim2>::ones([2, 3]).set_requires_grad(true);
+        let unsqueezed = a.unsqueeze(1); // [2, 1, 3]
+        let squeezed = unsqueezed.squeeze(1); // [2, 3]
+
+        assert_eq!(squeezed.shape(), &[2, 3]);
+        squeezed.backward();
+
+        let grad_a = a.grad().expect("a should have gradient");
+        assert_eq!(grad_a.shape(), &[2, 3]);
+    }
+
+    #[test]
+    fn test_view_ops_no_grad_propagation() {
+        // When input doesn't require grad, output shouldn't either
+        let a = Tensor::<f32, Dim2>::ones([2, 3]); // No requires_grad
+
+        let squeezed = a.unsqueeze(0).squeeze(0);
+        assert!(!squeezed.requires_grad());
+
+        let reshaped = a.reshape([6]);
+        assert!(!reshaped.requires_grad());
+
+        let expanded = Tensor::<f32, Dim2>::ones([1, 3]).expand(&[4, 3]);
+        assert!(!expanded.requires_grad());
+
+        let permuted = a.permute(&[1, 0]);
+        assert!(!permuted.requires_grad());
+
+        let transposed = a.transpose();
+        assert!(!transposed.requires_grad());
     }
 }

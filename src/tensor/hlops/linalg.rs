@@ -5,9 +5,8 @@
 //! - Dot = Sum(a * b)
 
 use std::marker::PhantomData;
-use std::sync::Arc;
 
-use crate::tensor::{Dim1, Dim2, DimDyn, Tensor, TensorInner};
+use crate::tensor::{Dim1, Dim2, DimDyn, Tensor};
 
 // ============================================================================
 // Type-safe operations for Dim1
@@ -49,17 +48,9 @@ impl Tensor<f32, Dim1> {
         // Broadcast multiply: [M, 1] * [1, N] -> [M, N]
         let result_dyn = a_col.expand(&[m, n]) * b_row.expand(&[m, n]);
 
-        // Convert to Dim2
+        // Convert to Dim2 preserving autograd info
         Tensor {
-            inner: Arc::new(TensorInner {
-                op: result_dyn.inner.op.clone(),
-                view: result_dyn.inner.view.clone(),
-                shape: result_dyn.inner.shape.clone(),
-                dtype: result_dyn.inner.dtype.clone(),
-                name: result_dyn.inner.name.clone(),
-                autograd: None,
-                buffer: std::sync::RwLock::new(None),
-            }),
+            inner: result_dyn.inner.clone(),
             _dtype: PhantomData,
             _dim: PhantomData,
         }
@@ -338,5 +329,60 @@ mod tests {
         let b = Tensor::<f32, Dim2>::ones([2, 3]).into_dyn();
         let c = a.matmul(&b);
         assert_eq!(c.shape(), &[3]);
+    }
+
+    // ========================================================================
+    // Gradient tests for linear algebra operations
+    // ========================================================================
+
+    #[test]
+    fn test_outer1_backward_shape() {
+        let a = Tensor::<f32, Dim1>::ones([3]).set_requires_grad(true);
+        let b = Tensor::<f32, Dim1>::ones([4]).set_requires_grad(true);
+        let c = a.outer1(&b);
+
+        assert!(c.requires_grad());
+        assert_eq!(c.shape(), &[3, 4]);
+
+        c.backward();
+
+        let grad_a = a.grad().expect("a should have gradient");
+        let grad_b = b.grad().expect("b should have gradient");
+        assert_eq!(grad_a.shape(), &[3]);
+        assert_eq!(grad_b.shape(), &[4]);
+    }
+
+    #[test]
+    fn test_matmul2_backward_shape() {
+        let a = Tensor::<f32, Dim2>::ones([2, 3]).set_requires_grad(true);
+        let b = Tensor::<f32, Dim2>::ones([3, 4]).set_requires_grad(true);
+        let c = a.matmul2(&b);
+
+        assert!(c.requires_grad());
+        assert_eq!(c.shape(), &[2, 4]);
+
+        c.backward();
+
+        let grad_a = a.grad().expect("a should have gradient");
+        let grad_b = b.grad().expect("b should have gradient");
+        assert_eq!(grad_a.shape(), &[2, 3]);
+        assert_eq!(grad_b.shape(), &[3, 4]);
+    }
+
+    #[test]
+    fn test_dot1_backward_shape() {
+        let a = Tensor::<f32, Dim1>::ones([3]).set_requires_grad(true);
+        let b = Tensor::<f32, Dim1>::ones([3]).set_requires_grad(true);
+        let c = a.dot1(&b);
+
+        assert!(c.requires_grad());
+        assert_eq!(c.shape(), &[]); // scalar
+
+        c.backward();
+
+        let grad_a = a.grad().expect("a should have gradient");
+        let grad_b = b.grad().expect("b should have gradient");
+        assert_eq!(grad_a.shape(), &[3]);
+        assert_eq!(grad_b.shape(), &[3]);
     }
 }
