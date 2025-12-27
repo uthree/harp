@@ -206,7 +206,7 @@ impl<T: FloatDTypeAutograd, D: Dimension> Tensor<T, D> {
     /// # Example
     /// ```ignore
     /// let a: Tensor<f32, Dim2> = Tensor::ones([2, 3]);
-    /// let s: Tensor<f32, Dim1> = a.sum_axis(1);
+    /// let s: Tensor<f32, Dim1> = a.sum(1);
     /// assert_eq!(s.shape(), &[2]);
     /// ```
     pub fn sum(&self, axis: usize) -> Tensor<T, D::Smaller> {
@@ -246,7 +246,7 @@ impl<T: FloatDTypeAutograd, D: Dimension> Tensor<T, D> {
     /// # Example
     /// ```ignore
     /// let a: Tensor<f32, Dim2> = Tensor::ones([2, 3]);
-    /// let m: Tensor<f32, Dim1> = a.max_axis(1);
+    /// let m: Tensor<f32, Dim1> = a.max(1);
     /// assert_eq!(m.shape(), &[2]);
     /// ```
     pub fn max(&self, axis: usize) -> Tensor<T, D::Smaller> {
@@ -291,7 +291,7 @@ impl<D: Dimension> Tensor<f32, D> {
     /// # Example
     /// ```ignore
     /// let a: Tensor<f32, Dim2> = Tensor::ones([2, 3]);
-    /// let p: Tensor<f32, Dim1> = a.prod_axis(0);
+    /// let p: Tensor<f32, Dim1> = a.prod(0);
     /// assert_eq!(p.shape(), &[3]);
     /// ```
     pub fn prod(&self, axis: usize) -> Tensor<f32, D::Smaller> {
