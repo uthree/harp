@@ -212,6 +212,27 @@ pub trait GradFn<T: FloatDType>: Send + Sync {
 }
 ```
 
+### 型安全なGradFn構造体
+
+GradFn構造体は`Tensor<T, D>`（型安全な次元）で入力を保持し、トレイト実装時のみ`DimDyn`に変換します。
+
+```rust
+// 例: PadBackward<T, D>
+pub struct PadBackward<T: FloatDType, D: Dimension> {
+    input: Tensor<T, D>,           // 型安全に保持
+    padding: Vec<(usize, usize)>,
+}
+
+impl<T: FloatDType, D: Dimension> GradFn<T> for PadBackward<T, D> {
+    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
+        vec![self.input.clone().into_dyn()]  // ここでのみ変換
+    }
+    // ...
+}
+```
+
+**注意**: pad/slice/concat演算はFloatDType（f32, f64）専用です。整数型テンソルでは利用できません。
+
 ## 演算の分類
 
 ### primops（プリミティブ演算）
@@ -436,6 +457,9 @@ let t = Tensor::<DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2]);
 | `z = Reduce(Sum)` | ∂L/∂a = expand(∂L/∂z) |
 | `z = Reduce(Prod)` | ∂L/∂a = ∂L/∂z · z / a |
 | `z = Reduce(Max)` | ∂L/∂a = ∂L/∂z · (a == max) |
+| `z = Pad(a, padding)` | ∂L/∂a = slice(∂L/∂z, padding位置) |
+| `z = Slice(a, ranges)` | ∂L/∂a = pad_zero(∂L/∂z, 逆範囲) |
+| `z = Concat([a,b,...], axis)` | ∂L/∂a = slice(∂L/∂z, aの範囲), ... |
 
 ### 融合演算の勾配
 

@@ -5,15 +5,141 @@
 //! - Repeat: repeat along dimension
 //! - Reshape: change shape (same total elements)
 //! - Contiguous: ensure contiguous memory layout
+//! - Pad: add padding around tensor
+//! - Slice: extract sub-tensor
+//! - Concat: concatenate tensors along an axis
 //!
 //! These operations are generic over TensorDType since they only manipulate shape.
+//! Gradient tracking is available for FloatDType tensors (f32, f64).
 
 use std::marker::PhantomData;
 use std::sync::Arc;
 
 use crate::tensor::ops::{InputRef, PadValue};
 use crate::tensor::shape::{Expr, View};
-use crate::tensor::{Dim, DimDyn, Dimension, Tensor, TensorDType, TensorInner, TensorOp};
+use crate::tensor::{
+    Dim, DimDyn, Dimension, FloatDType, GradFn, Tensor, TensorDType, TensorInner, TensorOp,
+};
+
+use super::binary::with_grad_fn_generic;
+
+// ============================================================================
+// Movement Gradients (type-safe over Dimension)
+// ============================================================================
+
+/// Gradient for Pad: y = pad(x, padding)
+/// ∂L/∂x = slice(∂L/∂y, padding位置)
+pub struct PadBackward<T: FloatDType, D: Dimension> {
+    input: Tensor<T, D>,
+    padding: Vec<(usize, usize)>,
+}
+
+impl<T: FloatDType, D: Dimension> PadBackward<T, D> {
+    pub fn new(input: Tensor<T, D>, padding: Vec<(usize, usize)>) -> Self {
+        Self { input, padding }
+    }
+}
+
+impl<T: FloatDType, D: Dimension> GradFn<T> for PadBackward<T, D> {
+    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
+        // padding から slice範囲を計算: (before, before + original_dim)
+        let ranges: Vec<(usize, usize)> = self
+            .padding
+            .iter()
+            .zip(self.input.shape())
+            .map(|(&(before, _), &dim)| (before, before + dim))
+            .collect();
+        vec![grad_output.slice(&ranges)]
+    }
+
+    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
+        vec![self.input.clone().into_dyn()]
+    }
+
+    fn name(&self) -> &'static str {
+        "PadBackward"
+    }
+}
+
+/// Gradient for Slice: y = slice(x, ranges)
+/// ∂L/∂x = pad_zero(∂L/∂y, 適切なpadding)
+pub struct SliceBackward<T: FloatDType, D: Dimension> {
+    input: Tensor<T, D>,
+    ranges: Vec<(usize, usize)>,
+}
+
+impl<T: FloatDType, D: Dimension> SliceBackward<T, D> {
+    pub fn new(input: Tensor<T, D>, ranges: Vec<(usize, usize)>) -> Self {
+        Self { input, ranges }
+    }
+}
+
+impl<T: FloatDType, D: Dimension> GradFn<T> for SliceBackward<T, D> {
+    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
+        // ranges から padding を計算: (start, original_dim - end)
+        let padding: Vec<(usize, usize)> = self
+            .ranges
+            .iter()
+            .zip(self.input.shape())
+            .map(|(&(start, end), &dim)| (start, dim - end))
+            .collect();
+        vec![grad_output.pad_zero(&padding)]
+    }
+
+    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
+        vec![self.input.clone().into_dyn()]
+    }
+
+    fn name(&self) -> &'static str {
+        "SliceBackward"
+    }
+}
+
+/// Gradient for Concat: y = concat([a, b, ...], axis)
+/// ∂L/∂a, ∂L/∂b, ... = split(∂L/∂y, axis, sizes)
+pub struct ConcatBackward<T: FloatDType, D: Dimension> {
+    inputs: Vec<Tensor<T, D>>,
+    axis: usize,
+}
+
+impl<T: FloatDType, D: Dimension> ConcatBackward<T, D> {
+    pub fn new(inputs: Vec<Tensor<T, D>>, axis: usize) -> Self {
+        Self { inputs, axis }
+    }
+}
+
+impl<T: FloatDType, D: Dimension> GradFn<T> for ConcatBackward<T, D> {
+    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
+        let mut grads = Vec::new();
+        let mut offset = 0;
+        for input in &self.inputs {
+            let size = input.shape()[self.axis];
+            let ranges: Vec<(usize, usize)> = grad_output
+                .shape()
+                .iter()
+                .enumerate()
+                .map(|(i, &dim)| {
+                    if i == self.axis {
+                        (offset, offset + size)
+                    } else {
+                        (0, dim)
+                    }
+                })
+                .collect();
+            grads.push(grad_output.slice(&ranges));
+            offset += size;
+        }
+        grads
+    }
+
+    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
+        self.inputs.iter().map(|t| t.clone().into_dyn()).collect()
+    }
+
+    fn name(&self) -> &'static str {
+        "ConcatBackward"
+    }
+}
 
 /// Helper to create View from usize shape
 fn view_from_shape(shape: &[usize]) -> View {
@@ -330,8 +456,14 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
     pub fn flatten(&self) -> Tensor<T, Dim<1>> {
         self.reshape([self.numel()])
     }
+}
 
-    /// Pad tensor with a specified value - type-safe version
+// ============================================================================
+// FloatDType-only operations with gradient tracking
+// ============================================================================
+
+impl<T: FloatDType, D: Dimension> Tensor<T, D> {
+    /// Pad tensor with a specified value - type-safe version with gradient tracking
     ///
     /// Adds padding to the tensor along each dimension.
     /// The number of dimensions is preserved.
@@ -378,11 +510,20 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         let input = self.as_input_ref();
         let inner = TensorInner::new(TensorOp::View { input }, padded_view, new_shape, T::DTYPE);
 
-        Tensor {
+        let result = Tensor {
             inner: Arc::new(inner),
             _dtype: PhantomData,
             _dim: PhantomData,
-        }
+        };
+
+        // Register gradient if input requires grad
+        let grad_fn = if self.requires_grad() {
+            Some(Arc::new(PadBackward::new(self.clone(), padding.to_vec())) as Arc<dyn GradFn<T>>)
+        } else {
+            None
+        };
+
+        with_grad_fn_generic(result, grad_fn)
     }
 
     /// Pad tensor with zeros (convenience method for sum reduction) - type-safe version
@@ -492,11 +633,20 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         let input = self.as_input_ref();
         let inner = TensorInner::new(TensorOp::View { input }, view, new_shape, T::DTYPE);
 
-        Tensor {
+        let result = Tensor {
             inner: Arc::new(inner),
             _dtype: PhantomData,
             _dim: PhantomData,
-        }
+        };
+
+        // Register gradient if input requires grad
+        let grad_fn = if self.requires_grad() {
+            Some(Arc::new(SliceBackward::new(self.clone(), ranges.to_vec())) as Arc<dyn GradFn<T>>)
+        } else {
+            None
+        };
+
+        with_grad_fn_generic(result, grad_fn)
     }
 
     /// Concatenate multiple tensors along a specified axis (primop)
@@ -567,11 +717,22 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         let view = view_from_shape(&new_shape);
         let inner = TensorInner::new(TensorOp::Concat { inputs, axis }, view, new_shape, T::DTYPE);
 
-        Tensor {
+        let result = Tensor {
             inner: Arc::new(inner),
             _dtype: PhantomData,
             _dim: PhantomData,
-        }
+        };
+
+        // Register gradient if any input requires grad
+        let any_requires_grad = tensors.iter().any(|t| t.requires_grad());
+        let grad_fn = if any_requires_grad {
+            let input_tensors: Vec<Tensor<T, D>> = tensors.iter().map(|&t| t.clone()).collect();
+            Some(Arc::new(ConcatBackward::new(input_tensors, axis)) as Arc<dyn GradFn<T>>)
+        } else {
+            None
+        };
+
+        with_grad_fn_generic(result, grad_fn)
     }
 }
 
@@ -918,5 +1079,163 @@ mod tests {
         let a = Tensor::<f32, Dim2>::ones([2, 3]);
         let b = Tensor::<f32, Dim2>::ones([4, 5]); // Different non-axis dimension
         let _ = Tensor::concat(&[&a, &b], 0);
+    }
+
+    // ========================================================================
+    // Gradient tests for pad, slice, concat
+    // ========================================================================
+
+    #[test]
+    fn test_pad_backward_shape() {
+        // Test that PadBackward produces correct gradient shape
+        let a = Tensor::<f32, Dim2>::ones([2, 3]).set_requires_grad(true);
+        let padded = a.pad(&[(1, 2), (0, 1)], PadValue::Zero);
+
+        assert!(padded.requires_grad());
+        assert_eq!(padded.shape(), &[5, 4]); // [2+1+2, 3+0+1]
+
+        // Backward
+        padded.backward();
+
+        let grad_a = a.grad().expect("a should have gradient");
+        assert_eq!(grad_a.shape(), &[2, 3]); // Same as original input
+    }
+
+    #[test]
+    fn test_pad_backward_f64() {
+        let a = Tensor::<f64, Dim2>::ones([3, 4]).set_requires_grad(true);
+        let padded = a.pad_zero(&[(2, 1), (1, 3)]);
+
+        assert!(padded.requires_grad());
+        padded.backward();
+
+        let grad_a = a.grad().expect("a should have gradient");
+        assert_eq!(grad_a.shape(), &[3, 4]);
+    }
+
+    #[test]
+    fn test_slice_backward_shape() {
+        // Test that SliceBackward produces correct gradient shape
+        let a = Tensor::<f32, Dim2>::ones([4, 5]).set_requires_grad(true);
+        let sliced = a.slice(&[(1, 3), (2, 5)]);
+
+        assert!(sliced.requires_grad());
+        assert_eq!(sliced.shape(), &[2, 3]);
+
+        // Backward
+        sliced.backward();
+
+        let grad_a = a.grad().expect("a should have gradient");
+        assert_eq!(grad_a.shape(), &[4, 5]); // Same as original input
+    }
+
+    #[test]
+    fn test_slice_backward_f64() {
+        let a = Tensor::<f64, Dim2>::ones([6, 8]).set_requires_grad(true);
+        let sliced = a.slice(&[(1, 4), (2, 6)]);
+
+        assert!(sliced.requires_grad());
+        sliced.backward();
+
+        let grad_a = a.grad().expect("a should have gradient");
+        assert_eq!(grad_a.shape(), &[6, 8]);
+    }
+
+    #[test]
+    fn test_concat_backward_shape() {
+        // Test that ConcatBackward produces correct gradient shapes
+        let a = Tensor::<f32, Dim2>::ones([2, 3]).set_requires_grad(true);
+        let b = Tensor::<f32, Dim2>::ones([4, 3]).set_requires_grad(true);
+        let c = Tensor::concat(&[&a, &b], 0);
+
+        assert!(c.requires_grad());
+        assert_eq!(c.shape(), &[6, 3]);
+
+        // Backward
+        c.backward();
+
+        let grad_a = a.grad().expect("a should have gradient");
+        let grad_b = b.grad().expect("b should have gradient");
+        assert_eq!(grad_a.shape(), &[2, 3]); // Same as original a
+        assert_eq!(grad_b.shape(), &[4, 3]); // Same as original b
+    }
+
+    #[test]
+    fn test_concat_backward_axis1() {
+        let a = Tensor::<f32, Dim2>::ones([2, 3]).set_requires_grad(true);
+        let b = Tensor::<f32, Dim2>::ones([2, 5]).set_requires_grad(true);
+        let c = Tensor::concat(&[&a, &b], 1);
+
+        assert_eq!(c.shape(), &[2, 8]);
+        c.backward();
+
+        let grad_a = a.grad().expect("a should have gradient");
+        let grad_b = b.grad().expect("b should have gradient");
+        assert_eq!(grad_a.shape(), &[2, 3]);
+        assert_eq!(grad_b.shape(), &[2, 5]);
+    }
+
+    #[test]
+    fn test_concat_backward_multiple() {
+        let a = Tensor::<f32, Dim2>::ones([1, 3]).set_requires_grad(true);
+        let b = Tensor::<f32, Dim2>::ones([2, 3]).set_requires_grad(true);
+        let c = Tensor::<f32, Dim2>::ones([3, 3]).set_requires_grad(true);
+        let d = Tensor::concat(&[&a, &b, &c], 0);
+
+        assert_eq!(d.shape(), &[6, 3]);
+        d.backward();
+
+        let grad_a = a.grad().expect("a should have gradient");
+        let grad_b = b.grad().expect("b should have gradient");
+        let grad_c = c.grad().expect("c should have gradient");
+        assert_eq!(grad_a.shape(), &[1, 3]);
+        assert_eq!(grad_b.shape(), &[2, 3]);
+        assert_eq!(grad_c.shape(), &[3, 3]);
+    }
+
+    #[test]
+    fn test_concat_backward_f64() {
+        let a = Tensor::<f64, Dim2>::ones([2, 3]).set_requires_grad(true);
+        let b = Tensor::<f64, Dim2>::ones([4, 3]).set_requires_grad(true);
+        let c = Tensor::concat(&[&a, &b], 0);
+
+        c.backward();
+
+        let grad_a = a.grad().expect("a should have gradient");
+        let grad_b = b.grad().expect("b should have gradient");
+        assert_eq!(grad_a.shape(), &[2, 3]);
+        assert_eq!(grad_b.shape(), &[4, 3]);
+    }
+
+    #[test]
+    fn test_pad_slice_inverse_backward() {
+        // pad and slice are inverses for gradients
+        // If we pad then slice back, gradient should flow correctly
+        let a = Tensor::<f32, Dim2>::ones([2, 3]).set_requires_grad(true);
+        let padded = a.pad_zero(&[(1, 1), (2, 2)]);
+        let sliced = padded.slice(&[(1, 3), (2, 5)]); // Slice back to original shape
+
+        assert_eq!(sliced.shape(), &[2, 3]);
+        sliced.backward();
+
+        let grad_a = a.grad().expect("a should have gradient");
+        assert_eq!(grad_a.shape(), &[2, 3]);
+    }
+
+    #[test]
+    fn test_no_grad_propagation() {
+        // When input doesn't require grad, output shouldn't either
+        let a = Tensor::<f32, Dim2>::ones([2, 3]); // No requires_grad
+        let padded = a.pad_zero(&[(1, 1), (0, 0)]);
+        assert!(!padded.requires_grad());
+
+        let b = Tensor::<f32, Dim2>::ones([4, 5]);
+        let sliced = b.slice(&[(1, 3), (2, 5)]);
+        assert!(!sliced.requires_grad());
+
+        let c = Tensor::<f32, Dim2>::ones([2, 3]);
+        let d = Tensor::<f32, Dim2>::ones([4, 3]);
+        let concated = Tensor::concat(&[&c, &d], 0);
+        assert!(!concated.requires_grad());
     }
 }
