@@ -11,7 +11,8 @@
 - `traits.rs`: GPU実行用の共通trait定義（Device, TypedBuffer, Buffer, Kernel, Compiler, KernelConfig）
 - `global.rs`: グローバルデバイス管理（DeviceKind, set_default_device, get_default_device等）
 - `sequence.rs`: 複数カーネル順次実行（CompiledProgram, KernelCallInfo, IntermediateBufferSpec, ExecutionQuery）
-- `pipeline.rs`: Pipeline、PipelineConfig、CompiledKernel、KernelExecutionError、DispatchSizeConfig、DispatchSizeExpr、AST式評価関数、KernelSourceRenderer trait
+- `pipeline.rs`: Pipeline、PipelineConfig、DispatchSizeConfig、DispatchSizeExpr、AST式評価関数、KernelSourceRenderer trait
+- `cache/`: 統一カーネルキャッシュ（CacheEntry, KernelCacheKey, get_cached_kernel, insert_cached_kernel）
 - `c_like.rs`: C言語系構文の共通レンダリングロジック（CLikeRenderer trait）、OptimizationLevel、extract_buffer_placeholders関数
 
 ### バックエンド実装
@@ -289,6 +290,8 @@ pub trait Buffer: Send + Sync {
     fn read_to_host(&self) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>>;
     fn write_from_host(&mut self, data: &[u8]) -> Result<(), Box<dyn Error + Send + Sync>>;
     fn clone_buffer(&self) -> Box<dyn Buffer>;
+    fn as_any(&self) -> &dyn std::any::Any;        // ダウンキャスト用
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
 }
 ```
 
@@ -302,12 +305,29 @@ pub trait Buffer: Send + Sync {
 - `VecBuffer`: ホストデータ用の簡易ラッパー（`from_data()`等で使用）
 
 #### Kernel
-コンパイル済みカーネル。バッファを受け取って実行。
+コンパイル済みカーネル。object-safeなトレイトで、`dyn Buffer`を受け取って実行。
 
-主要メソッド：
-- `execute()`: 設定済みサイズで実行
-- `execute_with_sizes()`: 動的なグリッド/ローカルサイズで実行
-- `config()`: カーネル設定を取得
+```rust
+pub trait Kernel: Send + Sync {
+    fn clone_kernel(&self) -> Box<dyn Kernel>;  // クローン（Box版）
+    fn config(&self) -> &KernelConfig;          // 設定取得
+    fn device_kind(&self) -> DeviceKind;        // デバイス種類
+    fn execute(
+        &self,
+        inputs: &[&dyn Buffer],
+        outputs: &mut [&mut dyn Buffer],
+    ) -> Result<(), Box<dyn Error + Send + Sync>>;
+    fn execute_with_sizes(
+        &self,
+        inputs: &[&dyn Buffer],
+        outputs: &mut [&mut dyn Buffer],
+        grid_size: [usize; 3],
+        local_size: [usize; 3],
+    ) -> Result<(), Box<dyn Error + Send + Sync>>;
+}
+```
+
+`dyn Buffer`を使用することで、異なるバックエンド（Metal/OpenCL）のカーネルを統一的にキャッシュ・実行できる。カーネル実装は`as_any()`でバッファを具体型にダウンキャストして使用する。
 
 #### Compiler
 カーネルソースをコンパイルしてKernelを生成。
@@ -367,126 +387,48 @@ let result: Vec<f32> = c.read_vec()?;  // [6.0, 8.0, 10.0, 12.0]
 }
 ```
 
-### ExecutionQuery
+### 統一カーネルキャッシュ
 
-`ExecutionQuery`は、バッファを名前ベースで指定するためのビルダー構造体です。動的shape変数もサポートしています。
-
-**利点:**
-- バッファの順序を気にせず名前で指定可能
-- 必要なバッファの欠落を実行前にチェック
-- 型安全なフルエントAPI
-- 動的shape変数による実行時のグリッドサイズ計算
-
-**使用例:**
-```rust
-use harp::backend::ExecutionQuery;
-
-// ビルダーパターンでバッファと動的shapeを指定
-let query = ExecutionQuery::new()
-    .input("a", &buf_a)
-    .input("b", &buf_b)
-    .output("result", &mut buf_out)
-    .shape_var("batch_size", 32)
-    .shape_var("seq_len", 128);
-
-// CompiledKernel での実行（shape_varsに基づいてグリッドサイズを動的計算）
-compiled_kernel.execute_with(query)?;
-
-// CompiledProgram での実行
-compiled_program.execute_with(context, query)?;
-```
-
-**動的shape変数:**
-
-`shape_var()`メソッドで指定した変数は、実行時にグリッドサイズの計算に使用されます。これにより、コンパイル時に固定されないサイズでもカーネルを実行できます。
+`CacheEntry`は、Metal/OpenCLの両方のカーネルを統一的にキャッシュするための構造体です。
 
 ```rust
-// バッチサイズが実行時に決まる場合
-for batch_size in [16, 32, 64, 128] {
-    let query = ExecutionQuery::new()
-        .input("x", &input_buf)
-        .output("y", &mut output_buf)
-        .shape_var("batch_size", batch_size as isize);
-
-    compiled_kernel.execute_with(query)?;
+pub struct CacheEntry {
+    pub kernel: Box<dyn Kernel>,          // コンパイル済みカーネル
+    pub signature: KernelSignature,       // 入出力シグネチャ
+    pub dispatch_config: DispatchSizeConfig, // ディスパッチサイズ設定
+    pub last_accessed: Instant,           // LRUキャッシュ用
 }
-```
 
-**実行メソッドの比較:**
+pub struct KernelCacheKey {
+    graph_repr: String,     // グラフの文字列表現
+    device_kind: DeviceKind, // デバイス種類
+    device_id: usize,       // デバイスポインタアドレス
+}
 
-| メソッド | バッファ指定 | 動的shape | 用途 |
-|----------|-------------|-----------|------|
-| `execute(&[&B], &mut [&mut B])` | 位置引数 | ✗ | シンプルなケース |
-| `execute_with(ExecutionQuery)` | 名前ベース | ✓ | 複雑なグラフ、動的サイズ |
-| `query().input().output().execute()` | 名前ベース | ✓ | フルエントAPI（推奨） |
-| `execute_positional(...)` | 位置引数 | ✗ | CompiledProgramの便利メソッド |
-
-### BoundExecutionQuery（フルエントAPI）
-
-`BoundExecutionQuery`は`CompiledKernel`にバインドされた`ExecutionQuery`で、よりフルエントなAPIを提供します。
-
-**使用例:**
-```rust
-// query()でデフォルトshape変数が初期化済みのクエリを取得
-compiled_kernel.query()
-    .input("x", &input_buf)
-    .output("y", &mut output_buf)
-    .shape_var("batch_size", batch_size as isize)
-    .execute()?;
+// キャッシュ操作
+pub fn get_cached_kernel(key: &KernelCacheKey) -> Option<CacheEntry>;
+pub fn insert_cached_kernel(key: KernelCacheKey, entry: CacheEntry);
+pub fn get_cache_stats() -> CacheStats;
 ```
 
 **特徴:**
-- `query()`メソッドが`KernelSignature`のデフォルト`shape_vars`で初期化された`ExecutionQuery`を返す
-- 指定しないshape変数はデフォルト値が使用される
-- チェーン呼び出しで`execute()`まで一気に実行可能
-
-**フロー:**
-```
-CompiledKernel::query()
-    → BoundExecutionQuery (デフォルトshape_vars設定済み)
-    → .input() / .output() / .shape_var() で設定を追加
-    → .execute() で実行
-```
-
-### バッファShape検証
-
-`execute_with`および`BoundExecutionQuery::execute()`は、実行前にバッファのshapeを自動検証します。
-
-**検証内容:**
-- 入力/出力バッファの`shape()`と`KernelSignature`の期待されるshapeを比較
-- 動的shape（`Expr::Var`を含む）は`shape_vars`で評価してから比較
-
-**エラー型:**
-```rust
-pub enum KernelExecutionError<KE> {
-    KernelError(KE),
-    BufferNotFound(String),
-    ShapeMismatch {           // バッファのshapeが期待と異なる
-        buffer_name: String,
-        expected: Vec<usize>,
-        actual: Vec<usize>,
-    },
-    ShapeEvaluationError(String),  // 動的shape評価時のエラー（未定義変数など）
-}
-```
+- `Box<dyn Kernel>`により、Metal/OpenCLのカーネルを同一のキャッシュで管理
+- LRUキャッシュ（最大1024エントリ）による自動eviction
+- `DeviceKind`と`device_id`でデバイスごとにキャッシュを分離
+- グラフの文字列表現をキーとして同一構造のグラフでキャッシュヒット
 
 **使用例:**
 ```rust
-// 正しいshape
-let mut buf = OpenCLBuffer::allocate(&device, vec![32, 128], DType::F32)?;
-compiled_kernel.query()
-    .input("x", &buf)
-    .output("y", &mut out_buf)
-    .shape_var("batch", 32)
-    .shape_var("seq_len", 128)
-    .execute()?;  // OK
+// Pipeline::compile_astはCacheEntryを返す
+let entry = pipeline.compile_ast(ast, signature)?;
 
-// shapeが不正な場合
-let wrong_buf = OpenCLBuffer::allocate(&device, vec![64, 64], DType::F32)?;
-let result = compiled_kernel.query()
-    .input("x", &wrong_buf)  // 期待: [32, 128], 実際: [64, 64]
-    .output("y", &mut out_buf)
-    .execute();  // Err(ShapeMismatch { buffer_name: "x", expected: [32, 128], actual: [64, 64] })
+// キャッシュに挿入
+insert_cached_kernel(cache_key, entry.clone());
+
+// 実行時
+let grid_size = entry.dispatch_config.evaluate_grid_size(&shape_vars);
+let local_size = entry.dispatch_config.evaluate_local_size(&shape_vars);
+entry.kernel.execute_with_sizes(&inputs, &mut outputs, grid_size, local_size)?;
 ```
 
 ### DispatchSizeConfig / DispatchSizeExpr
@@ -494,9 +436,9 @@ let result = compiled_kernel.query()
 `DispatchSizeConfig`はグリッドサイズとローカルサイズを式として保持し、実行時にshape変数を使って評価します。
 
 ```rust
-// 内部的にCompiledKernelがDispatchSizeConfigを保持
-pub struct CompiledKernel<K, B> {
-    pub kernel: K,
+// CacheEntryがDispatchSizeConfigを保持
+pub struct CacheEntry {
+    pub kernel: Box<dyn Kernel>,
     pub signature: KernelSignature,
     pub dispatch_config: DispatchSizeConfig,  // グリッドサイズ式
 }
@@ -510,6 +452,24 @@ pub enum DispatchSizeExpr {
     Div(Box<...>, Box<...>), // 除算
     // ...
 }
+```
+
+### ExecutionQuery
+
+`ExecutionQuery`は、バッファを名前ベースで指定するためのビルダー構造体です。`CompiledProgram`での複数カーネル実行時に使用されます。
+
+```rust
+use harp::backend::ExecutionQuery;
+
+// ビルダーパターンでバッファと動的shapeを指定
+let query = ExecutionQuery::new()
+    .input("a", &buf_a)
+    .input("b", &buf_b)
+    .output("result", &mut buf_out)
+    .shape_var("batch_size", 32);
+
+// CompiledProgram での実行
+compiled_program.execute_with(context, query)?;
 ```
 
 ### スレッド数・グループ数の決定フロー

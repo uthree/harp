@@ -413,6 +413,12 @@ pub trait Buffer: Send + Sync {
 
     /// Clone the buffer (returns Box<dyn Buffer>)
     fn clone_buffer(&self) -> Box<dyn Buffer>;
+
+    /// Get as Any for downcasting to concrete buffer types
+    fn as_any(&self) -> &dyn std::any::Any;
+
+    /// Get as mutable Any for downcasting to concrete buffer types
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
 }
 
 /// Kernel execution configuration
@@ -458,15 +464,19 @@ impl KernelConfig {
     }
 }
 
-/// GPU kernel
+/// GPU kernel (object-safe)
 ///
 /// Represents a compiled compute kernel that can be executed on the GPU.
-pub trait Kernel: Sized + Clone + Send + Sync {
-    type Buffer: TypedBuffer;
-    type Error: std::error::Error + Send + Sync + 'static;
+/// This trait is object-safe and can be used with `dyn Kernel`.
+pub trait Kernel: Send + Sync {
+    /// Clone the kernel (for trait object support)
+    fn clone_kernel(&self) -> Box<dyn Kernel>;
 
     /// Get the kernel configuration
     fn config(&self) -> &KernelConfig;
+
+    /// Get the device kind this kernel was compiled for
+    fn device_kind(&self) -> crate::backend::global::DeviceKind;
 
     /// Execute the kernel with the given input and output buffers
     ///
@@ -474,9 +484,9 @@ pub trait Kernel: Sized + Clone + Send + Sync {
     /// The order must match the kernel's argument order.
     fn execute(
         &self,
-        inputs: &[&Self::Buffer],
-        outputs: &mut [&mut Self::Buffer],
-    ) -> Result<(), Self::Error>;
+        inputs: &[&dyn Buffer],
+        outputs: &mut [&mut dyn Buffer],
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
     /// Execute the kernel with explicit grid and local sizes
     ///
@@ -488,19 +498,13 @@ pub trait Kernel: Sized + Clone + Send + Sync {
     /// * `outputs` - Output buffer references (mutable)
     /// * `grid_size` - Global work size (total threads to dispatch)
     /// * `local_size` - Local work size (threads per group)
-    ///
-    /// Default implementation ignores the size parameters and calls `execute`.
-    /// Backends should override this to support dynamic dispatch sizes.
     fn execute_with_sizes(
         &self,
-        inputs: &[&Self::Buffer],
-        outputs: &mut [&mut Self::Buffer],
-        _grid_size: [usize; 3],
-        _local_size: [usize; 3],
-    ) -> Result<(), Self::Error> {
-        // Default implementation: ignore sizes and use config's sizes
-        self.execute(inputs, outputs)
-    }
+        inputs: &[&dyn Buffer],
+        outputs: &mut [&mut dyn Buffer],
+        grid_size: [usize; 3],
+        local_size: [usize; 3],
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 }
 
 /// GPU kernel compiler

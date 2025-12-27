@@ -2,7 +2,8 @@
 
 use super::buffer::OpenCLBuffer;
 use super::device::OpenCLError;
-use crate::backend::traits::{Kernel, KernelConfig};
+use crate::backend::global::DeviceKind;
+use crate::backend::traits::{Buffer, Kernel, KernelConfig};
 use ocl::{Kernel as OclKernel, Program, Queue};
 use std::sync::Arc;
 
@@ -17,34 +18,79 @@ pub struct OpenCLKernel {
 }
 
 impl Kernel for OpenCLKernel {
-    type Buffer = OpenCLBuffer;
-    type Error = OpenCLError;
+    fn clone_kernel(&self) -> Box<dyn Kernel> {
+        Box::new(self.clone())
+    }
 
     fn config(&self) -> &KernelConfig {
         &self.config
     }
 
+    fn device_kind(&self) -> DeviceKind {
+        DeviceKind::OpenCL
+    }
+
     fn execute(
         &self,
-        inputs: &[&Self::Buffer],
-        outputs: &mut [&mut Self::Buffer],
-    ) -> Result<(), Self::Error> {
+        inputs: &[&dyn Buffer],
+        outputs: &mut [&mut dyn Buffer],
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Downcast dyn Buffer to OpenCLBuffer
+        let opencl_inputs: Vec<&OpenCLBuffer> = inputs
+            .iter()
+            .map(|b| {
+                b.as_any()
+                    .downcast_ref::<OpenCLBuffer>()
+                    .expect("Buffer type mismatch: expected OpenCLBuffer")
+            })
+            .collect();
+
+        let opencl_outputs: Vec<&mut OpenCLBuffer> = outputs
+            .iter_mut()
+            .map(|b| {
+                b.as_any_mut()
+                    .downcast_mut::<OpenCLBuffer>()
+                    .expect("Buffer type mismatch: expected OpenCLBuffer")
+            })
+            .collect();
+
         self.execute_kernel_internal(
-            inputs,
-            outputs,
+            &opencl_inputs,
+            opencl_outputs,
             self.config.global_work_size,
             self.config.local_work_size,
         )
+        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
 
     fn execute_with_sizes(
         &self,
-        inputs: &[&Self::Buffer],
-        outputs: &mut [&mut Self::Buffer],
+        inputs: &[&dyn Buffer],
+        outputs: &mut [&mut dyn Buffer],
         grid_size: [usize; 3],
         local_size: [usize; 3],
-    ) -> Result<(), Self::Error> {
-        self.execute_kernel_internal(inputs, outputs, grid_size, Some(local_size))
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Downcast dyn Buffer to OpenCLBuffer
+        let opencl_inputs: Vec<&OpenCLBuffer> = inputs
+            .iter()
+            .map(|b| {
+                b.as_any()
+                    .downcast_ref::<OpenCLBuffer>()
+                    .expect("Buffer type mismatch: expected OpenCLBuffer")
+            })
+            .collect();
+
+        let opencl_outputs: Vec<&mut OpenCLBuffer> = outputs
+            .iter_mut()
+            .map(|b| {
+                b.as_any_mut()
+                    .downcast_mut::<OpenCLBuffer>()
+                    .expect("Buffer type mismatch: expected OpenCLBuffer")
+            })
+            .collect();
+
+        self.execute_kernel_internal(&opencl_inputs, opencl_outputs, grid_size, Some(local_size))
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
 }
 
@@ -62,7 +108,7 @@ impl OpenCLKernel {
     fn execute_kernel_internal(
         &self,
         inputs: &[&OpenCLBuffer],
-        outputs: &mut [&mut OpenCLBuffer],
+        outputs: Vec<&mut OpenCLBuffer>,
         grid_size: [usize; 3],
         local_size: Option<[usize; 3]>,
     ) -> Result<(), OpenCLError> {

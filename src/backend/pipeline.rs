@@ -3,10 +3,9 @@
 //! This module provides a Pipeline implementation that uses the GPU backends
 //! (OpenCL via `ocl` crate, Metal via `metal` crate).
 
-use crate::ast::{AstNode, DType, Literal};
+use crate::ast::{AstNode, Literal};
 use crate::backend::KernelSignature;
-use crate::backend::sequence::ExecutionQuery;
-use crate::backend::traits::{Compiler, Device, Kernel, KernelConfig, TypedBuffer};
+use crate::backend::traits::{Compiler, Device, KernelConfig};
 use crate::opt::ast::rules::rules_for_capabilities;
 use crate::opt::ast::{
     AstSuggester, CompositeSuggester as AstCompositeSuggester, FunctionInliningSuggester,
@@ -18,7 +17,6 @@ use crate::opt::context::DeviceCapabilities;
 use crate::opt::progress::IndicatifProgress;
 use crate::renderer::c_like::CLikeRenderer;
 use std::collections::HashMap;
-use std::marker::PhantomData;
 
 /// Trait for renderers that can generate kernel-only source code
 ///
@@ -101,13 +99,11 @@ where
     pub histories: OptimizationHistories,
 }
 
-impl<R, Dev, Comp, Buf> Pipeline<R, Dev, Comp>
+impl<R, Dev, Comp> Pipeline<R, Dev, Comp>
 where
     R: KernelSourceRenderer + Clone,
     Dev: Device,
-    Buf: TypedBuffer<Dev = Dev>,
     Comp: Compiler<Dev = Dev>,
-    Comp::Kernel: Kernel<Buffer = Buf> + Clone,
 {
     /// Create a new pipeline
     pub fn new(renderer: R, compiler: Comp, device: Dev) -> Self {
@@ -133,11 +129,15 @@ where
     /// Compile an AST program to a kernel
     ///
     /// This method compiles an AST generated from TensorLowerer.
+    /// Returns a CacheEntry that can be stored in the kernel cache.
     pub fn compile_ast(
         &mut self,
         program: AstNode,
         signature: KernelSignature,
-    ) -> Result<CompiledKernel<Comp::Kernel, Buf>, Comp::Error> {
+    ) -> Result<crate::backend::cache::CacheEntry, Comp::Error>
+    where
+        Comp::Kernel: 'static,
+    {
         // Optimize AST
         let optimized_program = self.optimize_ast(program);
 
@@ -172,17 +172,11 @@ where
             .compiler
             .compile(&self.device, &kernel_source, kernel_config)?;
 
-        Ok(CompiledKernel {
-            kernel,
+        Ok(crate::backend::cache::CacheEntry::new(
+            Box::new(kernel),
             signature,
             dispatch_config,
-            _buffer: PhantomData,
-        })
-    }
-
-    /// Allocate a buffer on the GPU
-    pub fn allocate_buffer(&self, shape: Vec<usize>, dtype: DType) -> Result<Buf, Buf::Error> {
-        Buf::allocate(&self.device, shape, dtype)
+        ))
     }
 
     // Internal: optimize AST
@@ -599,285 +593,6 @@ impl DispatchSizeConfig {
             self.local_size[1].evaluate(shape_vars).max(1) as usize,
             self.local_size[2].evaluate(shape_vars).max(1) as usize,
         ]
-    }
-}
-
-/// A compiled kernel with its signature
-pub struct CompiledKernel<K, B>
-where
-    K: Kernel<Buffer = B>,
-    B: TypedBuffer,
-{
-    /// The compiled kernel
-    pub kernel: K,
-    /// The kernel signature
-    pub signature: KernelSignature,
-    /// Dispatch size configuration (for dynamic shape support)
-    pub dispatch_config: DispatchSizeConfig,
-    _buffer: PhantomData<B>,
-}
-
-impl<K, B> CompiledKernel<K, B>
-where
-    K: Kernel<Buffer = B>,
-    B: TypedBuffer,
-{
-    /// Create a new CompiledKernel from components
-    pub fn new(kernel: K, signature: KernelSignature, dispatch_config: DispatchSizeConfig) -> Self {
-        Self {
-            kernel,
-            signature,
-            dispatch_config,
-            _buffer: PhantomData,
-        }
-    }
-}
-
-/// Error type for kernel execution with query
-#[derive(Debug)]
-pub enum KernelExecutionError<KE> {
-    /// Error during kernel execution
-    KernelError(KE),
-    /// Buffer not found
-    BufferNotFound(String),
-    /// Buffer shape mismatch
-    ShapeMismatch {
-        buffer_name: String,
-        expected: Vec<usize>,
-        actual: Vec<usize>,
-    },
-    /// Shape evaluation error (undefined variable, etc.)
-    ShapeEvaluationError(String),
-}
-
-impl<KE: std::fmt::Display> std::fmt::Display for KernelExecutionError<KE> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::KernelError(e) => write!(f, "Kernel execution error: {}", e),
-            Self::BufferNotFound(name) => write!(f, "Buffer not found: {}", name),
-            Self::ShapeMismatch {
-                buffer_name,
-                expected,
-                actual,
-            } => write!(
-                f,
-                "Shape mismatch for buffer '{}': expected {:?}, got {:?}",
-                buffer_name, expected, actual
-            ),
-            Self::ShapeEvaluationError(msg) => write!(f, "Shape evaluation error: {}", msg),
-        }
-    }
-}
-
-impl<KE: std::error::Error + 'static> std::error::Error for KernelExecutionError<KE> {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::KernelError(e) => Some(e),
-            Self::BufferNotFound(_)
-            | Self::ShapeMismatch { .. }
-            | Self::ShapeEvaluationError(_) => None,
-        }
-    }
-}
-
-impl<K, B> CompiledKernel<K, B>
-where
-    K: Kernel<Buffer = B>,
-    B: TypedBuffer,
-{
-    /// Execute the kernel with the given buffers (positional)
-    pub fn execute(&self, inputs: &[&B], outputs: &mut [&mut B]) -> Result<(), K::Error> {
-        self.kernel.execute(inputs, outputs)
-    }
-
-    /// Execute the kernel using an ExecutionQuery
-    ///
-    /// This method provides a fluent API for specifying buffers by name.
-    /// The signature is used to map buffer names to the correct positions.
-    /// Shape variables from the query override those from the signature for
-    /// dynamic dispatch size computation.
-    pub fn execute_with(
-        &self,
-        mut query: ExecutionQuery<'_, B>,
-    ) -> Result<(), KernelExecutionError<K::Error>> {
-        // Collect input names from signature
-        let input_names: Vec<String> = self
-            .signature
-            .inputs
-            .iter()
-            .map(|s| s.name.clone())
-            .collect();
-        let output_names: Vec<String> = self
-            .signature
-            .outputs
-            .iter()
-            .map(|s| s.name.clone())
-            .collect();
-
-        // Validate that all required buffers are present
-        let missing_inputs = query.missing_inputs(&input_names);
-        if !missing_inputs.is_empty() {
-            return Err(KernelExecutionError::BufferNotFound(format!(
-                "Missing input buffers: {:?}",
-                missing_inputs
-            )));
-        }
-
-        let missing_outputs = query.missing_outputs(&output_names);
-        if !missing_outputs.is_empty() {
-            return Err(KernelExecutionError::BufferNotFound(format!(
-                "Missing output buffers: {:?}",
-                missing_outputs
-            )));
-        }
-
-        // Get shape variables from query (runtime values)
-        let shape_vars: HashMap<String, i64> = query
-            .get_shape_vars()
-            .iter()
-            .map(|(k, v)| (k.clone(), *v))
-            .collect();
-
-        // Validate input buffer shapes
-        for sig in &self.signature.inputs {
-            let buffer = query.inputs().get(&sig.name).unwrap();
-            let actual_shape: Vec<usize> = buffer.shape().to_vec();
-            let expected_shape: Result<Vec<usize>, String> =
-                sig.shape.iter().map(|expr| expr.evaluate_usize()).collect();
-            let expected_shape =
-                expected_shape.map_err(KernelExecutionError::ShapeEvaluationError)?;
-
-            if actual_shape != expected_shape {
-                return Err(KernelExecutionError::ShapeMismatch {
-                    buffer_name: sig.name.clone(),
-                    expected: expected_shape,
-                    actual: actual_shape,
-                });
-            }
-        }
-
-        // Validate output buffer shapes
-        for sig in &self.signature.outputs {
-            // SAFETY: We already validated that all outputs exist
-            let buffer = unsafe { &**query.outputs().get(&sig.name).unwrap() };
-            let actual_shape: Vec<usize> = buffer.shape().to_vec();
-            let expected_shape: Result<Vec<usize>, String> =
-                sig.shape.iter().map(|expr| expr.evaluate_usize()).collect();
-            let expected_shape =
-                expected_shape.map_err(KernelExecutionError::ShapeEvaluationError)?;
-
-            if actual_shape != expected_shape {
-                return Err(KernelExecutionError::ShapeMismatch {
-                    buffer_name: sig.name.clone(),
-                    expected: expected_shape,
-                    actual: actual_shape,
-                });
-            }
-        }
-
-        // Compute dispatch sizes using the merged shape variables
-        let grid_size = self.dispatch_config.evaluate_grid_size(&shape_vars);
-        let local_size = self.dispatch_config.evaluate_local_size(&shape_vars);
-
-        // Build ordered input slice from query
-        let inputs: Vec<&B> = input_names
-            .iter()
-            .map(|name| *query.inputs().get(name).unwrap())
-            .collect();
-
-        // Build ordered output slice from query
-        // SAFETY: ExecutionQuery ensures no aliasing between outputs
-        let mut outputs_map = unsafe { query.outputs_mut() };
-        let mut outputs: Vec<&mut B> = output_names
-            .iter()
-            .map(|name| outputs_map.remove(name).unwrap())
-            .collect();
-
-        // Execute with computed sizes
-        self.kernel
-            .execute_with_sizes(&inputs, &mut outputs, grid_size, local_size)
-            .map_err(KernelExecutionError::KernelError)
-    }
-
-    /// Get the kernel signature
-    pub fn signature(&self) -> &KernelSignature {
-        &self.signature
-    }
-
-    /// Get the input buffer names
-    pub fn input_names(&self) -> Vec<String> {
-        self.signature
-            .inputs
-            .iter()
-            .map(|s| s.name.clone())
-            .collect()
-    }
-
-    /// Get the output buffer names
-    pub fn output_names(&self) -> Vec<String> {
-        self.signature
-            .outputs
-            .iter()
-            .map(|s| s.name.clone())
-            .collect()
-    }
-
-    /// Create a bound execution query with default shape variables
-    pub fn query(&self) -> BoundExecutionQuery<'_, K, B> {
-        BoundExecutionQuery {
-            kernel: self,
-            query: ExecutionQuery::new(),
-        }
-    }
-}
-
-/// A bound execution query that holds a reference to the kernel
-pub struct BoundExecutionQuery<'a, K, B>
-where
-    K: Kernel<Buffer = B>,
-    B: TypedBuffer,
-{
-    kernel: &'a CompiledKernel<K, B>,
-    query: ExecutionQuery<'a, B>,
-}
-
-impl<'a, K, B> BoundExecutionQuery<'a, K, B>
-where
-    K: Kernel<Buffer = B>,
-    B: TypedBuffer,
-{
-    /// Add an input buffer with the given name
-    pub fn input(mut self, name: impl Into<String>, buffer: &'a B) -> Self {
-        self.query = self.query.input(name, buffer);
-        self
-    }
-
-    /// Add an output buffer with the given name
-    pub fn output(mut self, name: impl Into<String>, buffer: &'a mut B) -> Self {
-        self.query = self.query.output(name, buffer);
-        self
-    }
-
-    /// Set or override a shape variable
-    pub fn shape_var(mut self, name: impl Into<String>, value: i64) -> Self {
-        self.query = self.query.shape_var(name, value);
-        self
-    }
-
-    /// Set or override multiple shape variables at once
-    pub fn shape_vars(mut self, vars: impl IntoIterator<Item = (String, i64)>) -> Self {
-        self.query = self.query.shape_vars(vars);
-        self
-    }
-
-    /// Execute the kernel with the configured buffers and shape variables
-    pub fn execute(self) -> Result<(), KernelExecutionError<K::Error>> {
-        self.kernel.execute_with(self.query)
-    }
-
-    /// Get the underlying ExecutionQuery (for inspection or advanced use)
-    pub fn into_query(self) -> ExecutionQuery<'a, B> {
-        self.query
     }
 }
 

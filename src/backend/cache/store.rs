@@ -1,16 +1,15 @@
 //! キャッシュストア
 //!
-//! バックエンド別にコンパイル済みカーネルをキャッシュする。
+//! バックエンド共通のカーネルキャッシュ。
+//! `dyn Kernel` を使用して統一的にキャッシュを管理する。
 
 use crate::backend::KernelSignature;
 use crate::backend::global::DeviceKind;
 use crate::backend::pipeline::DispatchSizeConfig;
-
-#[cfg(all(feature = "metal", target_os = "macos"))]
-use crate::backend::metal::MetalKernel;
-
-#[cfg(feature = "opencl")]
-use crate::backend::opencl::OpenCLKernel;
+use crate::backend::traits::Kernel;
+use std::collections::HashMap;
+use std::sync::{LazyLock, RwLock};
+use std::time::Instant;
 
 /// キャッシュキー
 ///
@@ -62,51 +61,45 @@ impl std::fmt::Debug for KernelCacheKey {
     }
 }
 
-/// キャッシュエントリの共通情報
-pub trait CachedKernelEntry {
-    /// カーネル署名を取得
-    fn signature(&self) -> &KernelSignature;
-    /// ディスパッチ設定を取得
-    fn dispatch_config(&self) -> &DispatchSizeConfig;
-}
-
-/// Metalカーネルのキャッシュエントリ
-#[cfg(all(feature = "metal", target_os = "macos"))]
-pub struct MetalCacheEntry {
-    pub kernel: MetalKernel,
+/// 統一キャッシュエントリ
+///
+/// バックエンドに依存しない統一的なキャッシュエントリ。
+/// `Box<dyn Kernel>` を使用してカーネルを格納する。
+pub struct CacheEntry {
+    /// コンパイル済みカーネル
+    pub kernel: Box<dyn Kernel>,
+    /// カーネル署名
     pub signature: KernelSignature,
+    /// ディスパッチサイズ設定
     pub dispatch_config: DispatchSizeConfig,
-    pub last_accessed: std::time::Instant,
+    /// 最終アクセス時刻
+    pub last_accessed: Instant,
 }
 
-#[cfg(all(feature = "metal", target_os = "macos"))]
-impl CachedKernelEntry for MetalCacheEntry {
-    fn signature(&self) -> &KernelSignature {
-        &self.signature
-    }
-
-    fn dispatch_config(&self) -> &DispatchSizeConfig {
-        &self.dispatch_config
+impl Clone for CacheEntry {
+    fn clone(&self) -> Self {
+        Self {
+            kernel: self.kernel.clone_kernel(),
+            signature: self.signature.clone(),
+            dispatch_config: self.dispatch_config.clone(),
+            last_accessed: self.last_accessed,
+        }
     }
 }
 
-/// OpenCLカーネルのキャッシュエントリ
-#[cfg(feature = "opencl")]
-pub struct OpenCLCacheEntry {
-    pub kernel: OpenCLKernel,
-    pub signature: KernelSignature,
-    pub dispatch_config: DispatchSizeConfig,
-    pub last_accessed: std::time::Instant,
-}
-
-#[cfg(feature = "opencl")]
-impl CachedKernelEntry for OpenCLCacheEntry {
-    fn signature(&self) -> &KernelSignature {
-        &self.signature
-    }
-
-    fn dispatch_config(&self) -> &DispatchSizeConfig {
-        &self.dispatch_config
+impl CacheEntry {
+    /// 新しいキャッシュエントリを作成
+    pub fn new(
+        kernel: Box<dyn Kernel>,
+        signature: KernelSignature,
+        dispatch_config: DispatchSizeConfig,
+    ) -> Self {
+        Self {
+            kernel,
+            signature,
+            dispatch_config,
+            last_accessed: Instant::now(),
+        }
     }
 }
 
@@ -120,157 +113,62 @@ pub struct CacheStats {
 }
 
 /// グローバルキャッシュの最大エントリ数
-#[cfg(any(all(feature = "metal", target_os = "macos"), feature = "opencl"))]
 const MAX_CACHE_ENTRIES: usize = 1024;
 
-// ============================================================================
-// Metalキャッシュ
-// ============================================================================
+/// グローバルキャッシュ
+static KERNEL_CACHE: LazyLock<RwLock<HashMap<KernelCacheKey, CacheEntry>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
 
-#[cfg(all(feature = "metal", target_os = "macos"))]
-mod metal_cache {
-    use super::{CacheStats, KernelCacheKey, MAX_CACHE_ENTRIES, MetalCacheEntry};
-    use std::collections::HashMap;
-    use std::sync::{LazyLock, RwLock};
-    use std::time::Instant;
+/// キャッシュ統計
+static CACHE_STATS: LazyLock<RwLock<CacheStats>> =
+    LazyLock::new(|| RwLock::new(CacheStats::default()));
 
-    static METAL_CACHE: LazyLock<RwLock<HashMap<KernelCacheKey, MetalCacheEntry>>> =
-        LazyLock::new(|| RwLock::new(HashMap::new()));
-    static METAL_STATS: LazyLock<RwLock<CacheStats>> =
-        LazyLock::new(|| RwLock::new(CacheStats::default()));
+/// キャッシュからカーネルを取得
+pub fn get_cached_kernel(key: &KernelCacheKey) -> Option<CacheEntry> {
+    let cache = KERNEL_CACHE.read().unwrap();
+    if let Some(entry) = cache.get(key) {
+        let mut stats = CACHE_STATS.write().unwrap();
+        stats.hits += 1;
 
-    /// Metalキャッシュからカーネルを取得
-    pub fn get_metal_kernel(key: &KernelCacheKey) -> Option<MetalCacheEntry> {
-        let cache = METAL_CACHE.read().unwrap();
-        if let Some(entry) = cache.get(key) {
-            // 統計更新
-            let mut stats = METAL_STATS.write().unwrap();
-            stats.hits += 1;
-
-            // エントリをクローン（last_accessedは更新しない - 読み取り専用）
-            Some(MetalCacheEntry {
-                kernel: entry.kernel.clone(),
-                signature: entry.signature.clone(),
-                dispatch_config: entry.dispatch_config.clone(),
-                last_accessed: Instant::now(),
-            })
-        } else {
-            let mut stats = METAL_STATS.write().unwrap();
-            stats.misses += 1;
-            None
-        }
-    }
-
-    /// Metalキャッシュにカーネルを挿入
-    pub fn insert_metal_kernel(key: KernelCacheKey, entry: MetalCacheEntry) {
-        let mut cache = METAL_CACHE.write().unwrap();
-
-        // LRU eviction
-        if cache.len() >= MAX_CACHE_ENTRIES {
-            // 最も古いエントリを削除
-            let oldest_key = cache
-                .iter()
-                .min_by_key(|(_, e): &(&KernelCacheKey, &MetalCacheEntry)| e.last_accessed)
-                .map(|(k, _): (&KernelCacheKey, &MetalCacheEntry)| k.clone());
-
-            if let Some(k) = oldest_key {
-                cache.remove(&k);
-                let mut stats = METAL_STATS.write().unwrap();
-                stats.evictions += 1;
-            }
-        }
-
-        cache.insert(key, entry);
-        let mut stats = METAL_STATS.write().unwrap();
-        stats.entries = cache.len();
+        Some(CacheEntry {
+            kernel: entry.kernel.clone_kernel(),
+            signature: entry.signature.clone(),
+            dispatch_config: entry.dispatch_config.clone(),
+            last_accessed: Instant::now(),
+        })
+    } else {
+        let mut stats = CACHE_STATS.write().unwrap();
+        stats.misses += 1;
+        None
     }
 }
 
-#[cfg(all(feature = "metal", target_os = "macos"))]
-pub use metal_cache::{get_metal_kernel, insert_metal_kernel};
+/// キャッシュにカーネルを挿入
+pub fn insert_cached_kernel(key: KernelCacheKey, entry: CacheEntry) {
+    let mut cache = KERNEL_CACHE.write().unwrap();
 
-// ============================================================================
-// OpenCLキャッシュ
-// ============================================================================
+    // LRU eviction
+    if cache.len() >= MAX_CACHE_ENTRIES {
+        let oldest_key = cache
+            .iter()
+            .min_by_key(|(_, e)| e.last_accessed)
+            .map(|(k, _)| k.clone());
 
-#[cfg(feature = "opencl")]
-mod opencl_cache {
-    use super::{CacheStats, KernelCacheKey, MAX_CACHE_ENTRIES, OpenCLCacheEntry};
-    use std::collections::HashMap;
-    use std::sync::{LazyLock, RwLock};
-    use std::time::Instant;
-
-    static OPENCL_CACHE: LazyLock<RwLock<HashMap<KernelCacheKey, OpenCLCacheEntry>>> =
-        LazyLock::new(|| RwLock::new(HashMap::new()));
-    static OPENCL_STATS: LazyLock<RwLock<CacheStats>> =
-        LazyLock::new(|| RwLock::new(CacheStats::default()));
-
-    /// OpenCLキャッシュからカーネルを取得
-    pub fn get_opencl_kernel(key: &KernelCacheKey) -> Option<OpenCLCacheEntry> {
-        let cache = OPENCL_CACHE.read().unwrap();
-        if let Some(entry) = cache.get(key) {
-            let mut stats = OPENCL_STATS.write().unwrap();
-            stats.hits += 1;
-
-            Some(OpenCLCacheEntry {
-                kernel: entry.kernel.clone(),
-                signature: entry.signature.clone(),
-                dispatch_config: entry.dispatch_config.clone(),
-                last_accessed: Instant::now(),
-            })
-        } else {
-            let mut stats = OPENCL_STATS.write().unwrap();
-            stats.misses += 1;
-            None
+        if let Some(k) = oldest_key {
+            cache.remove(&k);
+            let mut stats = CACHE_STATS.write().unwrap();
+            stats.evictions += 1;
         }
     }
 
-    /// OpenCLキャッシュにカーネルを挿入
-    pub fn insert_opencl_kernel(key: KernelCacheKey, entry: OpenCLCacheEntry) {
-        let mut cache = OPENCL_CACHE.write().unwrap();
-
-        // LRU eviction
-        if cache.len() >= MAX_CACHE_ENTRIES {
-            let oldest_key = cache
-                .iter()
-                .min_by_key(|(_, e): &(&KernelCacheKey, &OpenCLCacheEntry)| e.last_accessed)
-                .map(|(k, _): (&KernelCacheKey, &OpenCLCacheEntry)| k.clone());
-
-            if let Some(k) = oldest_key {
-                cache.remove(&k);
-                let mut stats = OPENCL_STATS.write().unwrap();
-                stats.evictions += 1;
-            }
-        }
-
-        cache.insert(key, entry);
-        let mut stats = OPENCL_STATS.write().unwrap();
-        stats.entries = cache.len();
-    }
+    cache.insert(key, entry);
+    let mut stats = CACHE_STATS.write().unwrap();
+    stats.entries = cache.len();
 }
 
-#[cfg(feature = "opencl")]
-pub use opencl_cache::{get_opencl_kernel, insert_opencl_kernel};
-
-// ============================================================================
-// 汎用インターフェース
-// ============================================================================
-
-/// キャッシュからカーネルを取得（デバイス種類に応じて適切なキャッシュを使用）
-pub fn get_cached_kernel(key: &KernelCacheKey) -> bool {
-    match key.device_kind() {
-        #[cfg(all(feature = "metal", target_os = "macos"))]
-        DeviceKind::Metal => get_metal_kernel(key).is_some(),
-        #[cfg(feature = "opencl")]
-        DeviceKind::OpenCL => get_opencl_kernel(key).is_some(),
-        _ => false,
-    }
-}
-
-/// キャッシュにカーネルを挿入（プレースホルダー）
-pub fn insert_kernel(_key: KernelCacheKey) {
-    // 実際の挿入はバックエンド固有の関数を使用
-    // この関数は将来の拡張用
+/// キャッシュの統計情報を取得
+pub fn get_cache_stats() -> CacheStats {
+    CACHE_STATS.read().unwrap().clone()
 }
 
 #[cfg(test)]

@@ -47,10 +47,16 @@ pub use traits::{
     KernelConfig, OpKind, SimdCapability, TypedBuffer,
 };
 
-// Re-export pipeline types (Pipeline, CompiledKernel, etc.)
+// Re-export pipeline types
 pub use pipeline::{
-    BoundExecutionQuery, CompiledKernel, DispatchSizeConfig, DispatchSizeExpr,
-    KernelExecutionError, KernelSourceRenderer, OptimizationHistories, Pipeline, PipelineConfig,
+    DispatchSizeConfig, DispatchSizeExpr, KernelSourceRenderer, OptimizationHistories, Pipeline,
+    PipelineConfig,
+};
+
+// Re-export unified cache types
+pub use cache::{
+    CacheEntry, CacheStats, KernelCacheKey, get_cache_stats, get_cached_kernel,
+    insert_cached_kernel,
 };
 
 // Re-export sequence types

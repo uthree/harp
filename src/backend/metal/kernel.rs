@@ -2,7 +2,8 @@
 
 use super::buffer::MetalBuffer;
 use super::device::MetalError;
-use crate::backend::traits::{Kernel, KernelConfig};
+use crate::backend::global::DeviceKind;
+use crate::backend::traits::{Buffer, Kernel, KernelConfig};
 use metal::{CommandQueue, ComputePipelineState, MTLSize};
 use std::sync::Arc;
 
@@ -17,43 +18,82 @@ pub struct MetalKernel {
 }
 
 impl Kernel for MetalKernel {
-    type Buffer = MetalBuffer;
-    type Error = MetalError;
+    fn clone_kernel(&self) -> Box<dyn Kernel> {
+        Box::new(self.clone())
+    }
 
     fn config(&self) -> &KernelConfig {
         &self.config
     }
 
+    fn device_kind(&self) -> DeviceKind {
+        DeviceKind::Metal
+    }
+
     fn execute(
         &self,
-        inputs: &[&Self::Buffer],
-        outputs: &mut [&mut Self::Buffer],
-    ) -> Result<(), Self::Error> {
-        // Combine all buffers for execution
-        let all_buffers: Vec<&MetalBuffer> = inputs
+        inputs: &[&dyn Buffer],
+        outputs: &mut [&mut dyn Buffer],
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Downcast dyn Buffer to MetalBuffer
+        let metal_inputs: Vec<&MetalBuffer> = inputs
             .iter()
-            .copied()
-            .chain(outputs.iter().map(|b| &**b))
+            .map(|b| {
+                b.as_any()
+                    .downcast_ref::<MetalBuffer>()
+                    .expect("Buffer type mismatch: expected MetalBuffer")
+            })
             .collect();
 
+        let metal_outputs: Vec<&MetalBuffer> = outputs
+            .iter()
+            .map(|b| {
+                b.as_any()
+                    .downcast_ref::<MetalBuffer>()
+                    .expect("Buffer type mismatch: expected MetalBuffer")
+            })
+            .collect();
+
+        // Combine all buffers for execution
+        let all_buffers: Vec<&MetalBuffer> =
+            metal_inputs.into_iter().chain(metal_outputs).collect();
+
         self.execute_with_buffers(&all_buffers)
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
 
     fn execute_with_sizes(
         &self,
-        inputs: &[&Self::Buffer],
-        outputs: &mut [&mut Self::Buffer],
+        inputs: &[&dyn Buffer],
+        outputs: &mut [&mut dyn Buffer],
         grid_size: [usize; 3],
         local_size: [usize; 3],
-    ) -> Result<(), Self::Error> {
-        // Combine all buffers for execution
-        let all_buffers: Vec<&MetalBuffer> = inputs
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Downcast dyn Buffer to MetalBuffer
+        let metal_inputs: Vec<&MetalBuffer> = inputs
             .iter()
-            .copied()
-            .chain(outputs.iter().map(|b| &**b))
+            .map(|b| {
+                b.as_any()
+                    .downcast_ref::<MetalBuffer>()
+                    .expect("Buffer type mismatch: expected MetalBuffer")
+            })
             .collect();
 
+        let metal_outputs: Vec<&MetalBuffer> = outputs
+            .iter()
+            .map(|b| {
+                b.as_any()
+                    .downcast_ref::<MetalBuffer>()
+                    .expect("Buffer type mismatch: expected MetalBuffer")
+            })
+            .collect();
+
+        // Combine all buffers for execution
+        let all_buffers: Vec<&MetalBuffer> =
+            metal_inputs.into_iter().chain(metal_outputs).collect();
+
         self.execute_with_buffers_and_sizes(&all_buffers, grid_size, local_size)
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
 }
 
