@@ -16,7 +16,7 @@ use crate::tensor::{
 
 use super::binary::with_grad_fn_generic;
 use super::unary::Recip;
-use crate::tensor::FloatDTypeAutograd;
+// FloatDType import is already in the main tensor use statement
 
 // ============================================================================
 // Reduce Gradients (single-axis only)
@@ -80,33 +80,16 @@ impl<T: FloatDType> ProdBackward<T> {
     }
 }
 
-impl GradFn<f32> for ProdBackward<f32> {
-    fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
+impl<T: FloatDType> GradFn<T> for ProdBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
         // Unsqueeze output and grad back to input shape
         let output_expanded = self.output.unsqueeze(self.axis).expand(&self.input_shape);
         let grad_expanded = grad_output.unsqueeze(self.axis).expand(&self.input_shape);
-        // ∂L/∂a = ∂L/∂z · z / a
-        vec![(&grad_expanded * &output_expanded) / &self.input]
-    }
-
-    fn inputs(&self) -> Vec<Tensor<f32, DimDyn>> {
-        vec![self.input.clone()]
-    }
-
-    fn name(&self) -> &'static str {
-        "ProdAxisBackward"
-    }
-}
-
-impl GradFn<f64> for ProdBackward<f64> {
-    fn backward(&self, grad_output: &Tensor<f64, DimDyn>) -> Vec<Tensor<f64, DimDyn>> {
-        let output_expanded = self.output.unsqueeze(self.axis).expand(&self.input_shape);
-        let grad_expanded = grad_output.unsqueeze(self.axis).expand(&self.input_shape);
-        // Use recip() * instead of / since Div not yet implemented for f64
+        // ∂L/∂a = ∂L/∂z · z / a (using recip() * pattern)
         vec![&(&grad_expanded * &output_expanded) * &self.input.clone().recip()]
     }
 
-    fn inputs(&self) -> Vec<Tensor<f64, DimDyn>> {
+    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
         vec![self.input.clone()]
     }
 
@@ -198,7 +181,7 @@ fn create_single_axis_reduce<T: FloatDType, D: Dimension>(
 // Type-safe single-axis reductions
 // ============================================================================
 
-impl<T: FloatDTypeAutograd, D: Dimension> Tensor<T, D> {
+impl<T: FloatDType, D: Dimension> Tensor<T, D> {
     /// Sum along a single axis with type-safe dimension tracking
     ///
     /// Returns a tensor with one fewer dimension (Dim<N> -> Dim<N-1>).
@@ -280,11 +263,11 @@ impl<T: FloatDTypeAutograd, D: Dimension> Tensor<T, D> {
 }
 
 // ============================================================================
-// prod_axis needs separate impls because ProdAxisBackward uses arithmetic ops
+// prod_axis - Generic over FloatDType
 // ============================================================================
 
-impl<D: Dimension> Tensor<f32, D> {
-    /// Product along a single axis with type-safe dimension tracking (f32)
+impl<T: FloatDType, D: Dimension> Tensor<T, D> {
+    /// Product along a single axis with type-safe dimension tracking
     ///
     /// Returns a tensor with one fewer dimension (Dim<N> -> Dim<N-1>).
     ///
@@ -294,7 +277,7 @@ impl<D: Dimension> Tensor<f32, D> {
     /// let p: Tensor<f32, Dim1> = a.prod(0);
     /// assert_eq!(p.shape(), &[3]);
     /// ```
-    pub fn prod(&self, axis: usize) -> Tensor<f32, D::Smaller> {
+    pub fn prod(&self, axis: usize) -> Tensor<T, D::Smaller> {
         assert!(
             axis < self.ndim(),
             "Axis {} out of bounds for tensor with {} dimensions",
@@ -306,41 +289,7 @@ impl<D: Dimension> Tensor<f32, D> {
 
         if self.requires_grad() {
             let input = self.clone().into_dyn();
-            let result_dyn: Tensor<f32, DimDyn> = Tensor {
-                inner: result.inner.clone(),
-                _dtype: PhantomData,
-                _dim: PhantomData,
-            };
-            let grad_fn = ProdBackward::new(input, result_dyn.clone(), axis);
-            let result_with_grad = with_grad_fn_generic(result_dyn, Some(Arc::new(grad_fn)));
-            Tensor {
-                inner: result_with_grad.inner,
-                _dtype: PhantomData,
-                _dim: PhantomData,
-            }
-        } else {
-            result
-        }
-    }
-}
-
-impl<D: Dimension> Tensor<f64, D> {
-    /// Product along a single axis with type-safe dimension tracking (f64)
-    ///
-    /// Returns a tensor with one fewer dimension (Dim<N> -> Dim<N-1>).
-    pub fn prod(&self, axis: usize) -> Tensor<f64, D::Smaller> {
-        assert!(
-            axis < self.ndim(),
-            "Axis {} out of bounds for tensor with {} dimensions",
-            axis,
-            self.ndim()
-        );
-
-        let result = create_single_axis_reduce(ReduceOp::Prod, self, axis);
-
-        if self.requires_grad() {
-            let input = self.clone().into_dyn();
-            let result_dyn: Tensor<f64, DimDyn> = Tensor {
+            let result_dyn: Tensor<T, DimDyn> = Tensor {
                 inner: result.inner.clone(),
                 _dtype: PhantomData,
                 _dim: PhantomData,

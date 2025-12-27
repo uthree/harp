@@ -16,9 +16,7 @@
 
 use crate::ast::{AstNode, Literal};
 use crate::tensor::ops::ReduceOp;
-use crate::tensor::{
-    DimDyn, Exp2, FloatDType, FloatDTypeAutograd, Floor, GradFn, Log2, Recip, Sin, Sqrt, Tensor,
-};
+use crate::tensor::{DimDyn, Exp2, FloatDType, Floor, GradFn, Log2, Recip, Sin, Sqrt, Tensor};
 use std::collections::HashMap;
 
 // ============================================================================
@@ -27,8 +25,8 @@ use std::collections::HashMap;
 
 /// Reduce gradient to match the original input shape (handle broadcasting)
 ///
-/// Generic version for any FloatDTypeAutograd (f32, f64).
-pub fn reduce_grad_for_broadcast_generic<T: FloatDTypeAutograd>(
+/// Generic version for any FloatDType (f32, f64).
+pub fn reduce_grad_for_broadcast_generic<T: FloatDType>(
     grad: &Tensor<T, DimDyn>,
     target_shape: &[usize],
 ) -> Tensor<T, DimDyn> {

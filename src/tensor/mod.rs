@@ -95,9 +95,7 @@ use std::sync::{Arc, RwLock};
 use crate::backend::Buffer;
 
 pub use dimension::{Dim, Dim0, Dim1, Dim2, Dim3, Dim4, Dim5, Dim6, DimDyn, Dimension};
-pub use dtype::{
-    FloatDType, IntegerDType, NumericDType, SignedIntDType, TensorDType, UnsignedIntDType,
-};
+pub use dtype::{IntegerDType, NumericDType, SignedIntDType, TensorDType, UnsignedIntDType};
 pub use forward::ForwardError;
 pub use ops::{ElementwiseOp, ErasedTensorInner, InputRef, ReduceOp, TensorOp};
 pub use primops::{Exp2, Floor, Log2, Recip, Sin, Sqrt};
@@ -124,7 +122,7 @@ pub type Tensor6 = Tensor<f32, Dim6>;
 /// Dynamic-dimensional tensor
 pub type TensorDyn = Tensor<f32, DimDyn>;
 
-use crate::ast::DType;
+use crate::ast::{DType, Literal};
 
 // ============================================================================
 // GradFn trait - Generic over FloatDType
@@ -233,7 +231,7 @@ impl AutogradStorage {
 }
 
 // ============================================================================
-// FloatDTypeAutograd - Sealed trait for type-safe autograd storage creation
+// FloatDType - Sealed trait for floating-point types with autograd support
 // ============================================================================
 
 mod sealed {
@@ -242,10 +240,20 @@ mod sealed {
     impl Sealed for f64 {}
 }
 
-/// Extension trait for FloatDType that provides autograd storage creation
+/// Trait for floating-point types with autograd support (f32, f64, future f16/bf16)
 ///
-/// This is a sealed trait - only implemented for f32 and f64.
-pub trait FloatDTypeAutograd: FloatDType + sealed::Sealed {
+/// This is a sealed trait - only implemented for f32 and f64 (and future half-precision types).
+/// Provides transcendental functions (sin, cos, exp, log, etc.), gradient computation, and
+/// floor/ceil/round operations.
+pub trait FloatDType: NumericDType + sealed::Sealed {
+    /// Zero value for this type
+    const ZERO: Self;
+    /// One value for this type
+    const ONE: Self;
+
+    /// Convert value to Literal for ConstFill operations
+    fn to_literal(val: Self) -> Literal;
+
     /// Create AutogradStorage from AutogradMeta<Self>
     fn wrap_autograd(meta: AutogradMeta<Self>) -> AutogradStorage;
 
@@ -256,7 +264,14 @@ pub trait FloatDTypeAutograd: FloatDType + sealed::Sealed {
     fn new_autograd() -> AutogradStorage;
 }
 
-impl FloatDTypeAutograd for f32 {
+impl FloatDType for f32 {
+    const ZERO: Self = 0.0;
+    const ONE: Self = 1.0;
+
+    fn to_literal(val: Self) -> Literal {
+        Literal::F32(val)
+    }
+
     fn wrap_autograd(meta: AutogradMeta<Self>) -> AutogradStorage {
         AutogradStorage::F32(meta)
     }
@@ -270,7 +285,14 @@ impl FloatDTypeAutograd for f32 {
     }
 }
 
-impl FloatDTypeAutograd for f64 {
+impl FloatDType for f64 {
+    const ZERO: Self = 0.0;
+    const ONE: Self = 1.0;
+
+    fn to_literal(val: Self) -> Literal {
+        Literal::F64(val)
+    }
+
     fn wrap_autograd(meta: AutogradMeta<Self>) -> AutogradStorage {
         AutogradStorage::F64(meta)
     }
@@ -526,10 +548,10 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
 }
 
 // ============================================================================
-// Autograd-enabled tensor operations (FloatDTypeAutograd only)
+// Autograd-enabled tensor operations (FloatDType only)
 // ============================================================================
 
-impl<T: FloatDTypeAutograd, D: Dimension> Tensor<T, D> {
+impl<T: FloatDType, D: Dimension> Tensor<T, D> {
     /// Enable gradient tracking for this tensor
     ///
     /// Note: This creates a new tensor with gradient tracking enabled.

@@ -30,13 +30,7 @@ pub trait TensorDType: Clone + Send + Sync + 'static {
 /// (Add, Sub, Mul, Div).
 pub trait NumericDType: TensorDType {}
 
-/// Marker trait for floating-point types (f32, f64).
-///
-/// Types implementing this trait support:
-/// - Transcendental functions (sin, cos, exp, log, etc.)
-/// - Gradient computation (autograd)
-/// - Floor, ceil, round operations
-pub trait FloatDType: NumericDType {}
+// FloatDType is defined in mod.rs with autograd methods
 
 /// Marker trait for integer types (signed and unsigned).
 ///
@@ -63,8 +57,7 @@ impl TensorDType for f64 {
 }
 impl NumericDType for f32 {}
 impl NumericDType for f64 {}
-impl FloatDType for f32 {}
-impl FloatDType for f64 {}
+// FloatDType implementations are in mod.rs
 
 // Signed integer types
 impl TensorDType for i8 {
@@ -149,18 +142,15 @@ mod tests {
 
     // Type-level tests: ensure trait bounds work as expected
     fn requires_numeric<T: NumericDType>() {}
-    fn requires_float<T: FloatDType>() {}
     fn requires_integer<T: IntegerDType>() {}
     fn requires_signed<T: SignedIntDType>() {}
     fn requires_unsigned<T: UnsignedIntDType>() {}
 
     #[test]
     fn test_trait_bounds() {
-        // Float types satisfy NumericDType and FloatDType
+        // Float types satisfy NumericDType (FloatDType is tested in mod.rs)
         requires_numeric::<f32>();
         requires_numeric::<f64>();
-        requires_float::<f32>();
-        requires_float::<f64>();
 
         // Signed integers satisfy NumericDType, IntegerDType, SignedIntDType
         requires_numeric::<i32>();

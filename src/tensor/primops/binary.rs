@@ -15,8 +15,8 @@ use std::sync::Arc;
 use crate::ast::{DType, Literal};
 use crate::tensor::shape::{Expr, View};
 use crate::tensor::{
-    DimDyn, Dimension, ElementwiseOp, FloatDType, FloatDTypeAutograd, GradFn, NumericDType, Tensor,
-    TensorInner, TensorOp,
+    DimDyn, Dimension, ElementwiseOp, FloatDType, GradFn, NumericDType, Tensor, TensorInner,
+    TensorOp,
 };
 
 use super::grad::reduce_grad_for_broadcast_generic;
@@ -38,7 +38,7 @@ impl<T: FloatDType> AddBackward<T> {
     }
 }
 
-impl<T: FloatDTypeAutograd> GradFn<T> for AddBackward<T> {
+impl<T: FloatDType> GradFn<T> for AddBackward<T> {
     fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
         let grad_lhs = reduce_grad_for_broadcast_generic(grad_output, self.lhs.shape());
         let grad_rhs = reduce_grad_for_broadcast_generic(grad_output, self.rhs.shape());
@@ -67,9 +67,9 @@ impl<T: FloatDType> MulBackward<T> {
     }
 }
 
-// MulBackward is now fully generic since Mul<T> is generic over FloatDTypeAutograd.
+// MulBackward is now fully generic since Mul<T> is generic over FloatDType.
 // Gradient tensors have requires_grad() == false, so no new backward nodes are created.
-impl<T: FloatDTypeAutograd> GradFn<T> for MulBackward<T> {
+impl<T: FloatDType> GradFn<T> for MulBackward<T> {
     fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
         let grad_lhs_full = grad_output * &self.rhs;
         let grad_lhs = reduce_grad_for_broadcast_generic(&grad_lhs_full, self.lhs.shape());
@@ -102,34 +102,16 @@ impl<T: FloatDType> MaxBackward<T> {
     }
 }
 
-impl GradFn<f32> for MaxBackward<f32> {
-    fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
+impl<T: FloatDType> GradFn<T> for MaxBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
         // Approximation: gradient flows to the larger input
         // TODO: Proper comparison operation needed
         let grad_lhs = reduce_grad_for_broadcast_generic(grad_output, self.lhs.shape());
-        let grad_rhs = Tensor::<f32, DimDyn>::zeros_dyn(self.rhs.shape());
+        let grad_rhs = Tensor::<T, DimDyn>::zeros_dyn(self.rhs.shape());
         vec![grad_lhs, grad_rhs]
     }
 
-    fn inputs(&self) -> Vec<Tensor<f32, DimDyn>> {
-        vec![self.lhs.clone(), self.rhs.clone()]
-    }
-
-    fn name(&self) -> &'static str {
-        "MaxBackward"
-    }
-}
-
-impl GradFn<f64> for MaxBackward<f64> {
-    fn backward(&self, grad_output: &Tensor<f64, DimDyn>) -> Vec<Tensor<f64, DimDyn>> {
-        // Approximation: gradient flows to the larger input
-        // TODO: Proper comparison operation needed
-        let grad_lhs = reduce_grad_for_broadcast_generic(grad_output, self.lhs.shape());
-        let grad_rhs = Tensor::<f64, DimDyn>::zeros_dyn(self.rhs.shape());
-        vec![grad_lhs, grad_rhs]
-    }
-
-    fn inputs(&self) -> Vec<Tensor<f64, DimDyn>> {
+    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
         vec![self.lhs.clone(), self.rhs.clone()]
     }
 
@@ -151,7 +133,7 @@ pub(crate) fn any_requires_grad_generic<T: FloatDType, D1: Dimension, D2: Dimens
 }
 
 /// Create a tensor with gradient tracking if needed (generic over FloatDType)
-pub(crate) fn with_grad_fn_generic<T: FloatDTypeAutograd, D: Dimension>(
+pub(crate) fn with_grad_fn_generic<T: FloatDType, D: Dimension>(
     tensor: Tensor<T, D>,
     grad_fn: Option<Arc<dyn GradFn<T>>>,
 ) -> Tensor<T, D> {
@@ -285,10 +267,10 @@ fn scalar_tensor_f64(value: f64) -> Tensor<f64, DimDyn> {
 }
 
 // ============================================================================
-// Add: Tensor + Tensor (generic over FloatDTypeAutograd with gradient tracking)
+// Add: Tensor + Tensor (generic over FloatDType with gradient tracking)
 // ============================================================================
 
-impl<T: FloatDTypeAutograd, D: Dimension> Add for &Tensor<T, D> {
+impl<T: FloatDType, D: Dimension> Add for &Tensor<T, D> {
     type Output = Tensor<T, D>;
     fn add(self, rhs: Self) -> Tensor<T, D> {
         let result = create_binary_elementwise(ElementwiseOp::Add, self, rhs);
@@ -301,21 +283,21 @@ impl<T: FloatDTypeAutograd, D: Dimension> Add for &Tensor<T, D> {
     }
 }
 
-impl<T: FloatDTypeAutograd, D: Dimension> Add<Tensor<T, D>> for &Tensor<T, D> {
+impl<T: FloatDType, D: Dimension> Add<Tensor<T, D>> for &Tensor<T, D> {
     type Output = Tensor<T, D>;
     fn add(self, rhs: Tensor<T, D>) -> Tensor<T, D> {
         self + &rhs
     }
 }
 
-impl<T: FloatDTypeAutograd, D: Dimension> Add<&Tensor<T, D>> for Tensor<T, D> {
+impl<T: FloatDType, D: Dimension> Add<&Tensor<T, D>> for Tensor<T, D> {
     type Output = Tensor<T, D>;
     fn add(self, rhs: &Tensor<T, D>) -> Tensor<T, D> {
         &self + rhs
     }
 }
 
-impl<T: FloatDTypeAutograd, D: Dimension> Add for Tensor<T, D> {
+impl<T: FloatDType, D: Dimension> Add for Tensor<T, D> {
     type Output = Tensor<T, D>;
     fn add(self, rhs: Self) -> Tensor<T, D> {
         &self + &rhs
@@ -323,10 +305,10 @@ impl<T: FloatDTypeAutograd, D: Dimension> Add for Tensor<T, D> {
 }
 
 // ============================================================================
-// Mul: Tensor * Tensor (generic over FloatDTypeAutograd with gradient tracking)
+// Mul: Tensor * Tensor (generic over FloatDType with gradient tracking)
 // ============================================================================
 
-impl<T: FloatDTypeAutograd, D: Dimension> Mul for &Tensor<T, D> {
+impl<T: FloatDType, D: Dimension> Mul for &Tensor<T, D> {
     type Output = Tensor<T, D>;
     fn mul(self, rhs: Self) -> Tensor<T, D> {
         let result = create_binary_elementwise(ElementwiseOp::Mul, self, rhs);
@@ -339,21 +321,21 @@ impl<T: FloatDTypeAutograd, D: Dimension> Mul for &Tensor<T, D> {
     }
 }
 
-impl<T: FloatDTypeAutograd, D: Dimension> Mul<Tensor<T, D>> for &Tensor<T, D> {
+impl<T: FloatDType, D: Dimension> Mul<Tensor<T, D>> for &Tensor<T, D> {
     type Output = Tensor<T, D>;
     fn mul(self, rhs: Tensor<T, D>) -> Tensor<T, D> {
         self * &rhs
     }
 }
 
-impl<T: FloatDTypeAutograd, D: Dimension> Mul<&Tensor<T, D>> for Tensor<T, D> {
+impl<T: FloatDType, D: Dimension> Mul<&Tensor<T, D>> for Tensor<T, D> {
     type Output = Tensor<T, D>;
     fn mul(self, rhs: &Tensor<T, D>) -> Tensor<T, D> {
         &self * rhs
     }
 }
 
-impl<T: FloatDTypeAutograd, D: Dimension> Mul for Tensor<T, D> {
+impl<T: FloatDType, D: Dimension> Mul for Tensor<T, D> {
     type Output = Tensor<T, D>;
     fn mul(self, rhs: Self) -> Tensor<T, D> {
         &self * &rhs

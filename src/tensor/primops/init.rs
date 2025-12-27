@@ -9,7 +9,7 @@ use std::sync::Arc;
 use crate::ast::DType;
 use crate::ast::Literal;
 use crate::tensor::shape::{Expr, View};
-use crate::tensor::{Dim, DimDyn, Dimension, Tensor, TensorInner, TensorOp};
+use crate::tensor::{Dim, DimDyn, Dimension, FloatDType, Tensor, TensorInner, TensorOp};
 
 /// Helper to create View from usize shape
 fn view_from_shape(shape: &[usize]) -> View {
@@ -154,29 +154,29 @@ where
 }
 
 // ============================================================================
-// Dynamic dimension constructors (f32)
+// Dynamic dimension constructors (generic over FloatDType)
 // ============================================================================
 
-impl Tensor<f32, DimDyn> {
+impl<T: FloatDType> Tensor<T, DimDyn> {
     /// Create a tensor filled with zeros (dynamic shape)
     pub fn zeros_dyn(shape: &[usize]) -> Self {
-        Self::full_dyn(shape, 0.0)
+        Self::full_dyn(shape, T::ZERO)
     }
 
     /// Create a tensor filled with ones (dynamic shape)
     pub fn ones_dyn(shape: &[usize]) -> Self {
-        Self::full_dyn(shape, 1.0)
+        Self::full_dyn(shape, T::ONE)
     }
 
     /// Create a tensor filled with a constant value (dynamic shape)
-    pub fn full_dyn(shape: &[usize], value: f32) -> Self {
+    pub fn full_dyn(shape: &[usize], value: T) -> Self {
         let shape_vec = shape.to_vec();
         let view = view_from_shape(&shape_vec);
         let inner = TensorInner::new(
-            TensorOp::ConstFill(Literal::F32(value)),
+            TensorOp::ConstFill(T::to_literal(value)),
             view,
             shape_vec,
-            DType::F32,
+            T::DTYPE,
         );
         Self {
             inner: Arc::new(inner),
@@ -195,7 +195,7 @@ impl Tensor<f32, DimDyn> {
             },
             view,
             shape_vec,
-            DType::F32,
+            T::DTYPE,
             name,
         );
         Self {
@@ -209,72 +209,7 @@ impl Tensor<f32, DimDyn> {
     pub fn rand_dyn(shape: &[usize]) -> Self {
         let shape_vec = shape.to_vec();
         let view = view_from_shape(&shape_vec);
-        let inner = TensorInner::new(TensorOp::Rand, view, shape_vec, DType::F32);
-        Self {
-            inner: Arc::new(inner),
-            _dtype: PhantomData,
-            _dim: PhantomData,
-        }
-    }
-}
-
-// ============================================================================
-// Dynamic dimension constructors (f64)
-// ============================================================================
-
-impl Tensor<f64, DimDyn> {
-    /// Create a tensor filled with zeros (dynamic shape)
-    pub fn zeros_dyn(shape: &[usize]) -> Self {
-        Self::full_dyn(shape, 0.0)
-    }
-
-    /// Create a tensor filled with ones (dynamic shape)
-    pub fn ones_dyn(shape: &[usize]) -> Self {
-        Self::full_dyn(shape, 1.0)
-    }
-
-    /// Create a tensor filled with a constant value (dynamic shape)
-    pub fn full_dyn(shape: &[usize], value: f64) -> Self {
-        let shape_vec = shape.to_vec();
-        let view = view_from_shape(&shape_vec);
-        let inner = TensorInner::new(
-            TensorOp::ConstFill(Literal::F64(value)),
-            view,
-            shape_vec,
-            DType::F64,
-        );
-        Self {
-            inner: Arc::new(inner),
-            _dtype: PhantomData,
-            _dim: PhantomData,
-        }
-    }
-
-    /// Create an input tensor (dynamic shape)
-    pub fn input_dyn(name: &str, shape: &[usize]) -> Self {
-        let shape_vec = shape.to_vec();
-        let view = view_from_shape(&shape_vec);
-        let inner = TensorInner::new_named(
-            TensorOp::Buffer {
-                name: name.to_string(),
-            },
-            view,
-            shape_vec,
-            DType::F64,
-            name,
-        );
-        Self {
-            inner: Arc::new(inner),
-            _dtype: PhantomData,
-            _dim: PhantomData,
-        }
-    }
-
-    /// Create a tensor with uniform random values [0, 1) (dynamic shape)
-    pub fn rand_dyn(shape: &[usize]) -> Self {
-        let shape_vec = shape.to_vec();
-        let view = view_from_shape(&shape_vec);
-        let inner = TensorInner::new(TensorOp::Rand, view, shape_vec, DType::F64);
+        let inner = TensorInner::new(TensorOp::Rand, view, shape_vec, T::DTYPE);
         Self {
             inner: Arc::new(inner),
             _dtype: PhantomData,

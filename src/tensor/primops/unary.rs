@@ -19,7 +19,7 @@ use crate::tensor::{
     DimDyn, Dimension, ElementwiseOp, FloatDType, GradFn, Tensor, TensorInner, TensorOp,
 };
 
-use super::binary::{with_grad_fn, with_grad_fn_generic};
+use super::binary::with_grad_fn_generic;
 
 // ============================================================================
 // Unary Gradients (generic over FloatDType)
@@ -37,26 +37,13 @@ impl<T: FloatDType> NegBackward<T> {
     }
 }
 
-impl GradFn<f32> for NegBackward<f32> {
-    fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
+// NegBackward is generic since Neg is implemented for FloatDType
+impl<T: FloatDType> GradFn<T> for NegBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
         vec![-grad_output]
     }
 
-    fn inputs(&self) -> Vec<Tensor<f32, DimDyn>> {
-        vec![self.input.clone()]
-    }
-
-    fn name(&self) -> &'static str {
-        "NegBackward"
-    }
-}
-
-impl GradFn<f64> for NegBackward<f64> {
-    fn backward(&self, grad_output: &Tensor<f64, DimDyn>) -> Vec<Tensor<f64, DimDyn>> {
-        vec![-grad_output]
-    }
-
-    fn inputs(&self) -> Vec<Tensor<f64, DimDyn>> {
+    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
         vec![self.input.clone()]
     }
 
@@ -78,30 +65,15 @@ impl<T: FloatDType> RecipBackward<T> {
     }
 }
 
-impl GradFn<f32> for RecipBackward<f32> {
-    fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
+// RecipBackward is generic since Neg and Mul are implemented for FloatDType
+impl<T: FloatDType> GradFn<T> for RecipBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
         // ∂L/∂a = -∂L/∂z · z² where z = 1/a
         let z_squared = &self.output * &self.output;
         vec![-(grad_output * &z_squared)]
     }
 
-    fn inputs(&self) -> Vec<Tensor<f32, DimDyn>> {
-        vec![self.input.clone()]
-    }
-
-    fn name(&self) -> &'static str {
-        "RecipBackward"
-    }
-}
-
-impl GradFn<f64> for RecipBackward<f64> {
-    fn backward(&self, grad_output: &Tensor<f64, DimDyn>) -> Vec<Tensor<f64, DimDyn>> {
-        // ∂L/∂a = -∂L/∂z · z² where z = 1/a
-        let z_squared = &self.output * &self.output;
-        vec![-(grad_output * &z_squared)]
-    }
-
-    fn inputs(&self) -> Vec<Tensor<f64, DimDyn>> {
+    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
         vec![self.input.clone()]
     }
 
@@ -123,29 +95,15 @@ impl<T: FloatDType> SqrtBackward<T> {
     }
 }
 
-impl GradFn<f32> for SqrtBackward<f32> {
-    fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
+// SqrtBackward is generic since Add, Mul, and Recip are implemented for FloatDType
+impl<T: FloatDType> GradFn<T> for SqrtBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
         let two_sqrt = &self.output + &self.output; // output * 2
-        vec![grad_output / &two_sqrt]
-    }
-
-    fn inputs(&self) -> Vec<Tensor<f32, DimDyn>> {
-        vec![self.input.clone()]
-    }
-
-    fn name(&self) -> &'static str {
-        "SqrtBackward"
-    }
-}
-
-impl GradFn<f64> for SqrtBackward<f64> {
-    fn backward(&self, grad_output: &Tensor<f64, DimDyn>) -> Vec<Tensor<f64, DimDyn>> {
-        let two_sqrt = &self.output + &self.output; // output * 2
-        // Use recip() * instead of / since Div not yet implemented for f64
+        // Use recip() * for generic implementation
         vec![grad_output * &two_sqrt.recip()]
     }
 
-    fn inputs(&self) -> Vec<Tensor<f64, DimDyn>> {
+    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
         vec![self.input.clone()]
     }
 
@@ -166,31 +124,16 @@ impl<T: FloatDType> Log2Backward<T> {
     }
 }
 
-impl GradFn<f32> for Log2Backward<f32> {
-    fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
+// Log2Backward is generic since Mul and Recip are implemented for FloatDType
+impl<T: FloatDType> GradFn<T> for Log2Backward<T> {
+    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
         // Note: ignoring ln(2) factor for now
         // TODO: Add scalar operations
-        vec![grad_output / &self.input]
-    }
-
-    fn inputs(&self) -> Vec<Tensor<f32, DimDyn>> {
-        vec![self.input.clone()]
-    }
-
-    fn name(&self) -> &'static str {
-        "Log2Backward"
-    }
-}
-
-impl GradFn<f64> for Log2Backward<f64> {
-    fn backward(&self, grad_output: &Tensor<f64, DimDyn>) -> Vec<Tensor<f64, DimDyn>> {
-        // Note: ignoring ln(2) factor for now
-        // TODO: Add scalar operations
-        // Use recip() * instead of / since Div not yet implemented for f64
+        // Use recip() * for generic implementation
         vec![grad_output * &self.input.clone().recip()]
     }
 
-    fn inputs(&self) -> Vec<Tensor<f64, DimDyn>> {
+    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
         vec![self.input.clone()]
     }
 
@@ -212,30 +155,15 @@ impl<T: FloatDType> Exp2Backward<T> {
     }
 }
 
-impl GradFn<f32> for Exp2Backward<f32> {
-    fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
+// Exp2Backward is generic since Mul is implemented for FloatDType
+impl<T: FloatDType> GradFn<T> for Exp2Backward<T> {
+    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
         // Approximate: ignoring ln(2) factor for now
         // TODO: Add scalar multiplication
         vec![grad_output * &self.output]
     }
 
-    fn inputs(&self) -> Vec<Tensor<f32, DimDyn>> {
-        vec![self.input.clone()]
-    }
-
-    fn name(&self) -> &'static str {
-        "Exp2Backward"
-    }
-}
-
-impl GradFn<f64> for Exp2Backward<f64> {
-    fn backward(&self, grad_output: &Tensor<f64, DimDyn>) -> Vec<Tensor<f64, DimDyn>> {
-        // Approximate: ignoring ln(2) factor for now
-        // TODO: Add scalar multiplication
-        vec![grad_output * &self.output]
-    }
-
-    fn inputs(&self) -> Vec<Tensor<f64, DimDyn>> {
+    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
         vec![self.input.clone()]
     }
 
@@ -256,8 +184,9 @@ impl<T: FloatDType> SinBackward<T> {
     }
 }
 
-impl GradFn<f32> for SinBackward<f32> {
-    fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
+// SinBackward is generic since Mul and Sin are implemented for FloatDType
+impl<T: FloatDType> GradFn<T> for SinBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
         // cos(x) = sin(x + π/2)
         // TODO: Implement proper cos using scalar addition
         // Approximate: just use the input sin (incorrect but compiles)
@@ -265,25 +194,7 @@ impl GradFn<f32> for SinBackward<f32> {
         vec![grad_output * &cos_input]
     }
 
-    fn inputs(&self) -> Vec<Tensor<f32, DimDyn>> {
-        vec![self.input.clone()]
-    }
-
-    fn name(&self) -> &'static str {
-        "SinBackward"
-    }
-}
-
-impl GradFn<f64> for SinBackward<f64> {
-    fn backward(&self, grad_output: &Tensor<f64, DimDyn>) -> Vec<Tensor<f64, DimDyn>> {
-        // cos(x) = sin(x + π/2)
-        // TODO: Implement proper cos using scalar addition
-        // Approximate: just use the input sin (incorrect but compiles)
-        let cos_input = (&self.input).sin();
-        vec![grad_output * &cos_input]
-    }
-
-    fn inputs(&self) -> Vec<Tensor<f64, DimDyn>> {
+    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
         vec![self.input.clone()]
     }
 
@@ -367,37 +278,15 @@ fn create_unary_elementwise<T: FloatDType, D: Dimension>(
 }
 
 // ============================================================================
-// Neg implementation (std::ops::Neg)
+// Neg implementation (std::ops::Neg) - Generic over FloatDType
 // ============================================================================
 
-impl<D: Dimension> Neg for &Tensor<f32, D> {
-    type Output = Tensor<f32, D>;
+impl<T: FloatDType, D: Dimension> Neg for &Tensor<T, D> {
+    type Output = Tensor<T, D>;
 
-    fn neg(self) -> Tensor<f32, D> {
+    fn neg(self) -> Tensor<T, D> {
         let result = create_unary_elementwise(ElementwiseOp::Neg, self);
 
-        if self.requires_grad() {
-            let grad_fn = NegBackward::new(self.clone().into_dyn());
-            with_grad_fn(result, Some(Arc::new(grad_fn)))
-        } else {
-            result
-        }
-    }
-}
-
-impl<D: Dimension> Neg for Tensor<f32, D> {
-    type Output = Tensor<f32, D>;
-    fn neg(self) -> Tensor<f32, D> {
-        -&self
-    }
-}
-
-// f64 implementation with gradient tracking
-impl<D: Dimension> Neg for &Tensor<f64, D> {
-    type Output = Tensor<f64, D>;
-
-    fn neg(self) -> Tensor<f64, D> {
-        let result = create_unary_elementwise(ElementwiseOp::Neg, self);
         if self.requires_grad() {
             let grad_fn = NegBackward::new(self.clone().into_dyn());
             with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
@@ -407,46 +296,23 @@ impl<D: Dimension> Neg for &Tensor<f64, D> {
     }
 }
 
-impl<D: Dimension> Neg for Tensor<f64, D> {
-    type Output = Tensor<f64, D>;
-    fn neg(self) -> Tensor<f64, D> {
+impl<T: FloatDType, D: Dimension> Neg for Tensor<T, D> {
+    type Output = Tensor<T, D>;
+    fn neg(self) -> Tensor<T, D> {
         -&self
     }
 }
 
 // ============================================================================
-// Recip implementation
+// Recip implementation - Generic over FloatDType
 // ============================================================================
 
-// f32 implementation with gradient tracking
-impl<D: Dimension> Recip for &Tensor<f32, D> {
-    type Output = Tensor<f32, D>;
+impl<T: FloatDType, D: Dimension> Recip for &Tensor<T, D> {
+    type Output = Tensor<T, D>;
 
-    fn recip(self) -> Tensor<f32, D> {
+    fn recip(self) -> Tensor<T, D> {
         let result = create_unary_elementwise(ElementwiseOp::Recip, self);
 
-        if self.requires_grad() {
-            let grad_fn = RecipBackward::new(self.clone().into_dyn(), result.clone().into_dyn());
-            with_grad_fn(result, Some(Arc::new(grad_fn)))
-        } else {
-            result
-        }
-    }
-}
-
-impl<D: Dimension> Recip for Tensor<f32, D> {
-    type Output = Tensor<f32, D>;
-    fn recip(self) -> Tensor<f32, D> {
-        (&self).recip()
-    }
-}
-
-// f64 implementation with gradient tracking
-impl<D: Dimension> Recip for &Tensor<f64, D> {
-    type Output = Tensor<f64, D>;
-
-    fn recip(self) -> Tensor<f64, D> {
-        let result = create_unary_elementwise(ElementwiseOp::Recip, self);
         if self.requires_grad() {
             let grad_fn = RecipBackward::new(self.clone().into_dyn(), result.clone().into_dyn());
             with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
@@ -456,46 +322,23 @@ impl<D: Dimension> Recip for &Tensor<f64, D> {
     }
 }
 
-impl<D: Dimension> Recip for Tensor<f64, D> {
-    type Output = Tensor<f64, D>;
-    fn recip(self) -> Tensor<f64, D> {
+impl<T: FloatDType, D: Dimension> Recip for Tensor<T, D> {
+    type Output = Tensor<T, D>;
+    fn recip(self) -> Tensor<T, D> {
         (&self).recip()
     }
 }
 
 // ============================================================================
-// Sqrt implementation
+// Sqrt implementation - Generic over FloatDType
 // ============================================================================
 
-// f32 implementation with gradient tracking
-impl<D: Dimension> Sqrt for &Tensor<f32, D> {
-    type Output = Tensor<f32, D>;
+impl<T: FloatDType, D: Dimension> Sqrt for &Tensor<T, D> {
+    type Output = Tensor<T, D>;
 
-    fn sqrt(self) -> Tensor<f32, D> {
+    fn sqrt(self) -> Tensor<T, D> {
         let result = create_unary_elementwise(ElementwiseOp::Sqrt, self);
 
-        if self.requires_grad() {
-            let grad_fn = SqrtBackward::new(self.clone().into_dyn(), result.clone().into_dyn());
-            with_grad_fn(result, Some(Arc::new(grad_fn)))
-        } else {
-            result
-        }
-    }
-}
-
-impl<D: Dimension> Sqrt for Tensor<f32, D> {
-    type Output = Tensor<f32, D>;
-    fn sqrt(self) -> Tensor<f32, D> {
-        (&self).sqrt()
-    }
-}
-
-// f64 implementation with gradient tracking
-impl<D: Dimension> Sqrt for &Tensor<f64, D> {
-    type Output = Tensor<f64, D>;
-
-    fn sqrt(self) -> Tensor<f64, D> {
-        let result = create_unary_elementwise(ElementwiseOp::Sqrt, self);
         if self.requires_grad() {
             let grad_fn = SqrtBackward::new(self.clone().into_dyn(), result.clone().into_dyn());
             with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
@@ -505,46 +348,23 @@ impl<D: Dimension> Sqrt for &Tensor<f64, D> {
     }
 }
 
-impl<D: Dimension> Sqrt for Tensor<f64, D> {
-    type Output = Tensor<f64, D>;
-    fn sqrt(self) -> Tensor<f64, D> {
+impl<T: FloatDType, D: Dimension> Sqrt for Tensor<T, D> {
+    type Output = Tensor<T, D>;
+    fn sqrt(self) -> Tensor<T, D> {
         (&self).sqrt()
     }
 }
 
 // ============================================================================
-// Log2 implementation
+// Log2 implementation - Generic over FloatDType
 // ============================================================================
 
-// f32 implementation with gradient tracking
-impl<D: Dimension> Log2 for &Tensor<f32, D> {
-    type Output = Tensor<f32, D>;
+impl<T: FloatDType, D: Dimension> Log2 for &Tensor<T, D> {
+    type Output = Tensor<T, D>;
 
-    fn log2(self) -> Tensor<f32, D> {
+    fn log2(self) -> Tensor<T, D> {
         let result = create_unary_elementwise(ElementwiseOp::Log2, self);
 
-        if self.requires_grad() {
-            let grad_fn = Log2Backward::new(self.clone().into_dyn());
-            with_grad_fn(result, Some(Arc::new(grad_fn)))
-        } else {
-            result
-        }
-    }
-}
-
-impl<D: Dimension> Log2 for Tensor<f32, D> {
-    type Output = Tensor<f32, D>;
-    fn log2(self) -> Tensor<f32, D> {
-        (&self).log2()
-    }
-}
-
-// f64 implementation with gradient tracking
-impl<D: Dimension> Log2 for &Tensor<f64, D> {
-    type Output = Tensor<f64, D>;
-
-    fn log2(self) -> Tensor<f64, D> {
-        let result = create_unary_elementwise(ElementwiseOp::Log2, self);
         if self.requires_grad() {
             let grad_fn = Log2Backward::new(self.clone().into_dyn());
             with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
@@ -554,46 +374,23 @@ impl<D: Dimension> Log2 for &Tensor<f64, D> {
     }
 }
 
-impl<D: Dimension> Log2 for Tensor<f64, D> {
-    type Output = Tensor<f64, D>;
-    fn log2(self) -> Tensor<f64, D> {
+impl<T: FloatDType, D: Dimension> Log2 for Tensor<T, D> {
+    type Output = Tensor<T, D>;
+    fn log2(self) -> Tensor<T, D> {
         (&self).log2()
     }
 }
 
 // ============================================================================
-// Exp2 implementation
+// Exp2 implementation - Generic over FloatDType
 // ============================================================================
 
-// f32 implementation with gradient tracking
-impl<D: Dimension> Exp2 for &Tensor<f32, D> {
-    type Output = Tensor<f32, D>;
+impl<T: FloatDType, D: Dimension> Exp2 for &Tensor<T, D> {
+    type Output = Tensor<T, D>;
 
-    fn exp2(self) -> Tensor<f32, D> {
+    fn exp2(self) -> Tensor<T, D> {
         let result = create_unary_elementwise(ElementwiseOp::Exp2, self);
 
-        if self.requires_grad() {
-            let grad_fn = Exp2Backward::new(self.clone().into_dyn(), result.clone().into_dyn());
-            with_grad_fn(result, Some(Arc::new(grad_fn)))
-        } else {
-            result
-        }
-    }
-}
-
-impl<D: Dimension> Exp2 for Tensor<f32, D> {
-    type Output = Tensor<f32, D>;
-    fn exp2(self) -> Tensor<f32, D> {
-        (&self).exp2()
-    }
-}
-
-// f64 implementation with gradient tracking
-impl<D: Dimension> Exp2 for &Tensor<f64, D> {
-    type Output = Tensor<f64, D>;
-
-    fn exp2(self) -> Tensor<f64, D> {
-        let result = create_unary_elementwise(ElementwiseOp::Exp2, self);
         if self.requires_grad() {
             let grad_fn = Exp2Backward::new(self.clone().into_dyn(), result.clone().into_dyn());
             with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
@@ -603,46 +400,23 @@ impl<D: Dimension> Exp2 for &Tensor<f64, D> {
     }
 }
 
-impl<D: Dimension> Exp2 for Tensor<f64, D> {
-    type Output = Tensor<f64, D>;
-    fn exp2(self) -> Tensor<f64, D> {
+impl<T: FloatDType, D: Dimension> Exp2 for Tensor<T, D> {
+    type Output = Tensor<T, D>;
+    fn exp2(self) -> Tensor<T, D> {
         (&self).exp2()
     }
 }
 
 // ============================================================================
-// Sin implementation
+// Sin implementation - Generic over FloatDType
 // ============================================================================
 
-// f32 implementation with gradient tracking
-impl<D: Dimension> Sin for &Tensor<f32, D> {
-    type Output = Tensor<f32, D>;
+impl<T: FloatDType, D: Dimension> Sin for &Tensor<T, D> {
+    type Output = Tensor<T, D>;
 
-    fn sin(self) -> Tensor<f32, D> {
+    fn sin(self) -> Tensor<T, D> {
         let result = create_unary_elementwise(ElementwiseOp::Sin, self);
 
-        if self.requires_grad() {
-            let grad_fn = SinBackward::new(self.clone().into_dyn());
-            with_grad_fn(result, Some(Arc::new(grad_fn)))
-        } else {
-            result
-        }
-    }
-}
-
-impl<D: Dimension> Sin for Tensor<f32, D> {
-    type Output = Tensor<f32, D>;
-    fn sin(self) -> Tensor<f32, D> {
-        (&self).sin()
-    }
-}
-
-// f64 implementation with gradient tracking
-impl<D: Dimension> Sin for &Tensor<f64, D> {
-    type Output = Tensor<f64, D>;
-
-    fn sin(self) -> Tensor<f64, D> {
-        let result = create_unary_elementwise(ElementwiseOp::Sin, self);
         if self.requires_grad() {
             let grad_fn = SinBackward::new(self.clone().into_dyn());
             with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
@@ -652,47 +426,30 @@ impl<D: Dimension> Sin for &Tensor<f64, D> {
     }
 }
 
-impl<D: Dimension> Sin for Tensor<f64, D> {
-    type Output = Tensor<f64, D>;
-    fn sin(self) -> Tensor<f64, D> {
+impl<T: FloatDType, D: Dimension> Sin for Tensor<T, D> {
+    type Output = Tensor<T, D>;
+    fn sin(self) -> Tensor<T, D> {
         (&self).sin()
     }
 }
 
 // ============================================================================
-// Floor implementation
+// Floor implementation - Generic over FloatDType (no gradient)
 // ============================================================================
 
-// f32 implementation (no gradient - floor is non-differentiable)
-impl<D: Dimension> Floor for &Tensor<f32, D> {
-    type Output = Tensor<f32, D>;
+impl<T: FloatDType, D: Dimension> Floor for &Tensor<T, D> {
+    type Output = Tensor<T, D>;
 
     /// Floor is non-differentiable (gradient is 0 almost everywhere).
     /// Therefore, gradient tracking is not preserved for this operation.
-    fn floor(self) -> Tensor<f32, D> {
+    fn floor(self) -> Tensor<T, D> {
         create_unary_elementwise(ElementwiseOp::Floor, self)
     }
 }
 
-impl<D: Dimension> Floor for Tensor<f32, D> {
-    type Output = Tensor<f32, D>;
-    fn floor(self) -> Tensor<f32, D> {
-        (&self).floor()
-    }
-}
-
-// f64 implementation (no gradient - floor is non-differentiable)
-impl<D: Dimension> Floor for &Tensor<f64, D> {
-    type Output = Tensor<f64, D>;
-
-    fn floor(self) -> Tensor<f64, D> {
-        create_unary_elementwise(ElementwiseOp::Floor, self)
-    }
-}
-
-impl<D: Dimension> Floor for Tensor<f64, D> {
-    type Output = Tensor<f64, D>;
-    fn floor(self) -> Tensor<f64, D> {
+impl<T: FloatDType, D: Dimension> Floor for Tensor<T, D> {
+    type Output = Tensor<T, D>;
+    fn floor(self) -> Tensor<T, D> {
         (&self).floor()
     }
 }
