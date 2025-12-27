@@ -75,7 +75,9 @@ fn collect_var_names_recursive(ast: &AstNode, names: &mut HashSet<String>) {
         | AstNode::Gt(a, b)
         | AstNode::Ge(a, b)
         | AstNode::Eq(a, b)
-        | AstNode::Ne(a, b) => {
+        | AstNode::Ne(a, b)
+        | AstNode::And(a, b)
+        | AstNode::Or(a, b) => {
             collect_var_names_recursive(a, names);
             collect_var_names_recursive(b, names);
         }
@@ -86,8 +88,18 @@ fn collect_var_names_recursive(ast: &AstNode, names: &mut HashSet<String>) {
         | AstNode::Sin(a)
         | AstNode::Floor(a)
         | AstNode::BitwiseNot(a)
+        | AstNode::Not(a)
         | AstNode::Cast(a, _) => {
             collect_var_names_recursive(a, names);
+        }
+        AstNode::Select {
+            cond,
+            then_val,
+            else_val,
+        } => {
+            collect_var_names_recursive(cond, names);
+            collect_var_names_recursive(then_val, names);
+            collect_var_names_recursive(else_val, names);
         }
         AstNode::Fma { a, b, c } => {
             collect_var_names_recursive(a, names);

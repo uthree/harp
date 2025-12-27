@@ -159,6 +159,20 @@ pub enum AstNode {
     Eq(Box<AstNode>, Box<AstNode>), // ==
     Ne(Box<AstNode>, Box<AstNode>), // !=
 
+    // Logical operations - 論理演算（Bool型を返す）
+    And(Box<AstNode>, Box<AstNode>), // &&
+    Or(Box<AstNode>, Box<AstNode>),  // ||
+    Not(Box<AstNode>),               // !
+
+    /// 三項条件式（Select）
+    /// cond ? then_val : else_val
+    /// GPUカーネルで効率的な条件付き値選択に使用
+    Select {
+        cond: Box<AstNode>,
+        then_val: Box<AstNode>,
+        else_val: Box<AstNode>,
+    },
+
     // Control flow - 制御構文
     Range {
         var: String,         // ループ変数名
@@ -273,7 +287,9 @@ impl AstNode {
             | AstNode::Gt(left, right)
             | AstNode::Ge(left, right)
             | AstNode::Eq(left, right)
-            | AstNode::Ne(left, right) => vec![left.as_ref(), right.as_ref()],
+            | AstNode::Ne(left, right)
+            | AstNode::And(left, right)
+            | AstNode::Or(left, right) => vec![left.as_ref(), right.as_ref()],
             AstNode::Recip(operand)
             | AstNode::Sqrt(operand)
             | AstNode::Log2(operand)
@@ -281,8 +297,14 @@ impl AstNode {
             | AstNode::Sin(operand)
             | AstNode::Floor(operand)
             | AstNode::BitwiseNot(operand)
+            | AstNode::Not(operand)
             | AstNode::Cast(operand, _) => vec![operand.as_ref()],
-            AstNode::Fma { a, b, c } => vec![a.as_ref(), b.as_ref(), c.as_ref()],
+            AstNode::Fma { a, b, c }
+            | AstNode::Select {
+                cond: a,
+                then_val: b,
+                else_val: c,
+            } => vec![a.as_ref(), b.as_ref(), c.as_ref()],
             AstNode::AtomicAdd {
                 ptr, offset, value, ..
             }
@@ -397,6 +419,18 @@ impl AstNode {
             AstNode::Ge(left, right) => AstNode::Ge(Box::new(f(left)), Box::new(f(right))),
             AstNode::Eq(left, right) => AstNode::Eq(Box::new(f(left)), Box::new(f(right))),
             AstNode::Ne(left, right) => AstNode::Ne(Box::new(f(left)), Box::new(f(right))),
+            AstNode::And(left, right) => AstNode::And(Box::new(f(left)), Box::new(f(right))),
+            AstNode::Or(left, right) => AstNode::Or(Box::new(f(left)), Box::new(f(right))),
+            AstNode::Not(operand) => AstNode::Not(Box::new(f(operand))),
+            AstNode::Select {
+                cond,
+                then_val,
+                else_val,
+            } => AstNode::Select {
+                cond: Box::new(f(cond)),
+                then_val: Box::new(f(then_val)),
+                else_val: Box::new(f(else_val)),
+            },
             AstNode::Recip(operand) => AstNode::Recip(Box::new(f(operand))),
             AstNode::Sqrt(operand) => AstNode::Sqrt(Box::new(f(operand))),
             AstNode::Log2(operand) => AstNode::Log2(Box::new(f(operand))),
@@ -597,6 +631,12 @@ impl AstNode {
             | AstNode::Eq(_, _)
             | AstNode::Ne(_, _) => DType::Bool,
 
+            // Logical operations - always return Bool
+            AstNode::And(_, _) | AstNode::Or(_, _) | AstNode::Not(_) => DType::Bool,
+
+            // Select - returns the type of then_val/else_val (should be the same)
+            AstNode::Select { then_val, .. } => then_val.infer_type(),
+
             // Unary operations that preserve type
             AstNode::Recip(operand)
             | AstNode::BitwiseNot(operand)
@@ -721,7 +761,9 @@ impl AstNode {
             | AstNode::Gt(left, right)
             | AstNode::Ge(left, right)
             | AstNode::Eq(left, right)
-            | AstNode::Ne(left, right) => {
+            | AstNode::Ne(left, right)
+            | AstNode::And(left, right)
+            | AstNode::Or(left, right) => {
                 left.check_scope(scope)?;
                 right.check_scope(scope)?;
                 Ok(())
@@ -733,8 +775,20 @@ impl AstNode {
             | AstNode::Sin(operand)
             | AstNode::Floor(operand)
             | AstNode::BitwiseNot(operand)
+            | AstNode::Not(operand)
             | AstNode::Cast(operand, _) => {
                 operand.check_scope(scope)?;
+                Ok(())
+            }
+            // Select (ternary)
+            AstNode::Select {
+                cond,
+                then_val,
+                else_val,
+            } => {
+                cond.check_scope(scope)?;
+                then_val.check_scope(scope)?;
+                else_val.check_scope(scope)?;
                 Ok(())
             }
             // Fused Multiply-Add

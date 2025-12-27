@@ -34,6 +34,7 @@ use std::collections::HashMap;
 use crate::ast::{AstKernelCallInfo, AstNode, DType as AstDType, Mutability, Scope, helper::*};
 use crate::tensor::ops::{ReduceOp, TensorOp};
 use crate::tensor::shape::Expr;
+use crate::tensor::shape::View;
 use crate::tensor::{DimDyn, Tensor, TensorInner};
 
 use helpers::*;
@@ -159,6 +160,17 @@ impl TensorLowerer {
 
     /// TensorInnerをASTにlower（内部用）
     fn lower_node_erased(&self, inner: &TensorInner, name: &str) -> AstNode {
+        // View::Paddedは特別処理（条件分岐が必要）
+        if let TensorOp::View { input } = inner.op()
+            && let View::Padded {
+                padding,
+                default_value,
+                ..
+            } = inner.view()
+        {
+            return self.lower_pad_erased(inner, input.as_ref(), padding, *default_value, name);
+        }
+
         // 最終的な出力形状はルートノードの形状を使用
         let output_shape = inner.view().shape().to_vec();
         let output_ndim = output_shape.len();
@@ -303,13 +315,13 @@ impl TensorLowerer {
 
             let src_offset = if input_ndim == output_ndim {
                 // 次元数が同じ場合はcontiguousオフセット
-                build_contiguous_offset_with_shape(output_ndim, Some(input_shape))
+                build_contiguous_offset_with_shape(output_ndim, Some(&input_shape))
             } else if input_ndim < output_ndim {
                 // ブロードキャスト: 入力の次元数 < ループの次元数
                 self.build_broadcast_offset(input, input_ndim, output_ndim)
             } else {
                 // input_ndim > output_ndim: 入力のshapeを使用
-                build_contiguous_offset_with_shape(input_ndim, Some(input_shape))
+                build_contiguous_offset_with_shape(input_ndim, Some(&input_shape))
             };
 
             let idx = *buffer_index;
@@ -408,7 +420,7 @@ impl TensorLowerer {
             let input_shape = input.view().shape();
             let input_ndim = input_shape.len();
             // contiguousオフセットを計算（バッファはcontiguousデータを持つ）
-            let src_offset = build_contiguous_offset_with_shape(input_ndim, Some(input_shape));
+            let src_offset = build_contiguous_offset_with_shape(input_ndim, Some(&input_shape));
             let idx = *buffer_index;
             *buffer_index += 1;
             return load(var(ph::input(idx)), src_offset, load_dtype.clone());
@@ -494,13 +506,13 @@ impl TensorLowerer {
 
             let src_offset = if input_ndim == ndim {
                 // 次元数が同じ場合はcontiguousオフセット
-                build_contiguous_offset_with_shape(ndim, Some(input_shape))
+                build_contiguous_offset_with_shape(ndim, Some(&input_shape))
             } else if input_ndim < ndim {
                 // ブロードキャスト: 入力の次元数 < ループの次元数
                 self.build_broadcast_offset(input, input_ndim, ndim)
             } else {
                 // input_ndim > ndim: 通常発生しないが、入力のshapeを使用
-                build_contiguous_offset_with_shape(input_ndim, Some(input_shape))
+                build_contiguous_offset_with_shape(input_ndim, Some(&input_shape))
             };
 
             let idx = *buffer_index;
@@ -630,7 +642,7 @@ impl TensorLowerer {
 
         // 出力オフセット（縮約軸を除く）
         let output_offset =
-            build_contiguous_offset_excluding_axes_with_shape(input_ndim, axes, Some(input_shape));
+            build_contiguous_offset_excluding_axes_with_shape(input_ndim, axes, Some(&input_shape));
 
         let acc_var = "acc";
         let acc_update = assign(acc_var, accumulate_fn(var(acc_var), value_expr));
@@ -642,7 +654,7 @@ impl TensorLowerer {
                 ph::ridx(axis),
                 const_int(0),
                 const_int(1),
-                shape_dim_to_ast(Some(input_shape), axis),
+                shape_dim_to_ast(Some(&input_shape), axis),
                 reduce_loops,
             );
         }
@@ -664,8 +676,107 @@ impl TensorLowerer {
             axes,
             inner_body,
             scope,
-            Some(input_shape),
+            Some(&input_shape),
         );
+
+        function(
+            Some(name.to_string()),
+            vec![],
+            AstDType::Tuple(vec![]),
+            body,
+        )
+    }
+
+    /// Pad演算をlower
+    ///
+    /// パディング領域ではpad_valueを出力し、データ領域では入力からコピー
+    fn lower_pad_erased(
+        &self,
+        outer: &TensorInner,
+        input: &TensorInner,
+        padding: &[(Expr, Expr)],
+        pad_value: crate::tensor::ops::PadValue,
+        name: &str,
+    ) -> AstNode {
+        let output_shape = outer.view().shape();
+        let input_shape = input.view().shape();
+        let ndim = output_shape.len();
+        let load_dtype = dtype_to_ast(&outer.dtype());
+
+        // パディング値をリテラルに変換
+        let pad_lit = match pad_value {
+            crate::tensor::ops::PadValue::Zero => AstNode::Const(crate::ast::Literal::F32(0.0)),
+            crate::tensor::ops::PadValue::One => AstNode::Const(crate::ast::Literal::F32(1.0)),
+            crate::tensor::ops::PadValue::NegInf => {
+                AstNode::Const(crate::ast::Literal::F32(f32::NEG_INFINITY))
+            }
+        };
+
+        // 出力オフセット（contiguous）
+        let output_offset = build_contiguous_offset_with_shape(ndim, Some(&output_shape));
+
+        // 各次元でデータ領域かどうかをチェックする条件を構築
+        // ridx[i] >= pad_before[i] && ridx[i] < pad_before[i] + input_shape[i]
+        let mut conditions: Vec<AstNode> = Vec::new();
+        for (axis, (pad_before, _pad_after)) in padding.iter().enumerate() {
+            let idx = var(ph::ridx(axis));
+            let pad_before_ast: AstNode = pad_before.clone().into();
+            let input_size_ast: AstNode = input_shape[axis].clone().into();
+            let upper_bound: AstNode = pad_before_ast.clone() + input_size_ast;
+
+            // idx >= pad_before
+            let cond_lower = AstNode::Ge(Box::new(idx.clone()), Box::new(pad_before_ast));
+            // idx < pad_before + input_shape
+            let cond_upper = AstNode::Lt(Box::new(idx), Box::new(upper_bound));
+
+            conditions.push(cond_lower);
+            conditions.push(cond_upper);
+        }
+
+        // 全条件をANDで結合
+        let in_data_region = if conditions.is_empty() {
+            // 0次元テンソルの場合は常にデータ領域
+            AstNode::Const(crate::ast::Literal::Bool(true))
+        } else {
+            conditions
+                .into_iter()
+                .reduce(|a, b| AstNode::And(Box::new(a), Box::new(b)))
+                .unwrap()
+        };
+
+        // 入力からのロードオフセットを計算
+        // input_offset = (ridx[0] - pad_before[0]) * input_stride[0] + ...
+        let mut input_offset = const_int(0);
+        for (axis, (pad_before, _)) in padding.iter().enumerate().rev() {
+            let adjusted_idx = var(ph::ridx(axis)) - Into::<AstNode>::into(pad_before.clone());
+
+            if axis == ndim - 1 {
+                input_offset = adjusted_idx;
+            } else {
+                // stride = product of inner dimensions
+                let mut stride: AstNode = input_shape[axis + 1].clone().into();
+                for inner_shape in input_shape.iter().take(ndim).skip(axis + 2) {
+                    stride = stride * Into::<AstNode>::into(inner_shape.clone());
+                }
+                input_offset = adjusted_idx * stride + input_offset;
+            }
+        }
+
+        // 入力バッファからのload
+        let load_expr = load(var(ph::input(0)), input_offset, load_dtype);
+
+        // 条件分岐: データ領域ならload、パディング領域ならpad_value
+        let value_expr = AstNode::Select {
+            cond: Box::new(in_data_region),
+            then_val: Box::new(load_expr),
+            else_val: Box::new(pad_lit),
+        };
+
+        // Store文を作成
+        let store_stmt = store(var(ph::OUTPUT), output_offset, value_expr);
+
+        // ループでラップ
+        let body = wrap_with_loops_with_shape(ndim, vec![store_stmt], Some(&output_shape));
 
         function(
             Some(name.to_string()),
@@ -719,9 +830,9 @@ impl TensorLowerer {
 
         for axis in (0..src_ndim - 1).rev() {
             let loop_axis = axis_offset + axis;
-            let mut stride = shape_dim_to_ast(Some(shape), axis + 1);
+            let mut stride = shape_dim_to_ast(Some(&shape), axis + 1);
             for inner_axis in (axis + 2)..src_ndim {
-                stride = stride * shape_dim_to_ast(Some(shape), inner_axis);
+                stride = stride * shape_dim_to_ast(Some(&shape), inner_axis);
             }
             offset = var(ph::ridx(loop_axis)) * stride + offset;
         }
@@ -748,7 +859,7 @@ impl TensorLowerer {
             TensorOp::MapReduce { .. } => {
                 // Compute演算の結果は連続メモリ
                 let shape = inner.view().shape();
-                build_contiguous_offset_with_shape(ndim, Some(shape))
+                build_contiguous_offset_with_shape(ndim, Some(&shape))
             }
             _ => {
                 // その他の演算は自身のviewを使用

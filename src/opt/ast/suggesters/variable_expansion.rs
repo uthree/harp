@@ -334,6 +334,28 @@ impl VariableExpansionSuggester {
                 Box::new(Self::substitute_var(a, var_name, replacement)),
                 Box::new(Self::substitute_var(b, var_name, replacement)),
             ),
+            // 論理演算
+            AstNode::And(a, b) => AstNode::And(
+                Box::new(Self::substitute_var(a, var_name, replacement)),
+                Box::new(Self::substitute_var(b, var_name, replacement)),
+            ),
+            AstNode::Or(a, b) => AstNode::Or(
+                Box::new(Self::substitute_var(a, var_name, replacement)),
+                Box::new(Self::substitute_var(b, var_name, replacement)),
+            ),
+            AstNode::Not(a) => {
+                AstNode::Not(Box::new(Self::substitute_var(a, var_name, replacement)))
+            }
+            // Select (ternary)
+            AstNode::Select {
+                cond,
+                then_val,
+                else_val,
+            } => AstNode::Select {
+                cond: Box::new(Self::substitute_var(cond, var_name, replacement)),
+                then_val: Box::new(Self::substitute_var(then_val, var_name, replacement)),
+                else_val: Box::new(Self::substitute_var(else_val, var_name, replacement)),
+            },
             // 単項演算
             AstNode::Recip(a) => {
                 AstNode::Recip(Box::new(Self::substitute_var(a, var_name, replacement)))

@@ -37,6 +37,25 @@ impl_binary_helper!(ge, Ge, "Create a greater-than-or-equal comparison: a >= b")
 impl_binary_helper!(eq, Eq, "Create an equality comparison: a == b");
 impl_binary_helper!(ne, Ne, "Create a not-equal comparison: a != b");
 
+// Logical operation helpers
+impl_binary_helper!(and, And, "Create a logical AND: a && b");
+impl_binary_helper!(or, Or, "Create a logical OR: a || b");
+impl_unary_helper!(not, Not, "Create a logical NOT: !a");
+
+/// Create a select (ternary) expression: cond ? then_val : else_val
+///
+/// # Arguments
+/// * `cond` - Condition (Bool type)
+/// * `then_val` - Value if condition is true
+/// * `else_val` - Value if condition is false
+pub fn select(cond: AstNode, then_val: AstNode, else_val: AstNode) -> AstNode {
+    AstNode::Select {
+        cond: Box::new(cond),
+        then_val: Box::new(then_val),
+        else_val: Box::new(else_val),
+    }
+}
+
 // Bitwise operation helpers
 impl_binary_helper!(bitand, BitwiseAnd, "Create a bitwise AND: a & b");
 impl_binary_helper!(bitor, BitwiseOr, "Create a bitwise OR: a | b");

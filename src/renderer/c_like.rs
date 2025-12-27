@@ -281,6 +281,37 @@ pub trait CLikeRenderer: Renderer {
                     self.render_expr(right)
                 )
             }
+            // Logical operations
+            AstNode::And(left, right) => {
+                format!(
+                    "({} && {})",
+                    self.render_expr(left),
+                    self.render_expr(right)
+                )
+            }
+            AstNode::Or(left, right) => {
+                format!(
+                    "({} || {})",
+                    self.render_expr(left),
+                    self.render_expr(right)
+                )
+            }
+            AstNode::Not(operand) => {
+                format!("(!{})", self.render_expr(operand))
+            }
+            // Select (ternary conditional)
+            AstNode::Select {
+                cond,
+                then_val,
+                else_val,
+            } => {
+                format!(
+                    "({} ? {} : {})",
+                    self.render_expr(cond),
+                    self.render_expr(then_val),
+                    self.render_expr(else_val)
+                )
+            }
             AstNode::Cast(operand, dtype) => {
                 // C-style cast: (type)(value)
                 format!(
@@ -725,6 +756,8 @@ pub fn extract_buffer_placeholders(body: &AstNode) -> (Vec<String>, bool) {
             | AstNode::Ge(l, r)
             | AstNode::Eq(l, r)
             | AstNode::Ne(l, r)
+            | AstNode::And(l, r)
+            | AstNode::Or(l, r)
             | AstNode::BitwiseAnd(l, r)
             | AstNode::BitwiseOr(l, r)
             | AstNode::BitwiseXor(l, r)
@@ -740,8 +773,19 @@ pub fn extract_buffer_placeholders(body: &AstNode) -> (Vec<String>, bool) {
             | AstNode::Exp2(x)
             | AstNode::Sin(x)
             | AstNode::Floor(x)
-            | AstNode::BitwiseNot(x) => {
+            | AstNode::BitwiseNot(x)
+            | AstNode::Not(x) => {
                 visit(x, inputs, has_output);
+            }
+            // Select (ternary)
+            AstNode::Select {
+                cond,
+                then_val,
+                else_val,
+            } => {
+                visit(cond, inputs, has_output);
+                visit(then_val, inputs, has_output);
+                visit(else_val, inputs, has_output);
             }
             AstNode::Cast(x, _) => {
                 visit(x, inputs, has_output);

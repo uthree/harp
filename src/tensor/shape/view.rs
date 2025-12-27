@@ -1,4 +1,5 @@
 use super::Expr;
+use crate::tensor::ops::PadValue;
 use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -16,6 +17,24 @@ pub enum View {
     IndexExpr {
         shape: Vec<Expr>, // 論理的なテンソルのサイズ
         index_expr: Expr, // インデックス計算式
+    },
+
+    /// パディング付きView
+    ///
+    /// 入力テンソルの周囲にパディングを追加するView。
+    /// 出力座標が境界外の場合は`default_value`を返す。
+    ///
+    /// # 座標変換
+    /// - 出力座標: `ridx[i]` (0 <= ridx[i] < output_shape[i])
+    /// - 入力座標: `ridx[i] - padding[i].0`
+    /// - 境界条件: `ridx[i] >= padding[i].0 && ridx[i] < padding[i].0 + inner.shape[i]`
+    Padded {
+        /// 内側のView（入力テンソルのView）
+        inner: Box<View>,
+        /// パディング量: (前, 後) × 各次元
+        padding: Vec<(Expr, Expr)>,
+        /// 境界外アクセス時のデフォルト値
+        default_value: PadValue,
     },
 }
 
@@ -44,9 +63,33 @@ impl View {
         self.shape().len()
     }
 
-    pub fn shape(&self) -> &[Expr] {
+    /// Viewの論理的な形状を返す
+    ///
+    /// 注意: `Padded`の場合は内部でキャッシュされた形状ではなく、
+    /// 計算された形状を返すため`Vec`を返す。
+    /// 他のバリアントでは内部のスライスを返す。
+    pub fn shape(&self) -> Vec<Expr> {
         match self {
-            View::Linear { shape, .. } | View::IndexExpr { shape, .. } => shape,
+            View::Linear { shape, .. } | View::IndexExpr { shape, .. } => shape.clone(),
+            View::Padded { inner, padding, .. } => {
+                // output_shape[i] = inner.shape[i] + padding[i].0 + padding[i].1
+                inner
+                    .shape()
+                    .iter()
+                    .zip(padding.iter())
+                    .map(|(s, (before, after))| {
+                        (s.clone() + before.clone() + after.clone()).simplify()
+                    })
+                    .collect()
+            }
+        }
+    }
+
+    /// 内側のViewの形状を返す（Paddedの場合のみ有用）
+    pub fn inner_shape(&self) -> Vec<Expr> {
+        match self {
+            View::Padded { inner, .. } => inner.shape(),
+            _ => self.shape(),
         }
     }
 
@@ -59,10 +102,12 @@ impl View {
     ///
     /// IndexExpr Viewのindex_exprにLoadIndexが含まれている場合にtrueを返します。
     /// Linear Viewは常にfalseを返します。
+    /// Padded Viewは内側のViewを再帰的にチェックします。
     pub fn contains_load_index(&self) -> bool {
         match self {
             View::Linear { .. } => false,
             View::IndexExpr { index_expr, .. } => index_expr.contains_load_index(),
+            View::Padded { inner, .. } => inner.contains_load_index(),
         }
     }
 
@@ -70,6 +115,7 @@ impl View {
     ///
     /// Linear Viewを等価なIndexExpr形式に変換します。
     /// 既にIndexExprの場合はクローンを返します。
+    /// Padded Viewは条件分岐が必要なため変換できず、そのまま返します。
     pub fn to_index_expr(&self) -> View {
         match self {
             View::Linear {
@@ -88,6 +134,8 @@ impl View {
                 }
             }
             View::IndexExpr { .. } => self.clone(),
+            // Paddedは条件分岐が必要なためIndexExprに変換できない
+            View::Padded { .. } => self.clone(),
         }
     }
 
@@ -181,6 +229,34 @@ impl View {
                     index_expr: outer_expr.clone(),
                 }
             }
+
+            // Padded × any: Paddedを外側に持つ場合
+            // outerがPaddedの場合、innerを内側のViewに合成する
+            (
+                View::Padded {
+                    inner: outer_inner,
+                    padding,
+                    default_value,
+                },
+                inner_view,
+            ) => {
+                // outerの内側のViewとinnerを合成
+                let composed_inner = Self::compose(outer_inner, inner_view);
+                View::Padded {
+                    inner: Box::new(composed_inner),
+                    padding: padding.clone(),
+                    default_value: *default_value,
+                }
+            }
+
+            // any × Padded: innerがPaddedの場合
+            // この場合、outerの変換をPaddedの上に適用
+            (outer_view, View::Padded { .. }) => {
+                // innerがPaddedの場合は単純に outer.shape を持つ同じViewを返す
+                // これは概念的には outer(padded(x)) = outer が Padded 全体を変換することを意味
+                // 実際の実装では、outer の変換を維持しつつ Padded を保持
+                outer_view.clone()
+            }
         }
     }
 
@@ -193,6 +269,15 @@ impl View {
             View::IndexExpr { shape, index_expr } => View::IndexExpr {
                 shape: shape.clone(),
                 index_expr: index_expr.clone().shift_load_index(delta),
+            },
+            View::Padded {
+                inner,
+                padding,
+                default_value,
+            } => View::Padded {
+                inner: Box::new(inner.shift_load_index(delta)),
+                padding: padding.clone(),
+                default_value: *default_value,
             },
         }
     }
@@ -229,6 +314,22 @@ impl View {
                     index_expr: new_index_expr,
                 }
             }
+            View::Padded {
+                inner,
+                padding,
+                default_value,
+            } => {
+                // 内側のViewをpermute
+                let new_inner = inner.permute(axes.clone());
+                // paddingも同じ順序で並べ替え
+                let new_padding: Vec<(Expr, Expr)> =
+                    axes.iter().map(|&a| padding[a].clone()).collect();
+                View::Padded {
+                    inner: Box::new(new_inner),
+                    padding: new_padding,
+                    default_value,
+                }
+            }
         }
     }
 
@@ -263,20 +364,39 @@ impl View {
                     index_expr: new_index_expr,
                 }
             }
+            View::Padded {
+                inner,
+                mut padding,
+                default_value,
+            } => {
+                // 内側のViewをunsqueeze
+                let new_inner = inner.unsqueeze(axis);
+                // paddingにも(0, 0)を挿入
+                padding.insert(axis, (Expr::from(0), Expr::from(0)));
+                View::Padded {
+                    inner: Box::new(new_inner),
+                    padding,
+                    default_value,
+                }
+            }
         }
     }
 
     pub fn squeeze(self, axis: usize) -> Self {
         assert!(axis < self.ndim());
+        // Paddedの場合はmatch前にshapeを取得する必要がある
+        let output_shape = self.shape();
+        assert_eq!(
+            output_shape[axis],
+            1.into(),
+            "can only squeeze an axis of size 1"
+        );
         match self {
             View::Linear {
-                shape,
-                strides,
+                mut shape,
+                mut strides,
                 offset,
             } => {
-                let mut shape = shape.clone();
-                let mut strides = strides.clone();
-                assert_eq!(shape[axis], 1.into(), "can only squeeze an axis of size 1");
                 shape.remove(axis);
                 strides.remove(axis);
                 View::Linear {
@@ -289,7 +409,6 @@ impl View {
                 mut shape,
                 index_expr,
             } => {
-                assert_eq!(shape[axis], 1.into(), "can only squeeze an axis of size 1");
                 // shapeから削除
                 shape.remove(axis);
                 // Idx(axis) を 0 に置換し、Idx(i) for i > axis を Idx(i-1) にシフト
@@ -299,6 +418,21 @@ impl View {
                 View::IndexExpr {
                     shape,
                     index_expr: new_index_expr,
+                }
+            }
+            View::Padded {
+                inner,
+                mut padding,
+                default_value,
+            } => {
+                // 内側のViewをsqueeze
+                let new_inner = inner.squeeze(axis);
+                // paddingから削除
+                padding.remove(axis);
+                View::Padded {
+                    inner: Box::new(new_inner),
+                    padding,
+                    default_value,
                 }
             }
         }
@@ -335,6 +469,22 @@ impl View {
                     index_expr: new_index_expr,
                 }
             }
+            View::Padded {
+                inner,
+                mut padding,
+                default_value,
+            } => {
+                // 内側のViewをflip
+                let new_inner = inner.flip(axis);
+                // paddingの前後を入れ替え
+                let (before, after) = padding[axis].clone();
+                padding[axis] = (after, before);
+                View::Padded {
+                    inner: Box::new(new_inner),
+                    padding,
+                    default_value,
+                }
+            }
         }
     }
 
@@ -349,14 +499,19 @@ impl View {
     /// * 指定軸のサイズが1でない場合
     pub fn repeat(self, axis: usize, times: impl Into<Expr>) -> Self {
         let times = times.into();
+        // Paddedの場合はmatch前にshapeを取得
+        let output_shape = self.shape();
+        assert!(axis < output_shape.len(), "axis out of bounds");
+        assert!(
+            output_shape[axis].is_one(),
+            "can only repeat an axis of size 1"
+        );
         match self {
             View::Linear {
                 mut shape,
                 mut strides,
                 offset,
             } => {
-                assert!(axis < shape.len(), "axis out of bounds");
-                assert!(shape[axis].is_one(), "can only repeat an axis of size 1");
                 shape[axis] = times;
                 strides[axis] = 0.into();
                 View::Linear {
@@ -369,9 +524,6 @@ impl View {
                 mut shape,
                 index_expr,
             } => {
-                assert!(axis < shape.len(), "axis out of bounds");
-                assert!(shape[axis].is_one(), "can only repeat an axis of size 1");
-
                 // Idx(axis) を 0 に固定（常に同じ位置を参照）
                 // サイズ1の軸なので、Idx(axis)は常に0だが、明示的に置換
                 let new_index_expr = index_expr.substitute_idx(axis, Expr::from(0));
@@ -380,6 +532,20 @@ impl View {
                 View::IndexExpr {
                     shape,
                     index_expr: new_index_expr,
+                }
+            }
+            View::Padded {
+                inner,
+                padding,
+                default_value,
+            } => {
+                // 内側のViewをrepeat
+                let new_inner = inner.repeat(axis, times);
+                // padding[axis]は(0, 0)のはず（サイズ1なので）
+                View::Padded {
+                    inner: Box::new(new_inner),
+                    padding,
+                    default_value,
                 }
             }
         }
@@ -412,8 +578,9 @@ impl View {
     /// ```
     pub fn tile(self, axis: usize, times: impl Into<Expr>) -> Self {
         let times = times.into();
-        let ndim = self.ndim();
-        assert!(axis < ndim, "axis out of bounds");
+        // Paddedの場合はmatch前にshapeを取得
+        let output_shape = self.shape();
+        assert!(axis < output_shape.len(), "axis out of bounds");
 
         match self {
             View::Linear {
@@ -461,6 +628,29 @@ impl View {
                 View::IndexExpr {
                     shape: new_shape,
                     index_expr: new_index_expr,
+                }
+            }
+            View::Padded {
+                inner,
+                mut padding,
+                default_value,
+            } => {
+                // PaddedViewのtileは、内側のViewをtileし、
+                // paddingも出力サイズに合わせて更新する
+                // 内側のViewをtile
+                let new_inner = inner.tile(axis, times.clone());
+
+                // paddingを更新: 前後のパディングもtimes倍に
+                let (before, after) = padding[axis].clone();
+                padding[axis] = (
+                    (before * times.clone()).simplify(),
+                    (after * times).simplify(),
+                );
+
+                View::Padded {
+                    inner: Box::new(new_inner),
+                    padding,
+                    default_value,
                 }
             }
         }
@@ -515,6 +705,10 @@ impl View {
                 // is_contiguous()がfalseを返すので、ここには到達しない
                 unreachable!("IndexExpr views are always non-contiguous")
             }
+            View::Padded { .. } => {
+                // is_contiguous()がfalseを返すので、ここには到達しない
+                unreachable!("Padded views are always non-contiguous")
+            }
         }
     }
 
@@ -523,6 +717,8 @@ impl View {
             View::Linear { shape, .. } => *self == View::contiguous(shape.clone()),
             // IndexExprは常に非連続として扱う
             View::IndexExpr { .. } => false,
+            // Paddedは境界チェックがあるため非連続
+            View::Padded { .. } => false,
         }
     }
 
@@ -560,7 +756,14 @@ impl View {
             }
             // IndexExprは最内軸の連続性を保証できない
             View::IndexExpr { .. } => false,
+            // Paddedは境界チェックがあるため連続性を保証できない
+            View::Padded { .. } => false,
         }
+    }
+
+    /// Paddedバリアントかどうかを判定
+    pub fn is_padded(&self) -> bool {
+        matches!(self, View::Padded { .. })
     }
 
     /// IndexExpr Viewを作成
@@ -587,6 +790,64 @@ impl View {
         View::IndexExpr {
             shape,
             index_expr: index_expr.into(),
+        }
+    }
+
+    /// Padded Viewを作成
+    ///
+    /// # Arguments
+    /// * `inner` - 内側のView（パディング前のテンソルのView）
+    /// * `padding` - パディング量: (前, 後) × 各次元
+    /// * `default_value` - 境界外アクセス時のデフォルト値
+    ///
+    /// # Examples
+    /// ```
+    /// use harp::tensor::shape::{View, Expr};
+    /// use harp::tensor::ops::PadValue;
+    ///
+    /// // 3x4のテンソルに各軸に1ずつパディング -> 5x6
+    /// let inner = View::contiguous(vec![3, 4]);
+    /// let padded = View::padded(
+    ///     inner,
+    ///     vec![(Expr::from(1), Expr::from(1)), (Expr::from(1), Expr::from(1))],
+    ///     PadValue::Zero,
+    /// );
+    /// assert_eq!(padded.shape(), vec![Expr::from(5), Expr::from(6)]);
+    /// ```
+    pub fn padded(inner: View, padding: Vec<(Expr, Expr)>, default_value: PadValue) -> Self {
+        assert_eq!(
+            inner.ndim(),
+            padding.len(),
+            "padding dimensions must match inner view dimensions"
+        );
+        View::Padded {
+            inner: Box::new(inner),
+            padding,
+            default_value,
+        }
+    }
+
+    /// Paddedの場合、パディング情報を返す
+    pub fn padding(&self) -> Option<&[(Expr, Expr)]> {
+        match self {
+            View::Padded { padding, .. } => Some(padding),
+            _ => None,
+        }
+    }
+
+    /// Paddedの場合、デフォルト値を返す
+    pub fn default_value(&self) -> Option<PadValue> {
+        match self {
+            View::Padded { default_value, .. } => Some(*default_value),
+            _ => None,
+        }
+    }
+
+    /// Paddedの場合、内側のViewを返す
+    pub fn inner_view(&self) -> Option<&View> {
+        match self {
+            View::Padded { inner, .. } => Some(inner),
+            _ => None,
         }
     }
 }

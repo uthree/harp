@@ -6,7 +6,6 @@
 use std::sync::Arc;
 
 use crate::ast::{AstNode, DType, Literal};
-use crate::tensor::shape::Expr;
 
 use super::TensorInner;
 
@@ -86,13 +85,6 @@ pub enum TensorOp {
     // ============================================================
     // 構造演算
     // ============================================================
-    /// パディング
-    Pad {
-        input: InputRef,
-        padding: Vec<(Expr, Expr)>,
-        value: f32,
-    },
-
     /// スライス
     Slice {
         input: InputRef,
@@ -139,6 +131,51 @@ pub enum ReduceOp {
     Sum,
     Prod,
     Max,
+}
+
+/// パディング値の種類
+///
+/// 各リダクション演算の単位元に対応:
+/// - Zero: 0.0 (Sumの単位元)
+/// - One: 1.0 (Prodの単位元)
+/// - NegInf: -∞ (Maxの単位元)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PadValue {
+    /// 0.0 - Sum演算の単位元
+    Zero,
+    /// 1.0 - Prod演算の単位元
+    One,
+    /// 負の無限大 - Max演算の単位元
+    NegInf,
+}
+
+impl PadValue {
+    /// パディング値を浮動小数点数として取得
+    pub fn as_f32(&self) -> f32 {
+        match self {
+            PadValue::Zero => 0.0,
+            PadValue::One => 1.0,
+            PadValue::NegInf => f32::NEG_INFINITY,
+        }
+    }
+
+    /// パディング値を倍精度浮動小数点数として取得
+    pub fn as_f64(&self) -> f64 {
+        match self {
+            PadValue::Zero => 0.0,
+            PadValue::One => 1.0,
+            PadValue::NegInf => f64::NEG_INFINITY,
+        }
+    }
+
+    /// ReduceOpに対応するパディング値を取得
+    pub fn for_reduce_op(op: ReduceOp) -> Self {
+        match op {
+            ReduceOp::Sum => PadValue::Zero,
+            ReduceOp::Prod => PadValue::One,
+            ReduceOp::Max => PadValue::NegInf,
+        }
+    }
 }
 
 impl TensorOp {
@@ -233,7 +270,6 @@ impl TensorOp {
             | TensorOp::Contiguous { input }
             | TensorOp::Cast { input, .. }
             | TensorOp::Clone { input }
-            | TensorOp::Pad { input, .. }
             | TensorOp::Slice { input, .. } => vec![input],
 
             TensorOp::MapReduce { inputs, .. } | TensorOp::Concat { inputs, .. } => {
@@ -270,9 +306,6 @@ impl std::fmt::Debug for TensorOp {
                     "MapReduce {{ expr: {:?}, reduce_op: {:?}, axes: {:?}, keepdim: {} }}",
                     expr, reduce_op, axes, keepdim
                 )
-            }
-            TensorOp::Pad { padding, value, .. } => {
-                write!(f, "Pad {{ padding: {:?}, value: {} }}", padding, value)
             }
             TensorOp::Slice { ranges, .. } => write!(f, "Slice {{ ranges: {:?} }}", ranges),
             TensorOp::Concat { axis, .. } => write!(f, "Concat {{ axis: {} }}", axis),

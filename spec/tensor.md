@@ -102,8 +102,8 @@ pub enum TensorOp {
     Cast { input: TensorRef, target_dtype: DType },
     Clone { input: TensorRef },
 
-    // 統一計算演算（Compute）
-    Compute {
+    // 統一計算演算（MapReduce）
+    MapReduce {
         inputs: Vec<TensorRef>,      // 入力テンソル群
         expr: AstNode,               // 計算式
         reduce_op: Option<ReduceOp>, // 縮約演算（オプション）
@@ -112,22 +112,57 @@ pub enum TensorOp {
     },
 
     // 構造演算
-    Pad { input: TensorRef, padding: Vec<(Expr, Expr)>, value: f32 },
     Slice { input: TensorRef, ranges: Vec<(usize, usize)> },
     Concat { inputs: Vec<TensorRef>, axis: usize },
 }
 ```
 
-### Compute演算の統一
+**注意**: パディング演算はView機構に統合されています（`View::Padded`を参照）。
 
-全ての計算演算がCompute variantで統一的に表現されます。
+### MapReduce演算の統一
 
-| 旧表現 | 新表現（Compute） |
+全ての計算演算がMapReduce variantで統一的に表現されます。
+
+| 旧表現 | 新表現（MapReduce） |
 |--------|-------------------|
 | `Elementwise { op }` | `reduce_op: None, axes: []` |
 | `FusedElementwise { expr }` | `reduce_op: None, axes: []` |
 | `Reduce { op, axes }` | `expr: Wildcard("0"), reduce_op: Some(op)` |
 | `FusedElementwiseReduce` | `expr + reduce_op: Some(op)` |
+
+### View構造
+
+メモリレイアウトを表現するenum。
+
+```rust
+pub enum View {
+    // 線形アクセス（連続メモリ、ストライドアクセス）
+    Linear {
+        shape: Vec<Expr>,
+        strides: Vec<Expr>,
+        offset: Expr,
+    },
+
+    // インデックス式アクセス（複雑な変換）
+    IndexExpr {
+        shape: Vec<Expr>,
+        index_expr: Expr,
+    },
+
+    // パディング付きView
+    Padded {
+        inner: Box<View>,              // 内側のView
+        padding: Vec<(Expr, Expr)>,    // 各軸の(前, 後)パディング
+        default_value: PadValue,       // 境界外の値（Zero, One, NegInf）
+    },
+}
+```
+
+**View::Padded**はパディング操作を他のView操作と統一的に扱うための設計です。
+境界外アクセス時は`default_value`に応じた値が返されます:
+- `PadValue::Zero`: 0.0（Sum演算の単位元）
+- `PadValue::One`: 1.0（Prod演算の単位元）
+- `PadValue::NegInf`: -∞（Max演算の単位元）
 
 ## Eager Fusion
 
@@ -137,9 +172,9 @@ pub enum TensorOp {
 
 | 親演算 | 子演算 | 融合可能 |
 |--------|--------|----------|
-| Elementwise Compute | Elementwise Compute | ○ |
-| Elementwise Compute | Reduce Compute | ○ |
-| Reduce Compute | * | × |
+| Elementwise MapReduce | Elementwise MapReduce | ○ |
+| Elementwise MapReduce | Reduce MapReduce | ○ |
+| Reduce MapReduce | * | × |
 
 ### 所有権ベース設計
 
@@ -240,7 +275,7 @@ pub trait GradFn<T: FloatDType>: Send + Sync {
 |------|------|
 | `View` | メモリコピーなしのView変更 |
 | `Contiguous` | メモリレイアウト正規化・実行トリガー |
-| `Pad` | パディング |
+| `Pad` | パディング（View::Padded経由） |
 | `Slice` | スライス |
 
 #### 特殊
@@ -378,14 +413,14 @@ let t = Tensor::<DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2]);
 
 ### 融合演算の勾配
 
-Compute演算の勾配はシンボリック微分により勾配を計算。
+MapReduce演算の勾配はシンボリック微分により勾配を計算。
 
 ```rust
-// Compute演算の勾配
+// MapReduce演算の勾配
 // - AstNode式を各入力Wildcardに対してシンボリック微分
 // - 導出した微分式をテンソル値で評価して勾配を計算
 
-// Reduce付きCompute演算
+// Reduce付きMapReduce演算
 // - まず勾配をReduce前の形状に展開（unsqueeze + expand）
 // - 次にElementwise部分のシンボリック微分を適用
 ```

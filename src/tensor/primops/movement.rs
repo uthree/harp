@@ -11,6 +11,7 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use crate::tensor::ops::PadValue;
 use crate::tensor::shape::{Expr, View};
 use crate::tensor::{Dim, DimDyn, Dimension, Tensor, TensorDType, TensorInner, TensorOp};
 
@@ -236,6 +237,20 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
                 }
                 strides
             }
+            View::Padded { inner, .. } => {
+                // For Padded, use the inner view's strides
+                match inner.as_ref() {
+                    View::Linear { strides, .. } => strides.clone(),
+                    _ => {
+                        let mut strides = vec![Expr::from(1); old_shape.len()];
+                        for i in (0..old_shape.len() - 1).rev() {
+                            strides[i] =
+                                Expr::from((old_shape[i + 1..].iter().product::<usize>()) as i64);
+                        }
+                        strides
+                    }
+                }
+            }
         };
 
         // Create new strides with broadcast handling
@@ -254,6 +269,13 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         let input_offset = match &self.inner.view {
             View::Linear { offset, .. } => offset.clone(),
             View::IndexExpr { .. } => Expr::from(0),
+            View::Padded { inner, .. } => {
+                // For Padded, use the inner view's offset
+                match inner.as_ref() {
+                    View::Linear { offset, .. } => offset.clone(),
+                    _ => Expr::from(0),
+                }
+            }
         };
 
         let view = View::Linear {
@@ -274,6 +296,64 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
     /// Flatten tensor to 1D
     pub fn flatten(&self) -> Tensor<T, Dim<1>> {
         self.reshape([self.numel()])
+    }
+
+    /// Pad tensor with a specified value
+    ///
+    /// Adds padding to the tensor along each dimension.
+    ///
+    /// # Arguments
+    /// * `padding` - Slice of (before, after) padding for each dimension.
+    ///   Length must match tensor's number of dimensions.
+    /// * `value` - The padding value (Zero, One, or NegInf)
+    ///
+    /// # Example
+    /// ```ignore
+    /// let a = Tensor::<f32, Dim2>::ones([2, 3]);
+    /// // Pad with 1 before and 2 after on dim 0, 0 before and 1 after on dim 1
+    /// let padded = a.pad(&[(1, 2), (0, 1)], PadValue::Zero);
+    /// assert_eq!(padded.shape(), &[5, 4]); // [2+1+2, 3+0+1]
+    /// ```
+    pub fn pad(&self, padding: &[(usize, usize)], value: PadValue) -> Tensor<T, DimDyn> {
+        assert_eq!(
+            padding.len(),
+            self.ndim(),
+            "Padding length {} must match tensor dimensions {}",
+            padding.len(),
+            self.ndim()
+        );
+
+        // Calculate new shape
+        let new_shape: Vec<usize> = self
+            .shape()
+            .iter()
+            .zip(padding.iter())
+            .map(|(&dim, &(before, after))| dim + before + after)
+            .collect();
+
+        // Convert padding to Expr
+        let padding_exprs: Vec<(Expr, Expr)> = padding
+            .iter()
+            .map(|&(before, after)| (Expr::from(before as i64), Expr::from(after as i64)))
+            .collect();
+
+        // Create View::Padded wrapping the input's view
+        let inner_view = self.inner.view.clone();
+        let padded_view = View::padded(inner_view, padding_exprs, value);
+
+        let input = self.as_input_ref();
+        let inner = TensorInner::new(TensorOp::View { input }, padded_view, new_shape, T::DTYPE);
+
+        Tensor {
+            inner: Arc::new(inner),
+            _dtype: PhantomData,
+            _dim: PhantomData,
+        }
+    }
+
+    /// Pad tensor with zeros (convenience method for sum reduction)
+    pub fn pad_zero(&self, padding: &[(usize, usize)]) -> Tensor<T, DimDyn> {
+        self.pad(padding, PadValue::Zero)
     }
 }
 
@@ -407,5 +487,34 @@ mod tests {
         let a = Tensor::<f64, Dim2>::ones([2, 3]);
         let b = a.contiguous();
         assert_eq!(b.shape(), &[2, 3]);
+    }
+
+    // Pad tests
+    #[test]
+    fn test_pad_shape() {
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
+        let b = a.pad(&[(1, 2), (0, 1)], PadValue::Zero);
+        assert_eq!(b.shape(), &[5, 4]); // [2+1+2, 3+0+1]
+    }
+
+    #[test]
+    fn test_pad_zero_shape() {
+        let a = Tensor::<f32, Dim2>::ones([3, 4]);
+        let b = a.pad_zero(&[(2, 1), (1, 3)]);
+        assert_eq!(b.shape(), &[6, 8]); // [3+2+1, 4+1+3]
+    }
+
+    #[test]
+    fn test_pad_no_padding() {
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
+        let b = a.pad(&[(0, 0), (0, 0)], PadValue::Zero);
+        assert_eq!(b.shape(), &[2, 3]); // No change
+    }
+
+    #[test]
+    fn test_pad_1d() {
+        let a = Tensor::<f32, crate::tensor::Dim1>::ones([5]);
+        let b = a.pad(&[(2, 3)], PadValue::One);
+        assert_eq!(b.shape(), &[10]); // 5+2+3
     }
 }

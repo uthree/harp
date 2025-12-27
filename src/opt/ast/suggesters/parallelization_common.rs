@@ -107,7 +107,9 @@ impl LoopAnalyzer {
             | AstNode::Gt(a, b)
             | AstNode::Ge(a, b)
             | AstNode::Eq(a, b)
-            | AstNode::Ne(a, b) => {
+            | AstNode::Ne(a, b)
+            | AstNode::And(a, b)
+            | AstNode::Or(a, b) => {
                 self.analyze_recursive(a);
                 self.analyze_recursive(b);
             }
@@ -119,8 +121,19 @@ impl LoopAnalyzer {
             | AstNode::Sin(a)
             | AstNode::Floor(a)
             | AstNode::BitwiseNot(a)
+            | AstNode::Not(a)
             | AstNode::Cast(a, _) => {
                 self.analyze_recursive(a);
+            }
+            // Select (ternary)
+            AstNode::Select {
+                cond,
+                then_val,
+                else_val,
+            } => {
+                self.analyze_recursive(cond);
+                self.analyze_recursive(then_val);
+                self.analyze_recursive(else_val);
             }
             // Fused Multiply-Add
             AstNode::Fma { a, b, c } => {
@@ -364,6 +377,24 @@ pub fn substitute_var(ast: &AstNode, var_name: &str, replacement: &AstNode) -> A
             Box::new(substitute_var(a, var_name, replacement)),
             Box::new(substitute_var(b, var_name, replacement)),
         ),
+        AstNode::And(a, b) => AstNode::And(
+            Box::new(substitute_var(a, var_name, replacement)),
+            Box::new(substitute_var(b, var_name, replacement)),
+        ),
+        AstNode::Or(a, b) => AstNode::Or(
+            Box::new(substitute_var(a, var_name, replacement)),
+            Box::new(substitute_var(b, var_name, replacement)),
+        ),
+        AstNode::Not(a) => AstNode::Not(Box::new(substitute_var(a, var_name, replacement))),
+        AstNode::Select {
+            cond,
+            then_val,
+            else_val,
+        } => AstNode::Select {
+            cond: Box::new(substitute_var(cond, var_name, replacement)),
+            then_val: Box::new(substitute_var(then_val, var_name, replacement)),
+            else_val: Box::new(substitute_var(else_val, var_name, replacement)),
+        },
 
         // 単項演算
         AstNode::Recip(a) => AstNode::Recip(Box::new(substitute_var(a, var_name, replacement))),
@@ -755,7 +786,9 @@ impl FreeVariableCollector {
             | AstNode::Gt(a, b)
             | AstNode::Ge(a, b)
             | AstNode::Eq(a, b)
-            | AstNode::Ne(a, b) => {
+            | AstNode::Ne(a, b)
+            | AstNode::And(a, b)
+            | AstNode::Or(a, b) => {
                 self.collect_recursive(a);
                 self.collect_recursive(b);
             }
@@ -768,8 +801,20 @@ impl FreeVariableCollector {
             | AstNode::Sin(a)
             | AstNode::Floor(a)
             | AstNode::BitwiseNot(a)
+            | AstNode::Not(a)
             | AstNode::Cast(a, _) => {
                 self.collect_recursive(a);
+            }
+
+            // Select (ternary)
+            AstNode::Select {
+                cond,
+                then_val,
+                else_val,
+            } => {
+                self.collect_recursive(cond);
+                self.collect_recursive(then_val);
+                self.collect_recursive(else_val);
             }
 
             // Fused Multiply-Add

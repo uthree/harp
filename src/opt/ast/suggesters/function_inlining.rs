@@ -373,6 +373,22 @@ impl FunctionInliningSuggester {
                 AstNode::Ne(Box::new(children[0].clone()), Box::new(children[1].clone()))
             }
 
+            // 論理演算
+            AstNode::And(_, _) => {
+                AstNode::And(Box::new(children[0].clone()), Box::new(children[1].clone()))
+            }
+            AstNode::Or(_, _) => {
+                AstNode::Or(Box::new(children[0].clone()), Box::new(children[1].clone()))
+            }
+            AstNode::Not(_) => AstNode::Not(Box::new(children[0].clone())),
+
+            // Select (ternary)
+            AstNode::Select { .. } => AstNode::Select {
+                cond: Box::new(children[0].clone()),
+                then_val: Box::new(children[1].clone()),
+                else_val: Box::new(children[2].clone()),
+            },
+
             // 単項演算
             AstNode::Recip(_) => AstNode::Recip(Box::new(children[0].clone())),
             AstNode::Sqrt(_) => AstNode::Sqrt(Box::new(children[0].clone())),
