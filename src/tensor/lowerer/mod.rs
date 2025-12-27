@@ -163,9 +163,16 @@ impl TensorLowerer {
         let output_shape = inner.view().shape().to_vec();
         let output_ndim = output_shape.len();
 
-        // View/Contiguousの場合、入力の compute_shape を取得
+        // compute_shape を決定
+        // - Contiguous: 出力形状を使用（新しいcontiguousバッファを作成するため）
+        // - View: 入力の compute_shape を使用
+        // - その他: 出力形状を使用
         let compute_shape = match inner.op() {
-            TensorOp::View { input } | TensorOp::Contiguous { input } => {
+            TensorOp::Contiguous { .. } => {
+                // Contiguousは出力形状でループする（新しいcontiguousバッファを作成）
+                output_shape.clone()
+            }
+            TensorOp::View { input } => {
                 let (_, compute_shape) = self.find_compute_node_erased(input.as_ref());
                 compute_shape
             }

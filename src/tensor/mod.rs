@@ -564,11 +564,33 @@ impl TensorInner {
     /// 1. 既にバッファがあればスキップ
     /// 2. Compute操作なら入力を先にrealize
     /// 3. 自身をrealize_core()でrealize
+    ///
+    /// View/Buffer/Executed等はrealizeしない（親のComputeが直接参照する）
     #[cfg(any(all(feature = "metal", target_os = "macos"), feature = "opencl"))]
     pub fn realize_recursive(&self) -> Result<(), String> {
         // 既にバッファがあればスキップ
         if self.buffer.read().unwrap().is_some() {
             return Ok(());
+        }
+
+        // View/Buffer等の非計算ノードはスキップ
+        // これらは親のCompute操作内でストライドアクセスとして処理される
+        match &self.op {
+            TensorOp::View { input } => {
+                // View入力をrealizeする（入力がComputeの場合に必要）
+                input.realize_recursive()?;
+                return Ok(());
+            }
+            TensorOp::Buffer { .. } | TensorOp::Executed => {
+                // Bufferは既にデータを持っている
+                return Ok(());
+            }
+            TensorOp::Const(_) => {
+                // スカラー定数は親のCompute内で処理される
+                return Ok(());
+            }
+            // Note: ConstFillは実際にバッファを生成するのでスキップしない
+            _ => {}
         }
 
         // Compute操作なら入力を先にrealize

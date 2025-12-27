@@ -566,8 +566,13 @@ impl<D: Dimension> Tensor<f32, D> {
     ///
     /// Returns None if the tensor has not been executed yet.
     pub fn data(&self) -> Option<Vec<f32>> {
+        self.data_inner(&self.inner)
+    }
+
+    /// Internal helper to get data from a TensorInner, handling Views recursively
+    fn data_inner(&self, inner: &TensorInner) -> Option<Vec<f32>> {
         // Check the buffer field in TensorInner
-        if let Ok(guard) = self.inner.buffer.read()
+        if let Ok(guard) = inner.buffer.read()
             && let Some(buf) = guard.as_ref()
             && let Ok(bytes) = buf.read_to_host()
         {
@@ -580,6 +585,14 @@ impl<D: Dimension> Tensor<f32, D> {
             }
             return Some(result);
         }
+
+        // For View operations, get data from the underlying tensor
+        // Note: This returns the raw underlying data. For non-contiguous views,
+        // the caller may need to reinterpret according to the view's strides.
+        if let TensorOp::View { input } = inner.op() {
+            return self.data_inner(input.as_ref());
+        }
+
         None
     }
 
