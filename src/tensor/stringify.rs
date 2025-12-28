@@ -77,6 +77,13 @@ impl GraphStringifier {
         let shape = inner.shape();
         let dtype = inner.dtype();
 
+        // バッファを持つノードは入力として扱う（Executedと同様）
+        // これにより、中間結果がrealizeされた場合にキャッシュキーが変わる
+        if inner.has_buffer() {
+            let pos = self.get_or_assign_input_position(inner);
+            return format!("Buffered(${}, shape={:?}, dtype={:?})", pos, shape, dtype);
+        }
+
         match inner.op() {
             // ソース演算
             TensorOp::Buffer { name } => {

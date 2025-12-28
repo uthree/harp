@@ -89,6 +89,7 @@ pub mod primops;
 pub mod shape;
 pub mod stringify;
 
+use log::debug;
 use std::marker::PhantomData;
 use std::sync::{Arc, RwLock};
 
@@ -576,11 +577,17 @@ impl TensorInner {
     /// 入力のrealizeをスキップできるかどうかを判定
     ///
     /// 以下の条件を満たす場合、入力は融合可能でありrealizeをスキップできる:
-    /// 1. `is_fusable()`: lowererがこの演算を融合できる
-    /// 2. `Arc::strong_count == 1`: この入力を参照しているのは現在の演算のみ
+    /// 1. Const/ConstFill: 常にインライン化される（バッファ不要）
+    /// 2. その他: `is_fusable()` && `Arc::strong_count == 1`
     ///
     /// strong_count > 1の場合、他の演算も依存しているためバッファを作成する必要がある。
+    /// ただし Const/ConstFill は常にインライン化されるため例外。
     fn can_skip_realize(input: &InputRef) -> bool {
+        // Const/ConstFill は常にスキップ（lowererでインライン化される）
+        if matches!(input.op, TensorOp::Const(_) | TensorOp::ConstFill(_)) {
+            return true;
+        }
+        // その他は strong_count == 1 かつ is_fusable() の場合のみスキップ
         Arc::strong_count(input) == 1 && input.is_fusable()
     }
 
@@ -641,7 +648,19 @@ impl TensorInner {
         if let TensorOp::MapReduce { inputs, .. } = &self.op {
             for input in inputs {
                 // can_skip_realize(): is_fusable() && strong_count == 1
-                if !Self::can_skip_realize(input) {
+                if Self::can_skip_realize(input) {
+                    debug!(
+                        "Fusion: FUSED input (strong_count={}, op={})",
+                        Arc::strong_count(input),
+                        input.op.name()
+                    );
+                } else {
+                    debug!(
+                        "Fusion: realize input (strong_count={}, is_fusable={}, op={})",
+                        Arc::strong_count(input),
+                        input.is_fusable(),
+                        input.op.name()
+                    );
                     input.realize_recursive()?;
                 }
             }

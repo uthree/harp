@@ -167,6 +167,11 @@ pub(crate) fn collect_input_data_inner(inner: &TensorInner) -> Vec<(Vec<f32>, Ve
         // バッファを持つノードはすべて入力として扱う（ConstFill, Compute等も含む）
         // これにより collect_input_buffers (lowerer) と同じ順序で入力を収集する
         if inner.has_buffer() {
+            log::debug!(
+                "collect_input_data: adding buffer for {} (shape={:?})",
+                inner.op.name(),
+                inner.shape()
+            );
             if let Some(bytes) = inner.read_buffer() {
                 let data = bytes_to_f32(&bytes);
                 inputs.push((data, inner.shape().to_vec()));
@@ -175,13 +180,13 @@ pub(crate) fn collect_input_data_inner(inner: &TensorInner) -> Vec<(Vec<f32>, Ve
         }
 
         match inner.op() {
-            // Const is embedded directly by the lowerer, skip it
-            TensorOp::Const(_) => {}
+            // Const/ConstFill are embedded directly by the lowerer, skip them
+            TensorOp::Const(_) | TensorOp::ConstFill(_) => {}
             // Other operations - recurse into inputs
             _ => {
                 for input in inner.op().inputs() {
                     // Skip const inputs as the lowerer embeds them directly
-                    if !matches!(input.op(), TensorOp::Const(_)) {
+                    if !matches!(input.op(), TensorOp::Const(_) | TensorOp::ConstFill(_)) {
                         collect_recursive(input.as_ref(), visited, inputs);
                     }
                 }

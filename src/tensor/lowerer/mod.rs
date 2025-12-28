@@ -31,7 +31,9 @@ pub mod helpers;
 
 use std::collections::HashMap;
 
-use crate::ast::{AstKernelCallInfo, AstNode, DType as AstDType, Mutability, Scope, helper::*};
+use crate::ast::{
+    AstKernelCallInfo, AstNode, DType as AstDType, Mutability, Scope, helper::*,
+};
 use crate::tensor::ops::{ReduceOp, TensorOp};
 use crate::tensor::shape::Expr;
 use crate::tensor::shape::View;
@@ -468,6 +470,10 @@ impl TensorLowerer {
         }
 
         match input.op() {
+            TensorOp::Const(lit) | TensorOp::ConstFill(lit) => {
+                // 定数は直接埋め込み（他のbuild_input_expr_*と同様）
+                AstNode::Const(lit.clone())
+            }
             TensorOp::Buffer { .. } => {
                 // 既にこのテンソルにインデックスが割り当てられているか確認
                 let idx = if let Some(&existing_idx) = self.buffer_index_map.get(&ptr) {
@@ -613,8 +619,30 @@ impl TensorLowerer {
                 }
                 nested_expr.substitute(&nested_mappings)
             }
-            TensorOp::Buffer { .. } | TensorOp::View { .. } | TensorOp::Contiguous { .. } => {
-                // Bufferまたはメモリ操作の場合、loadを生成
+            TensorOp::View { input: view_input } | TensorOp::Contiguous { input: view_input } => {
+                // Viewチェーンの最終入力がインライン化可能かチェック
+                // - ConstFill/Const: 定数として埋め込み
+                // - Fusable MapReduce: 再帰的に展開
+                // - バッファを持つノード/Buffer/Executed: バッファからload
+                if Self::is_inlineable_in_view(view_input.as_ref()) {
+                    // 再帰的に入力を処理（ConstFillやfusable MapReduceを展開）
+                    self.build_input_expr(view_input.as_ref(), ndim, buffer_index, load_dtype)
+                } else {
+                    // インライン化できない場合はバッファからloadとして扱う
+                    let src_offset = self.build_input_offset(input, ndim);
+                    let idx = if let Some(&existing_idx) = self.buffer_index_map.get(&ptr) {
+                        existing_idx
+                    } else {
+                        let idx = *buffer_index;
+                        *buffer_index += 1;
+                        self.buffer_index_map.insert(ptr, idx);
+                        idx
+                    };
+                    load(var(ph::input(idx)), src_offset, load_dtype.clone())
+                }
+            }
+            TensorOp::Buffer { .. } => {
+                // Bufferからload
                 let src_offset = self.build_input_offset(input, ndim);
                 // 既にこのテンソルにインデックスが割り当てられているか確認
                 let idx = if let Some(&existing_idx) = self.buffer_index_map.get(&ptr) {
@@ -988,6 +1016,44 @@ impl TensorLowerer {
         }
 
         load(var(ph::input(input_idx)), input_offset, load_dtype.clone())
+    }
+
+    /// Viewチェーン内でインライン化可能かどうかをチェック
+    ///
+    /// 以下の場合にインライン化可能:
+    /// - ConstFill/Const: 定数として埋め込み可能
+    /// - View/Contiguous: 再帰的にチェック
+    /// - Fusable MapReduce: 全入力がインライン化可能な場合
+    ///
+    /// バッファを持つノード、Buffer、Executed、Reduce演算は不可
+    fn is_inlineable_in_view(inner: &TensorInner) -> bool {
+        // バッファを持つノードはインライン化不可（loadが必要）
+        if inner.has_buffer() {
+            return false;
+        }
+
+        match inner.op() {
+            // 定数は常にインライン化可能
+            TensorOp::Const(_) | TensorOp::ConstFill(_) => true,
+            // View/Contiguous: 再帰的にチェック
+            TensorOp::View { input } | TensorOp::Contiguous { input } => {
+                Self::is_inlineable_in_view(input.as_ref())
+            }
+            // Elementwise MapReduce: 全入力がインライン化可能な場合
+            TensorOp::MapReduce {
+                inputs,
+                reduce_op: None,
+                axes,
+                ..
+            } if axes.is_empty() => {
+                // 全入力がインライン化可能かチェック
+                inputs
+                    .iter()
+                    .all(|inp| Self::is_inlineable_in_view(inp.as_ref()))
+            }
+            // Buffer/Executed/Reduce演算などはインライン化不可
+            _ => false,
+        }
     }
 
     /// 入力テンソルのオフセットを構築

@@ -270,6 +270,29 @@ impl TensorOp {
             }
         }
     }
+
+    /// 演算の名前を取得（デバッグ用）
+    pub fn name(&self) -> &'static str {
+        match self {
+            TensorOp::Buffer { .. } => "Buffer",
+            TensorOp::Const(_) => "Const",
+            TensorOp::ConstFill(_) => "ConstFill",
+            TensorOp::Rand => "Rand",
+            TensorOp::Arange => "Arange",
+            TensorOp::Executed => "Executed",
+            TensorOp::View { .. } => "View",
+            TensorOp::Contiguous { .. } => "Contiguous",
+            TensorOp::Cast { .. } => "Cast",
+            TensorOp::Clone { .. } => "Clone",
+            TensorOp::MapReduce {
+                reduce_op: None, ..
+            } => "MapReduce(Elementwise)",
+            TensorOp::MapReduce {
+                reduce_op: Some(_), ..
+            } => "MapReduce(Reduce)",
+            TensorOp::Concat { .. } => "Concat",
+        }
+    }
 }
 
 impl std::fmt::Debug for TensorOp {
