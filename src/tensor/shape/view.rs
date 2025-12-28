@@ -19,24 +19,6 @@ pub enum View {
         index_expr: Expr, // インデックス計算式
     },
 
-    /// パディング付きView
-    ///
-    /// 入力テンソルの周囲にパディングを追加するView。
-    /// 出力座標が境界外の場合は`default_value`を返す。
-    ///
-    /// # 座標変換
-    /// - 出力座標: `ridx[i]` (0 <= ridx[i] < output_shape[i])
-    /// - 入力座標: `ridx[i] - padding[i].0`
-    /// - 境界条件: `ridx[i] >= padding[i].0 && ridx[i] < padding[i].0 + inner.shape[i]`
-    Padded {
-        /// 内側のView（入力テンソルのView）
-        inner: Box<View>,
-        /// パディング量: (前, 後) × 各次元
-        padding: Vec<(Expr, Expr)>,
-        /// 境界外アクセス時のデフォルト値
-        default_value: PadValue,
-    },
-
     /// 任意の条件付きマスクView
     ///
     /// 任意のExpr条件に基づいてinner Viewの値またはデフォルト値を返す。
@@ -93,31 +75,19 @@ impl View {
 
     /// Viewの論理的な形状を返す
     ///
-    /// 注意: `Padded`の場合は内部でキャッシュされた形状ではなく、
-    /// 計算された形状を返すため`Vec`を返す。
-    /// 他のバリアントでは内部のスライスを返す。
+    /// 各バリアントの形状を返す。
+    /// Maskedの場合はinner Viewの形状を返す。
     pub fn shape(&self) -> Vec<Expr> {
         match self {
             View::Linear { shape, .. } | View::IndexExpr { shape, .. } => shape.clone(),
-            View::Padded { inner, padding, .. } => {
-                // output_shape[i] = inner.shape[i] + padding[i].0 + padding[i].1
-                inner
-                    .shape()
-                    .iter()
-                    .zip(padding.iter())
-                    .map(|(s, (before, after))| {
-                        (s.clone() + before.clone() + after.clone()).simplify()
-                    })
-                    .collect()
-            }
             View::Masked { inner, .. } => inner.shape(),
         }
     }
 
-    /// 内側のViewの形状を返す（Padded/Maskedの場合に有用）
+    /// 内側のViewの形状を返す（Maskedの場合に有用）
     pub fn inner_shape(&self) -> Vec<Expr> {
         match self {
-            View::Padded { inner, .. } | View::Masked { inner, .. } => inner.shape(),
+            View::Masked { inner, .. } => inner.shape(),
             _ => self.shape(),
         }
     }
@@ -131,13 +101,11 @@ impl View {
     ///
     /// IndexExpr Viewのindex_exprにLoadIndexが含まれている場合にtrueを返します。
     /// Linear Viewは常にfalseを返します。
-    /// Padded/Masked Viewは内側のViewを再帰的にチェックします。
-    /// Maskedはcondition内のLoadIndexもチェックします。
+    /// Masked Viewは内側のViewとcondition内のLoadIndexをチェックします。
     pub fn contains_load_index(&self) -> bool {
         match self {
             View::Linear { .. } => false,
             View::IndexExpr { index_expr, .. } => index_expr.contains_load_index(),
-            View::Padded { inner, .. } => inner.contains_load_index(),
             View::Masked {
                 inner, condition, ..
             } => inner.contains_load_index() || condition.contains_load_index(),
@@ -148,7 +116,7 @@ impl View {
     ///
     /// Linear Viewを等価なIndexExpr形式に変換します。
     /// 既にIndexExprの場合はクローンを返します。
-    /// Padded Viewは条件分岐が必要なため変換できず、そのまま返します。
+    /// Masked Viewは条件分岐が必要なため変換できず、そのまま返します。
     pub fn to_index_expr(&self) -> View {
         match self {
             View::Linear {
@@ -167,8 +135,6 @@ impl View {
                 }
             }
             View::IndexExpr { .. } => self.clone(),
-            // Paddedは条件分岐が必要なためIndexExprに変換できない
-            View::Padded { .. } => self.clone(),
             // Maskedは条件分岐が必要なためIndexExprに変換できない
             View::Masked { .. } => self.clone(),
         }
@@ -265,34 +231,6 @@ impl View {
                 }
             }
 
-            // Padded × any: Paddedを外側に持つ場合
-            // outerがPaddedの場合、innerを内側のViewに合成する
-            (
-                View::Padded {
-                    inner: outer_inner,
-                    padding,
-                    default_value,
-                },
-                inner_view,
-            ) => {
-                // outerの内側のViewとinnerを合成
-                let composed_inner = Self::compose(outer_inner, inner_view);
-                View::Padded {
-                    inner: Box::new(composed_inner),
-                    padding: padding.clone(),
-                    default_value: *default_value,
-                }
-            }
-
-            // any × Padded: innerがPaddedの場合
-            // この場合、outerの変換をPaddedの上に適用
-            (outer_view, View::Padded { .. }) => {
-                // innerがPaddedの場合は単純に outer.shape を持つ同じViewを返す
-                // これは概念的には outer(padded(x)) = outer が Padded 全体を変換することを意味
-                // 実際の実装では、outer の変換を維持しつつ Padded を保持
-                outer_view.clone()
-            }
-
             // Masked outer × any inner: Maskedの条件を保持
             (
                 View::Masked {
@@ -328,15 +266,6 @@ impl View {
             View::IndexExpr { shape, index_expr } => View::IndexExpr {
                 shape: shape.clone(),
                 index_expr: index_expr.clone().shift_load_index(delta),
-            },
-            View::Padded {
-                inner,
-                padding,
-                default_value,
-            } => View::Padded {
-                inner: Box::new(inner.shift_load_index(delta)),
-                padding: padding.clone(),
-                default_value: *default_value,
             },
             View::Masked {
                 inner,
@@ -380,22 +309,6 @@ impl View {
                 View::IndexExpr {
                     shape: new_shape,
                     index_expr: new_index_expr,
-                }
-            }
-            View::Padded {
-                inner,
-                padding,
-                default_value,
-            } => {
-                // 内側のViewをpermute
-                let new_inner = inner.permute(axes.clone());
-                // paddingも同じ順序で並べ替え
-                let new_padding: Vec<(Expr, Expr)> =
-                    axes.iter().map(|&a| padding[a].clone()).collect();
-                View::Padded {
-                    inner: Box::new(new_inner),
-                    padding: new_padding,
-                    default_value,
                 }
             }
             View::Masked {
@@ -447,21 +360,6 @@ impl View {
                     index_expr: new_index_expr,
                 }
             }
-            View::Padded {
-                inner,
-                mut padding,
-                default_value,
-            } => {
-                // 内側のViewをunsqueeze
-                let new_inner = inner.unsqueeze(axis);
-                // paddingにも(0, 0)を挿入
-                padding.insert(axis, (Expr::from(0), Expr::from(0)));
-                View::Padded {
-                    inner: Box::new(new_inner),
-                    padding,
-                    default_value,
-                }
-            }
             View::Masked {
                 inner,
                 condition,
@@ -482,7 +380,7 @@ impl View {
 
     pub fn squeeze(self, axis: usize) -> Self {
         assert!(axis < self.ndim());
-        // Paddedの場合はmatch前にshapeを取得する必要がある
+        // Maskedの場合はmatch前にshapeを取得する必要がある
         let output_shape = self.shape();
         assert_eq!(
             output_shape[axis],
@@ -516,21 +414,6 @@ impl View {
                 View::IndexExpr {
                     shape,
                     index_expr: new_index_expr,
-                }
-            }
-            View::Padded {
-                inner,
-                mut padding,
-                default_value,
-            } => {
-                // 内側のViewをsqueeze
-                let new_inner = inner.squeeze(axis);
-                // paddingから削除
-                padding.remove(axis);
-                View::Padded {
-                    inner: Box::new(new_inner),
-                    padding,
-                    default_value,
                 }
             }
             View::Masked {
@@ -584,22 +467,6 @@ impl View {
                     index_expr: new_index_expr,
                 }
             }
-            View::Padded {
-                inner,
-                mut padding,
-                default_value,
-            } => {
-                // 内側のViewをflip
-                let new_inner = inner.flip(axis);
-                // paddingの前後を入れ替え
-                let (before, after) = padding[axis].clone();
-                padding[axis] = (after, before);
-                View::Padded {
-                    inner: Box::new(new_inner),
-                    padding,
-                    default_value,
-                }
-            }
             View::Masked {
                 inner,
                 condition,
@@ -632,7 +499,7 @@ impl View {
     /// * 指定軸のサイズが1でない場合
     pub fn repeat(self, axis: usize, times: impl Into<Expr>) -> Self {
         let times = times.into();
-        // Paddedの場合はmatch前にshapeを取得
+        // Maskedの場合はmatch前にshapeを取得
         let output_shape = self.shape();
         assert!(axis < output_shape.len(), "axis out of bounds");
         assert!(
@@ -665,20 +532,6 @@ impl View {
                 View::IndexExpr {
                     shape,
                     index_expr: new_index_expr,
-                }
-            }
-            View::Padded {
-                inner,
-                padding,
-                default_value,
-            } => {
-                // 内側のViewをrepeat
-                let new_inner = inner.repeat(axis, times);
-                // padding[axis]は(0, 0)のはず（サイズ1なので）
-                View::Padded {
-                    inner: Box::new(new_inner),
-                    padding,
-                    default_value,
                 }
             }
             View::Masked {
@@ -725,7 +578,7 @@ impl View {
     /// ```
     pub fn tile(self, axis: usize, times: impl Into<Expr>) -> Self {
         let times = times.into();
-        // Paddedの場合はmatch前にshapeを取得
+        // Maskedの場合はmatch前にshapeを取得
         let output_shape = self.shape();
         assert!(axis < output_shape.len(), "axis out of bounds");
 
@@ -775,29 +628,6 @@ impl View {
                 View::IndexExpr {
                     shape: new_shape,
                     index_expr: new_index_expr,
-                }
-            }
-            View::Padded {
-                inner,
-                mut padding,
-                default_value,
-            } => {
-                // PaddedViewのtileは、内側のViewをtileし、
-                // paddingも出力サイズに合わせて更新する
-                // 内側のViewをtile
-                let new_inner = inner.tile(axis, times.clone());
-
-                // paddingを更新: 前後のパディングもtimes倍に
-                let (before, after) = padding[axis].clone();
-                padding[axis] = (
-                    (before * times.clone()).simplify(),
-                    (after * times).simplify(),
-                );
-
-                View::Padded {
-                    inner: Box::new(new_inner),
-                    padding,
-                    default_value,
                 }
             }
             View::Masked {
@@ -869,10 +699,6 @@ impl View {
                 // is_contiguous()がfalseを返すので、ここには到達しない
                 unreachable!("IndexExpr views are always non-contiguous")
             }
-            View::Padded { .. } => {
-                // is_contiguous()がfalseを返すので、ここには到達しない
-                unreachable!("Padded views are always non-contiguous")
-            }
             View::Masked { .. } => {
                 // is_contiguous()がfalseを返すので、ここには到達しない
                 unreachable!("Masked views are always non-contiguous")
@@ -885,8 +711,6 @@ impl View {
             View::Linear { shape, .. } => *self == View::contiguous(shape.clone()),
             // IndexExprは常に非連続として扱う
             View::IndexExpr { .. } => false,
-            // Paddedは境界チェックがあるため非連続
-            View::Padded { .. } => false,
             // Maskedは条件チェックがあるため非連続
             View::Masked { .. } => false,
         }
@@ -926,16 +750,9 @@ impl View {
             }
             // IndexExprは最内軸の連続性を保証できない
             View::IndexExpr { .. } => false,
-            // Paddedは境界チェックがあるため連続性を保証できない
-            View::Padded { .. } => false,
             // Maskedは条件チェックがあるため連続性を保証できない
             View::Masked { .. } => false,
         }
-    }
-
-    /// Paddedバリアントかどうかを判定
-    pub fn is_padded(&self) -> bool {
-        matches!(self, View::Padded { .. })
     }
 
     /// Maskedバリアントかどうかを判定
@@ -970,7 +787,10 @@ impl View {
         }
     }
 
-    /// Padded Viewを作成
+    /// Padded Viewを作成（内部でMaskedとIndexExprを使用）
+    ///
+    /// 内側のViewの周囲にパディングを追加するViewを作成します。
+    /// 実装はIndexExpr（インデックス調整）とMasked（境界条件）の組み合わせです。
     ///
     /// # Arguments
     /// * `inner` - 内側のView（パディング前のテンソルのView）
@@ -997,9 +817,97 @@ impl View {
             padding.len(),
             "padding dimensions must match inner view dimensions"
         );
-        View::Padded {
-            inner: Box::new(inner),
-            padding,
+
+        let inner_shape = inner.shape().to_vec();
+        let ndim = inner_shape.len();
+
+        // 1. パディング後の形状を計算
+        let padded_shape: Vec<Expr> = inner_shape
+            .iter()
+            .zip(padding.iter())
+            .map(|(s, (before, after))| (s.clone() + before.clone() + after.clone()).simplify())
+            .collect();
+
+        // 2. 境界条件を構築
+        // 各軸で: Idx(i) >= before[i] && Idx(i) < before[i] + inner_shape[i]
+        let mut condition = Expr::Const(1); // 初期値: true
+        for (i, ((before, _after), inner_size)) in
+            padding.iter().zip(inner_shape.iter()).enumerate()
+        {
+            let idx = Expr::Idx(i);
+            // idx >= before は !(idx < before) で表現
+            let ge_before = !idx.clone().lt(before.clone());
+            // idx < before + inner_size
+            let lt_upper = idx.lt(before.clone() + inner_size.clone());
+            // ANDで結合
+            condition = condition.and(ge_before).and(lt_upper);
+        }
+        condition = condition.simplify();
+
+        // 3. パディング後のインデックスを元のオフセットにマッピングするインデックス式を構築
+        // adjusted_idx[i] = Idx(i) - before[i]
+        let index_expr = match &inner {
+            View::Linear {
+                strides, offset, ..
+            } => {
+                // Linear: offset + Σ(adjusted_idx[i] * stride[i])
+                let mut expr = offset.clone();
+                for (i, (stride, (before, _))) in strides.iter().zip(padding.iter()).enumerate() {
+                    expr = (expr + (Expr::Idx(i) - before.clone()) * stride.clone()).simplify();
+                }
+                expr
+            }
+            View::IndexExpr { index_expr, .. } => {
+                // IndexExpr: Idx(i) を Idx(i) - before[i] で置換
+                let mut expr = index_expr.clone();
+                for (i, (before, _)) in padding.iter().enumerate() {
+                    expr = expr.substitute_idx(i, Expr::Idx(i) - before.clone());
+                }
+                expr.simplify()
+            }
+            View::Masked {
+                inner: masked_inner,
+                ..
+            } => {
+                // Masked: 内側のViewを取得してpaddedを適用
+                let inner_padded =
+                    View::padded((**masked_inner).clone(), padding.clone(), default_value);
+                match inner_padded {
+                    View::Masked {
+                        inner: inner_box, ..
+                    } => {
+                        if let View::IndexExpr { index_expr, .. } = *inner_box {
+                            index_expr
+                        } else {
+                            // フォールバック: 連続メモリとして扱う
+                            let mut expr = Expr::Const(0);
+                            let mut stride = Expr::Const(1);
+                            for i in (0..ndim).rev() {
+                                let (before, _) = &padding[i];
+                                expr = (expr + (Expr::Idx(i) - before.clone()) * stride.clone())
+                                    .simplify();
+                                if i > 0 {
+                                    stride = (stride * inner_shape[i].clone()).simplify();
+                                }
+                            }
+                            expr
+                        }
+                    }
+                    _ => unreachable!(),
+                }
+            }
+        };
+
+        // 4. パディング後の形状を持つIndexExprを作成
+        let inner_view = View::IndexExpr {
+            shape: padded_shape,
+            index_expr,
+        };
+
+        // 5. Maskedでラップして返す
+        View::Masked {
+            inner: Box::new(inner_view),
+            condition,
             default_value,
         }
     }
@@ -1032,28 +940,18 @@ impl View {
         }
     }
 
-    /// Paddedの場合、パディング情報を返す
-    pub fn padding(&self) -> Option<&[(Expr, Expr)]> {
-        match self {
-            View::Padded { padding, .. } => Some(padding),
-            _ => None,
-        }
-    }
-
-    /// Paddedの場合、デフォルト値を返す
+    /// Maskedの場合、デフォルト値を返す
     pub fn default_value(&self) -> Option<PadValue> {
         match self {
-            View::Padded { default_value, .. } | View::Masked { default_value, .. } => {
-                Some(*default_value)
-            }
+            View::Masked { default_value, .. } => Some(*default_value),
             _ => None,
         }
     }
 
-    /// Padded/Maskedの場合、内側のViewを返す
+    /// Maskedの場合、内側のViewを返す
     pub fn inner_view(&self) -> Option<&View> {
         match self {
-            View::Padded { inner, .. } | View::Masked { inner, .. } => Some(inner),
+            View::Masked { inner, .. } => Some(inner),
             _ => None,
         }
     }
@@ -1275,43 +1173,6 @@ impl View {
                 View::IndexExpr {
                     shape: new_shape,
                     index_expr: new_index_expr.simplify(),
-                }
-            }
-            View::Padded {
-                inner,
-                padding,
-                default_value,
-            } => {
-                // 内側のViewにunfoldを適用
-                let new_inner = inner.unfold(axes, &sizes, &strides);
-
-                // paddingを再構成
-                // - preserved軸のパディングはそのまま
-                // - unfold軸は削除される（出力形状に反映済み）
-                // - 新しい軸（output_pos, window）は(0, 0)
-                let mut new_padding: Vec<(Expr, Expr)> = Vec::new();
-
-                // preserved軸のパディング
-                for (i, pad) in padding.iter().enumerate() {
-                    if !axes_set.contains(&i) {
-                        new_padding.push(pad.clone());
-                    }
-                }
-
-                // output positions - パディングなし
-                for _ in 0..num_unfolded {
-                    new_padding.push((Expr::from(0), Expr::from(0)));
-                }
-
-                // window dims - パディングなし
-                for _ in 0..num_unfolded {
-                    new_padding.push((Expr::from(0), Expr::from(0)));
-                }
-
-                View::Padded {
-                    inner: Box::new(new_inner),
-                    padding: new_padding,
-                    default_value,
                 }
             }
             View::Masked { .. } => {

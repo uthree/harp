@@ -192,18 +192,6 @@ impl GraphStringifier {
             View::IndexExpr { shape, index_expr } => {
                 format!("IndexExpr(shape={:?}, expr={:?})", shape, index_expr)
             }
-            View::Padded {
-                inner,
-                padding,
-                default_value,
-            } => {
-                format!(
-                    "Padded(inner={}, padding={:?}, default={:?})",
-                    self.stringify_view(inner),
-                    padding,
-                    default_value
-                )
-            }
             View::Masked {
                 inner,
                 condition,

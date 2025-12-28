@@ -257,8 +257,8 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
                 }
                 strides
             }
-            View::Padded { inner, .. } | View::Masked { inner, .. } => {
-                // For Padded/Masked, use the inner view's strides
+            View::Masked { inner, .. } => {
+                // For Masked, use the inner view's strides
                 match inner.as_ref() {
                     View::Linear { strides, .. } => strides.clone(),
                     _ => {
@@ -289,8 +289,8 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         let input_offset = match &self.inner.view {
             View::Linear { offset, .. } => offset.clone(),
             View::IndexExpr { .. } => Expr::from(0),
-            View::Padded { inner, .. } | View::Masked { inner, .. } => {
-                // For Padded/Masked, use the inner view's offset
+            View::Masked { inner, .. } => {
+                // For Masked, use the inner view's offset
                 match inner.as_ref() {
                     View::Linear { offset, .. } => offset.clone(),
                     _ => Expr::from(0),
@@ -367,7 +367,7 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
             .map(|&(before, after)| (Expr::from(before as i64), Expr::from(after as i64)))
             .collect();
 
-        // Create View::Padded wrapping the input's view
+        // Create View::Masked wrapping the input's view (via View::padded)
         let inner_view = self.inner.view.clone();
         let padded_view = View::padded(inner_view, padding_exprs, value);
 
@@ -460,8 +460,8 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
                 }
                 (strides, Expr::from(0))
             }
-            View::Padded { inner, .. } | View::Masked { inner, .. } => {
-                // For Padded/Masked, use the inner view's strides
+            View::Masked { inner, .. } => {
+                // For Masked, use the inner view's strides
                 match inner.as_ref() {
                     View::Linear {
                         strides, offset, ..

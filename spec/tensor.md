@@ -116,7 +116,7 @@ pub enum TensorOp {
 }
 ```
 
-**注意**: パディング演算はView機構に統合されています（`View::Padded`を参照）。
+**注意**: パディング演算はView機構に統合されています（`View::Masked`を参照）。
 
 ### MapReduce演算の統一
 
@@ -149,14 +149,7 @@ pub enum View {
         index_expr: Expr,
     },
 
-    // パディング付きView
-    Padded {
-        inner: Box<View>,              // 内側のView
-        padding: Vec<(Expr, Expr)>,    // 各軸の(前, 後)パディング
-        default_value: PadValue,       // 境界外の値（Zero, One, NegInf）
-    },
-
-    // 条件付きマスクView
+    // 条件付きマスクView（パディングもこれで表現）
     Masked {
         inner: Box<View>,              // 内側のView
         condition: Expr,               // 条件式（非0で有効、0でデフォルト値）
@@ -165,13 +158,16 @@ pub enum View {
 }
 ```
 
-**View::Padded**はパディング操作を他のView操作と統一的に扱うための設計です。
-境界外アクセス時は`default_value`に応じた値が返されます:
+**View::Masked**は任意のExpr条件に基づいたマスク操作を表現します。
+条件が非0のとき内側のViewからロードし、0のとき`default_value`に応じた値が返されます:
 - `PadValue::Zero`: 0.0（Sum演算の単位元）
 - `PadValue::One`: 1.0（Prod演算の単位元）
 - `PadValue::NegInf`: -∞（Max演算の単位元）
 
-**View::Masked**は任意のExpr条件に基づいたマスク操作を表現します。
+**パディング**はMaskedで統一的に表現されます:
+- `View::padded()`ヘルパーがMasked + IndexExprの組み合わせを生成
+- 境界条件: `Idx(i) >= before[i] && Idx(i) < before[i] + inner_shape[i]`
+
 用途例:
 - Attention mask（三角形マスク）: `Idx(0).le(Idx(1))`
 - スパースパターン（偶数インデックスのみ）: `Idx(0).rem(2).eq_expr(0)`
@@ -329,7 +325,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T> for PadBackward<T, D> {
 |------|------|
 | `View` | メモリコピーなしのView変更 |
 | `Contiguous` | メモリレイアウト正規化・実行トリガー |
-| `Pad` | パディング（View::Padded経由） |
+| `Pad` | パディング（View::Masked経由） |
 | `Slice` | スライス（View::Linear経由、ゼロコピー） |
 | `Concat` | テンソル結合（複数入力を条件分岐で処理） |
 | `Unfold` | スライディングウィンドウ（im2col用、View::IndexExpr経由） |

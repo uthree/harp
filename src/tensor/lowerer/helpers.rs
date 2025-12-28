@@ -183,11 +183,6 @@ pub fn build_strided_offset(view: &View, ndim: usize) -> AstNode {
             result
         }
         View::IndexExpr { index_expr, .. } => index_expr.clone().into(),
-        View::Padded { inner, .. } => {
-            // Paddedの場合は内側のViewのオフセット計算を使用
-            // 注意: 境界チェックはLowerer側で別途処理される
-            build_strided_offset(inner, ndim)
-        }
         View::Masked { inner, .. } => {
             // Maskedの場合は内側のViewのオフセット計算を使用
             // 注意: 条件チェックはLowerer側で別途処理される
