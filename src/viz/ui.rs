@@ -174,9 +174,3 @@ fn draw_status_bar<R: CLikeRenderer + Clone>(frame: &mut Frame, app: &App<R>, ar
 
     frame.render_widget(paragraph, area);
 }
-
-/// ヘルプテキストを取得
-#[allow(dead_code)]
-fn help_text() -> &'static str {
-    "←/h: Prev Step | →/l: Next Step | ↑/k: Prev Candidate | ↓/j: Next Candidate | q: Quit"
-}

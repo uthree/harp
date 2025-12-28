@@ -193,7 +193,10 @@ fn render_thread_var_declarations_metal(params: &[VarDecl], indent: &str) -> Str
                     2 => "z",
                     _ => continue,
                 };
-                declarations.push_str(&format!("{}uint {} = _gid.{};\n", indent, param.name, component));
+                declarations.push_str(&format!(
+                    "{}uint {} = _gid.{};\n",
+                    indent, param.name, component
+                ));
             }
             VarKind::LocalId(axis) => {
                 let component = match axis {
@@ -202,7 +205,10 @@ fn render_thread_var_declarations_metal(params: &[VarDecl], indent: &str) -> Str
                     2 => "z",
                     _ => continue,
                 };
-                declarations.push_str(&format!("{}uint {} = _lid.{};\n", indent, param.name, component));
+                declarations.push_str(&format!(
+                    "{}uint {} = _lid.{};\n",
+                    indent, param.name, component
+                ));
             }
             _ => {}
         }

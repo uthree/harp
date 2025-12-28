@@ -139,10 +139,10 @@ impl HarpDevice {
         // 1. Metal (macOS only, feature = "metal")
         #[cfg(all(feature = "metal", target_os = "macos"))]
         {
-            if super::metal::MetalDevice::is_available() {
-                if let Ok(device) = Self::metal(0) {
-                    return Ok(device);
-                }
+            if super::metal::MetalDevice::is_available()
+                && let Ok(device) = Self::metal(0)
+            {
+                return Ok(device);
             }
         }
 
@@ -274,6 +274,7 @@ impl HarpDevice {
     ///
     /// # 戻り値
     /// `(DeviceKind, index, device_name)` のベクター
+    #[allow(unused_mut)]
     pub fn list_all() -> Vec<(DeviceKind, usize, String)> {
         let mut devices = Vec::new();
 

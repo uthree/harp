@@ -89,6 +89,7 @@ pub mod primops;
 pub mod shape;
 pub mod stringify;
 
+#[cfg(any(all(feature = "metal", target_os = "macos"), feature = "opencl"))]
 use log::debug;
 use std::marker::PhantomData;
 use std::sync::{Arc, RwLock};
@@ -582,6 +583,7 @@ impl TensorInner {
     ///
     /// strong_count > 1の場合、他の演算も依存しているためバッファを作成する必要がある。
     /// ただし Const/ConstFill は常にインライン化されるため例外。
+    #[cfg(any(all(feature = "metal", target_os = "macos"), feature = "opencl"))]
     fn can_skip_realize(input: &InputRef) -> bool {
         // Const/ConstFill は常にスキップ（lowererでインライン化される）
         if matches!(input.op, TensorOp::Const(_) | TensorOp::ConstFill(_)) {
