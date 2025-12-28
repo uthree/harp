@@ -573,31 +573,36 @@ impl TensorInner {
             return Ok(());
         }
 
-        // View/Buffer等の非計算ノードはスキップ
-        // これらは親のCompute操作内でストライドアクセスとして処理される
+        // 非計算ノードの処理
         match &self.op {
+            // View: 入力をrealizeして終了（自身はバッファ不要）
             TensorOp::View { input } => {
-                // View入力をrealizeする（入力がComputeの場合に必要）
                 input.realize_recursive()?;
                 return Ok(());
             }
-            TensorOp::Buffer { .. } | TensorOp::Executed => {
-                // Bufferは既にデータを持っている
-                return Ok(());
-            }
-            TensorOp::Const(_) => {
-                // スカラー定数は親のCompute内で処理される
-                return Ok(());
-            }
+            // ソースノード: 処理不要
+            TensorOp::Buffer { .. } | TensorOp::Executed => return Ok(()),
+            TensorOp::Const(_) => return Ok(()),
             // Note: ConstFillは実際にバッファを生成するのでスキップしない
             _ => {}
         }
 
-        // MapReduce操作なら入力を先にrealize
-        if let TensorOp::MapReduce { inputs, .. } = &self.op {
-            for input in inputs {
+        // 単項演算の入力を先にrealize
+        match &self.op {
+            TensorOp::Contiguous { input } | TensorOp::Clone { input } => {
                 input.realize_recursive()?;
             }
+            _ => {}
+        }
+
+        // N項演算の入力を先にrealize
+        match &self.op {
+            TensorOp::MapReduce { inputs, .. } | TensorOp::Concat { inputs, .. } => {
+                for input in inputs {
+                    input.realize_recursive()?;
+                }
+            }
+            _ => {}
         }
 
         // 自身をrealize
@@ -1387,5 +1392,60 @@ mod tests {
         assert_eq!(t2.ndim(), 2);
         assert_eq!(t3.ndim(), 3);
         assert_eq!(t_dyn.ndim(), 2);
+    }
+
+    // =========================================================================
+    // realize_recursive tests
+    // =========================================================================
+
+    #[test]
+    fn test_realize_recursive_handles_contiguous_input() {
+        // Test that Contiguous { input } has its input realized first
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
+        let b = &a + &a; // MapReduce operation
+        let c = b.contiguous(); // Contiguous wrapping a compute node
+
+        // Verify the operation structure
+        assert!(matches!(c.inner.op, TensorOp::Contiguous { .. }));
+
+        // The input to Contiguous should be the MapReduce
+        if let TensorOp::Contiguous { input } = &c.inner.op {
+            assert!(matches!(input.op, TensorOp::MapReduce { .. }));
+        }
+    }
+
+    #[test]
+    fn test_realize_recursive_handles_clone_input() {
+        // Test that Clone { input } has its input realized first
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
+        let b = &a + &a; // MapReduce operation
+        let c = b.fork(); // Clone wrapping a compute node
+
+        // Verify the operation structure
+        assert!(matches!(c.inner.op, TensorOp::Clone { .. }));
+
+        // The input to Clone should be the MapReduce
+        if let TensorOp::Clone { input } = &c.inner.op {
+            assert!(matches!(input.op, TensorOp::MapReduce { .. }));
+        }
+    }
+
+    #[test]
+    fn test_realize_recursive_handles_concat_inputs() {
+        // Test that Concat { inputs } has all inputs realized first
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
+        let b = &a + &a; // MapReduce operation
+        let c = &a * &a; // Another MapReduce operation
+        let d = Tensor::concat(&[&b, &c], 0); // Concat with compute inputs
+
+        // Verify the operation structure
+        assert!(matches!(d.inner.op, TensorOp::Concat { .. }));
+
+        // The inputs to Concat should be MapReduce operations
+        if let TensorOp::Concat { inputs, .. } = &d.inner.op {
+            assert_eq!(inputs.len(), 2);
+            assert!(matches!(inputs[0].op, TensorOp::MapReduce { .. }));
+            assert!(matches!(inputs[1].op, TensorOp::MapReduce { .. }));
+        }
     }
 }

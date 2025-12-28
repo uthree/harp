@@ -353,7 +353,10 @@ mod tests {
         // a - c uses a + (-c), which should track gradients via ScalarAddBackward
         let a = Tensor::<f32, Dim2>::ones([2, 3]).set_requires_grad(true);
         let b = &a - 1.0;
-        assert!(b.requires_grad(), "Scalar subtraction should preserve requires_grad");
+        assert!(
+            b.requires_grad(),
+            "Scalar subtraction should preserve requires_grad"
+        );
         b.backward();
         let grad_a = a.grad().expect("a should have gradient after backward");
         assert_eq!(grad_a.shape(), &[2, 3]);
@@ -364,7 +367,10 @@ mod tests {
         // a / c uses a * (1/c), which should track gradients via ScalarMulBackward
         let a = Tensor::<f32, Dim2>::full([2, 3], 6.0).set_requires_grad(true);
         let b = &a / 2.0;
-        assert!(b.requires_grad(), "Scalar division should preserve requires_grad");
+        assert!(
+            b.requires_grad(),
+            "Scalar division should preserve requires_grad"
+        );
         b.backward();
         let grad_a = a.grad().expect("a should have gradient after backward");
         assert_eq!(grad_a.shape(), &[2, 3]);
