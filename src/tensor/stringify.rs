@@ -120,13 +120,6 @@ impl GraphStringifier {
                 let child = self.visit_input(input);
                 format!("Contiguous({})", child)
             }
-            TensorOp::Cast {
-                input,
-                target_dtype,
-            } => {
-                let child = self.visit_input(input);
-                format!("Cast({}, to={:?})", child, target_dtype)
-            }
             TensorOp::Clone { input } => {
                 let child = self.visit_input(input);
                 format!("Clone({})", child)

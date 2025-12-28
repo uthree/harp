@@ -99,10 +99,10 @@ pub enum TensorOp {
     // 単項演算（1入力）
     View { input: TensorRef },
     Contiguous { input: TensorRef },
-    Cast { input: TensorRef, target_dtype: DType },
     Clone { input: TensorRef },
 
     // 統一計算演算（MapReduce）
+    // Cast演算もMapReduceとして表現（融合可能）
     MapReduce {
         inputs: Vec<TensorRef>,      // 入力テンソル群
         expr: AstNode,               // 計算式
@@ -126,6 +126,7 @@ pub enum TensorOp {
 |--------|-------------------|
 | `Elementwise { op }` | `reduce_op: None, axes: []` |
 | `FusedElementwise { expr }` | `reduce_op: None, axes: []` |
+| `Cast { dtype }` | `expr: Cast(Wildcard("0"), dtype), reduce_op: None, axes: []` |
 | `Reduce { op, axes }` | `expr: Wildcard("0"), reduce_op: Some(op)` |
 | `FusedElementwiseReduce` | `expr + reduce_op: Some(op)` |
 
@@ -303,7 +304,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T> for PadBackward<T, D> {
 | 演算 | 説明 |
 |------|------|
 | `Clone` | 分岐点（バッファコピー） |
-| `Cast` | 型変換 |
+| `Cast` | 型変換（MapReduceとして実装、融合可能） |
 
 ---
 
@@ -368,6 +369,10 @@ let mean = x.mean(&[1], false);
 
 // 分岐
 let a2 = a.fork();  // Clone演算を追加
+
+// 型変換（MapReduceとして実装、融合可能）
+let f: Tensor<f32, Dim2> = i.cast();
+let i: Tensor<i32, Dim2> = f.cast();
 
 // 形状変更（型安全）
 let b: Tensor<f32, Dim3> = a.unsqueeze(0);   // Dim2 → Dim3

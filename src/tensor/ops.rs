@@ -52,12 +52,6 @@ pub enum TensorOp {
     /// Viewに従って要素を並べ直す（実体化）
     Contiguous { input: InputRef },
 
-    /// 型変換
-    Cast {
-        input: InputRef,
-        target_dtype: DType,
-    },
-
     /// 分岐点を作成（バッファコピー）
     Clone { input: InputRef },
 
@@ -173,6 +167,21 @@ impl PadValue {
 }
 
 impl TensorOp {
+    /// 型変換演算を作成（MapReduceとして統一）
+    ///
+    /// Cast演算をElementwise MapReduceとして表現することで、
+    /// 他のelementwise演算と融合可能になる。
+    pub fn cast(input: InputRef, target_dtype: DType) -> Self {
+        use crate::ast::helper::*;
+        Self::MapReduce {
+            inputs: vec![input],
+            expr: cast(wildcard("0"), target_dtype),
+            reduce_op: None,
+            axes: vec![],
+            keepdim: false,
+        }
+    }
+
     /// Elementwise演算を作成
     pub fn elementwise(inputs: Vec<InputRef>, expr: AstNode) -> Self {
         Self::MapReduce {
@@ -262,7 +271,6 @@ impl TensorOp {
 
             TensorOp::View { input }
             | TensorOp::Contiguous { input }
-            | TensorOp::Cast { input, .. }
             | TensorOp::Clone { input } => vec![input],
 
             TensorOp::MapReduce { inputs, .. } | TensorOp::Concat { inputs, .. } => {
@@ -282,7 +290,6 @@ impl TensorOp {
             TensorOp::Executed => "Executed",
             TensorOp::View { .. } => "View",
             TensorOp::Contiguous { .. } => "Contiguous",
-            TensorOp::Cast { .. } => "Cast",
             TensorOp::Clone { .. } => "Clone",
             TensorOp::MapReduce {
                 reduce_op: None, ..
@@ -306,9 +313,6 @@ impl std::fmt::Debug for TensorOp {
             TensorOp::Executed => write!(f, "Executed"),
             TensorOp::View { .. } => write!(f, "View"),
             TensorOp::Contiguous { .. } => write!(f, "Contiguous"),
-            TensorOp::Cast { target_dtype, .. } => {
-                write!(f, "Cast {{ target_dtype: {:?} }}", target_dtype)
-            }
             TensorOp::Clone { .. } => write!(f, "Clone"),
             TensorOp::MapReduce {
                 expr,

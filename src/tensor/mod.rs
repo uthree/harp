@@ -820,6 +820,29 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
     pub fn is_executed(&self) -> bool {
         self.inner.buffer.read().unwrap().is_some()
     }
+
+    /// 型変換（Cast）
+    ///
+    /// テンソルを別の型に変換する。MapReduceとして実装されているため、
+    /// 他のelementwise演算と融合可能。
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let a: Tensor<f32, Dim2> = Tensor::ones([2, 3]);
+    /// let b: Tensor<i32, Dim2> = a.cast();
+    /// ```
+    pub fn cast<U: TensorDType>(&self) -> Tensor<U, D> {
+        let view = self.inner.view.clone();
+        let shape = self.inner.shape.clone();
+        let op = TensorOp::cast(self.as_input_ref(), U::DTYPE);
+        let inner = TensorInner::new(op, view, shape, U::DTYPE);
+        Tensor {
+            inner: Arc::new(inner),
+            _dtype: PhantomData,
+            _dim: PhantomData,
+        }
+    }
 }
 
 // ============================================================================
@@ -1641,5 +1664,70 @@ mod tests {
         assert!(c.inner.is_fusable(), "c should be fusable");
         assert!(d.inner.is_fusable(), "d (view) should be fusable");
         assert!(e.inner.is_fusable(), "e should be fusable after view");
+    }
+
+    // =========================================================================
+    // Cast tests
+    // =========================================================================
+
+    #[test]
+    fn test_cast_f32_to_i32() {
+        // Cast from f32 to i32
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
+        let b: Tensor<i32, Dim2> = a.cast();
+        assert_eq!(b.shape(), &[2, 3]);
+        assert_eq!(*b.dtype(), DType::I32);
+    }
+
+    #[test]
+    fn test_cast_i32_to_f32() {
+        // Cast from i32 to f32
+        let a = Tensor::<i32, Dim2>::full([2, 3], 5);
+        let b: Tensor<f32, Dim2> = a.cast();
+        assert_eq!(b.shape(), &[2, 3]);
+        assert_eq!(*b.dtype(), DType::F32);
+    }
+
+    #[test]
+    fn test_cast_is_fusable() {
+        // Cast should be fusable (it's an elementwise MapReduce)
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
+        let b: Tensor<i32, Dim2> = a.cast();
+        assert!(b.inner.is_fusable(), "Cast should be fusable");
+    }
+
+    #[test]
+    fn test_cast_fusion_with_add() {
+        // Cast can be fused with other elementwise operations
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
+        let b = &a + &a; // Elementwise add
+        let c: Tensor<i32, Dim2> = b.cast(); // Cast (also elementwise)
+
+        // Both should be fusable
+        assert!(b.inner.is_fusable(), "Add should be fusable");
+        assert!(c.inner.is_fusable(), "Cast should be fusable");
+
+        // Verify the cast operation is represented as MapReduce
+        assert!(
+            matches!(c.inner.op, TensorOp::MapReduce { .. }),
+            "Cast should be MapReduce"
+        );
+    }
+
+    #[test]
+    fn test_cast_preserves_shape() {
+        // Cast should preserve shape
+        let a = Tensor::<f32, Dim3>::ones([2, 3, 4]);
+        let b: Tensor<i64, Dim3> = a.cast();
+        assert_eq!(b.shape(), &[2, 3, 4]);
+    }
+
+    #[test]
+    fn test_cast_f64_to_f32() {
+        // Cast from f64 to f32
+        let a = Tensor::<f64, Dim1>::full([10], 3.14);
+        let b: Tensor<f32, Dim1> = a.cast();
+        assert_eq!(b.shape(), &[10]);
+        assert_eq!(*b.dtype(), DType::F32);
     }
 }
