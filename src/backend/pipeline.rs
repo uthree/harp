@@ -8,9 +8,9 @@ use crate::backend::KernelSignature;
 use crate::backend::traits::{Compiler, Device, KernelConfig};
 use crate::opt::ast::rules::rules_for_capabilities;
 use crate::opt::ast::{
-    AstSuggester, CompositeSuggester as AstCompositeSuggester, FunctionInliningSuggester,
-    LoopFusionSuggester, LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester,
-    OptimizationHistory as AstOptimizationHistory, PrunedBfsOptimizer as AstPrunedBfsOptimizer,
+    AstSuggester, BeamSearchOptimizer, CompositeSuggester as AstCompositeSuggester,
+    FunctionInliningSuggester, LoopFusionSuggester, LoopInliningSuggester,
+    LoopInterchangeSuggester, LoopTilingSuggester, OptimizationHistory as AstOptimizationHistory,
     RuleBaseSuggester, VectorizationSuggester,
 };
 use crate::opt::context::DeviceCapabilities;
@@ -208,16 +208,15 @@ where
 
         let suggester = AstCompositeSuggester::new(suggesters);
         let (optimized, history) = if self.config.show_progress {
-            let mut optimizer = AstPrunedBfsOptimizer::new(suggester)
-                .with_prune_width(self.config.ast_beam_width)
+            let mut optimizer = BeamSearchOptimizer::new(suggester)
+                .with_beam_width(self.config.ast_beam_width)
                 .with_max_steps(self.config.max_steps)
                 .with_progress(IndicatifProgress::new());
             optimizer.optimize_with_history(program)
         } else {
-            let mut optimizer = AstPrunedBfsOptimizer::new(suggester)
-                .with_prune_width(self.config.ast_beam_width)
-                .with_max_steps(self.config.max_steps)
-                .without_progress();
+            let mut optimizer = BeamSearchOptimizer::new(suggester)
+                .with_beam_width(self.config.ast_beam_width)
+                .with_max_steps(self.config.max_steps);
             optimizer.optimize_with_history(program)
         };
 
