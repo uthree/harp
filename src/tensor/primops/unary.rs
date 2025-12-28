@@ -454,6 +454,168 @@ impl<T: FloatDType, D: Dimension> Floor for Tensor<T, D> {
     }
 }
 
+// ============================================================================
+// Cast gradients for FloatDType (f32 <-> f64)
+// ============================================================================
+
+/// Gradient for Cast f32 -> f64
+/// ∂L/∂a = cast(∂L/∂z, f32)
+///
+/// The gradient is simply cast back to the input type.
+pub struct CastF32ToF64Backward {
+    input: Tensor<f32, DimDyn>,
+}
+
+impl CastF32ToF64Backward {
+    pub fn new(input: Tensor<f32, DimDyn>) -> Self {
+        Self { input }
+    }
+}
+
+impl GradFn<f64> for CastF32ToF64Backward {
+    fn backward(&self, grad_output: &Tensor<f64, DimDyn>) -> Vec<Tensor<f64, DimDyn>> {
+        // Cast gradient back to f32 and propagate to input
+        let grad_f32: Tensor<f32, DimDyn> = grad_output.cast();
+        if self.input.requires_grad() {
+            self.input.backward_with(grad_f32);
+        }
+        // Return empty since we've already propagated
+        vec![]
+    }
+
+    fn inputs(&self) -> Vec<Tensor<f64, DimDyn>> {
+        // Return empty since we handle propagation directly
+        vec![]
+    }
+
+    fn name(&self) -> &'static str {
+        "CastF32ToF64Backward"
+    }
+}
+
+/// Gradient for Cast f64 -> f32
+/// ∂L/∂a = cast(∂L/∂z, f64)
+///
+/// The gradient is simply cast back to the input type.
+pub struct CastF64ToF32Backward {
+    input: Tensor<f64, DimDyn>,
+}
+
+impl CastF64ToF32Backward {
+    pub fn new(input: Tensor<f64, DimDyn>) -> Self {
+        Self { input }
+    }
+}
+
+impl GradFn<f32> for CastF64ToF32Backward {
+    fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
+        // Cast gradient back to f64 and propagate to input
+        let grad_f64: Tensor<f64, DimDyn> = grad_output.cast();
+        if self.input.requires_grad() {
+            self.input.backward_with(grad_f64);
+        }
+        // Return empty since we've already propagated
+        vec![]
+    }
+
+    fn inputs(&self) -> Vec<Tensor<f32, DimDyn>> {
+        // Return empty since we handle propagation directly
+        vec![]
+    }
+
+    fn name(&self) -> &'static str {
+        "CastF64ToF32Backward"
+    }
+}
+
+// ============================================================================
+// Cast with gradient for f32 tensors
+// ============================================================================
+
+impl<D: Dimension> Tensor<f32, D> {
+    /// Cast to f64 with gradient tracking
+    ///
+    /// This method casts the tensor to f64 and preserves gradient tracking.
+    /// During backpropagation, gradients are cast back to f32.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let x = Tensor::<f32, Dim2>::ones([2, 3]).set_requires_grad(true);
+    /// let y: Tensor<f64, Dim2> = x.cast_f64();
+    /// // y.requires_grad() == true
+    /// ```
+    pub fn cast_f64(&self) -> Tensor<f64, D> {
+        let result: Tensor<f64, D> = self.cast();
+
+        if self.requires_grad() {
+            let grad_fn = CastF32ToF64Backward::new(self.clone().into_dyn());
+            let inner = crate::tensor::TensorInner {
+                op: result.inner.op.clone(),
+                view: result.inner.view.clone(),
+                shape: result.inner.shape.clone(),
+                dtype: result.inner.dtype.clone(),
+                name: result.inner.name.clone(),
+                autograd: Some(crate::tensor::AutogradStorage::new_f64_with_grad_fn(
+                    Arc::new(grad_fn),
+                )),
+                buffer: std::sync::RwLock::new(result.inner.clone_buffer()),
+            };
+            Tensor {
+                inner: Arc::new(inner),
+                _dtype: PhantomData,
+                _dim: PhantomData,
+            }
+        } else {
+            result
+        }
+    }
+}
+
+// ============================================================================
+// Cast with gradient for f64 tensors
+// ============================================================================
+
+impl<D: Dimension> Tensor<f64, D> {
+    /// Cast to f32 with gradient tracking
+    ///
+    /// This method casts the tensor to f32 and preserves gradient tracking.
+    /// During backpropagation, gradients are cast back to f64.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let x = Tensor::<f64, Dim2>::ones([2, 3]).set_requires_grad(true);
+    /// let y: Tensor<f32, Dim2> = x.cast_f32();
+    /// // y.requires_grad() == true
+    /// ```
+    pub fn cast_f32(&self) -> Tensor<f32, D> {
+        let result: Tensor<f32, D> = self.cast();
+
+        if self.requires_grad() {
+            let grad_fn = CastF64ToF32Backward::new(self.clone().into_dyn());
+            let inner = crate::tensor::TensorInner {
+                op: result.inner.op.clone(),
+                view: result.inner.view.clone(),
+                shape: result.inner.shape.clone(),
+                dtype: result.inner.dtype.clone(),
+                name: result.inner.name.clone(),
+                autograd: Some(crate::tensor::AutogradStorage::new_f32_with_grad_fn(
+                    Arc::new(grad_fn),
+                )),
+                buffer: std::sync::RwLock::new(result.inner.clone_buffer()),
+            };
+            Tensor {
+                inner: Arc::new(inner),
+                _dtype: PhantomData,
+                _dim: PhantomData,
+            }
+        } else {
+            result
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -530,5 +692,93 @@ mod tests {
         let a = Tensor::<f32, Dim2>::ones([2, 3]);
         let c = a.floor();
         assert_eq!(c.shape(), &[2, 3]);
+    }
+
+    // =========================================================================
+    // Cast with gradient tests
+    // =========================================================================
+
+    #[test]
+    fn test_cast_f64_method() {
+        // Cast f32 -> f64 using cast_f64 method
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
+        let b = a.cast_f64();
+        assert_eq!(b.shape(), &[2, 3]);
+        assert_eq!(*b.dtype(), crate::ast::DType::F64);
+    }
+
+    #[test]
+    fn test_cast_f32_method() {
+        use crate::tensor::DimDyn;
+
+        // Create f64 tensor
+        let inner = TensorInner::new(
+            TensorOp::ConstFill(crate::ast::Literal::F64(2.0)),
+            crate::tensor::shape::View::contiguous(vec![
+                crate::tensor::shape::Expr::from(2i64),
+                crate::tensor::shape::Expr::from(3i64),
+            ]),
+            vec![2, 3],
+            crate::ast::DType::F64,
+        );
+        let a: Tensor<f64, DimDyn> = Tensor {
+            inner: Arc::new(inner),
+            _dtype: PhantomData,
+            _dim: PhantomData,
+        };
+
+        // Cast f64 -> f32 using cast_f32 method
+        let b = a.cast_f32();
+        assert_eq!(b.shape(), &[2, 3]);
+        assert_eq!(*b.dtype(), crate::ast::DType::F32);
+    }
+
+    #[test]
+    fn test_cast_f64_preserves_requires_grad() {
+        // Cast with requires_grad should preserve gradient tracking
+        let a = Tensor::<f32, Dim2>::ones([2, 3]).set_requires_grad(true);
+        assert!(a.requires_grad());
+
+        let b = a.cast_f64();
+        assert!(b.requires_grad(), "Cast output should have requires_grad");
+    }
+
+    #[test]
+    fn test_cast_f64_no_grad_when_input_no_grad() {
+        // Cast without requires_grad should not track gradients
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
+        assert!(!a.requires_grad());
+
+        let b = a.cast_f64();
+        assert!(
+            !b.requires_grad(),
+            "Cast output should not have requires_grad"
+        );
+    }
+
+    #[test]
+    fn test_cast_f32_preserves_requires_grad() {
+        use crate::tensor::DimDyn;
+
+        // Create f64 tensor with requires_grad
+        let inner = TensorInner::new(
+            TensorOp::ConstFill(crate::ast::Literal::F64(2.0)),
+            crate::tensor::shape::View::contiguous(vec![
+                crate::tensor::shape::Expr::from(2i64),
+                crate::tensor::shape::Expr::from(3i64),
+            ]),
+            vec![2, 3],
+            crate::ast::DType::F64,
+        );
+        let a_base: Tensor<f64, DimDyn> = Tensor {
+            inner: Arc::new(inner),
+            _dtype: PhantomData,
+            _dim: PhantomData,
+        };
+        let a = a_base.set_requires_grad(true);
+        assert!(a.requires_grad());
+
+        let b = a.cast_f32();
+        assert!(b.requires_grad(), "Cast output should have requires_grad");
     }
 }
