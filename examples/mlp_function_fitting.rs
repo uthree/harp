@@ -218,7 +218,7 @@ fn main() {
     let n_samples = 64;
     let hidden_dim = 32;
     let learning_rate = 0.1;
-    let n_epochs = 100;
+    let n_epochs = 1000;
 
     // Generate training data
     println!("Generating training data...");

@@ -21,6 +21,7 @@
 //! });
 //! ```
 
+use super::device::{DeviceError, HarpDevice};
 use super::traits::Device;
 use std::any::Any;
 use std::cell::RefCell;
@@ -36,6 +37,8 @@ pub enum DeviceKind {
     Metal,
     /// OpenCL backend
     OpenCL,
+    /// C backend (CPU fallback)
+    C,
 }
 
 impl std::fmt::Display for DeviceKind {
@@ -44,6 +47,7 @@ impl std::fmt::Display for DeviceKind {
             DeviceKind::None => write!(f, "None"),
             DeviceKind::Metal => write!(f, "Metal"),
             DeviceKind::OpenCL => write!(f, "OpenCL"),
+            DeviceKind::C => write!(f, "C"),
         }
     }
 }
@@ -97,6 +101,41 @@ pub fn set_default_device<D: Device + Send + Sync + 'static>(device: D, kind: De
         state.kind = kind;
         state.device = Some(Arc::new(device));
     });
+}
+
+/// Set the default device using HarpDevice
+///
+/// This is the recommended way to set the default device.
+///
+/// # Example
+/// ```ignore
+/// use harp::backend::{HarpDevice, set_device};
+///
+/// let device = HarpDevice::auto()?;
+/// set_device(device);
+/// ```
+pub fn set_device(device: HarpDevice) {
+    DEFAULT_DEVICE.with(|state| {
+        let mut state = state.borrow_mut();
+        state.kind = device.kind();
+        state.device = Some(device.device_arc());
+    });
+}
+
+/// Set the default device using a device string
+///
+/// # Example
+/// ```ignore
+/// use harp::backend::set_device_str;
+///
+/// set_device_str("opencl:0")?;
+/// set_device_str("metal")?;
+/// set_device_str("c")?;
+/// ```
+pub fn set_device_str(device_str: &str) -> Result<(), DeviceError> {
+    let device = HarpDevice::new(device_str)?;
+    set_device(device);
+    Ok(())
 }
 
 /// Clear the default device for this thread
@@ -181,5 +220,6 @@ mod tests {
         assert_eq!(format!("{}", DeviceKind::None), "None");
         assert_eq!(format!("{}", DeviceKind::Metal), "Metal");
         assert_eq!(format!("{}", DeviceKind::OpenCL), "OpenCL");
+        assert_eq!(format!("{}", DeviceKind::C), "C");
     }
 }

@@ -53,9 +53,65 @@ pub enum DeviceKind {
     None,    // デバイス未設定
     Metal,   // Metalバックエンド
     OpenCL,  // OpenCLバックエンド
+    C,       // Cバックエンド（コード生成のみ）
+}
+```
+
+### HarpDevice API（推奨）
+
+PyTorchの`torch.device`のような統一デバイスAPI。優先度付き自動選択機能を提供。
+
+```rust
+/// PyTorch風デバイス指定
+pub struct HarpDevice { ... }
+
+impl HarpDevice {
+    /// 文字列から作成: "metal", "opencl:0", "c"
+    pub fn new(device_str: &str) -> Result<Self, DeviceError>;
+
+    /// 優先度付き自動選択 (Metal > OpenCL > C)
+    pub fn auto() -> Result<Self, DeviceError>;
+
+    /// バックエンド固有コンストラクタ
+    pub fn metal(index: usize) -> Result<Self, DeviceError>;
+    pub fn opencl(index: usize) -> Result<Self, DeviceError>;
+    pub fn c() -> Result<Self, DeviceError>;
+
+    /// 利用可能デバイス一覧
+    pub fn list_all() -> Vec<(DeviceKind, usize, String)>;
+
+    /// デフォルトとして設定
+    pub fn set_as_default(self);
 }
 
-// デバイス設定
+// HarpDeviceを使ってデバイス設定
+pub fn set_device(device: HarpDevice);
+pub fn set_device_str(device_str: &str) -> Result<(), DeviceError>;
+```
+
+**使用例:**
+
+```rust
+use harp::backend::{HarpDevice, set_device};
+
+// 自動選択（推奨）- 優先度: Metal > OpenCL > C
+let device = HarpDevice::auto()?;
+set_device(device);
+
+// 文字列指定
+let device = HarpDevice::new("opencl:0")?;
+device.set_as_default();
+
+// 利用可能なデバイス一覧
+for (kind, index, name) in HarpDevice::list_all() {
+    println!("{:?}:{} - {}", kind, index, name);
+}
+```
+
+### 従来のAPI（後方互換性）
+
+```rust
+// デバイス設定（従来方式）
 pub fn set_default_device<D: Device + Send + Sync + 'static>(device: D, kind: DeviceKind);
 
 // デバイス種類取得
@@ -74,7 +130,7 @@ pub fn clear_default_device();
 pub fn with_device<D, F, R>(device: D, kind: DeviceKind, f: F) -> R;
 ```
 
-**使用例:**
+**従来方式の使用例:**
 
 ```rust
 use harp::backend::{set_default_device, DeviceKind};

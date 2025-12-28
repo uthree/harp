@@ -24,6 +24,7 @@
 //! ```
 
 pub mod cache;
+pub mod device;
 pub mod global;
 pub mod pipeline;
 pub mod sequence;
@@ -68,8 +69,11 @@ pub use crate::renderer::Renderer;
 // Re-export global device management
 pub use global::{
     DeviceKind, clear_default_device, get_default_device, get_default_device_kind,
-    has_default_device, set_default_device, with_device,
+    has_default_device, set_default_device, set_device, set_device_str, with_device,
 };
+
+// Re-export device types
+pub use device::{DeviceError, HarpDevice};
 
 /// カーネルのシグネチャ（入出力バッファの形状情報）
 #[derive(Debug, Clone, PartialEq, Eq)]

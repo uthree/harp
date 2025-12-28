@@ -236,6 +236,11 @@ impl TensorInner {
             DeviceKind::OpenCL => Err(ForwardError::DeviceUnavailable(
                 "OpenCL backend is not available. Enable 'opencl' feature.".to_string(),
             )),
+
+            // C backend is code-generation only, no runtime execution
+            DeviceKind::C => Err(ForwardError::DeviceUnavailable(
+                "C backend does not support runtime execution. Use Metal or OpenCL for GPU execution.".to_string(),
+            )),
         }
     }
 
