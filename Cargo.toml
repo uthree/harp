@@ -44,3 +44,7 @@ rstest = "0.24"
 [[example]]
 name = "viz_matmul_demo"
 required-features = ["viz", "opencl"]
+
+[[example]]
+name = "mlp_function_fitting"
+required-features = ["opencl"]
