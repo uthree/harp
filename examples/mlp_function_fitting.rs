@@ -1,16 +1,14 @@
 //! MLP Function Fitting Demo
 //!
 //! This example demonstrates training a Multi-Layer Perceptron to approximate sin(x).
-//! Uses OpenCL backend for GPU acceleration with automatic differentiation.
+//! Uses GPU backend for acceleration with automatic differentiation.
 //!
 //! # Run
 //! ```bash
 //! cargo run --features "opencl" --example mlp_function_fitting
 //! ```
 
-use harp::backend::Device;
-use harp::backend::global::{DeviceKind, set_default_device};
-use harp::backend::opencl::OpenCLDevice;
+use harp::backend::{HarpDevice, set_device};
 use harp::tensor::{Dim1, Dim2, DimDyn, Tensor};
 use indicatif::{ProgressBar, ProgressStyle};
 use ndarray::Array2;
@@ -190,29 +188,10 @@ fn main() {
     println!("=== MLP Function Fitting Demo ===");
     println!("Learning to approximate sin(x) using a 2-layer MLP\n");
 
-    // Check OpenCL availability and setup device
-    if !OpenCLDevice::is_available() {
-        eprintln!("Error: OpenCL is not available on this system.");
-        std::process::exit(1);
-    }
-
-    let device = match OpenCLDevice::new() {
-        Ok(d) => {
-            let profile = d.profile();
-            println!("OpenCL Device: {:?}", profile.device_type);
-            println!("  Compute units: {}", profile.compute_units);
-            println!("  Max work group size: {}", profile.max_work_group_size);
-            println!();
-            d
-        }
-        Err(e) => {
-            eprintln!("Error creating OpenCL device: {}", e);
-            std::process::exit(1);
-        }
-    };
-
-    // Set default device
-    set_default_device(device, DeviceKind::OpenCL);
+    // Setup device (auto-select best available)
+    let device = HarpDevice::auto().expect("No available device found");
+    println!("Using device: {:?}", device.kind());
+    set_device(device);
 
     // Hyperparameters
     let n_samples = 64;

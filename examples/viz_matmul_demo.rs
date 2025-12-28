@@ -15,9 +15,10 @@
 //! - ↓/j: 次の候補を選択
 //! - q/Esc: 終了
 
-use harp::backend::Device;
-use harp::backend::opencl::{OpenCLDevice, OpenCLRenderer};
+use harp::backend::HarpDevice;
+use harp::backend::opencl::OpenCLRenderer;
 use harp::opt::IndicatifProgress;
+use harp::opt::ast::BeamSearchOptimizer;
 use harp::opt::ast::rules::all_rules_with_search;
 use harp::opt::ast::suggesters::{
     CompositeSuggester, FunctionInliningSuggester, GroupParallelizationSuggester,
@@ -25,7 +26,6 @@ use harp::opt::ast::suggesters::{
     LoopInterchangeSuggester, LoopTilingSuggester, RuleBaseSuggester, VariableExpansionSuggester,
     VectorizationSuggester,
 };
-use harp::opt::ast::{BeamSearchOptimizer, PrunedDfsOptimizer};
 use harp::tensor::lowerer::TensorLowerer;
 use harp::tensor::{Dim2, Tensor};
 
@@ -33,29 +33,12 @@ fn main() {
     // ログを初期化（オプション）
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
 
-    // OpenCLデバイスの確認
-    if !OpenCLDevice::is_available() {
-        eprintln!("Error: OpenCL is not available on this system.");
-        eprintln!("Please ensure you have OpenCL drivers installed.");
-        std::process::exit(1);
+    // 利用可能なデバイスを表示
+    println!("Available devices:");
+    for (kind, index, name) in HarpDevice::list_all() {
+        println!("  {:?}:{} - {}", kind, index, name);
     }
-
-    match OpenCLDevice::new() {
-        Ok(device) => {
-            let profile = device.profile();
-            println!("OpenCL Device detected:");
-            println!("  Type: {:?}", profile.device_type);
-            println!("  Compute units: {}", profile.compute_units);
-            println!("  Max work group size: {}", profile.max_work_group_size);
-            println!("  Local memory: {} KB", profile.local_memory_size / 1024);
-            println!("  Warp/wavefront size: {}", profile.warp_size);
-            println!();
-        }
-        Err(e) => {
-            eprintln!("Error creating OpenCL device: {}", e);
-            std::process::exit(1);
-        }
-    }
+    println!();
 
     println!("Creating 1024x1024 matmul computation...");
 

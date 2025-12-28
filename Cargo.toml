@@ -50,4 +50,4 @@ required-features = ["viz", "opencl"]
 
 [[example]]
 name = "mlp_function_fitting"
-required-features = ["opencl"]
+required-features = []

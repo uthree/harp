@@ -5,15 +5,15 @@
 //! RUST_LOG=harp::tensor=debug cargo run --features opencl --example fusion_test
 //! ```
 
-use harp::backend::global::{DeviceKind, set_default_device};
-use harp::backend::opencl::OpenCLDevice;
+use harp::backend::{HarpDevice, set_device};
 use harp::tensor::{Dim2, Tensor};
 
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
 
-    let device = OpenCLDevice::new().expect("OpenCL device");
-    set_default_device(device, DeviceKind::OpenCL);
+    let device = HarpDevice::auto().expect("No available device");
+    println!("Using device: {:?}", device.kind());
+    set_device(device);
 
     // Test 1: Intermediate variable goes out of scope (true fusion)
     println!("=== Test 1: Chain with scoped intermediate (TRUE FUSION) ===");
