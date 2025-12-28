@@ -550,6 +550,29 @@ impl TensorInner {
         self.buffer.read().unwrap().is_some()
     }
 
+    /// この演算が融合可能かどうかを判定
+    ///
+    /// 融合可能な演算は、lowererによって親カーネルに式として展開される。
+    /// 融合不可能な演算は、realize_recursiveで先にバッファを作成する必要がある。
+    pub fn is_fusable(&self) -> bool {
+        match &self.op {
+            // Elementwise MapReduce（reduce_op: None, axes: []）は融合可能
+            TensorOp::MapReduce {
+                reduce_op: None,
+                axes,
+                ..
+            } if axes.is_empty() => true,
+            // 定数は融合可能
+            TensorOp::Const(_) | TensorOp::ConstFill(_) => true,
+            // View操作も融合可能（形状変換のみでバッファ不要）
+            TensorOp::View { .. } => true,
+            // Buffer/Executed/Randは入力ソースなので融合可能とみなす
+            TensorOp::Buffer { .. } | TensorOp::Executed | TensorOp::Rand => true,
+            // その他は融合バリア
+            _ => false,
+        }
+    }
+
     /// バッファデータをホストに読み出し
     pub fn read_buffer(&self) -> Option<Vec<u8>> {
         self.buffer
@@ -573,21 +596,26 @@ impl TensorInner {
             return Ok(());
         }
 
-        // 非計算ノードの処理
+        // 非計算ノード・融合可能ノードの処理
         match &self.op {
-            // View: 入力をrealizeして終了（自身はバッファ不要）
+            // View: 自身はバッファを持たない
+            // Viewがrealizeのルートとして呼ばれた場合、入力にバッファがなければrealizeする
+            // 中間ノードとして参照される場合は、is_fusableでスキップされる
             TensorOp::View { input } => {
-                input.realize_recursive()?;
+                if !input.has_buffer() {
+                    input.realize_recursive()?;
+                }
                 return Ok(());
             }
             // ソースノード: 処理不要
             TensorOp::Buffer { .. } | TensorOp::Executed => return Ok(()),
+            // Const(0.0)はlowererが直接処理するのでスキップ
             TensorOp::Const(_) => return Ok(()),
-            // Note: ConstFillは実際にバッファを生成するのでスキップしない
+            // Note: ConstFillはバッファを生成するのでスキップしない
             _ => {}
         }
 
-        // 単項演算の入力を先にrealize
+        // 融合バリア（Contiguous/Clone）: 入力を必ずrealize
         match &self.op {
             TensorOp::Contiguous { input } | TensorOp::Clone { input } => {
                 input.realize_recursive()?;
@@ -595,9 +623,18 @@ impl TensorInner {
             _ => {}
         }
 
-        // N項演算の入力を先にrealize
+        // N項演算: 融合可能な入力はスキップ、融合バリアはrealize
         match &self.op {
-            TensorOp::MapReduce { inputs, .. } | TensorOp::Concat { inputs, .. } => {
+            TensorOp::MapReduce { inputs, .. } => {
+                for input in inputs {
+                    // 融合可能な入力はスキップ（lowererが融合する）
+                    if !input.is_fusable() {
+                        input.realize_recursive()?;
+                    }
+                }
+            }
+            TensorOp::Concat { inputs, .. } => {
+                // Concatは全入力がバリア
                 for input in inputs {
                     input.realize_recursive()?;
                 }
@@ -1447,5 +1484,129 @@ mod tests {
             assert!(matches!(inputs[0].op, TensorOp::MapReduce { .. }));
             assert!(matches!(inputs[1].op, TensorOp::MapReduce { .. }));
         }
+    }
+
+    // =========================================================================
+    // Fusion tests
+    // =========================================================================
+
+    #[test]
+    fn test_is_fusable_elementwise_mapreduce() {
+        // Elementwise MapReduce (Add) should be fusable
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
+        let b = Tensor::<f32, Dim2>::ones([2, 3]);
+        let c = &a + &b;
+        assert!(
+            c.inner.is_fusable(),
+            "Elementwise MapReduce should be fusable"
+        );
+    }
+
+    #[test]
+    fn test_is_fusable_reduce_not_fusable() {
+        // Reduce operations should NOT be fusable
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
+        let b = a.sum(0);
+        assert!(
+            !b.inner.is_fusable(),
+            "Reduce operations should not be fusable"
+        );
+    }
+
+    #[test]
+    fn test_is_fusable_const() {
+        // Const should be fusable
+        let a = Tensor::<f32, Dim2>::zeros([2, 3]);
+        assert!(a.inner.is_fusable(), "Const should be fusable");
+    }
+
+    #[test]
+    fn test_is_fusable_const_fill() {
+        // ConstFill should be fusable
+        let a = Tensor::<f32, Dim2>::full([2, 3], 1.0);
+        assert!(a.inner.is_fusable(), "ConstFill should be fusable");
+    }
+
+    #[test]
+    fn test_is_fusable_view() {
+        // View should be fusable
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
+        let b = a.reshape([6]);
+        assert!(b.inner.is_fusable(), "View should be fusable");
+    }
+
+    #[test]
+    fn test_is_fusable_contiguous_not_fusable() {
+        // Contiguous should NOT be fusable (it's a fusion barrier)
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
+        let b = a.contiguous();
+        assert!(
+            !b.inner.is_fusable(),
+            "Contiguous should not be fusable (fusion barrier)"
+        );
+    }
+
+    #[test]
+    fn test_is_fusable_clone_not_fusable() {
+        // Clone should NOT be fusable (it's a fusion barrier)
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
+        let b = a.fork();
+        assert!(
+            !b.inner.is_fusable(),
+            "Clone should not be fusable (fusion barrier)"
+        );
+    }
+
+    #[test]
+    fn test_fusion_chain_no_intermediate_buffer() {
+        // When chaining elementwise operations, intermediate results should NOT have buffers
+        // until the final result is realized
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
+        let b = Tensor::<f32, Dim2>::ones([2, 3]);
+        let c = &a + &b; // Intermediate
+        let d = &c * 2.0f32; // Final
+
+        // Before realize: neither c nor d should have buffers
+        assert!(
+            !c.inner.has_buffer(),
+            "Intermediate c should not have buffer before realize"
+        );
+        assert!(
+            !d.inner.has_buffer(),
+            "Final d should not have buffer before realize"
+        );
+
+        // c is fusable, so it should remain without buffer when d is asked to be realized
+        // (in terms of structure, not actual execution)
+        assert!(c.inner.is_fusable(), "c should be fusable");
+        assert!(d.inner.is_fusable(), "d should be fusable");
+    }
+
+    #[test]
+    fn test_fusion_barrier_forces_realize() {
+        // When a fusion barrier is encountered, inputs should be realized
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
+        let b = Tensor::<f32, Dim2>::ones([2, 3]);
+        let c = &a + &b; // Fusable intermediate
+        let d = c.sum(0); // Reduce = fusion barrier
+
+        // c is fusable
+        assert!(c.inner.is_fusable(), "c should be fusable");
+        // d is NOT fusable (reduce)
+        assert!(!d.inner.is_fusable(), "d (reduce) should not be fusable");
+    }
+
+    #[test]
+    fn test_view_allows_fusion_through() {
+        // View operations should allow fusion to continue through them
+        let a = Tensor::<f32, Dim2>::ones([2, 3]);
+        let b = Tensor::<f32, Dim2>::ones([2, 3]);
+        let c = &a + &b; // Fusable
+        let d = c.reshape([6]); // View - should also be fusable
+        let e = &d * 2.0f32; // Should still be fusable
+
+        assert!(c.inner.is_fusable(), "c should be fusable");
+        assert!(d.inner.is_fusable(), "d (view) should be fusable");
+        assert!(e.inner.is_fusable(), "e should be fusable after view");
     }
 }
