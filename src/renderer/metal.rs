@@ -372,14 +372,14 @@ impl MetalKernelRenderer {
                     _ => 1,
                 }
             }
-            eprintln!(
+            log::debug!(
                 "render_sequential_function_as_kernel: body has {} top-level statements, {} total Stores",
                 count_statements(body),
                 count_stores(body)
             );
             if let AstNode::Block { statements, .. } = body.as_ref() {
                 for (i, stmt) in statements.iter().enumerate() {
-                    eprintln!(
+                    log::debug!(
                         "render_sequential_function_as_kernel:   body[{}]: {:?} (Stores: {})",
                         i,
                         std::mem::discriminant(stmt),
@@ -394,7 +394,7 @@ impl MetalKernelRenderer {
             self.dec_indent();
 
             code.push_str("}\n");
-            eprintln!("Generated Metal kernel:\n{}", code);
+            log::debug!("Generated Metal kernel:\n{}", code);
             code
         } else {
             String::new()
