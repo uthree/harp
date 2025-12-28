@@ -123,6 +123,10 @@ fn render_function_qualifier_metal(is_kernel: bool) -> String {
 }
 
 /// Metal用のパラメータ属性
+///
+/// GroupIdとLocalIdは複数存在する可能性があるため、ここでは空文字を返す。
+/// 代わりに `render_extra_kernel_params_metal` で統合された uint3 パラメータを追加し、
+/// `render_thread_var_declarations_metal` で個別の変数宣言を生成する。
 fn render_param_attribute_metal(param: &VarDecl, is_kernel: bool) -> String {
     let type_str = render_dtype_metal(&param.dtype);
     let mut_str = match param.mutability {
@@ -135,12 +139,8 @@ fn render_param_attribute_metal(param: &VarDecl, is_kernel: bool) -> String {
             VarKind::Normal => {
                 format!("{}{} {}", mut_str, type_str, param.name)
             }
-            VarKind::GroupId(_) => {
-                format!("uint {} [[threadgroup_position_in_grid]]", param.name)
-            }
-            VarKind::LocalId(_) => {
-                format!("uint {} [[thread_position_in_threadgroup]]", param.name)
-            }
+            // GroupIdとLocalIdは render_extra_kernel_params_metal で統合パラメータとして追加
+            VarKind::GroupId(_) | VarKind::LocalId(_) => String::new(),
             VarKind::GroupSize(_) => {
                 format!("uint {} [[threads_per_threadgroup]]", param.name)
             }
@@ -151,6 +151,64 @@ fn render_param_attribute_metal(param: &VarDecl, is_kernel: bool) -> String {
     } else {
         format!("{}{} {}", mut_str, type_str, param.name)
     }
+}
+
+/// Metal用の追加カーネルパラメータ
+///
+/// GroupIdやLocalIdがある場合、統合されたuint3パラメータを追加する。
+fn render_extra_kernel_params_metal(params: &[VarDecl]) -> Vec<String> {
+    use crate::ast::VarKind;
+
+    let mut extra_params = Vec::new();
+
+    // GroupIdが1つ以上あれば uint3 _gid を追加
+    let has_group_id = params.iter().any(|p| matches!(p.kind, VarKind::GroupId(_)));
+    if has_group_id {
+        extra_params.push("uint3 _gid [[threadgroup_position_in_grid]]".to_string());
+    }
+
+    // LocalIdが1つ以上あれば uint3 _lid を追加
+    let has_local_id = params.iter().any(|p| matches!(p.kind, VarKind::LocalId(_)));
+    if has_local_id {
+        extra_params.push("uint3 _lid [[thread_position_in_threadgroup]]".to_string());
+    }
+
+    extra_params
+}
+
+/// Metal用のスレッド変数宣言
+///
+/// GroupIdやLocalIdパラメータに対して、uint3から個別の変数を抽出する宣言を生成する。
+fn render_thread_var_declarations_metal(params: &[VarDecl], indent: &str) -> String {
+    use crate::ast::VarKind;
+
+    let mut declarations = String::new();
+
+    for param in params {
+        match &param.kind {
+            VarKind::GroupId(axis) => {
+                let component = match axis {
+                    0 => "x",
+                    1 => "y",
+                    2 => "z",
+                    _ => continue,
+                };
+                declarations.push_str(&format!("{}uint {} = _gid.{};\n", indent, param.name, component));
+            }
+            VarKind::LocalId(axis) => {
+                let component = match axis {
+                    0 => "x",
+                    1 => "y",
+                    2 => "z",
+                    _ => continue,
+                };
+                declarations.push_str(&format!("{}uint {} = _lid.{};\n", indent, param.name, component));
+            }
+            _ => {}
+        }
+    }
+
+    declarations
 }
 
 /// Metal用の数学関数
@@ -388,9 +446,12 @@ impl CLikeRenderer for MetalKernelRenderer {
         render_param_attribute_metal(param, is_kernel)
     }
 
-    fn render_thread_var_declarations(&self, _params: &[VarDecl], _indent: &str) -> String {
-        // Metalではスレッド変数はパラメータ属性として宣言されるので、ここでは何もしない
-        String::new()
+    fn render_thread_var_declarations(&self, params: &[VarDecl], indent: &str) -> String {
+        render_thread_var_declarations_metal(params, indent)
+    }
+
+    fn render_extra_kernel_params(&self, params: &[VarDecl]) -> Vec<String> {
+        render_extra_kernel_params_metal(params)
     }
 
     fn render_math_func(&self, name: &str, args: &[String]) -> String {
@@ -494,9 +555,12 @@ impl CLikeRenderer for MetalRenderer {
         render_param_attribute_metal(param, is_kernel)
     }
 
-    fn render_thread_var_declarations(&self, _params: &[VarDecl], _indent: &str) -> String {
-        // Metalではスレッド変数はパラメータ属性として宣言されるので、ここでは何もしない
-        String::new()
+    fn render_thread_var_declarations(&self, params: &[VarDecl], indent: &str) -> String {
+        render_thread_var_declarations_metal(params, indent)
+    }
+
+    fn render_extra_kernel_params(&self, params: &[VarDecl]) -> Vec<String> {
+        render_extra_kernel_params_metal(params)
     }
 
     fn render_math_func(&self, name: &str, args: &[String]) -> String {

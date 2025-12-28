@@ -61,6 +61,12 @@ pub trait CLikeRenderer: Renderer {
     /// スレッドID等の特殊変数の宣言をレンダリング（OpenMP用のomp_get_thread_num()など）
     fn render_thread_var_declarations(&self, params: &[VarDecl], indent: &str) -> String;
 
+    /// カーネル関数に追加するパラメータ（Metal用のuint3 _gidなど）
+    /// GroupIdやLocalIdを含む場合に、それらを統合したパラメータを追加する
+    fn render_extra_kernel_params(&self, _params: &[VarDecl]) -> Vec<String> {
+        Vec::new()
+    }
+
     /// 数学関数をレンダリング（max vs fmaxf など）
     fn render_math_func(&self, name: &str, args: &[String]) -> String;
 
@@ -685,11 +691,18 @@ pub trait CLikeRenderer: Renderer {
         result.push('(');
 
         // パラメータリスト（空文字列のパラメータはスキップ）
-        let rendered_params: Vec<String> = params
+        let mut rendered_params: Vec<String> = params
             .iter()
             .map(|p| self.render_param(p, is_kernel))
             .filter(|s| !s.is_empty())
             .collect();
+
+        // カーネル関数の場合、追加パラメータ（Metal用のuint3 _gidなど）を追加
+        if is_kernel {
+            let extra_params = self.render_extra_kernel_params(params);
+            rendered_params.extend(extra_params);
+        }
+
         result.push_str(&rendered_params.join(", "));
 
         result.push_str(") {\n");
