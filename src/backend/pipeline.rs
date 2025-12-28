@@ -4,14 +4,15 @@
 //! (OpenCL via `ocl` crate, Metal via `metal` crate).
 
 use crate::ast::{AstNode, Literal};
+use crate::backend::DeviceFeature;
 use crate::backend::KernelSignature;
 use crate::backend::traits::{Compiler, Device, KernelConfig};
 use crate::opt::ast::rules::rules_for_capabilities;
 use crate::opt::ast::{
     AstSuggester, BeamSearchOptimizer, CompositeSuggester as AstCompositeSuggester,
-    FunctionInliningSuggester, LoopFusionSuggester, LoopInliningSuggester,
-    LoopInterchangeSuggester, LoopTilingSuggester, OptimizationHistory as AstOptimizationHistory,
-    RuleBaseSuggester, VectorizationSuggester,
+    FunctionInliningSuggester, GroupParallelizationSuggester, LoopFusionSuggester,
+    LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester,
+    OptimizationHistory as AstOptimizationHistory, RuleBaseSuggester, VectorizationSuggester,
 };
 use crate::opt::context::DeviceCapabilities;
 use crate::opt::progress::{IndicatifProgress, NoOpProgress};
@@ -157,11 +158,42 @@ where
         // Compute compatible local_work_size
         let gws = base_config.global_work_size;
         let lws_base = base_config.local_work_size.unwrap_or([1, 1, 1]);
-        let lws = [
+
+        // Get device max work group size
+        let max_wg_size = self.device.profile().max_work_group_size;
+
+        // Compute compatible local_work_size for each dimension
+        let mut lws = [
             Self::compute_compatible_local_size(gws[0], lws_base[0]),
             Self::compute_compatible_local_size(gws[1], lws_base[1]),
             Self::compute_compatible_local_size(gws[2], lws_base[2]),
         ];
+
+        // Ensure total work items don't exceed max_work_group_size
+        while lws[0] * lws[1] * lws[2] > max_wg_size {
+            // Find the largest dimension and reduce it
+            let max_idx = if lws[0] >= lws[1] && lws[0] >= lws[2] {
+                0
+            } else if lws[1] >= lws[2] {
+                1
+            } else {
+                2
+            };
+            // Find next smaller divisor of gws[max_idx]
+            let mut new_val = lws[max_idx] - 1;
+            while new_val > 1 && !gws[max_idx].is_multiple_of(new_val) {
+                new_val -= 1;
+            }
+            lws[max_idx] = new_val.max(1);
+        }
+
+        log::debug!(
+            "Kernel dispatch: global_work_size={:?}, local_work_size={:?} (base={:?}, max_wg_size={})",
+            gws,
+            lws,
+            lws_base,
+            max_wg_size
+        );
 
         let kernel_config = KernelConfig::new(entry_point)
             .with_global_work_size(gws)
@@ -204,6 +236,13 @@ where
         // デバイスがSIMD対応していれば追加
         if !simd_widths.is_empty() {
             suggesters.push(Box::new(VectorizationSuggester::with_widths(simd_widths)));
+        }
+
+        // デバイスが並列カーネルをサポートしていれば並列化Suggesterを追加
+        if opt_context.supports_feature(DeviceFeature::ParallelKernel) {
+            suggesters.push(Box::new(GroupParallelizationSuggester::new()));
+            // TODO: LocalParallelizationは2次元以上で問題があるため、一時的に無効化
+            // suggesters.push(Box::new(LocalParallelizationSuggester::new()));
         }
 
         let suggester = AstCompositeSuggester::new(suggesters);
@@ -323,8 +362,13 @@ where
             let grid = evaluate_dispatch_size(default_grid_size, &shape_vars);
             let tg = evaluate_dispatch_size(default_thread_group_size, &shape_vars);
 
+            // OpenCL: global_work_size = grid_size * thread_group_size
+            // - grid_size: number of work groups (GroupId range)
+            // - thread_group_size: threads per work group (LocalId range)
+            let global_work_size = [grid[0] * tg[0], grid[1] * tg[1], grid[2] * tg[2]];
+
             let mut config = KernelConfig::new(kernel_name)
-                .with_global_work_size(grid)
+                .with_global_work_size(global_work_size)
                 .with_local_work_size(tg);
 
             // Add shape vars to config

@@ -20,9 +20,6 @@ use super::parallelization_common::{
     local_id_param, substitute_var, var,
 };
 
-/// デフォルトのスレッドグループサイズ
-const DEFAULT_THREAD_GROUP_SIZE: usize = 256;
-
 // ============================================================================
 // 共通ヘルパー関数
 // ============================================================================
@@ -124,19 +121,11 @@ fn replace_range_with(node: &AstNode, target_range: &AstNode, replacement: AstNo
 /// // 変換後
 /// Kernel { params: [gidx0: GroupId(0), gidx1: GroupId(1)], ... }
 /// ```
-pub struct GroupParallelizationSuggester {
-    thread_group_size: usize,
-}
+pub struct GroupParallelizationSuggester;
 
 impl GroupParallelizationSuggester {
     pub fn new() -> Self {
-        Self {
-            thread_group_size: DEFAULT_THREAD_GROUP_SIZE,
-        }
-    }
-
-    pub fn with_thread_group_size(thread_group_size: usize) -> Self {
-        Self { thread_group_size }
+        Self
     }
 
     /// 最外側の並列化可能なRangeループを見つける（動的分岐チェックあり）
@@ -230,8 +219,10 @@ impl GroupParallelizationSuggester {
                 Box::new(const_int(1)),
                 Box::new(const_int(1)),
             ],
+            // GroupId並列化のみの場合、thread_group_size = [1, 1, 1]
+            // LocalId並列化を追加すると、その軸のthread_group_sizeが更新される
             default_thread_group_size: [
-                Box::new(const_int(self.thread_group_size as i64)),
+                Box::new(const_int(1)),
                 Box::new(const_int(1)),
                 Box::new(const_int(1)),
             ],
