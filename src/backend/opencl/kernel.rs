@@ -4,6 +4,7 @@ use super::buffer::OpenCLBuffer;
 use super::device::OpenCLError;
 use crate::backend::global::DeviceKind;
 use crate::backend::traits::{Buffer, Kernel, KernelConfig};
+use ocl::core::{ProgramInfo, ProgramInfoResult};
 use ocl::{Kernel as OclKernel, Program, Queue};
 use std::sync::Arc;
 
@@ -28,6 +29,10 @@ impl Kernel for OpenCLKernel {
 
     fn device_kind(&self) -> DeviceKind {
         DeviceKind::OpenCL
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 
     fn execute(
@@ -178,6 +183,29 @@ impl OpenCLKernel {
         self.queue.finish()?;
 
         Ok(())
+    }
+
+    /// コンパイル済みバイナリを取得
+    ///
+    /// ディスクキャッシュ用にプログラムのバイナリデータを抽出する。
+    pub fn get_binary(&self) -> Result<Vec<u8>, OpenCLError> {
+        let info = ocl::core::get_program_info(self.program.as_core(), ProgramInfo::Binaries)?;
+
+        if let ProgramInfoResult::Binaries(binaries) = info {
+            // 単一デバイス向けなので最初のバイナリを返す
+            binaries
+                .into_iter()
+                .next()
+                .ok_or_else(|| OpenCLError::from("No binary found in program"))
+        } else {
+            Err(OpenCLError::from("Unexpected program info result"))
+        }
+    }
+
+    /// プログラムへの参照を取得（内部用）
+    #[allow(dead_code)]
+    pub(crate) fn program(&self) -> &Program {
+        &self.program
     }
 }
 

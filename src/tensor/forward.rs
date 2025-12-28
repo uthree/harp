@@ -361,12 +361,16 @@ impl TensorInner {
     /// Internal: Execute realize on OpenCL device (core version for TensorInner)
     #[cfg(feature = "opencl")]
     fn realize_opencl_core(&self) -> Result<(), ForwardError> {
+        use crate::backend::cache::disk::{
+            DiskCacheMetadata, compute_cache_hash, harp_version, load_binary, save_binary,
+        };
         use crate::backend::cache::{
             CacheEntry, KernelCacheKey, get_cached_kernel, insert_cached_kernel,
         };
         use crate::backend::global::get_default_device;
-        use crate::backend::opencl::{OpenCLBuffer, OpenCLCompiler, OpenCLDevice};
-        use crate::backend::traits::TypedBuffer;
+        use crate::backend::opencl::{OpenCLBuffer, OpenCLCompiler, OpenCLDevice, OpenCLKernel};
+        use crate::backend::pipeline::DispatchSizeConfig;
+        use crate::backend::traits::{Kernel, KernelConfig, TypedBuffer};
         use crate::backend::{BufferSignature, KernelSignature, Pipeline};
         use crate::renderer::OpenCLRenderer;
         use crate::tensor::lowerer::lower_tensor_inner;
@@ -384,56 +388,136 @@ impl TensorInner {
         let device_id = Arc::as_ptr(&device) as usize;
         let cache_key = KernelCacheKey::new(graph_repr, DeviceKind::OpenCL, device_id);
 
-        // Check cache for compiled kernel
+        // Check cache for compiled kernel (memory -> disk -> compile)
         let compiled: CacheEntry = if let Some(cached) = get_cached_kernel(&cache_key) {
-            log::debug!("Kernel cache hit: {}", cache_key.graph_repr());
+            log::debug!("Kernel cache hit (memory): {}", cache_key.graph_repr());
             cached
         } else {
-            log::debug!("Kernel cache miss: {}", cache_key.graph_repr());
+            // Compute disk cache hash
+            let disk_hash = compute_cache_hash(&cache_key);
+            let device_name = device.device_name();
 
-            // Collect input tensor data
-            let input_data = collect_input_data_inner(self);
+            // Try loading from disk cache
+            let from_disk = load_binary(&disk_hash, "opencl").and_then(|(binary, meta)| {
+                // Check version and device compatibility
+                if meta.harp_version != harp_version() {
+                    log::debug!("Disk cache version mismatch, recompiling");
+                    return None;
+                }
+                if meta.device_name != device_name {
+                    log::debug!("Disk cache device mismatch, recompiling");
+                    return None;
+                }
 
-            // Lower TensorInner to AST directly
-            let ast = lower_tensor_inner(self);
+                // Build kernel config from metadata
+                let mut config =
+                    KernelConfig::new(&meta.entry_point).with_global_work_size(meta.grid_size);
+                if let Some(ls) = meta.local_size {
+                    config = config.with_local_work_size(ls);
+                }
 
-            // Create input signatures
-            let input_signatures: Vec<BufferSignature> = input_data
-                .iter()
-                .enumerate()
-                .map(|(i, (_, shape))| {
-                    let shape_expr: Vec<Expr> =
-                        shape.iter().map(|&s| Expr::from(s as i64)).collect();
-                    BufferSignature::new(format!("input{}", i), shape_expr)
-                })
-                .collect();
+                // Compile from binary
+                use crate::backend::traits::Compiler;
+                let compiler = OpenCLCompiler::new();
+                let kernel = compiler
+                    .compile_from_binary(device.as_ref(), &binary, config)
+                    .ok()?;
 
-            // Create signature from tensor metadata
-            let output_shape_expr: Vec<Expr> =
-                self.shape.iter().map(|&s| Expr::from(s as i64)).collect();
-            let signature = KernelSignature::new(
-                input_signatures,
-                vec![BufferSignature::new(
-                    "output".to_string(),
-                    output_shape_expr,
-                )],
-            );
+                log::debug!("Kernel loaded from disk cache: {}", disk_hash);
 
-            // Create pipeline and compile from AST
-            use crate::backend::traits::Compiler;
-            let renderer = OpenCLRenderer::default();
-            let compiler = OpenCLCompiler::new();
-            let mut pipeline: Pipeline<OpenCLRenderer, OpenCLDevice, OpenCLCompiler> =
-                Pipeline::new(renderer, compiler, device.as_ref().clone());
+                // Build dispatch config (use constant sizes since we stored concrete values)
+                let dispatch_config = DispatchSizeConfig::from_const(
+                    meta.grid_size,
+                    meta.local_size.unwrap_or([1, 1, 1]),
+                );
 
-            let compiled = pipeline.compile_ast(ast, signature).map_err(|e| {
-                ForwardError::CompilationError(format!("Failed to compile: {:?}", e))
-            })?;
+                // We need to reconstruct the signature for the CacheEntry
+                // For now, create a minimal signature since we already have the kernel
+                let signature = KernelSignature::new(vec![], vec![]);
 
-            // Insert into cache
-            insert_cached_kernel(cache_key, compiled.clone());
+                Some(CacheEntry::new(
+                    Box::new(kernel) as Box<dyn crate::backend::traits::Kernel>,
+                    signature,
+                    dispatch_config,
+                ))
+            });
 
-            compiled
+            if let Some(cached) = from_disk {
+                // Insert into memory cache
+                insert_cached_kernel(cache_key, cached.clone());
+                cached
+            } else {
+                log::debug!("Kernel cache miss: {}", cache_key.graph_repr());
+
+                // Collect input tensor data
+                let input_data = collect_input_data_inner(self);
+
+                // Lower TensorInner to AST directly
+                let ast = lower_tensor_inner(self);
+
+                // Create input signatures
+                let input_signatures: Vec<BufferSignature> = input_data
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (_, shape))| {
+                        let shape_expr: Vec<Expr> =
+                            shape.iter().map(|&s| Expr::from(s as i64)).collect();
+                        BufferSignature::new(format!("input{}", i), shape_expr)
+                    })
+                    .collect();
+
+                // Create signature from tensor metadata
+                let output_shape_expr: Vec<Expr> =
+                    self.shape.iter().map(|&s| Expr::from(s as i64)).collect();
+                let signature = KernelSignature::new(
+                    input_signatures,
+                    vec![BufferSignature::new(
+                        "output".to_string(),
+                        output_shape_expr,
+                    )],
+                );
+
+                // Create pipeline and compile from AST
+                use crate::backend::traits::Compiler;
+                let renderer = OpenCLRenderer::default();
+                let compiler = OpenCLCompiler::new();
+                let mut pipeline: Pipeline<OpenCLRenderer, OpenCLDevice, OpenCLCompiler> =
+                    Pipeline::new(renderer, compiler, device.as_ref().clone());
+
+                let compiled = pipeline.compile_ast(ast, signature).map_err(|e| {
+                    ForwardError::CompilationError(format!("Failed to compile: {:?}", e))
+                })?;
+
+                // Save to disk cache
+                if let Some(opencl_kernel) = compiled
+                    .kernel
+                    .as_any()
+                    .downcast_ref::<OpenCLKernel>()
+                    .and_then(|k| k.get_binary().ok().map(|b| (k, b)))
+                {
+                    let (kernel, binary) = opencl_kernel;
+                    let shape_vars: HashMap<String, i64> = HashMap::new();
+                    let grid_size = compiled.dispatch_config.evaluate_grid_size(&shape_vars);
+                    let local_size = compiled.dispatch_config.evaluate_local_size(&shape_vars);
+
+                    let metadata = DiskCacheMetadata {
+                        entry_point: kernel.config().entry_point.clone(),
+                        grid_size,
+                        local_size: Some(local_size),
+                        device_name: device_name.clone(),
+                        harp_version: harp_version().to_string(),
+                    };
+
+                    if let Err(e) = save_binary(&disk_hash, "opencl", &binary, &metadata) {
+                        log::warn!("Failed to save kernel to disk cache: {}", e);
+                    }
+                }
+
+                // Insert into memory cache
+                insert_cached_kernel(cache_key, compiled.clone());
+
+                compiled
+            }
         };
 
         // Collect input tensor data (needed for buffer creation)

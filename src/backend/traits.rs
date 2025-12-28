@@ -505,6 +505,9 @@ pub trait Kernel: Send + Sync {
         grid_size: [usize; 3],
         local_size: [usize; 3],
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+
+    /// Get a reference to self as Any (for downcasting to concrete types)
+    fn as_any(&self) -> &dyn std::any::Any;
 }
 
 /// GPU kernel compiler

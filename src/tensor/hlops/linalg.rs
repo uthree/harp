@@ -279,7 +279,7 @@ mod tests {
         let b = Tensor::<f32, Dim1>::ones([3]);
         // dot1 returns scalar (0-dim tensor)
         let c = a.dot1(&b);
-        assert_eq!(c.shape(), &[]);
+        assert!(c.shape().is_empty());
     }
 
     #[test]
@@ -304,7 +304,7 @@ mod tests {
         let a = Tensor::<f32, Dim1>::ones([3]).into_dyn();
         let b = Tensor::<f32, Dim1>::ones([3]).into_dyn();
         let c = a.dot(&b);
-        assert_eq!(c.shape(), &[]);
+        assert!(c.shape().is_empty());
     }
 
     #[test]
@@ -376,7 +376,7 @@ mod tests {
         let c = a.dot1(&b);
 
         assert!(c.requires_grad());
-        assert_eq!(c.shape(), &[]); // scalar
+        assert!(c.shape().is_empty()); // scalar
 
         c.backward();
 

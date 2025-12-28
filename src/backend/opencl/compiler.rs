@@ -55,6 +55,28 @@ impl OpenCLCompiler {
     pub const FAST_MATH_OPTIONS: &'static str =
         "-cl-fast-relaxed-math -cl-mad-enable -cl-unsafe-math-optimizations";
 
+    /// バイナリからプログラムを復元
+    ///
+    /// ディスクキャッシュから読み込んだバイナリを使用してカーネルを作成する。
+    /// ソースコードからのコンパイルをスキップできるため高速。
+    pub fn compile_from_binary(
+        &self,
+        device: &OpenCLDevice,
+        binary: &[u8],
+        config: KernelConfig,
+    ) -> Result<OpenCLKernel, OpenCLError> {
+        let program = Program::builder()
+            .binaries(&[binary])
+            .devices(device.ocl_device())
+            .build(device.ocl_context())?;
+
+        Ok(OpenCLKernel::new(
+            program,
+            Arc::clone(&device.queue),
+            config,
+        ))
+    }
+
     /// Compile with build options
     pub fn compile_with_options(
         &self,

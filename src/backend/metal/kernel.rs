@@ -95,6 +95,10 @@ impl Kernel for MetalKernel {
         self.execute_with_buffers_and_sizes(&all_buffers, grid_size, local_size)
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 impl MetalKernel {

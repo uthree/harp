@@ -26,6 +26,12 @@ impl From<ocl::Error> for OpenCLError {
     }
 }
 
+impl From<ocl::core::Error> for OpenCLError {
+    fn from(e: ocl::core::Error) -> Self {
+        Self(e.to_string())
+    }
+}
+
 impl From<String> for OpenCLError {
     fn from(s: String) -> Self {
         Self(s)

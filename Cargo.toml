@@ -8,12 +8,15 @@ edition = "2024"
 
 [dependencies]
 # Core dependencies
+directories = "5"
 indicatif = "0.18.1"
 indexmap = "2.0"
 log = { version = "0.4", features = ["std"] }
 env_logger = "0.11"
 ndarray = "0.16"
 paste = "1.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 tempfile = "3.20"
 
 # OpenCL backend (optional)
