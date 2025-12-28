@@ -455,76 +455,83 @@ impl<T: FloatDType, D: Dimension> Floor for Tensor<T, D> {
 }
 
 // ============================================================================
-// Cast gradients for FloatDType (f32 <-> f64)
+// Cast gradients for FloatDType (generic)
 // ============================================================================
 
-/// Gradient for Cast f32 -> f64
-/// ∂L/∂a = cast(∂L/∂z, f32)
+/// Generic gradient for Cast S -> T
+/// ∂L/∂a = cast(∂L/∂z, S)
 ///
 /// The gradient is simply cast back to the input type.
-pub struct CastF32ToF64Backward {
-    input: Tensor<f32, DimDyn>,
+/// S is the source type, T is the target type.
+pub struct CastBackward<S: FloatDType, T: FloatDType> {
+    input: Tensor<S, DimDyn>,
+    _target: PhantomData<T>,
 }
 
-impl CastF32ToF64Backward {
-    pub fn new(input: Tensor<f32, DimDyn>) -> Self {
-        Self { input }
+impl<S: FloatDType, T: FloatDType> CastBackward<S, T> {
+    pub fn new(input: Tensor<S, DimDyn>) -> Self {
+        Self {
+            input,
+            _target: PhantomData,
+        }
     }
 }
 
-impl GradFn<f64> for CastF32ToF64Backward {
-    fn backward(&self, grad_output: &Tensor<f64, DimDyn>) -> Vec<Tensor<f64, DimDyn>> {
-        // Cast gradient back to f32 and propagate to input
-        let grad_f32: Tensor<f32, DimDyn> = grad_output.cast();
+impl<S: FloatDType, T: FloatDType> GradFn<T> for CastBackward<S, T> {
+    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
+        // Cast gradient back to source type S and propagate to input
+        let grad_s: Tensor<S, DimDyn> = grad_output.cast();
         if self.input.requires_grad() {
-            self.input.backward_with(grad_f32);
+            S::call_backward_with(&self.input, grad_s);
         }
         // Return empty since we've already propagated
         vec![]
     }
 
-    fn inputs(&self) -> Vec<Tensor<f64, DimDyn>> {
+    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
         // Return empty since we handle propagation directly
         vec![]
     }
 
     fn name(&self) -> &'static str {
-        "CastF32ToF64Backward"
+        "CastBackward"
     }
 }
 
-/// Gradient for Cast f64 -> f32
-/// ∂L/∂a = cast(∂L/∂z, f64)
-///
-/// The gradient is simply cast back to the input type.
-pub struct CastF64ToF32Backward {
-    input: Tensor<f64, DimDyn>,
-}
+/// Type alias for backward compatibility
+pub type CastF32ToF64Backward = CastBackward<f32, f64>;
+/// Type alias for backward compatibility
+pub type CastF64ToF32Backward = CastBackward<f64, f32>;
 
-impl CastF64ToF32Backward {
-    pub fn new(input: Tensor<f64, DimDyn>) -> Self {
-        Self { input }
-    }
-}
+// ============================================================================
+// Cast with gradient (generic helper)
+// ============================================================================
 
-impl GradFn<f32> for CastF64ToF32Backward {
-    fn backward(&self, grad_output: &Tensor<f32, DimDyn>) -> Vec<Tensor<f32, DimDyn>> {
-        // Cast gradient back to f64 and propagate to input
-        let grad_f64: Tensor<f64, DimDyn> = grad_output.cast();
-        if self.input.requires_grad() {
-            self.input.backward_with(grad_f64);
+/// Internal helper function to create a tensor with gradient tracking after cast
+fn cast_with_grad<S, T, D>(input: &Tensor<S, D>, result: Tensor<T, D>) -> Tensor<T, D>
+where
+    S: FloatDType,
+    T: FloatDType,
+    D: Dimension,
+{
+    if input.requires_grad() {
+        let grad_fn = CastBackward::<S, T>::new(input.clone().into_dyn());
+        let inner = crate::tensor::TensorInner {
+            op: result.inner.op.clone(),
+            view: result.inner.view.clone(),
+            shape: result.inner.shape.clone(),
+            dtype: result.inner.dtype.clone(),
+            name: result.inner.name.clone(),
+            autograd: Some(T::wrap_grad_fn(Arc::new(grad_fn))),
+            buffer: std::sync::RwLock::new(result.inner.clone_buffer()),
+        };
+        Tensor {
+            inner: Arc::new(inner),
+            _dtype: PhantomData,
+            _dim: PhantomData,
         }
-        // Return empty since we've already propagated
-        vec![]
-    }
-
-    fn inputs(&self) -> Vec<Tensor<f32, DimDyn>> {
-        // Return empty since we handle propagation directly
-        vec![]
-    }
-
-    fn name(&self) -> &'static str {
-        "CastF64ToF32Backward"
+    } else {
+        result
     }
 }
 
@@ -546,29 +553,7 @@ impl<D: Dimension> Tensor<f32, D> {
     /// // y.requires_grad() == true
     /// ```
     pub fn cast_f64(&self) -> Tensor<f64, D> {
-        let result: Tensor<f64, D> = self.cast();
-
-        if self.requires_grad() {
-            let grad_fn = CastF32ToF64Backward::new(self.clone().into_dyn());
-            let inner = crate::tensor::TensorInner {
-                op: result.inner.op.clone(),
-                view: result.inner.view.clone(),
-                shape: result.inner.shape.clone(),
-                dtype: result.inner.dtype.clone(),
-                name: result.inner.name.clone(),
-                autograd: Some(crate::tensor::AutogradStorage::new_f64_with_grad_fn(
-                    Arc::new(grad_fn),
-                )),
-                buffer: std::sync::RwLock::new(result.inner.clone_buffer()),
-            };
-            Tensor {
-                inner: Arc::new(inner),
-                _dtype: PhantomData,
-                _dim: PhantomData,
-            }
-        } else {
-            result
-        }
+        cast_with_grad(self, self.cast())
     }
 }
 
@@ -590,29 +575,7 @@ impl<D: Dimension> Tensor<f64, D> {
     /// // y.requires_grad() == true
     /// ```
     pub fn cast_f32(&self) -> Tensor<f32, D> {
-        let result: Tensor<f32, D> = self.cast();
-
-        if self.requires_grad() {
-            let grad_fn = CastF64ToF32Backward::new(self.clone().into_dyn());
-            let inner = crate::tensor::TensorInner {
-                op: result.inner.op.clone(),
-                view: result.inner.view.clone(),
-                shape: result.inner.shape.clone(),
-                dtype: result.inner.dtype.clone(),
-                name: result.inner.name.clone(),
-                autograd: Some(crate::tensor::AutogradStorage::new_f32_with_grad_fn(
-                    Arc::new(grad_fn),
-                )),
-                buffer: std::sync::RwLock::new(result.inner.clone_buffer()),
-            };
-            Tensor {
-                inner: Arc::new(inner),
-                _dtype: PhantomData,
-                _dim: PhantomData,
-            }
-        } else {
-            result
-        }
+        cast_with_grad(self, self.cast())
     }
 }
 

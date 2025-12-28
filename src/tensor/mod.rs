@@ -265,6 +265,9 @@ pub trait FloatDType: NumericDType + sealed::Sealed {
 
     /// Create empty AutogradStorage for this type
     fn new_autograd() -> AutogradStorage;
+
+    /// Call backward_with on a tensor (for generic gradient propagation)
+    fn call_backward_with(tensor: &Tensor<Self, DimDyn>, grad: Tensor<Self, DimDyn>);
 }
 
 impl FloatDType for f32 {
@@ -286,6 +289,10 @@ impl FloatDType for f32 {
     fn new_autograd() -> AutogradStorage {
         AutogradStorage::new_f32()
     }
+
+    fn call_backward_with(tensor: &Tensor<Self, DimDyn>, grad: Tensor<Self, DimDyn>) {
+        tensor.backward_with(grad);
+    }
 }
 
 impl FloatDType for f64 {
@@ -306,6 +313,10 @@ impl FloatDType for f64 {
 
     fn new_autograd() -> AutogradStorage {
         AutogradStorage::new_f64()
+    }
+
+    fn call_backward_with(tensor: &Tensor<Self, DimDyn>, grad: Tensor<Self, DimDyn>) {
+        tensor.backward_with(grad);
     }
 }
 

@@ -30,8 +30,8 @@ pub use unary::{Exp2, Floor, Log2, Recip, Sin, Sqrt};
 
 // Re-export unary gradient functions
 pub use unary::{
-    CastF32ToF64Backward, CastF64ToF32Backward, Exp2Backward, Log2Backward, NegBackward,
-    RecipBackward, SinBackward, SqrtBackward,
+    CastBackward, CastF32ToF64Backward, CastF64ToF32Backward, Exp2Backward, Log2Backward,
+    NegBackward, RecipBackward, SinBackward, SqrtBackward,
 };
 
 // Re-export binary gradient functions
