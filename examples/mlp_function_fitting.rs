@@ -12,6 +12,7 @@ use harp::backend::Device;
 use harp::backend::global::{DeviceKind, set_default_device};
 use harp::backend::opencl::OpenCLDevice;
 use harp::tensor::{Dim1, Dim2, DimDyn, Tensor};
+use indicatif::{ProgressBar, ProgressStyle};
 use ndarray::Array2;
 
 /// Simple 2-layer MLP: input -> hidden (tanh) -> output
@@ -231,10 +232,18 @@ fn main() {
     let mut mlp = MLP::new(1, hidden_dim, 1);
     println!();
 
-    // Training loop
-    println!("Training for {} epochs...", n_epochs);
-    println!("{:>6} {:>12}", "Epoch", "Loss");
-    println!("{:-<20}", "");
+    // Training loop with progress bar
+    println!("Training for {} epochs...\n", n_epochs);
+
+    let pb = ProgressBar::new(n_epochs as u64);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} | Loss: {msg}")
+            .unwrap()
+            .progress_chars("#>-"),
+    );
+
+    let mut final_loss = 0.0;
 
     for epoch in 0..n_epochs {
         // Forward pass
@@ -249,17 +258,18 @@ fn main() {
         // Get and display loss value
         loss.realize().expect("Failed to realize loss");
         let loss_val = loss.data().expect("Failed to get loss data")[0];
+        final_loss = loss_val;
 
-        if epoch % 10 == 0 || epoch == n_epochs - 1 {
-            println!("{:>6} {:>12.6}", epoch, loss_val);
-        }
+        // Update progress bar with current loss
+        pb.set_message(format!("{:.6}", loss_val));
+        pb.set_position((epoch + 1) as u64);
 
         // Update parameters
         mlp.update_params(learning_rate);
     }
 
-    println!();
-    println!("Training complete!");
+    pb.finish_and_clear();
+    println!("Training complete! Final loss: {:.6}", final_loss);
 
     // Final evaluation
     println!("\nFinal predictions (sample):");

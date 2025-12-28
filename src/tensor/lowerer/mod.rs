@@ -31,9 +31,7 @@ pub mod helpers;
 
 use std::collections::HashMap;
 
-use crate::ast::{
-    AstKernelCallInfo, AstNode, DType as AstDType, Mutability, Scope, helper::*,
-};
+use crate::ast::{AstKernelCallInfo, AstNode, DType as AstDType, Mutability, Scope, helper::*};
 use crate::tensor::ops::{ReduceOp, TensorOp};
 use crate::tensor::shape::Expr;
 use crate::tensor::shape::View;

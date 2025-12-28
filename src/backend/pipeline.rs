@@ -14,7 +14,7 @@ use crate::opt::ast::{
     RuleBaseSuggester, VectorizationSuggester,
 };
 use crate::opt::context::DeviceCapabilities;
-use crate::opt::progress::IndicatifProgress;
+use crate::opt::progress::{IndicatifProgress, NoOpProgress};
 use crate::renderer::c_like::CLikeRenderer;
 use std::collections::HashMap;
 
@@ -216,7 +216,8 @@ where
         } else {
             let mut optimizer = BeamSearchOptimizer::new(suggester)
                 .with_beam_width(self.config.ast_beam_width)
-                .with_max_steps(self.config.max_steps);
+                .with_max_steps(self.config.max_steps)
+                .with_progress(NoOpProgress::new());
             optimizer.optimize_with_history(program)
         };
 

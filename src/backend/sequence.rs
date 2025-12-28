@@ -82,6 +82,7 @@ impl<'a, B: TypedBuffer> ExecutionQuery<'a, B> {
     /// The returned pointers are valid for the lifetime of the query.
     /// The caller must not create mutable references from these pointers
     /// while other references exist.
+    #[allow(dead_code)]
     pub(crate) fn outputs(&self) -> &HashMap<String, *mut B> {
         &self.outputs
     }
@@ -95,6 +96,7 @@ impl<'a, B: TypedBuffer> ExecutionQuery<'a, B> {
     ///
     /// # Safety
     /// The caller must ensure that no aliasing occurs between output buffers.
+    #[allow(dead_code)]
     pub(crate) unsafe fn outputs_mut(&mut self) -> HashMap<String, &'a mut B> {
         self.outputs
             .iter()
