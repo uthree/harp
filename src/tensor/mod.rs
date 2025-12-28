@@ -573,6 +573,17 @@ impl TensorInner {
         }
     }
 
+    /// 入力のrealizeをスキップできるかどうかを判定
+    ///
+    /// 以下の条件を満たす場合、入力は融合可能でありrealizeをスキップできる:
+    /// 1. `is_fusable()`: lowererがこの演算を融合できる
+    /// 2. `Arc::strong_count == 1`: この入力を参照しているのは現在の演算のみ
+    ///
+    /// strong_count > 1の場合、他の演算も依存しているためバッファを作成する必要がある。
+    fn can_skip_realize(input: &InputRef) -> bool {
+        Arc::strong_count(input) == 1 && input.is_fusable()
+    }
+
     /// バッファデータをホストに読み出し
     pub fn read_buffer(&self) -> Option<Vec<u8>> {
         self.buffer
@@ -585,8 +596,12 @@ impl TensorInner {
     /// 自身を再帰的にrealizeする
     ///
     /// 1. 既にバッファがあればスキップ
-    /// 2. MapReduce操作なら入力を先にrealize
+    /// 2. MapReduce操作なら入力を先にrealize（融合可能な入力はスキップ）
     /// 3. 自身をrealize_core()でrealize
+    ///
+    /// 融合ロジック:
+    /// - `can_skip_realize()` が true の入力はrealizeをスキップし、lowererで融合
+    /// - strong_count > 1 の入力は他の演算も依存しているためrealizeする
     ///
     /// View/Buffer/Executed等はrealizeしない（親のMapReduceが直接参照する）
     #[cfg(any(all(feature = "metal", target_os = "macos"), feature = "opencl"))]
@@ -599,10 +614,9 @@ impl TensorInner {
         // 非計算ノード・融合可能ノードの処理
         match &self.op {
             // View: 自身はバッファを持たない
-            // Viewがrealizeのルートとして呼ばれた場合、入力にバッファがなければrealizeする
-            // 中間ノードとして参照される場合は、is_fusableでスキップされる
+            // Viewがrealizeのルートとして呼ばれた場合、入力の融合判定に基づきrealize
             TensorOp::View { input } => {
-                if !input.has_buffer() {
+                if !Self::can_skip_realize(input) {
                     input.realize_recursive()?;
                 }
                 return Ok(());
@@ -623,14 +637,21 @@ impl TensorInner {
             _ => {}
         }
 
-        // N項演算の入力を先にrealize
-        match &self.op {
-            TensorOp::MapReduce { inputs, .. } | TensorOp::Concat { inputs, .. } => {
-                for input in inputs {
+        // MapReduce: 融合可能な入力はスキップ
+        if let TensorOp::MapReduce { inputs, .. } = &self.op {
+            for input in inputs {
+                // can_skip_realize(): is_fusable() && strong_count == 1
+                if !Self::can_skip_realize(input) {
                     input.realize_recursive()?;
                 }
             }
-            _ => {}
+        }
+
+        // Concat: 全入力がバリア（必ずrealize）
+        if let TensorOp::Concat { inputs, .. } = &self.op {
+            for input in inputs {
+                input.realize_recursive()?;
+            }
         }
 
         // 自身をrealize
