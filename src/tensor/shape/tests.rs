@@ -575,3 +575,223 @@ fn test_evaluate_usize() {
     assert!(Expr::Const(-1).evaluate_usize().is_err());
     assert!((Expr::Const(0) - Expr::Const(10)).evaluate_usize().is_err());
 }
+
+// =====================================================================
+// 比較・論理演算テスト
+// =====================================================================
+
+#[test]
+fn test_lt_creation() {
+    let lt = Expr::Const(3).lt(5);
+    assert!(matches!(lt, Expr::Lt(_, _)));
+}
+
+#[test]
+fn test_gt_derived() {
+    // gt(a, b) = lt(b, a)
+    let gt = Expr::Const(5).gt(3);
+    // Should be Lt(3, 5)
+    if let Expr::Lt(l, r) = gt {
+        assert_eq!(*l, Expr::Const(3));
+        assert_eq!(*r, Expr::Const(5));
+    } else {
+        panic!("Expected Lt");
+    }
+}
+
+#[test]
+fn test_le_derived() {
+    // le(a, b) = !lt(b, a)
+    let le = Expr::Const(3).le(5);
+    // Should be Not(Lt(5, 3))
+    if let Expr::Not(inner) = le {
+        if let Expr::Lt(l, r) = *inner {
+            assert_eq!(*l, Expr::Const(5));
+            assert_eq!(*r, Expr::Const(3));
+        } else {
+            panic!("Expected Lt inside Not");
+        }
+    } else {
+        panic!("Expected Not");
+    }
+}
+
+#[test]
+fn test_ge_derived() {
+    // ge(a, b) = !lt(a, b)
+    let ge = Expr::Const(5).ge(3);
+    // Should be Not(Lt(5, 3))
+    if let Expr::Not(inner) = ge {
+        if let Expr::Lt(l, r) = *inner {
+            assert_eq!(*l, Expr::Const(5));
+            assert_eq!(*r, Expr::Const(3));
+        } else {
+            panic!("Expected Lt inside Not");
+        }
+    } else {
+        panic!("Expected Not");
+    }
+}
+
+#[test]
+fn test_and_creation() {
+    let and_expr = Expr::Const(1).and(Expr::Const(1));
+    assert!(matches!(and_expr, Expr::And(_, _)));
+}
+
+#[test]
+fn test_or_derived() {
+    // or(a, b) = !(!a && !b)
+    let or_expr = Expr::Const(1).or(Expr::Const(1));
+    // Should be Not(And(Not(a), Not(b)))
+    if let Expr::Not(inner) = or_expr {
+        if let Expr::And(l, r) = *inner {
+            assert!(matches!(*l, Expr::Not(_)));
+            assert!(matches!(*r, Expr::Not(_)));
+        } else {
+            panic!("Expected And inside Not");
+        }
+    } else {
+        panic!("Expected Not");
+    }
+}
+
+#[test]
+fn test_not_operator() {
+    let not_expr = !Expr::Const(0);
+    assert!(matches!(not_expr, Expr::Not(_)));
+}
+
+#[test]
+fn test_lt_evaluate() {
+    // 3 < 5 = 1
+    assert_eq!(Expr::Const(3).lt(5).evaluate(), Ok(1));
+    // 5 < 3 = 0
+    assert_eq!(Expr::Const(5).lt(3).evaluate(), Ok(0));
+    // 3 < 3 = 0
+    assert_eq!(Expr::Const(3).lt(3).evaluate(), Ok(0));
+}
+
+#[test]
+fn test_gt_evaluate() {
+    // 5 > 3 = 1
+    assert_eq!(Expr::Const(5).gt(3).evaluate(), Ok(1));
+    // 3 > 5 = 0
+    assert_eq!(Expr::Const(3).gt(5).evaluate(), Ok(0));
+}
+
+#[test]
+fn test_le_evaluate() {
+    // 3 <= 5 = 1
+    assert_eq!(Expr::Const(3).le(5).evaluate(), Ok(1));
+    // 5 <= 3 = 0
+    assert_eq!(Expr::Const(5).le(3).evaluate(), Ok(0));
+    // 3 <= 3 = 1
+    assert_eq!(Expr::Const(3).le(3).evaluate(), Ok(1));
+}
+
+#[test]
+fn test_ge_evaluate() {
+    // 5 >= 3 = 1
+    assert_eq!(Expr::Const(5).ge(3).evaluate(), Ok(1));
+    // 3 >= 5 = 0
+    assert_eq!(Expr::Const(3).ge(5).evaluate(), Ok(0));
+    // 3 >= 3 = 1
+    assert_eq!(Expr::Const(3).ge(3).evaluate(), Ok(1));
+}
+
+#[test]
+fn test_eq_evaluate() {
+    // 3 == 3 = 1
+    assert_eq!(Expr::Const(3).eq_expr(3).evaluate(), Ok(1));
+    // 3 == 5 = 0
+    assert_eq!(Expr::Const(3).eq_expr(5).evaluate(), Ok(0));
+}
+
+#[test]
+fn test_ne_evaluate() {
+    // 3 != 5 = 1
+    assert_eq!(Expr::Const(3).ne_expr(5).evaluate(), Ok(1));
+    // 3 != 3 = 0
+    assert_eq!(Expr::Const(3).ne_expr(3).evaluate(), Ok(0));
+}
+
+#[test]
+fn test_and_evaluate() {
+    // 1 && 1 = 1
+    assert_eq!(Expr::Const(1).and(1).evaluate(), Ok(1));
+    // 1 && 0 = 0
+    assert_eq!(Expr::Const(1).and(0).evaluate(), Ok(0));
+    // 0 && 1 = 0
+    assert_eq!(Expr::Const(0).and(1).evaluate(), Ok(0));
+    // 0 && 0 = 0
+    assert_eq!(Expr::Const(0).and(0).evaluate(), Ok(0));
+    // Non-zero values are truthy: 5 && 3 = 1
+    assert_eq!(Expr::Const(5).and(3).evaluate(), Ok(1));
+}
+
+#[test]
+fn test_or_evaluate() {
+    // 1 || 1 = 1
+    assert_eq!(Expr::Const(1).or(1).evaluate(), Ok(1));
+    // 1 || 0 = 1
+    assert_eq!(Expr::Const(1).or(0).evaluate(), Ok(1));
+    // 0 || 1 = 1
+    assert_eq!(Expr::Const(0).or(1).evaluate(), Ok(1));
+    // 0 || 0 = 0
+    assert_eq!(Expr::Const(0).or(0).evaluate(), Ok(0));
+}
+
+#[test]
+fn test_not_evaluate() {
+    // !0 = 1
+    assert_eq!((!Expr::Const(0)).evaluate(), Ok(1));
+    // !1 = 0
+    assert_eq!((!Expr::Const(1)).evaluate(), Ok(0));
+    // !5 = 0 (non-zero is truthy)
+    assert_eq!((!Expr::Const(5)).evaluate(), Ok(0));
+}
+
+#[test]
+fn test_comparison_simplify() {
+    // 3 < 5 => Const(1)
+    assert_eq!(Expr::Const(3).lt(5).simplify(), Expr::Const(1));
+    // 5 < 3 => Const(0)
+    assert_eq!(Expr::Const(5).lt(3).simplify(), Expr::Const(0));
+    // x < x => Const(0)
+    assert_eq!(Expr::Idx(0).lt(Expr::Idx(0)).simplify(), Expr::Const(0));
+}
+
+#[test]
+fn test_and_simplify() {
+    // 0 && x => 0
+    assert_eq!(Expr::Const(0).and(Expr::Idx(0)).simplify(), Expr::Const(0));
+    // x && 0 => 0
+    assert_eq!(Expr::Idx(0).and(0).simplify(), Expr::Const(0));
+    // 1 && x => x
+    assert_eq!(Expr::Const(1).and(Expr::Idx(0)).simplify(), Expr::Idx(0));
+    // x && 1 => x
+    assert_eq!(Expr::Idx(0).and(1).simplify(), Expr::Idx(0));
+    // x && x => x
+    assert_eq!(Expr::Idx(0).and(Expr::Idx(0)).simplify(), Expr::Idx(0));
+}
+
+#[test]
+fn test_not_simplify() {
+    // !0 => 1
+    assert_eq!((!Expr::Const(0)).simplify(), Expr::Const(1));
+    // !1 => 0
+    assert_eq!((!Expr::Const(1)).simplify(), Expr::Const(0));
+    // !!x => x (double negation elimination)
+    assert_eq!((!(!Expr::Idx(0))).simplify(), Expr::Idx(0));
+}
+
+#[test]
+fn test_comparison_display() {
+    assert_eq!(format!("{}", Expr::Const(3).lt(5)), "(3 < 5)");
+    assert_eq!(
+        format!("{}", Expr::Idx(0).and(Expr::Idx(1))),
+        "(idx0 && idx1)"
+    );
+    assert_eq!(format!("{}", !Expr::Idx(0)), "!(idx0)");
+}

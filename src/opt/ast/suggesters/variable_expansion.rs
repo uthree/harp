@@ -122,15 +122,11 @@ impl VariableExpansionSuggester {
             | AstNode::RightShift(a, b) => {
                 Self::count_var_usage(a, var_name) + Self::count_var_usage(b, var_name)
             }
-            // 比較演算
-            AstNode::Lt(a, b)
-            | AstNode::Le(a, b)
-            | AstNode::Gt(a, b)
-            | AstNode::Ge(a, b)
-            | AstNode::Eq(a, b)
-            | AstNode::Ne(a, b) => {
+            // 比較・論理演算（プリミティブ）
+            AstNode::Lt(a, b) | AstNode::And(a, b) => {
                 Self::count_var_usage(a, var_name) + Self::count_var_usage(b, var_name)
             }
+            AstNode::Not(a) => Self::count_var_usage(a, var_name),
             // 単項演算
             AstNode::Recip(a)
             | AstNode::Sqrt(a)
@@ -309,37 +305,12 @@ impl VariableExpansionSuggester {
                 Box::new(Self::substitute_var(a, var_name, replacement)),
                 Box::new(Self::substitute_var(b, var_name, replacement)),
             ),
-            // 比較演算
+            // 比較・論理演算（プリミティブのみ）
             AstNode::Lt(a, b) => AstNode::Lt(
                 Box::new(Self::substitute_var(a, var_name, replacement)),
                 Box::new(Self::substitute_var(b, var_name, replacement)),
             ),
-            AstNode::Le(a, b) => AstNode::Le(
-                Box::new(Self::substitute_var(a, var_name, replacement)),
-                Box::new(Self::substitute_var(b, var_name, replacement)),
-            ),
-            AstNode::Gt(a, b) => AstNode::Gt(
-                Box::new(Self::substitute_var(a, var_name, replacement)),
-                Box::new(Self::substitute_var(b, var_name, replacement)),
-            ),
-            AstNode::Ge(a, b) => AstNode::Ge(
-                Box::new(Self::substitute_var(a, var_name, replacement)),
-                Box::new(Self::substitute_var(b, var_name, replacement)),
-            ),
-            AstNode::Eq(a, b) => AstNode::Eq(
-                Box::new(Self::substitute_var(a, var_name, replacement)),
-                Box::new(Self::substitute_var(b, var_name, replacement)),
-            ),
-            AstNode::Ne(a, b) => AstNode::Ne(
-                Box::new(Self::substitute_var(a, var_name, replacement)),
-                Box::new(Self::substitute_var(b, var_name, replacement)),
-            ),
-            // 論理演算
             AstNode::And(a, b) => AstNode::And(
-                Box::new(Self::substitute_var(a, var_name, replacement)),
-                Box::new(Self::substitute_var(b, var_name, replacement)),
-            ),
-            AstNode::Or(a, b) => AstNode::Or(
                 Box::new(Self::substitute_var(a, var_name, replacement)),
                 Box::new(Self::substitute_var(b, var_name, replacement)),
             ),
@@ -1102,19 +1073,21 @@ mod tests {
 
     #[test]
     fn test_count_var_usage_in_comparison() {
-        // 比較演算子内での変数カウントをテスト
-        // a < b, a <= b, a > b, a >= b, a == b, a != b
+        // 比較・論理演算子内での変数カウントをテスト（プリミティブのみ）
+        // a < b, a && b, !a
         let lt = AstNode::Lt(Box::new(var("a")), Box::new(var("b")));
-        let le = AstNode::Le(Box::new(var("a")), Box::new(var("b")));
-        let gt = AstNode::Gt(Box::new(var("a")), Box::new(var("b")));
-        let ge = AstNode::Ge(Box::new(var("a")), Box::new(var("b")));
-        let eq = AstNode::Eq(Box::new(var("a")), Box::new(var("b")));
-        let ne = AstNode::Ne(Box::new(var("a")), Box::new(var("b")));
+        let and = AstNode::And(Box::new(var("a")), Box::new(var("b")));
+        let not = AstNode::Not(Box::new(var("a")));
 
-        for expr in [&lt, &le, &gt, &ge, &eq, &ne] {
+        // 二項演算のテスト
+        for expr in [&lt, &and] {
             assert_eq!(VariableExpansionSuggester::count_var_usage(expr, "a"), 1);
             assert_eq!(VariableExpansionSuggester::count_var_usage(expr, "b"), 1);
         }
+
+        // Not演算のテスト
+        assert_eq!(VariableExpansionSuggester::count_var_usage(&not, "a"), 1);
+        assert_eq!(VariableExpansionSuggester::count_var_usage(&not, "b"), 0);
     }
 
     #[test]

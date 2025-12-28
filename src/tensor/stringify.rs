@@ -204,6 +204,18 @@ impl GraphStringifier {
                     default_value
                 )
             }
+            View::Masked {
+                inner,
+                condition,
+                default_value,
+            } => {
+                format!(
+                    "Masked(inner={}, condition={}, default={:?})",
+                    self.stringify_view(inner),
+                    condition,
+                    default_value
+                )
+            }
         }
     }
 
@@ -255,24 +267,15 @@ impl GraphStringifier {
                 )
             }
 
-            // 比較演算
+            // 比較・論理演算（プリミティブのみ）
             AstNode::Lt(l, r) => {
                 format!("Lt({}, {})", self.stringify_ast(l), self.stringify_ast(r))
             }
-            AstNode::Le(l, r) => {
-                format!("Le({}, {})", self.stringify_ast(l), self.stringify_ast(r))
+            AstNode::And(l, r) => {
+                format!("And({}, {})", self.stringify_ast(l), self.stringify_ast(r))
             }
-            AstNode::Gt(l, r) => {
-                format!("Gt({}, {})", self.stringify_ast(l), self.stringify_ast(r))
-            }
-            AstNode::Ge(l, r) => {
-                format!("Ge({}, {})", self.stringify_ast(l), self.stringify_ast(r))
-            }
-            AstNode::Eq(l, r) => {
-                format!("Eq({}, {})", self.stringify_ast(l), self.stringify_ast(r))
-            }
-            AstNode::Ne(l, r) => {
-                format!("Ne({}, {})", self.stringify_ast(l), self.stringify_ast(r))
+            AstNode::Not(a) => {
+                format!("Not({})", self.stringify_ast(a))
             }
 
             // その他のノードはDebug表示にフォールバック

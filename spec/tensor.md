@@ -155,6 +155,13 @@ pub enum View {
         padding: Vec<(Expr, Expr)>,    // 各軸の(前, 後)パディング
         default_value: PadValue,       // 境界外の値（Zero, One, NegInf）
     },
+
+    // 条件付きマスクView
+    Masked {
+        inner: Box<View>,              // 内側のView
+        condition: Expr,               // 条件式（非0で有効、0でデフォルト値）
+        default_value: PadValue,       // 条件が偽の場合の値
+    },
 }
 ```
 
@@ -163,6 +170,32 @@ pub enum View {
 - `PadValue::Zero`: 0.0（Sum演算の単位元）
 - `PadValue::One`: 1.0（Prod演算の単位元）
 - `PadValue::NegInf`: -∞（Max演算の単位元）
+
+**View::Masked**は任意のExpr条件に基づいたマスク操作を表現します。
+用途例:
+- Attention mask（三角形マスク）: `Idx(0).le(Idx(1))`
+- スパースパターン（偶数インデックスのみ）: `Idx(0).rem(2).eq_expr(0)`
+- 任意の境界条件
+
+### Expr（シェイプ式）
+
+テンソルのシェイプ、ストライド、インデックス計算を表現する式。
+
+**プリミティブ演算（AstNode同様の最小性原則）:**
+- 算術: `Const`, `Idx`, `Add`, `Sub`, `Mul`, `Div`, `Rem`
+- 比較: `Lt`（小なり）
+- 論理: `Not`（否定）, `And`（論理積）
+
+**導出演算（ヘルパーメソッド）:**
+- 比較: `gt` = `b.lt(a)`, `le` = `!b.lt(a)`, `ge` = `!a.lt(b)`
+- 等価: `eq_expr` = `a.le(b).and(b.le(a))`, `ne_expr` = `!a.eq_expr(b)`
+- 論理: `or` = `!(!a).and(!b)`
+
+比較・論理演算は0/1の整数値を返し、条件演算子として乗算で利用可能:
+```rust
+// 条件が真なら値を使用、偽なら0: value * condition
+let result = value * condition;  // condition は 0 or 1
+```
 
 ## Eager Fusion
 

@@ -36,6 +36,34 @@ pub enum View {
         /// 境界外アクセス時のデフォルト値
         default_value: PadValue,
     },
+
+    /// 任意の条件付きマスクView
+    ///
+    /// 任意のExpr条件に基づいてinner Viewの値またはデフォルト値を返す。
+    /// Attention maskや三角行列マスク、スパースパターンなど任意の境界条件に使用可能。
+    ///
+    /// # 動作
+    /// - `condition`が非0（true）の場合: inner Viewの値を返す
+    /// - `condition`が0（false）の場合: `default_value`を返す
+    ///
+    /// # Example
+    /// ```text
+    /// // Attention mask (causal): ridx[0] <= ridx[1]
+    /// let mask = Expr::Idx(0).le(Expr::Idx(1));
+    /// View::Masked { inner, condition: mask, default_value: PadValue::NegInf }
+    ///
+    /// // Sparse (even indices only): ridx[0] % 2 == 0
+    /// let sparse = Expr::Idx(0).rem(2).eq_expr(0);
+    /// View::Masked { inner, condition: sparse, default_value: PadValue::Zero }
+    /// ```
+    Masked {
+        /// 内側のView（条件がtrueの場合に使用）
+        inner: Box<View>,
+        /// 条件式（Idx変数を含むExpr、非0ならinner、0ならdefault）
+        condition: Expr,
+        /// 条件がfalseの場合のデフォルト値
+        default_value: PadValue,
+    },
 }
 
 impl View {
@@ -82,13 +110,14 @@ impl View {
                     })
                     .collect()
             }
+            View::Masked { inner, .. } => inner.shape(),
         }
     }
 
-    /// 内側のViewの形状を返す（Paddedの場合のみ有用）
+    /// 内側のViewの形状を返す（Padded/Maskedの場合に有用）
     pub fn inner_shape(&self) -> Vec<Expr> {
         match self {
-            View::Padded { inner, .. } => inner.shape(),
+            View::Padded { inner, .. } | View::Masked { inner, .. } => inner.shape(),
             _ => self.shape(),
         }
     }
@@ -102,12 +131,16 @@ impl View {
     ///
     /// IndexExpr Viewのindex_exprにLoadIndexが含まれている場合にtrueを返します。
     /// Linear Viewは常にfalseを返します。
-    /// Padded Viewは内側のViewを再帰的にチェックします。
+    /// Padded/Masked Viewは内側のViewを再帰的にチェックします。
+    /// Maskedはcondition内のLoadIndexもチェックします。
     pub fn contains_load_index(&self) -> bool {
         match self {
             View::Linear { .. } => false,
             View::IndexExpr { index_expr, .. } => index_expr.contains_load_index(),
             View::Padded { inner, .. } => inner.contains_load_index(),
+            View::Masked {
+                inner, condition, ..
+            } => inner.contains_load_index() || condition.contains_load_index(),
         }
     }
 
@@ -136,6 +169,8 @@ impl View {
             View::IndexExpr { .. } => self.clone(),
             // Paddedは条件分岐が必要なためIndexExprに変換できない
             View::Padded { .. } => self.clone(),
+            // Maskedは条件分岐が必要なためIndexExprに変換できない
+            View::Masked { .. } => self.clone(),
         }
     }
 
@@ -257,6 +292,30 @@ impl View {
                 // 実際の実装では、outer の変換を維持しつつ Padded を保持
                 outer_view.clone()
             }
+
+            // Masked outer × any inner: Maskedの条件を保持
+            (
+                View::Masked {
+                    inner: masked_inner,
+                    condition,
+                    default_value,
+                },
+                inner_view,
+            ) => {
+                // innerとmasked_innerを合成
+                let composed_inner = Self::compose(masked_inner, inner_view);
+                View::Masked {
+                    inner: Box::new(composed_inner),
+                    condition: condition.clone(),
+                    default_value: *default_value,
+                }
+            }
+
+            // any × Masked: innerがMaskedの場合
+            (outer_view, View::Masked { .. }) => {
+                // innerがMaskedの場合も同様にouterを返す
+                outer_view.clone()
+            }
         }
     }
 
@@ -277,6 +336,15 @@ impl View {
             } => View::Padded {
                 inner: Box::new(inner.shift_load_index(delta)),
                 padding: padding.clone(),
+                default_value: *default_value,
+            },
+            View::Masked {
+                inner,
+                condition,
+                default_value,
+            } => View::Masked {
+                inner: Box::new(inner.shift_load_index(delta)),
+                condition: condition.clone().shift_load_index(delta),
                 default_value: *default_value,
             },
         }
@@ -330,6 +398,21 @@ impl View {
                     default_value,
                 }
             }
+            View::Masked {
+                inner,
+                condition,
+                default_value,
+            } => {
+                // 内側のViewをpermute
+                let new_inner = inner.permute(axes.clone());
+                // conditionのIdx変数も並べ替え
+                let new_condition = condition.permute_idx(&axes);
+                View::Masked {
+                    inner: Box::new(new_inner),
+                    condition: new_condition,
+                    default_value,
+                }
+            }
         }
     }
 
@@ -376,6 +459,21 @@ impl View {
                 View::Padded {
                     inner: Box::new(new_inner),
                     padding,
+                    default_value,
+                }
+            }
+            View::Masked {
+                inner,
+                condition,
+                default_value,
+            } => {
+                // 内側のViewをunsqueeze
+                let new_inner = inner.unsqueeze(axis);
+                // conditionのIdx(i) for i >= axis を Idx(i+1) にシフト
+                let new_condition = condition.shift_idx(axis, 1);
+                View::Masked {
+                    inner: Box::new(new_inner),
+                    condition: new_condition,
                     default_value,
                 }
             }
@@ -435,6 +533,23 @@ impl View {
                     default_value,
                 }
             }
+            View::Masked {
+                inner,
+                condition,
+                default_value,
+            } => {
+                // 内側のViewをsqueeze
+                let new_inner = inner.squeeze(axis);
+                // conditionも更新: Idx(axis) を 0 に置換し、Idx(i) for i > axis を Idx(i-1) にシフト
+                let new_condition = condition
+                    .substitute_idx(axis, Expr::from(0))
+                    .shift_idx(axis + 1, -1);
+                View::Masked {
+                    inner: Box::new(new_inner),
+                    condition: new_condition,
+                    default_value,
+                }
+            }
         }
     }
 
@@ -482,6 +597,24 @@ impl View {
                 View::Padded {
                     inner: Box::new(new_inner),
                     padding,
+                    default_value,
+                }
+            }
+            View::Masked {
+                inner,
+                condition,
+                default_value,
+            } => {
+                let shape = inner.shape();
+                // 内側のViewをflip
+                let new_inner = inner.flip(axis);
+                // conditionのIdx(axis)を (shape[axis] - 1 - Idx(axis)) に置換
+                let flipped_idx =
+                    (shape[axis].clone() - Expr::from(1) - Expr::Idx(axis)).simplify();
+                let new_condition = condition.substitute_idx(axis, flipped_idx);
+                View::Masked {
+                    inner: Box::new(new_inner),
+                    condition: new_condition,
                     default_value,
                 }
             }
@@ -545,6 +678,20 @@ impl View {
                 View::Padded {
                     inner: Box::new(new_inner),
                     padding,
+                    default_value,
+                }
+            }
+            View::Masked {
+                inner,
+                condition,
+                default_value,
+            } => {
+                // 内側のViewをrepeat
+                let new_inner = inner.repeat(axis, times);
+                // conditionは変更不要（サイズ1なのでIdx(axis)は常に0）
+                View::Masked {
+                    inner: Box::new(new_inner),
+                    condition,
                     default_value,
                 }
             }
@@ -653,6 +800,23 @@ impl View {
                     default_value,
                 }
             }
+            View::Masked {
+                inner,
+                condition,
+                default_value,
+            } => {
+                let original_size = inner.shape()[axis].clone();
+                // 内側のViewをtile
+                let new_inner = inner.tile(axis, times);
+                // conditionのIdx(axis)を Idx(axis) % original_size に置換
+                let cyclic_idx = (Expr::Idx(axis) % original_size).simplify();
+                let new_condition = condition.substitute_idx(axis, cyclic_idx);
+                View::Masked {
+                    inner: Box::new(new_inner),
+                    condition: new_condition,
+                    default_value,
+                }
+            }
         }
     }
 
@@ -709,6 +873,10 @@ impl View {
                 // is_contiguous()がfalseを返すので、ここには到達しない
                 unreachable!("Padded views are always non-contiguous")
             }
+            View::Masked { .. } => {
+                // is_contiguous()がfalseを返すので、ここには到達しない
+                unreachable!("Masked views are always non-contiguous")
+            }
         }
     }
 
@@ -719,6 +887,8 @@ impl View {
             View::IndexExpr { .. } => false,
             // Paddedは境界チェックがあるため非連続
             View::Padded { .. } => false,
+            // Maskedは条件チェックがあるため非連続
+            View::Masked { .. } => false,
         }
     }
 
@@ -758,12 +928,19 @@ impl View {
             View::IndexExpr { .. } => false,
             // Paddedは境界チェックがあるため連続性を保証できない
             View::Padded { .. } => false,
+            // Maskedは条件チェックがあるため連続性を保証できない
+            View::Masked { .. } => false,
         }
     }
 
     /// Paddedバリアントかどうかを判定
     pub fn is_padded(&self) -> bool {
         matches!(self, View::Padded { .. })
+    }
+
+    /// Maskedバリアントかどうかを判定
+    pub fn is_masked(&self) -> bool {
+        matches!(self, View::Masked { .. })
     }
 
     /// IndexExpr Viewを作成
@@ -827,6 +1004,34 @@ impl View {
         }
     }
 
+    /// Masked Viewを作成
+    ///
+    /// 任意の条件式に基づいてinner Viewの値またはデフォルト値を返すViewを作成。
+    /// Attention maskや三角行列マスクなどに使用。
+    ///
+    /// # Arguments
+    /// * `inner` - 条件がtrueの場合に使用するView
+    /// * `condition` - 条件式（非0ならinner、0ならdefault）
+    /// * `default_value` - 条件がfalseの場合のデフォルト値
+    ///
+    /// # Examples
+    /// ```
+    /// use harp::tensor::shape::{View, Expr};
+    /// use harp::tensor::ops::PadValue;
+    ///
+    /// // Attention mask (causal): ridx[0] <= ridx[1]
+    /// let inner = View::contiguous(vec![4, 4]);
+    /// let mask = Expr::Idx(0).le(Expr::Idx(1));
+    /// let view = View::masked(inner, mask, PadValue::NegInf);
+    /// ```
+    pub fn masked(inner: View, condition: impl Into<Expr>, default_value: PadValue) -> Self {
+        View::Masked {
+            inner: Box::new(inner),
+            condition: condition.into(),
+            default_value,
+        }
+    }
+
     /// Paddedの場合、パディング情報を返す
     pub fn padding(&self) -> Option<&[(Expr, Expr)]> {
         match self {
@@ -838,15 +1043,25 @@ impl View {
     /// Paddedの場合、デフォルト値を返す
     pub fn default_value(&self) -> Option<PadValue> {
         match self {
-            View::Padded { default_value, .. } => Some(*default_value),
+            View::Padded { default_value, .. } | View::Masked { default_value, .. } => {
+                Some(*default_value)
+            }
             _ => None,
         }
     }
 
-    /// Paddedの場合、内側のViewを返す
+    /// Padded/Maskedの場合、内側のViewを返す
     pub fn inner_view(&self) -> Option<&View> {
         match self {
-            View::Padded { inner, .. } => Some(inner),
+            View::Padded { inner, .. } | View::Masked { inner, .. } => Some(inner),
+            _ => None,
+        }
+    }
+
+    /// Maskedの場合、条件式を返す
+    pub fn condition(&self) -> Option<&Expr> {
+        match self {
+            View::Masked { condition, .. } => Some(condition),
             _ => None,
         }
     }
@@ -1098,6 +1313,12 @@ impl View {
                     padding: new_padding,
                     default_value,
                 }
+            }
+            View::Masked { .. } => {
+                // MaskedのunfoldはTODO: 複雑なので一旦未サポート
+                // 内側のViewをunfoldし、conditionを適切に変換する必要がある
+                // conditionの軸変換も必要だが、unfoldは軸の追加・再配置を行うため複雑
+                unimplemented!("Masked.unfold is not yet supported")
             }
         }
     }
@@ -1974,5 +2195,118 @@ mod tests {
             &[Expr::from(3), Expr::from(3)],
             &[Expr::from(1), Expr::from(1)],
         );
+    }
+
+    // =========================================================================
+    // Masked View tests
+    // =========================================================================
+
+    #[test]
+    fn test_masked_creation() {
+        use crate::tensor::ops::PadValue;
+
+        let inner = View::contiguous(vec![4, 4]);
+        // Attention mask: idx0 <= idx1
+        let condition = Expr::Idx(0).le(Expr::Idx(1));
+        let view = View::masked(inner, condition, PadValue::NegInf);
+
+        assert!(view.is_masked());
+        assert!(!view.is_contiguous());
+        assert_eq!(view.shape(), vec![Expr::from(4), Expr::from(4)]);
+    }
+
+    #[test]
+    fn test_masked_shape_preserved() {
+        use crate::tensor::ops::PadValue;
+
+        let inner = View::contiguous(vec![3, 5, 7]);
+        let condition = Expr::Idx(0).lt(Expr::Idx(1));
+        let view = View::masked(inner, condition, PadValue::Zero);
+
+        assert_eq!(
+            view.shape(),
+            vec![Expr::from(3), Expr::from(5), Expr::from(7)]
+        );
+        assert_eq!(view.ndim(), 3);
+    }
+
+    #[test]
+    fn test_masked_permute() {
+        use crate::tensor::ops::PadValue;
+
+        let inner = View::contiguous(vec![4, 6]);
+        // condition: idx0 < idx1
+        let condition = Expr::Idx(0).lt(Expr::Idx(1));
+        let view = View::masked(inner, condition, PadValue::Zero);
+
+        // permute [1, 0]
+        let permuted = view.permute(vec![1, 0]);
+
+        // shape should be [6, 4]
+        assert_eq!(permuted.shape(), vec![Expr::from(6), Expr::from(4)]);
+        // condition should now reference the permuted indices
+        if let View::Masked { condition, .. } = permuted {
+            // After permute[1, 0]: idx0 -> idx1, idx1 -> idx0
+            // So the new condition should be idx1 < idx0
+            let expected = Expr::Idx(1).lt(Expr::Idx(0));
+            assert_eq!(condition, expected);
+        } else {
+            panic!("Expected Masked view");
+        }
+    }
+
+    #[test]
+    fn test_masked_unsqueeze() {
+        use crate::tensor::ops::PadValue;
+
+        let inner = View::contiguous(vec![4, 4]);
+        let condition = Expr::Idx(0).le(Expr::Idx(1));
+        let view = View::masked(inner, condition, PadValue::NegInf);
+
+        // unsqueeze at axis 0
+        let unsqueezed = view.unsqueeze(0);
+
+        assert_eq!(
+            unsqueezed.shape(),
+            vec![Expr::from(1), Expr::from(4), Expr::from(4)]
+        );
+        if let View::Masked { condition, .. } = unsqueezed {
+            // After unsqueeze at 0: idx0 -> idx1, idx1 -> idx2
+            let expected = Expr::Idx(1).le(Expr::Idx(2));
+            assert_eq!(condition, expected);
+        }
+    }
+
+    #[test]
+    fn test_masked_squeeze() {
+        use crate::tensor::ops::PadValue;
+
+        let inner = View::contiguous(vec![1, 4, 4]);
+        // condition uses idx1 and idx2
+        let condition = Expr::Idx(1).le(Expr::Idx(2));
+        let view = View::masked(inner, condition, PadValue::NegInf);
+
+        // squeeze at axis 0
+        let squeezed = view.squeeze(0);
+
+        assert_eq!(squeezed.shape(), vec![Expr::from(4), Expr::from(4)]);
+        if let View::Masked { condition, .. } = squeezed {
+            // After squeeze at 0: idx1 -> idx0, idx2 -> idx1
+            let expected = Expr::Idx(0).le(Expr::Idx(1));
+            assert_eq!(condition, expected);
+        }
+    }
+
+    #[test]
+    fn test_masked_accessors() {
+        use crate::tensor::ops::PadValue;
+
+        let inner = View::contiguous(vec![4, 4]);
+        let condition = Expr::Idx(0).lt(Expr::Idx(1));
+        let view = View::masked(inner, condition.clone(), PadValue::Zero);
+
+        assert_eq!(view.default_value(), Some(PadValue::Zero));
+        assert!(view.inner_view().is_some());
+        assert_eq!(view.condition(), Some(&condition));
     }
 }

@@ -103,13 +103,7 @@ impl LoopAnalyzer {
             | AstNode::LeftShift(a, b)
             | AstNode::RightShift(a, b)
             | AstNode::Lt(a, b)
-            | AstNode::Le(a, b)
-            | AstNode::Gt(a, b)
-            | AstNode::Ge(a, b)
-            | AstNode::Eq(a, b)
-            | AstNode::Ne(a, b)
-            | AstNode::And(a, b)
-            | AstNode::Or(a, b) => {
+            | AstNode::And(a, b) => {
                 self.analyze_recursive(a);
                 self.analyze_recursive(b);
             }
@@ -357,31 +351,7 @@ pub fn substitute_var(ast: &AstNode, var_name: &str, replacement: &AstNode) -> A
             Box::new(substitute_var(a, var_name, replacement)),
             Box::new(substitute_var(b, var_name, replacement)),
         ),
-        AstNode::Le(a, b) => AstNode::Le(
-            Box::new(substitute_var(a, var_name, replacement)),
-            Box::new(substitute_var(b, var_name, replacement)),
-        ),
-        AstNode::Gt(a, b) => AstNode::Gt(
-            Box::new(substitute_var(a, var_name, replacement)),
-            Box::new(substitute_var(b, var_name, replacement)),
-        ),
-        AstNode::Ge(a, b) => AstNode::Ge(
-            Box::new(substitute_var(a, var_name, replacement)),
-            Box::new(substitute_var(b, var_name, replacement)),
-        ),
-        AstNode::Eq(a, b) => AstNode::Eq(
-            Box::new(substitute_var(a, var_name, replacement)),
-            Box::new(substitute_var(b, var_name, replacement)),
-        ),
-        AstNode::Ne(a, b) => AstNode::Ne(
-            Box::new(substitute_var(a, var_name, replacement)),
-            Box::new(substitute_var(b, var_name, replacement)),
-        ),
         AstNode::And(a, b) => AstNode::And(
-            Box::new(substitute_var(a, var_name, replacement)),
-            Box::new(substitute_var(b, var_name, replacement)),
-        ),
-        AstNode::Or(a, b) => AstNode::Or(
             Box::new(substitute_var(a, var_name, replacement)),
             Box::new(substitute_var(b, var_name, replacement)),
         ),
@@ -782,13 +752,7 @@ impl FreeVariableCollector {
             | AstNode::LeftShift(a, b)
             | AstNode::RightShift(a, b)
             | AstNode::Lt(a, b)
-            | AstNode::Le(a, b)
-            | AstNode::Gt(a, b)
-            | AstNode::Ge(a, b)
-            | AstNode::Eq(a, b)
-            | AstNode::Ne(a, b)
-            | AstNode::And(a, b)
-            | AstNode::Or(a, b) => {
+            | AstNode::And(a, b) => {
                 self.collect_recursive(a);
                 self.collect_recursive(b);
             }

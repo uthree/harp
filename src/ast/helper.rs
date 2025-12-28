@@ -30,17 +30,56 @@ impl_binary_helper!(idiv, Idiv, "Create an integer division node: a / b");
 impl_binary_helper!(rem, Rem, "Create a remainder node: a % b");
 
 // Comparison operation helpers
+// Primitive: Lt only
 impl_binary_helper!(lt, Lt, "Create a less-than comparison: a < b");
-impl_binary_helper!(le, Le, "Create a less-than-or-equal comparison: a <= b");
-impl_binary_helper!(gt, Gt, "Create a greater-than comparison: a > b");
-impl_binary_helper!(ge, Ge, "Create a greater-than-or-equal comparison: a >= b");
-impl_binary_helper!(eq, Eq, "Create an equality comparison: a == b");
-impl_binary_helper!(ne, Ne, "Create a not-equal comparison: a != b");
+
+/// Create a greater-than comparison: a > b
+/// Derived: gt(a, b) = lt(b, a)
+pub fn gt(a: AstNode, b: AstNode) -> AstNode {
+    AstNode::Lt(Box::new(b), Box::new(a))
+}
+
+/// Create a less-than-or-equal comparison: a <= b
+/// Derived: le(a, b) = !lt(b, a)
+pub fn le(a: AstNode, b: AstNode) -> AstNode {
+    AstNode::Not(Box::new(AstNode::Lt(Box::new(b), Box::new(a))))
+}
+
+/// Create a greater-than-or-equal comparison: a >= b
+/// Derived: ge(a, b) = !lt(a, b)
+pub fn ge(a: AstNode, b: AstNode) -> AstNode {
+    AstNode::Not(Box::new(AstNode::Lt(Box::new(a), Box::new(b))))
+}
+
+/// Create an equality comparison: a == b
+/// Derived: eq(a, b) = le(a, b) && le(b, a) = !lt(b, a) && !lt(a, b)
+pub fn eq(a: AstNode, b: AstNode) -> AstNode {
+    let le_ab = AstNode::Not(Box::new(AstNode::Lt(
+        Box::new(b.clone()),
+        Box::new(a.clone()),
+    )));
+    let le_ba = AstNode::Not(Box::new(AstNode::Lt(Box::new(a), Box::new(b))));
+    AstNode::And(Box::new(le_ab), Box::new(le_ba))
+}
+
+/// Create a not-equal comparison: a != b
+/// Derived: ne(a, b) = !eq(a, b)
+pub fn ne(a: AstNode, b: AstNode) -> AstNode {
+    AstNode::Not(Box::new(eq(a, b)))
+}
 
 // Logical operation helpers
+// Primitives: And, Not only
 impl_binary_helper!(and, And, "Create a logical AND: a && b");
-impl_binary_helper!(or, Or, "Create a logical OR: a || b");
 impl_unary_helper!(not, Not, "Create a logical NOT: !a");
+
+/// Create a logical OR: a || b
+/// Derived: or(a, b) = !(!a && !b)
+pub fn or(a: AstNode, b: AstNode) -> AstNode {
+    let not_a = AstNode::Not(Box::new(a));
+    let not_b = AstNode::Not(Box::new(b));
+    AstNode::Not(Box::new(AstNode::And(Box::new(not_a), Box::new(not_b))))
+}
 
 /// Create a select (ternary) expression: cond ? then_val : else_val
 ///

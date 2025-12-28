@@ -175,6 +175,23 @@ impl TensorLowerer {
             return self.lower_pad_erased(inner, input.as_ref(), padding, *default_value, name);
         }
 
+        // View::Maskedは特別処理（Expr条件分岐が必要）
+        if let TensorOp::View { input } = inner.op()
+            && let View::Masked {
+                condition,
+                default_value,
+                ..
+            } = inner.view()
+        {
+            return self.lower_masked_erased(
+                inner,
+                input.as_ref(),
+                condition,
+                *default_value,
+                name,
+            );
+        }
+
         // Concatは特別処理（複数入力から条件分岐で選択）
         if let TensorOp::Concat { inputs, axis } = inner.op() {
             return self.lower_concat_erased(inner, inputs, *axis, name);
@@ -832,10 +849,10 @@ impl TensorLowerer {
             let input_size_ast: AstNode = input_shape[axis].clone().into();
             let upper_bound: AstNode = pad_before_ast.clone() + input_size_ast;
 
-            // idx >= pad_before
-            let cond_lower = AstNode::Ge(Box::new(idx.clone()), Box::new(pad_before_ast));
+            // idx >= pad_before (derived: !(idx < pad_before))
+            let cond_lower = ge(idx.clone(), pad_before_ast);
             // idx < pad_before + input_shape
-            let cond_upper = AstNode::Lt(Box::new(idx), Box::new(upper_bound));
+            let cond_upper = lt(idx, upper_bound);
 
             conditions.push(cond_lower);
             conditions.push(cond_upper);
@@ -878,6 +895,71 @@ impl TensorLowerer {
             cond: Box::new(in_data_region),
             then_val: Box::new(load_expr),
             else_val: Box::new(pad_lit),
+        };
+
+        // Store文を作成
+        let store_stmt = store(var(ph::OUTPUT), output_offset, value_expr);
+
+        // ループでラップ
+        let body = wrap_with_loops_with_shape(ndim, vec![store_stmt], Some(&output_shape));
+
+        function(
+            Some(name.to_string()),
+            vec![],
+            AstDType::Tuple(vec![]),
+            body,
+        )
+    }
+
+    /// View::Masked演算をlower
+    ///
+    /// Expr条件に基づいて、条件が非0なら入力からロード、0ならdefault_valueを出力
+    fn lower_masked_erased(
+        &self,
+        outer: &TensorInner,
+        input: &TensorInner,
+        condition: &crate::tensor::shape::Expr,
+        default_value: crate::tensor::ops::PadValue,
+        name: &str,
+    ) -> AstNode {
+        let output_shape = outer.view().shape();
+        let ndim = output_shape.len();
+        let load_dtype = dtype_to_ast(&outer.dtype());
+
+        // デフォルト値をリテラルに変換
+        let default_lit = match default_value {
+            crate::tensor::ops::PadValue::Zero => AstNode::Const(crate::ast::Literal::F32(0.0)),
+            crate::tensor::ops::PadValue::One => AstNode::Const(crate::ast::Literal::F32(1.0)),
+            crate::tensor::ops::PadValue::NegInf => {
+                AstNode::Const(crate::ast::Literal::F32(f32::NEG_INFINITY))
+            }
+        };
+
+        // 出力オフセット（contiguous）
+        let output_offset = build_contiguous_offset_with_shape(ndim, Some(&output_shape));
+
+        // 条件式をAstNodeに変換
+        // Expr::Idx(n) は ridx{n} に変換される
+        let condition_ast: AstNode = condition.clone().into();
+
+        // 条件が非0かどうかをチェック（boolではなく整数なのでNe(0)で比較）
+        // condition != 0 → !(condition < 1 && 1 < condition + 1)
+        // 簡略化: condition をそのままSelect条件として使う（0は偽、非0は真）
+        // AstNode::Selectはbool型を期待するので、Ne(condition, 0) を使う
+        let cond_bool = ne(condition_ast, const_int(0));
+
+        // 入力オフセットを計算（inner viewを考慮）
+        let inner_view = input.view();
+        let input_offset = build_strided_offset(inner_view, ndim);
+
+        // 入力バッファからのload
+        let load_expr = load(var(ph::input(0)), input_offset, load_dtype);
+
+        // 条件分岐: 条件が真ならload、偽ならdefault_value
+        let value_expr = AstNode::Select {
+            cond: Box::new(cond_bool),
+            then_val: Box::new(load_expr),
+            else_val: Box::new(default_lit),
         };
 
         // Store文を作成

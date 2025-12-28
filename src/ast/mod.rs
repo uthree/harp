@@ -152,16 +152,15 @@ pub enum AstNode {
     },
 
     // Comparison operations - 比較演算（Bool型を返す）
+    // 最小プリミティブ: Lt のみ
+    // Gt(a,b) = Lt(b,a), Le(a,b) = Not(Lt(b,a)), Ge(a,b) = Not(Lt(a,b))
+    // Eq(a,b) = And(Le(a,b), Le(b,a)), Ne(a,b) = Not(Eq(a,b))
     Lt(Box<AstNode>, Box<AstNode>), // <
-    Le(Box<AstNode>, Box<AstNode>), // <=
-    Gt(Box<AstNode>, Box<AstNode>), // >
-    Ge(Box<AstNode>, Box<AstNode>), // >=
-    Eq(Box<AstNode>, Box<AstNode>), // ==
-    Ne(Box<AstNode>, Box<AstNode>), // !=
 
     // Logical operations - 論理演算（Bool型を返す）
+    // 最小プリミティブ: And, Not のみ
+    // Or(a,b) = Not(And(Not(a), Not(b)))
     And(Box<AstNode>, Box<AstNode>), // &&
-    Or(Box<AstNode>, Box<AstNode>),  // ||
     Not(Box<AstNode>),               // !
 
     /// 三項条件式（Select）
@@ -283,13 +282,7 @@ impl AstNode {
             | AstNode::LeftShift(left, right)
             | AstNode::RightShift(left, right)
             | AstNode::Lt(left, right)
-            | AstNode::Le(left, right)
-            | AstNode::Gt(left, right)
-            | AstNode::Ge(left, right)
-            | AstNode::Eq(left, right)
-            | AstNode::Ne(left, right)
-            | AstNode::And(left, right)
-            | AstNode::Or(left, right) => vec![left.as_ref(), right.as_ref()],
+            | AstNode::And(left, right) => vec![left.as_ref(), right.as_ref()],
             AstNode::Recip(operand)
             | AstNode::Sqrt(operand)
             | AstNode::Log2(operand)
@@ -414,13 +407,7 @@ impl AstNode {
                 AstNode::RightShift(Box::new(f(left)), Box::new(f(right)))
             }
             AstNode::Lt(left, right) => AstNode::Lt(Box::new(f(left)), Box::new(f(right))),
-            AstNode::Le(left, right) => AstNode::Le(Box::new(f(left)), Box::new(f(right))),
-            AstNode::Gt(left, right) => AstNode::Gt(Box::new(f(left)), Box::new(f(right))),
-            AstNode::Ge(left, right) => AstNode::Ge(Box::new(f(left)), Box::new(f(right))),
-            AstNode::Eq(left, right) => AstNode::Eq(Box::new(f(left)), Box::new(f(right))),
-            AstNode::Ne(left, right) => AstNode::Ne(Box::new(f(left)), Box::new(f(right))),
             AstNode::And(left, right) => AstNode::And(Box::new(f(left)), Box::new(f(right))),
-            AstNode::Or(left, right) => AstNode::Or(Box::new(f(left)), Box::new(f(right))),
             AstNode::Not(operand) => AstNode::Not(Box::new(f(operand))),
             AstNode::Select {
                 cond,
@@ -624,15 +611,10 @@ impl AstNode {
             }
 
             // Comparison operations - always return Bool
-            AstNode::Lt(_, _)
-            | AstNode::Le(_, _)
-            | AstNode::Gt(_, _)
-            | AstNode::Ge(_, _)
-            | AstNode::Eq(_, _)
-            | AstNode::Ne(_, _) => DType::Bool,
+            AstNode::Lt(_, _) => DType::Bool,
 
             // Logical operations - always return Bool
-            AstNode::And(_, _) | AstNode::Or(_, _) | AstNode::Not(_) => DType::Bool,
+            AstNode::And(_, _) | AstNode::Not(_) => DType::Bool,
 
             // Select - returns the type of then_val/else_val (should be the same)
             AstNode::Select { then_val, .. } => then_val.infer_type(),
@@ -757,13 +739,7 @@ impl AstNode {
             | AstNode::LeftShift(left, right)
             | AstNode::RightShift(left, right)
             | AstNode::Lt(left, right)
-            | AstNode::Le(left, right)
-            | AstNode::Gt(left, right)
-            | AstNode::Ge(left, right)
-            | AstNode::Eq(left, right)
-            | AstNode::Ne(left, right)
-            | AstNode::And(left, right)
-            | AstNode::Or(left, right) => {
+            | AstNode::And(left, right) => {
                 left.check_scope(scope)?;
                 right.check_scope(scope)?;
                 Ok(())

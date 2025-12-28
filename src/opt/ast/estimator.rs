@@ -316,13 +316,9 @@ impl SimpleCostEstimator {
             AstNode::Allocate { size, .. } => Self::count_nodes(size),
             AstNode::Deallocate { ptr } => Self::count_nodes(ptr),
             AstNode::Program { functions, .. } => functions.iter().map(Self::count_nodes).sum(),
-            // 比較演算
-            AstNode::Lt(a, b)
-            | AstNode::Le(a, b)
-            | AstNode::Gt(a, b)
-            | AstNode::Ge(a, b)
-            | AstNode::Eq(a, b)
-            | AstNode::Ne(a, b) => Self::count_nodes(a) + Self::count_nodes(b),
+            // 比較・論理演算
+            AstNode::Lt(a, b) | AstNode::And(a, b) => Self::count_nodes(a) + Self::count_nodes(b),
+            AstNode::Not(a) => Self::count_nodes(a),
             // 条件分岐
             AstNode::If {
                 condition,
@@ -391,13 +387,8 @@ impl SimpleCostEstimator {
             // GPUカーネル呼び出し（非常に高いオーバーヘッド）
             AstNode::CallKernel { .. } => self.barrier_cost.ln(),
 
-            // 比較演算（高速）
-            AstNode::Lt(_, _)
-            | AstNode::Le(_, _)
-            | AstNode::Gt(_, _)
-            | AstNode::Ge(_, _)
-            | AstNode::Eq(_, _)
-            | AstNode::Ne(_, _) => self.comparison_cost.ln(),
+            // 比較・論理演算（高速）
+            AstNode::Lt(_, _) | AstNode::And(_, _) | AstNode::Not(_) => self.comparison_cost.ln(),
 
             // 条件分岐（分岐予測オーバーヘッドを含む）
             AstNode::If { .. } => self.branch_overhead.ln(),
@@ -511,13 +502,11 @@ impl AstCostEstimator for SimpleCostEstimator {
                 let args_cost = log_sum_exp_iter(args.iter().map(|a| self.estimate(a)));
                 log_sum_exp(args_cost, self.function_call_overhead.ln())
             }
-            // 比較演算
-            AstNode::Lt(a, b)
-            | AstNode::Le(a, b)
-            | AstNode::Gt(a, b)
-            | AstNode::Ge(a, b)
-            | AstNode::Eq(a, b)
-            | AstNode::Ne(a, b) => log_sum_exp(self.estimate(a), self.estimate(b)),
+            // 比較・論理演算
+            AstNode::Lt(a, b) | AstNode::And(a, b) => {
+                log_sum_exp(self.estimate(a), self.estimate(b))
+            }
+            AstNode::Not(a) => self.estimate(a),
             // 条件分岐
             AstNode::If {
                 condition,
@@ -1048,41 +1037,19 @@ mod tests {
     fn test_comparison_operators_cost() {
         let estimator = SimpleCostEstimator::new();
 
-        // 各比較演算子のコストをテスト
+        // プリミティブ比較・論理演算子のコストをテスト
         let lt = AstNode::Lt(
             Box::new(AstNode::Var("a".to_string())),
             Box::new(AstNode::Var("b".to_string())),
         );
-        let le = AstNode::Le(
+        let and = AstNode::And(
             Box::new(AstNode::Var("a".to_string())),
             Box::new(AstNode::Var("b".to_string())),
         );
-        let gt = AstNode::Gt(
-            Box::new(AstNode::Var("a".to_string())),
-            Box::new(AstNode::Var("b".to_string())),
-        );
-        let ge = AstNode::Ge(
-            Box::new(AstNode::Var("a".to_string())),
-            Box::new(AstNode::Var("b".to_string())),
-        );
-        let eq = AstNode::Eq(
-            Box::new(AstNode::Var("a".to_string())),
-            Box::new(AstNode::Var("b".to_string())),
-        );
-        let ne = AstNode::Ne(
-            Box::new(AstNode::Var("a".to_string())),
-            Box::new(AstNode::Var("b".to_string())),
-        );
+        let not = AstNode::Not(Box::new(AstNode::Var("a".to_string())));
 
-        // 全ての比較演算子のコストが有限値であることを確認
-        for (name, node) in [
-            ("Lt", lt),
-            ("Le", le),
-            ("Gt", gt),
-            ("Ge", ge),
-            ("Eq", eq),
-            ("Ne", ne),
-        ] {
+        // 全てのプリミティブ演算子のコストが有限値であることを確認
+        for (name, node) in [("Lt", lt), ("And", and), ("Not", not)] {
             let cost = estimator.estimate(&node);
             assert!(
                 cost.is_finite(),

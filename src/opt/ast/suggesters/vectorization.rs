@@ -276,36 +276,20 @@ impl VectorizationSuggester {
                 Some(AstNode::Rem(Box::new(a_vec), Box::new(b_vec)))
             }
 
-            // 比較演算
+            // 比較・論理演算（プリミティブのみ）
             AstNode::Lt(a, b) => {
                 let a_vec = self.try_vectorize_expr(a, width, base_offset)?;
                 let b_vec = self.try_vectorize_expr(b, width, base_offset)?;
                 Some(AstNode::Lt(Box::new(a_vec), Box::new(b_vec)))
             }
-            AstNode::Le(a, b) => {
+            AstNode::And(a, b) => {
                 let a_vec = self.try_vectorize_expr(a, width, base_offset)?;
                 let b_vec = self.try_vectorize_expr(b, width, base_offset)?;
-                Some(AstNode::Le(Box::new(a_vec), Box::new(b_vec)))
+                Some(AstNode::And(Box::new(a_vec), Box::new(b_vec)))
             }
-            AstNode::Gt(a, b) => {
+            AstNode::Not(a) => {
                 let a_vec = self.try_vectorize_expr(a, width, base_offset)?;
-                let b_vec = self.try_vectorize_expr(b, width, base_offset)?;
-                Some(AstNode::Gt(Box::new(a_vec), Box::new(b_vec)))
-            }
-            AstNode::Ge(a, b) => {
-                let a_vec = self.try_vectorize_expr(a, width, base_offset)?;
-                let b_vec = self.try_vectorize_expr(b, width, base_offset)?;
-                Some(AstNode::Ge(Box::new(a_vec), Box::new(b_vec)))
-            }
-            AstNode::Eq(a, b) => {
-                let a_vec = self.try_vectorize_expr(a, width, base_offset)?;
-                let b_vec = self.try_vectorize_expr(b, width, base_offset)?;
-                Some(AstNode::Eq(Box::new(a_vec), Box::new(b_vec)))
-            }
-            AstNode::Ne(a, b) => {
-                let a_vec = self.try_vectorize_expr(a, width, base_offset)?;
-                let b_vec = self.try_vectorize_expr(b, width, base_offset)?;
-                Some(AstNode::Ne(Box::new(a_vec), Box::new(b_vec)))
+                Some(AstNode::Not(Box::new(a_vec)))
             }
 
             // 単項演算 → 再帰的にベクトル化
@@ -372,11 +356,8 @@ impl VectorizationSuggester {
             | AstNode::Idiv(a, b)
             | AstNode::Rem(a, b)
             | AstNode::Lt(a, b)
-            | AstNode::Le(a, b)
-            | AstNode::Gt(a, b)
-            | AstNode::Ge(a, b)
-            | AstNode::Eq(a, b)
-            | AstNode::Ne(a, b) => Self::contains_load(a) || Self::contains_load(b),
+            | AstNode::And(a, b) => Self::contains_load(a) || Self::contains_load(b),
+            AstNode::Not(a) => Self::contains_load(a),
             // 単項演算
             AstNode::Recip(a)
             | AstNode::Sqrt(a)
@@ -404,13 +385,10 @@ impl VectorizationSuggester {
             | (AstNode::Idiv(a1, b1), AstNode::Idiv(a2, b2))
             | (AstNode::Rem(a1, b1), AstNode::Rem(a2, b2))
             | (AstNode::Lt(a1, b1), AstNode::Lt(a2, b2))
-            | (AstNode::Le(a1, b1), AstNode::Le(a2, b2))
-            | (AstNode::Gt(a1, b1), AstNode::Gt(a2, b2))
-            | (AstNode::Ge(a1, b1), AstNode::Ge(a2, b2))
-            | (AstNode::Eq(a1, b1), AstNode::Eq(a2, b2))
-            | (AstNode::Ne(a1, b1), AstNode::Ne(a2, b2)) => {
+            | (AstNode::And(a1, b1), AstNode::And(a2, b2)) => {
                 Self::is_structurally_equivalent(a1, a2) && Self::is_structurally_equivalent(b1, b2)
             }
+            (AstNode::Not(a1), AstNode::Not(a2)) => Self::is_structurally_equivalent(a1, a2),
 
             // 単項演算
             (AstNode::Recip(a1), AstNode::Recip(a2))

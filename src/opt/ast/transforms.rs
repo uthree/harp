@@ -71,13 +71,7 @@ fn collect_var_names_recursive(ast: &AstNode, names: &mut HashSet<String>) {
         | AstNode::LeftShift(a, b)
         | AstNode::RightShift(a, b)
         | AstNode::Lt(a, b)
-        | AstNode::Le(a, b)
-        | AstNode::Gt(a, b)
-        | AstNode::Ge(a, b)
-        | AstNode::Eq(a, b)
-        | AstNode::Ne(a, b)
-        | AstNode::And(a, b)
-        | AstNode::Or(a, b) => {
+        | AstNode::And(a, b) => {
             collect_var_names_recursive(a, names);
             collect_var_names_recursive(b, names);
         }

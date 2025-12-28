@@ -257,8 +257,8 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
                 }
                 strides
             }
-            View::Padded { inner, .. } => {
-                // For Padded, use the inner view's strides
+            View::Padded { inner, .. } | View::Masked { inner, .. } => {
+                // For Padded/Masked, use the inner view's strides
                 match inner.as_ref() {
                     View::Linear { strides, .. } => strides.clone(),
                     _ => {
@@ -289,8 +289,8 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         let input_offset = match &self.inner.view {
             View::Linear { offset, .. } => offset.clone(),
             View::IndexExpr { .. } => Expr::from(0),
-            View::Padded { inner, .. } => {
-                // For Padded, use the inner view's offset
+            View::Padded { inner, .. } | View::Masked { inner, .. } => {
+                // For Padded/Masked, use the inner view's offset
                 match inner.as_ref() {
                     View::Linear { offset, .. } => offset.clone(),
                     _ => Expr::from(0),
@@ -460,8 +460,8 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
                 }
                 (strides, Expr::from(0))
             }
-            View::Padded { inner, .. } => {
-                // For Padded, use the inner view's strides
+            View::Padded { inner, .. } | View::Masked { inner, .. } => {
+                // For Padded/Masked, use the inner view's strides
                 match inner.as_ref() {
                     View::Linear {
                         strides, offset, ..

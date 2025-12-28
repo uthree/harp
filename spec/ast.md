@@ -10,9 +10,16 @@
 
 **既存の演算の組み合わせで表現可能な演算は、原則としてASTノードに実装しない**という設計方針です。演算子の種類を最小限に抑えることで、ASTの単純性・保守性・一貫性を確保します。
 
-実装されている演算: `Add`, `Mul`, `Recip`, `Rem`, `Idiv`, `Max`, 数学関数（`Sqrt`, `Log2`, `Exp2`, `Sin`）, 比較演算（`Lt`, `Le`, `Gt`, `Ge`, `Eq`, `Ne`）
+**実装されているプリミティブ演算:**
+- 算術: `Add`, `Mul`, `Recip`, `Rem`, `Idiv`, `Max`
+- 数学関数: `Sqrt`, `Log2`, `Exp2`, `Sin`, `Floor`
+- 比較・論理: `Lt`（小なり）, `Not`（否定）, `And`（論理積）
 
-演算子オーバーロードで提供: 減算（`a - b = a + (-b)`）, 除算（`a / b = a * recip(b)`）
+**ヘルパー関数で導出される演算:**
+- 算術: 減算（`a - b = a + (-b)`）, 除算（`a / b = a * recip(b)`）
+- 比較: `gt(a,b) = Lt(b,a)`, `le(a,b) = Not(Lt(b,a))`, `ge(a,b) = Not(Lt(a,b))`
+- 等価: `eq(a,b) = And(Le(a,b), Le(b,a))`, `ne(a,b) = Not(Eq(a,b))`
+- 論理: `or(a,b) = Not(And(Not(a), Not(b)))`
 
 ハードウェア最適化演算: `Fma`（Fused Multiply-Add）, `AtomicAdd`, `AtomicMax`（並列Reduce用）
 
@@ -22,8 +29,11 @@
 
 #### 演算ヘルパー（マクロ生成）
 - **二項演算**: `max`, `idiv`, `rem`
-- **単項演算**: `recip`, `sqrt`, `log2`, `exp2`, `sin`
-- **比較演算**: `lt`, `le`, `gt`, `ge`, `eq`, `ne`（Bool型を返す）
+- **単項演算**: `recip`, `sqrt`, `log2`, `exp2`, `sin`, `floor`
+- **比較演算（プリミティブ）**: `lt`（小なり）
+- **比較演算（導出）**: `gt`, `le`, `ge`, `eq`, `ne`（プリミティブの組み合わせ）
+- **論理演算（プリミティブ）**: `not`（否定）
+- **論理演算（導出）**: `or`（`Not(And(Not(a), Not(b)))`で表現）
 
 #### 構造化ヘルパー
 - **変数**: `var("x")` - 変数参照

@@ -19,6 +19,15 @@ pub enum Expr {
     Div(Box<Self>, Box<Self>),
     Rem(Box<Self>, Box<Self>),
 
+    // 比較・論理演算（プリミティブのみ）
+    // 結果は 0 (false) または 1 (true) の整数値
+    /// 小なり比較: a < b → 1 if true, 0 if false
+    Lt(Box<Self>, Box<Self>),
+    /// 論理積: a && b → 1 if both non-zero, 0 otherwise
+    And(Box<Self>, Box<Self>),
+    /// 論理否定: !a → 1 if a == 0, 0 otherwise
+    Not(Box<Self>),
+
     /// 別ソースバッファからインデックス値を読み込む（Gather操作用）
     ///
     /// GraphNode.srcの指定インデックスのバッファから値を読み込む。
@@ -67,6 +76,9 @@ impl From<Expr> for crate::ast::AstNode {
                 left * crate::ast::helper::recip(right)
             }
             Expr::Rem(l, r) => AstNode::Rem(Box::new((*l).into()), Box::new((*r).into())),
+            Expr::Lt(l, r) => AstNode::Lt(Box::new((*l).into()), Box::new((*r).into())),
+            Expr::And(l, r) => AstNode::And(Box::new((*l).into()), Box::new((*r).into())),
+            Expr::Not(a) => AstNode::Not(Box::new((*a).into())),
             Expr::LoadIndex { .. } => {
                 // LoadIndexはLowering時に特別な処理が必要
                 // ここでは直接変換できないのでpanic
@@ -239,11 +251,68 @@ impl Expr {
                     Ok(l.evaluate()? % rv)
                 }
             }
+            Expr::Lt(l, r) => Ok(if l.evaluate()? < r.evaluate()? { 1 } else { 0 }),
+            Expr::And(l, r) => {
+                let lv = l.evaluate()?;
+                let rv = r.evaluate()?;
+                Ok(if lv != 0 && rv != 0 { 1 } else { 0 })
+            }
+            Expr::Not(a) => Ok(if a.evaluate()? == 0 { 1 } else { 0 }),
             Expr::LoadIndex { src_index, .. } => Err(format!(
                 "Cannot evaluate LoadIndex(src_index={}): requires runtime buffer access",
                 src_index
             )),
         }
+    }
+
+    // =====================================================================
+    // 比較・論理演算ヘルパーメソッド
+    // =====================================================================
+
+    /// 小なり比較: self < other → 1 if true, 0 if false
+    pub fn lt(self, other: impl Into<Expr>) -> Expr {
+        Expr::Lt(Box::new(self), Box::new(other.into()))
+    }
+
+    /// 大なり比較: self > other → 導出: other < self
+    pub fn gt(self, other: impl Into<Expr>) -> Expr {
+        other.into().lt(self)
+    }
+
+    /// 以下比較: self <= other → 導出: !(other < self)
+    pub fn le(self, other: impl Into<Expr>) -> Expr {
+        let other = other.into();
+        Expr::Not(Box::new(other.lt(self)))
+    }
+
+    /// 以上比較: self >= other → 導出: !(self < other)
+    pub fn ge(self, other: impl Into<Expr>) -> Expr {
+        Expr::Not(Box::new(self.lt(other)))
+    }
+
+    /// 等価比較: self == other → 導出: (self <= other) && (other <= self)
+    pub fn eq_expr(self, other: impl Into<Expr>) -> Expr {
+        let other = other.into();
+        let le_ab = self.clone().le(other.clone());
+        let le_ba = other.le(self);
+        Expr::And(Box::new(le_ab), Box::new(le_ba))
+    }
+
+    /// 非等価比較: self != other → 導出: !(self == other)
+    pub fn ne_expr(self, other: impl Into<Expr>) -> Expr {
+        Expr::Not(Box::new(self.eq_expr(other)))
+    }
+
+    /// 論理積: self && other → 1 if both non-zero, 0 otherwise
+    pub fn and(self, other: impl Into<Expr>) -> Expr {
+        Expr::And(Box::new(self), Box::new(other.into()))
+    }
+
+    /// 論理和: self || other → 導出: !(!self && !other)
+    pub fn or(self, other: impl Into<Expr>) -> Expr {
+        let not_self = Expr::Not(Box::new(self));
+        let not_other = Expr::Not(Box::new(other.into()));
+        Expr::Not(Box::new(Expr::And(Box::new(not_self), Box::new(not_other))))
     }
 
     /// 定数式をusizeとして評価する
@@ -297,6 +366,15 @@ impl Expr {
                 Box::new(l.substitute_idx(idx, replacement.clone())),
                 Box::new(r.substitute_idx(idx, replacement)),
             ),
+            Expr::Lt(l, r) => Expr::Lt(
+                Box::new(l.substitute_idx(idx, replacement.clone())),
+                Box::new(r.substitute_idx(idx, replacement)),
+            ),
+            Expr::And(l, r) => Expr::And(
+                Box::new(l.substitute_idx(idx, replacement.clone())),
+                Box::new(r.substitute_idx(idx, replacement)),
+            ),
+            Expr::Not(a) => Expr::Not(Box::new(a.substitute_idx(idx, replacement))),
             Expr::LoadIndex {
                 src_index,
                 offset_expr,
@@ -358,6 +436,15 @@ impl Expr {
                 Box::new(l.permute_idx_with_inverse(inverse_axes)),
                 Box::new(r.permute_idx_with_inverse(inverse_axes)),
             ),
+            Expr::Lt(l, r) => Expr::Lt(
+                Box::new(l.permute_idx_with_inverse(inverse_axes)),
+                Box::new(r.permute_idx_with_inverse(inverse_axes)),
+            ),
+            Expr::And(l, r) => Expr::And(
+                Box::new(l.permute_idx_with_inverse(inverse_axes)),
+                Box::new(r.permute_idx_with_inverse(inverse_axes)),
+            ),
+            Expr::Not(a) => Expr::Not(Box::new(a.permute_idx_with_inverse(inverse_axes))),
             Expr::LoadIndex {
                 src_index,
                 offset_expr,
@@ -403,6 +490,15 @@ impl Expr {
                 Box::new(l.shift_idx(threshold, delta)),
                 Box::new(r.shift_idx(threshold, delta)),
             ),
+            Expr::Lt(l, r) => Expr::Lt(
+                Box::new(l.shift_idx(threshold, delta)),
+                Box::new(r.shift_idx(threshold, delta)),
+            ),
+            Expr::And(l, r) => Expr::And(
+                Box::new(l.shift_idx(threshold, delta)),
+                Box::new(r.shift_idx(threshold, delta)),
+            ),
+            Expr::Not(a) => Expr::Not(Box::new(a.shift_idx(threshold, delta))),
             Expr::LoadIndex {
                 src_index,
                 offset_expr,
@@ -482,6 +578,47 @@ impl Expr {
                 src_index,
                 offset_expr: Box::new(offset_expr.simplify()),
             },
+            // 比較・論理演算
+            Expr::Lt(lhs, rhs) => {
+                let lhs = lhs.simplify();
+                let rhs = rhs.simplify();
+                match (&lhs, &rhs) {
+                    (Expr::Const(l), Expr::Const(r)) => Expr::Const(if l < r { 1 } else { 0 }),
+                    // x < x は常に false
+                    _ if lhs == rhs => Expr::Const(0),
+                    (l, r) => Expr::Lt(Box::new(l.clone()), Box::new(r.clone())),
+                }
+            }
+            Expr::And(lhs, rhs) => {
+                let lhs = lhs.simplify();
+                let rhs = rhs.simplify();
+                match (&lhs, &rhs) {
+                    // 定数畳み込み
+                    (Expr::Const(0), _) | (_, Expr::Const(0)) => Expr::Const(0),
+                    (Expr::Const(l), Expr::Const(r)) => {
+                        Expr::Const(if *l != 0 && *r != 0 { 1 } else { 0 })
+                    }
+                    // 0以外の定数は true として扱う
+                    (Expr::Const(_), e) => e.clone(),
+                    (e, Expr::Const(_)) => e.clone(),
+                    // 冪等性: x && x = x
+                    _ if lhs == rhs => lhs,
+                    // x && !x = 0
+                    (x, Expr::Not(y)) | (Expr::Not(y), x) if *x == **y => Expr::Const(0),
+                    (l, r) => Expr::And(Box::new(l.clone()), Box::new(r.clone())),
+                }
+            }
+            Expr::Not(a) => {
+                let a = a.simplify();
+                match a {
+                    // 定数畳み込み
+                    Expr::Const(0) => Expr::Const(1),
+                    Expr::Const(_) => Expr::Const(0),
+                    // 二重否定除去: !!x = x
+                    Expr::Not(inner) => *inner,
+                    other => Expr::Not(Box::new(other)),
+                }
+            }
             _ => self,
         }
     }
@@ -494,7 +631,10 @@ impl Expr {
             | Expr::Sub(l, r)
             | Expr::Mul(l, r)
             | Expr::Div(l, r)
-            | Expr::Rem(l, r) => l.contains_load_index() || r.contains_load_index(),
+            | Expr::Rem(l, r)
+            | Expr::Lt(l, r)
+            | Expr::And(l, r) => l.contains_load_index() || r.contains_load_index(),
+            Expr::Not(a) => a.contains_load_index(),
             _ => false,
         }
     }
@@ -553,6 +693,15 @@ impl Expr {
                 Box::new(l.shift_load_index(delta)),
                 Box::new(r.shift_load_index(delta)),
             ),
+            Expr::Lt(l, r) => Expr::Lt(
+                Box::new(l.shift_load_index(delta)),
+                Box::new(r.shift_load_index(delta)),
+            ),
+            Expr::And(l, r) => Expr::And(
+                Box::new(l.shift_load_index(delta)),
+                Box::new(r.shift_load_index(delta)),
+            ),
+            Expr::Not(a) => Expr::Not(Box::new(a.shift_load_index(delta))),
             // Const, Idxはそのまま
             _ => self,
         }
@@ -642,6 +791,14 @@ impl Neg for Expr {
     }
 }
 
+impl std::ops::Not for Expr {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        Expr::Not(Box::new(self))
+    }
+}
+
 impl fmt::Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -728,6 +885,15 @@ impl fmt::Display for Expr {
                 offset_expr,
             } => {
                 write!(f, "load[{}]({})", src_index, offset_expr)
+            }
+            Expr::Lt(lhs, rhs) => {
+                write!(f, "({} < {})", lhs, rhs)
+            }
+            Expr::And(lhs, rhs) => {
+                write!(f, "({} && {})", lhs, rhs)
+            }
+            Expr::Not(a) => {
+                write!(f, "!({})", a)
             }
         }
     }

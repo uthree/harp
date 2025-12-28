@@ -686,7 +686,7 @@ mod tests {
     use super::*;
     use crate::ast::{
         DType, Mutability, VarDecl, VarKind,
-        helper::{load, store},
+        helper::{eq, load, store},
     };
 
     fn make_simple_function() -> AstNode {
@@ -740,9 +740,9 @@ mod tests {
         );
 
         let if_node = AstNode::If {
-            condition: Box::new(AstNode::Eq(
-                Box::new(AstNode::Rem(Box::new(var("i")), Box::new(const_int(2)))),
-                Box::new(const_int(0)),
+            condition: Box::new(eq(
+                AstNode::Rem(Box::new(var("i")), Box::new(const_int(2))),
+                const_int(0),
             )),
             then_body: Box::new(inner_body),
             else_body: None,
@@ -826,9 +826,9 @@ mod tests {
         );
 
         let if_node = AstNode::If {
-            condition: Box::new(AstNode::Eq(
-                Box::new(AstNode::Rem(Box::new(var("j")), Box::new(const_int(2)))),
-                Box::new(const_int(0)),
+            condition: Box::new(eq(
+                AstNode::Rem(Box::new(var("j")), Box::new(const_int(2))),
+                const_int(0),
             )),
             then_body: Box::new(inner_body),
             else_body: None,

@@ -252,52 +252,14 @@ pub trait CLikeRenderer: Renderer {
                     self.render_expr(right)
                 )
             }
-            // Comparison operations
+            // Comparison operations (primitive: Lt only)
             AstNode::Lt(left, right) => {
                 format!("({} < {})", self.render_expr(left), self.render_expr(right))
             }
-            AstNode::Le(left, right) => {
-                format!(
-                    "({} <= {})",
-                    self.render_expr(left),
-                    self.render_expr(right)
-                )
-            }
-            AstNode::Gt(left, right) => {
-                format!("({} > {})", self.render_expr(left), self.render_expr(right))
-            }
-            AstNode::Ge(left, right) => {
-                format!(
-                    "({} >= {})",
-                    self.render_expr(left),
-                    self.render_expr(right)
-                )
-            }
-            AstNode::Eq(left, right) => {
-                format!(
-                    "({} == {})",
-                    self.render_expr(left),
-                    self.render_expr(right)
-                )
-            }
-            AstNode::Ne(left, right) => {
-                format!(
-                    "({} != {})",
-                    self.render_expr(left),
-                    self.render_expr(right)
-                )
-            }
-            // Logical operations
+            // Logical operations (primitives: And, Not)
             AstNode::And(left, right) => {
                 format!(
                     "({} && {})",
-                    self.render_expr(left),
-                    self.render_expr(right)
-                )
-            }
-            AstNode::Or(left, right) => {
-                format!(
-                    "({} || {})",
                     self.render_expr(left),
                     self.render_expr(right)
                 )
@@ -764,13 +726,7 @@ pub fn extract_buffer_placeholders(body: &AstNode) -> (Vec<String>, bool) {
             | AstNode::Rem(l, r)
             | AstNode::Idiv(l, r)
             | AstNode::Lt(l, r)
-            | AstNode::Le(l, r)
-            | AstNode::Gt(l, r)
-            | AstNode::Ge(l, r)
-            | AstNode::Eq(l, r)
-            | AstNode::Ne(l, r)
             | AstNode::And(l, r)
-            | AstNode::Or(l, r)
             | AstNode::BitwiseAnd(l, r)
             | AstNode::BitwiseOr(l, r)
             | AstNode::BitwiseXor(l, r)
