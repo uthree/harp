@@ -623,18 +623,9 @@ impl TensorInner {
             _ => {}
         }
 
-        // N項演算: 融合可能な入力はスキップ、融合バリアはrealize
+        // N項演算の入力を先にrealize
         match &self.op {
-            TensorOp::MapReduce { inputs, .. } => {
-                for input in inputs {
-                    // 融合可能な入力はスキップ（lowererが融合する）
-                    if !input.is_fusable() {
-                        input.realize_recursive()?;
-                    }
-                }
-            }
-            TensorOp::Concat { inputs, .. } => {
-                // Concatは全入力がバリア
+            TensorOp::MapReduce { inputs, .. } | TensorOp::Concat { inputs, .. } => {
                 for input in inputs {
                     input.realize_recursive()?;
                 }
