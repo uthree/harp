@@ -299,6 +299,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T> for PadBackward<T, D> {
 | `Pad` | パディング（View::Padded経由） |
 | `Slice` | スライス（View::Linear経由、ゼロコピー） |
 | `Concat` | テンソル結合（複数入力を条件分岐で処理） |
+| `Unfold` | スライディングウィンドウ（im2col用、View::IndexExpr経由） |
 
 #### 特殊
 | 演算 | 説明 |

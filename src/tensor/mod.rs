@@ -96,7 +96,7 @@ use std::sync::{Arc, RwLock};
 
 use crate::backend::Buffer;
 
-pub use dimension::{Dim, Dim0, Dim1, Dim2, Dim3, Dim4, Dim5, Dim6, DimDyn, Dimension};
+pub use dimension::{Dim, Dim0, Dim1, Dim2, Dim3, Dim4, Dim5, Dim6, Dim7, Dim8, DimDyn, Dimension};
 pub use dtype::{NumericDType, TensorDType};
 // IntegerDType, SignedIntDType, UnsignedIntDType, NumericInitDType are defined below
 pub use forward::ForwardError;

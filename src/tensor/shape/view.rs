@@ -850,6 +850,257 @@ impl View {
             _ => None,
         }
     }
+
+    /// N次元 unfold（スライディングウィンドウ）
+    ///
+    /// 指定した軸に対してスライディングウィンドウを適用。
+    /// 各軸は2つの次元（output_position, window_size）に分割される。
+    ///
+    /// # Arguments
+    /// * `axes` - unfoldする軸のリスト（ソート済み、重複なし）
+    /// * `sizes` - 各軸のウィンドウサイズ
+    /// * `strides` - 各軸のストライド
+    ///
+    /// # Output Shape
+    /// `[preserved_dims..., output_positions..., window_dims...]`
+    ///
+    /// # Example
+    /// ```
+    /// use harp::tensor::shape::{View, Expr};
+    ///
+    /// // [N, C, H, W] + unfold(axes=[2,3], sizes=[kH,kW], strides=[sH,sW])
+    /// // → [N, C, out_H, out_W, kH, kW]
+    /// let view = View::contiguous(vec![2, 3, 8, 10]);
+    /// let unfolded = view.unfold(
+    ///     &[2, 3],
+    ///     &[Expr::from(3), Expr::from(3)],
+    ///     &[Expr::from(1), Expr::from(1)],
+    /// );
+    /// assert_eq!(unfolded.shape(), vec![
+    ///     Expr::from(2), Expr::from(3),   // N, C (preserved)
+    ///     Expr::from(6), Expr::from(8),   // out_H, out_W
+    ///     Expr::from(3), Expr::from(3),   // kH, kW
+    /// ]);
+    /// ```
+    pub fn unfold<E: Into<Expr> + Clone>(self, axes: &[usize], sizes: &[E], strides: &[E]) -> Self {
+        let sizes: Vec<Expr> = sizes.iter().map(|s| s.clone().into()).collect();
+        let strides: Vec<Expr> = strides.iter().map(|s| s.clone().into()).collect();
+
+        assert_eq!(
+            axes.len(),
+            sizes.len(),
+            "axes and sizes must have same length"
+        );
+        assert_eq!(
+            axes.len(),
+            strides.len(),
+            "axes and strides must have same length"
+        );
+
+        let ndim = self.ndim();
+        let num_unfolded = axes.len();
+
+        // axesの検証
+        for (i, &axis) in axes.iter().enumerate() {
+            assert!(axis < ndim, "axis {} out of bounds for ndim {}", axis, ndim);
+            if i > 0 {
+                assert!(axes[i] > axes[i - 1], "axes must be sorted and unique");
+            }
+        }
+
+        let axes_set: std::collections::HashSet<usize> = axes.iter().copied().collect();
+
+        match self {
+            View::Linear {
+                shape,
+                strides: original_strides,
+                offset,
+            } => {
+                // 出力形状を構築
+                // [preserved..., output_positions..., window_dims...]
+                let mut new_shape: Vec<Expr> = Vec::new();
+
+                // 1. preserved dims (axes以外)
+                for (i, dim) in shape.iter().enumerate() {
+                    if !axes_set.contains(&i) {
+                        new_shape.push(dim.clone());
+                    }
+                }
+
+                // 2. output positions: (dim - size) / stride + 1
+                for (i, &axis) in axes.iter().enumerate() {
+                    let dim = shape[axis].clone();
+                    let size = sizes[i].clone();
+                    let stride = strides[i].clone();
+                    let out_size = ((dim - size.clone()) / stride + Expr::from(1)).simplify();
+                    new_shape.push(out_size);
+                }
+
+                // 3. window dims
+                for size in sizes.iter() {
+                    new_shape.push(size.clone());
+                }
+
+                // インデックス式を構築
+                // output[preserved..., out_pos..., win_pos...] = input[...]
+                //
+                // preserved dims: result idx 0..(ndim - num_unfolded)
+                // output positions: result idx (ndim - num_unfolded)..(ndim)
+                // window dims: result idx (ndim)..(ndim + num_unfolded)
+                let num_preserved = ndim - num_unfolded;
+
+                let mut index_expr = offset;
+
+                // preserved軸からのマッピング
+                let mut preserved_idx = 0;
+                for (original_axis, stride) in original_strides.iter().enumerate() {
+                    if axes_set.contains(&original_axis) {
+                        // unfold対象軸
+                        let unfold_i = axes.iter().position(|&a| a == original_axis).unwrap();
+                        let out_pos_idx = num_preserved + unfold_i;
+                        let win_pos_idx = num_preserved + num_unfolded + unfold_i;
+                        let unfold_stride = strides[unfold_i].clone();
+
+                        // input_idx = out_pos * unfold_stride + win_pos
+                        let input_idx = (Expr::Idx(out_pos_idx) * unfold_stride
+                            + Expr::Idx(win_pos_idx))
+                        .simplify();
+                        index_expr = (index_expr + input_idx * stride.clone()).simplify();
+                    } else {
+                        // preserved軸
+                        index_expr =
+                            (index_expr + Expr::Idx(preserved_idx) * stride.clone()).simplify();
+                        preserved_idx += 1;
+                    }
+                }
+
+                View::IndexExpr {
+                    shape: new_shape,
+                    index_expr,
+                }
+            }
+            View::IndexExpr {
+                shape,
+                index_expr: original_index_expr,
+            } => {
+                // IndexExprに対するunfold
+                // より複雑なケース - 既存のindex_exprを変換する必要がある
+
+                // 出力形状を構築
+                let mut new_shape: Vec<Expr> = Vec::new();
+
+                // 1. preserved dims
+                for (i, dim) in shape.iter().enumerate() {
+                    if !axes_set.contains(&i) {
+                        new_shape.push(dim.clone());
+                    }
+                }
+
+                // 2. output positions
+                for (i, &axis) in axes.iter().enumerate() {
+                    let dim = shape[axis].clone();
+                    let size = sizes[i].clone();
+                    let stride = strides[i].clone();
+                    let out_size = ((dim - size.clone()) / stride + Expr::from(1)).simplify();
+                    new_shape.push(out_size);
+                }
+
+                // 3. window dims
+                for size in sizes.iter() {
+                    new_shape.push(size.clone());
+                }
+
+                let num_preserved = ndim - num_unfolded;
+
+                // index_exprを変換
+                // 元のIdx(i)を新しいインデックス体系にマッピング
+                let mut new_index_expr = original_index_expr;
+
+                // 後ろの軸から処理（シフトの影響を避けるため）
+                for (unfold_i, &original_axis) in axes.iter().enumerate().rev() {
+                    let out_pos_idx = num_preserved + unfold_i;
+                    let win_pos_idx = num_preserved + num_unfolded + unfold_i;
+                    let unfold_stride = strides[unfold_i].clone();
+
+                    // Idx(original_axis) を (Idx(out_pos_idx) * stride + Idx(win_pos_idx)) に置換
+                    let replacement = (Expr::Idx(out_pos_idx) * unfold_stride
+                        + Expr::Idx(win_pos_idx))
+                    .simplify();
+                    new_index_expr = new_index_expr.substitute_idx(original_axis, replacement);
+                }
+
+                // preserved軸のインデックスを再マッピング
+                // axes以外の軸は0から順に番号が振られる
+                let mut preserved_mapping: Vec<(usize, usize)> = Vec::new();
+                let mut new_idx = 0;
+                for i in 0..ndim {
+                    if !axes_set.contains(&i) {
+                        preserved_mapping.push((i, new_idx));
+                        new_idx += 1;
+                    }
+                }
+
+                // 大きい番号から小さい番号へ置換（衝突を避ける）
+                for &(old_idx, new_idx) in preserved_mapping.iter().rev() {
+                    if old_idx != new_idx {
+                        // 一時的なインデックスを使用して衝突を回避
+                        let temp_idx = ndim + num_unfolded + old_idx;
+                        new_index_expr =
+                            new_index_expr.substitute_idx(old_idx, Expr::Idx(temp_idx));
+                    }
+                }
+                for &(old_idx, new_idx) in preserved_mapping.iter() {
+                    if old_idx != new_idx {
+                        let temp_idx = ndim + num_unfolded + old_idx;
+                        new_index_expr =
+                            new_index_expr.substitute_idx(temp_idx, Expr::Idx(new_idx));
+                    }
+                }
+
+                View::IndexExpr {
+                    shape: new_shape,
+                    index_expr: new_index_expr.simplify(),
+                }
+            }
+            View::Padded {
+                inner,
+                padding,
+                default_value,
+            } => {
+                // 内側のViewにunfoldを適用
+                let new_inner = inner.unfold(axes, &sizes, &strides);
+
+                // paddingを再構成
+                // - preserved軸のパディングはそのまま
+                // - unfold軸は削除される（出力形状に反映済み）
+                // - 新しい軸（output_pos, window）は(0, 0)
+                let mut new_padding: Vec<(Expr, Expr)> = Vec::new();
+
+                // preserved軸のパディング
+                for (i, pad) in padding.iter().enumerate() {
+                    if !axes_set.contains(&i) {
+                        new_padding.push(pad.clone());
+                    }
+                }
+
+                // output positions - パディングなし
+                for _ in 0..num_unfolded {
+                    new_padding.push((Expr::from(0), Expr::from(0)));
+                }
+
+                // window dims - パディングなし
+                for _ in 0..num_unfolded {
+                    new_padding.push((Expr::from(0), Expr::from(0)));
+                }
+
+                View::Padded {
+                    inner: Box::new(new_inner),
+                    padding: new_padding,
+                    default_value,
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1548,5 +1799,180 @@ mod tests {
             Expr::Idx(0) * Expr::from(4) + Expr::Idx(1),
         );
         assert!(!view.is_innermost_contiguous());
+    }
+
+    // unfold tests
+
+    #[test]
+    fn test_unfold_1d_shape() {
+        // [2, 3, 10] + unfold(axes=[2], sizes=[3], strides=[1])
+        // → [2, 3, 8, 3]
+        // out_size = (10 - 3) / 1 + 1 = 8
+        let view = View::contiguous(vec![2, 3, 10]);
+        let unfolded = view.unfold(&[2], &[Expr::from(3)], &[Expr::from(1)]);
+
+        assert_eq!(
+            unfolded.shape(),
+            vec![Expr::from(2), Expr::from(3), Expr::from(8), Expr::from(3)]
+        );
+        assert!(!unfolded.is_linear());
+    }
+
+    #[test]
+    fn test_unfold_1d_with_stride() {
+        // [2, 3, 10] + unfold(axes=[2], sizes=[3], strides=[2])
+        // → [2, 3, 4, 3]
+        // out_size = (10 - 3) / 2 + 1 = 4
+        let view = View::contiguous(vec![2, 3, 10]);
+        let unfolded = view.unfold(&[2], &[Expr::from(3)], &[Expr::from(2)]);
+
+        assert_eq!(
+            unfolded.shape(),
+            vec![Expr::from(2), Expr::from(3), Expr::from(4), Expr::from(3)]
+        );
+    }
+
+    #[test]
+    fn test_unfold_2d_shape() {
+        // [2, 3, 8, 10] + unfold(axes=[2,3], sizes=[3,3], strides=[1,1])
+        // → [2, 3, 6, 8, 3, 3]
+        // out_H = (8 - 3) / 1 + 1 = 6
+        // out_W = (10 - 3) / 1 + 1 = 8
+        let view = View::contiguous(vec![2, 3, 8, 10]);
+        let unfolded = view.unfold(
+            &[2, 3],
+            &[Expr::from(3), Expr::from(3)],
+            &[Expr::from(1), Expr::from(1)],
+        );
+
+        assert_eq!(
+            unfolded.shape(),
+            vec![
+                Expr::from(2),
+                Expr::from(3), // N, C (preserved)
+                Expr::from(6),
+                Expr::from(8), // out_H, out_W
+                Expr::from(3),
+                Expr::from(3) // kH, kW
+            ]
+        );
+    }
+
+    #[test]
+    fn test_unfold_2d_with_stride() {
+        // [2, 3, 8, 10] + unfold(axes=[2,3], sizes=[3,3], strides=[2,2])
+        // → [2, 3, 3, 4, 3, 3]
+        // out_H = (8 - 3) / 2 + 1 = 3
+        // out_W = (10 - 3) / 2 + 1 = 4
+        let view = View::contiguous(vec![2, 3, 8, 10]);
+        let unfolded = view.unfold(
+            &[2, 3],
+            &[Expr::from(3), Expr::from(3)],
+            &[Expr::from(2), Expr::from(2)],
+        );
+
+        assert_eq!(
+            unfolded.shape(),
+            vec![
+                Expr::from(2),
+                Expr::from(3),
+                Expr::from(3),
+                Expr::from(4),
+                Expr::from(3),
+                Expr::from(3)
+            ]
+        );
+    }
+
+    #[test]
+    fn test_unfold_1d_index_expr() {
+        // 簡単な1Dケースでインデックス式を検証
+        // [5] + unfold(axes=[0], sizes=[3], strides=[1]) → [3, 3]
+        // output[i, j] = input[i * 1 + j] = input[i + j]
+        let view = View::contiguous(vec![5]);
+        let unfolded = view.unfold(&[0], &[Expr::from(3)], &[Expr::from(1)]);
+
+        assert_eq!(unfolded.shape(), vec![Expr::from(3), Expr::from(3)]);
+
+        if let View::IndexExpr { index_expr, .. } = unfolded {
+            // Expected: Idx(0) * 1 + Idx(1) = Idx(0) + Idx(1)
+            let expected = (Expr::Idx(0) + Expr::Idx(1)).simplify();
+            assert_eq!(index_expr.simplify(), expected);
+        } else {
+            panic!("Expected IndexExpr variant");
+        }
+    }
+
+    #[test]
+    fn test_unfold_1d_index_expr_with_stride() {
+        // [10] + unfold(axes=[0], sizes=[3], strides=[2]) → [4, 3]
+        // output[i, j] = input[i * 2 + j]
+        let view = View::contiguous(vec![10]);
+        let unfolded = view.unfold(&[0], &[Expr::from(3)], &[Expr::from(2)]);
+
+        assert_eq!(unfolded.shape(), vec![Expr::from(4), Expr::from(3)]);
+
+        if let View::IndexExpr { index_expr, .. } = unfolded {
+            // Expected: Idx(0) * 2 + Idx(1)
+            let expected = (Expr::Idx(0) * Expr::from(2) + Expr::Idx(1)).simplify();
+            assert_eq!(index_expr.simplify(), expected);
+        } else {
+            panic!("Expected IndexExpr variant");
+        }
+    }
+
+    #[test]
+    fn test_unfold_conv_pattern() {
+        // 典型的なConv2Dパターン: [N, C, H, W] → [N, C, out_H, out_W, kH, kW]
+        // [1, 3, 28, 28] + unfold(axes=[2,3], sizes=[3,3], strides=[1,1])
+        // → [1, 3, 26, 26, 3, 3]
+        let view = View::contiguous(vec![1, 3, 28, 28]);
+        let unfolded = view.unfold(
+            &[2, 3],
+            &[Expr::from(3), Expr::from(3)],
+            &[Expr::from(1), Expr::from(1)],
+        );
+
+        assert_eq!(
+            unfolded.shape(),
+            vec![
+                Expr::from(1),
+                Expr::from(3),
+                Expr::from(26),
+                Expr::from(26),
+                Expr::from(3),
+                Expr::from(3)
+            ]
+        );
+    }
+
+    #[test]
+    fn test_unfold_with_usize() {
+        // usizeでも呼び出せることを確認
+        let view = View::contiguous(vec![2, 3, 10]);
+        let unfolded = view.unfold(&[2], &[3_usize], &[1_usize]);
+
+        assert_eq!(
+            unfolded.shape(),
+            vec![Expr::from(2), Expr::from(3), Expr::from(8), Expr::from(3)]
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "axis 5 out of bounds")]
+    fn test_unfold_axis_out_of_bounds() {
+        let view = View::contiguous(vec![2, 3, 10]);
+        let _ = view.unfold(&[5], &[Expr::from(3)], &[Expr::from(1)]);
+    }
+
+    #[test]
+    #[should_panic(expected = "axes must be sorted and unique")]
+    fn test_unfold_unsorted_axes() {
+        let view = View::contiguous(vec![2, 3, 8, 10]);
+        let _ = view.unfold(
+            &[3, 2], // wrong order
+            &[Expr::from(3), Expr::from(3)],
+            &[Expr::from(1), Expr::from(1)],
+        );
     }
 }

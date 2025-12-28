@@ -142,11 +142,33 @@ impl Dimension for Dim<5> {
 impl Dimension for Dim<6> {
     const NDIM: Option<usize> = Some(6);
     type Smaller = Dim<5>;
-    type Larger = DimDyn; // No larger defined
+    type Larger = Dim<7>;
     type NdArrayDim = Ix6;
 
     fn ndim(&self) -> usize {
         6
+    }
+}
+
+impl Dimension for Dim<7> {
+    const NDIM: Option<usize> = Some(7);
+    type Smaller = Dim<6>;
+    type Larger = Dim<8>;
+    type NdArrayDim = IxDyn; // No Ix7 in ndarray
+
+    fn ndim(&self) -> usize {
+        7
+    }
+}
+
+impl Dimension for Dim<8> {
+    const NDIM: Option<usize> = Some(8);
+    type Smaller = Dim<7>;
+    type Larger = DimDyn; // No larger defined
+    type NdArrayDim = IxDyn; // No Ix8 in ndarray
+
+    fn ndim(&self) -> usize {
+        8
     }
 }
 
@@ -204,6 +226,10 @@ pub type Dim4 = Dim<4>;
 pub type Dim5 = Dim<5>;
 /// 6-dimensional tensor
 pub type Dim6 = Dim<6>;
+/// 7-dimensional tensor
+pub type Dim7 = Dim<7>;
+/// 8-dimensional tensor (used for 3D unfold: [N, C, out_H, out_W, out_D, kH, kW, kD])
+pub type Dim8 = Dim<8>;
 
 #[cfg(test)]
 mod tests {
