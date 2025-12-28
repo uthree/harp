@@ -139,53 +139,21 @@ HarpはGPU/アクセラレータ向けに設計されており、純粋なCPU実
 
 ---
 
-## 8. スカラー演算の勾配追跡未対応
+## 8. スカラー演算の勾配追跡未対応 ✅ **修正済み**
 
 ### 問題
 `Tensor * f32`、`Tensor + f32`、`Tensor - f32` などのスカラー演算は勾配追跡を設定していない。
 これにより、`tanh()` や `sigmoid()` などの活性化関数内でスカラー演算を使用すると勾配追跡が途切れる。
 
-### 該当箇所
-- `src/tensor/primops/binary.rs` の `impl_scalar_ops!` マクロ（350-382行目）
+### 修正内容
+- `ScalarAddBackward` 構造体を追加: スカラー加算の勾配（勾配をそのまま通す）
+- `ScalarMulBackward` 構造体を追加: スカラー乗算の勾配（スカラー値で勾配をスケール）
+- `impl_scalar_ops!` マクロを廃止し、f32/f64 個別の実装に置き換え
+- 各演算で `requires_grad()` チェックを行い、勾配追跡を設定
 
-```rust
-macro_rules! impl_scalar_ops {
-    ($trait:ident, $method:ident, $op:expr, $T:ty, $scalar_fn:ident) => {
-        impl<D: Dimension> $trait<$T> for &Tensor<$T, D> {
-            type Output = Tensor<$T, D>;
-            fn $method(self, rhs: $T) -> Tensor<$T, D> {
-                let scalar = $scalar_fn(rhs);
-                create_binary_elementwise($op, self, &scalar)  // ← 勾配追跡なし
-            }
-        }
-        // ...
-    };
-}
-```
-
-### 影響
-- `tanh()` - `self * 2.0`, `exp_2x - 1.0`, `exp_2x + 1.0` で勾配が途切れる
-- `sigmoid()` - `exp_neg_x + 1.0` で勾配が途切れる
-- その他スカラー演算を使用するhlops
-
-### 回避策（暫定）
-- `relu()` は `maximum_scalar()` を使用し、これは勾配追跡対応のため使用可能
-- スカラーをテンソルに変換してテンソル演算を使用
-
-### 必要な修正
-`impl_scalar_ops!` マクロにautograd対応を追加：
-```rust
-fn $method(self, rhs: $T) -> Tensor<$T, D> {
-    let scalar = $scalar_fn(rhs);
-    let result = create_binary_elementwise($op, self, &scalar);
-    if self.requires_grad() {
-        let grad_fn = ScalarOpBackward::new(self.clone().into_dyn(), $op, rhs);
-        with_grad_fn(result, Some(Arc::new(grad_fn)))
-    } else {
-        result
-    }
-}
-```
+### 状態
+**修正済み**: `src/tensor/primops/binary.rs` に `ScalarAddBackward` と `ScalarMulBackward` を実装。
+`tanh()` や `sigmoid()` などのスカラー演算を使用するhlopsで勾配が正しく流れるようになった。
 
 ---
 
@@ -195,5 +163,5 @@ fn $method(self, rhs: $T) -> Tensor<$T, D> {
 2. ~~**高**: VecBuffer → OpenCL転送の修正 (基本的な実行に影響)~~ ✅ **完了**
 3. ~~**中**: Tensor::rand のOpenCL対応~~ ✅ **完了**
 4. ~~**低**: outer1 の autograd 修正~~ ✅ **完了**
-5. **中**: スカラー演算の勾配追跡対応（tanh/sigmoid等に必要）
+5. ~~**中**: スカラー演算の勾配追跡対応（tanh/sigmoid等に必要）~~ ✅ **完了**
 6. **低**: CPUバックエンドの検討

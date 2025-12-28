@@ -783,7 +783,7 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
         let mut new_offset = input_offset;
         for (i, &(start, _)) in ranges.iter().enumerate() {
             if start > 0 {
-                new_offset = new_offset + input_strides[i].clone() * Expr::from(start as i64);
+                new_offset += input_strides[i].clone() * Expr::from(start as i64);
             }
         }
 

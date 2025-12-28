@@ -121,6 +121,67 @@ impl<T: FloatDType> GradFn<T> for MaxBackward<T> {
 }
 
 // ============================================================================
+// Scalar operation backward functions
+// ============================================================================
+
+/// Gradient for scalar addition: z = a + c (c is scalar constant)
+/// ∂L/∂a = ∂L/∂z (scalar addition passes gradient through unchanged)
+pub struct ScalarAddBackward<T: FloatDType> {
+    input: Tensor<T, DimDyn>,
+}
+
+impl<T: FloatDType> ScalarAddBackward<T> {
+    pub fn new(input: Tensor<T, DimDyn>) -> Self {
+        Self { input }
+    }
+}
+
+impl<T: FloatDType> GradFn<T> for ScalarAddBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
+        // Gradient passes through unchanged for addition
+        vec![grad_output.clone()]
+    }
+
+    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
+        vec![self.input.clone()]
+    }
+
+    fn name(&self) -> &'static str {
+        "ScalarAddBackward"
+    }
+}
+
+/// Gradient for scalar multiplication: z = a * c (c is scalar constant)
+/// ∂L/∂a = c · ∂L/∂z (scalar multiplication scales the gradient)
+pub struct ScalarMulBackward<T: FloatDType> {
+    input: Tensor<T, DimDyn>,
+    scalar: T,
+}
+
+impl<T: FloatDType> ScalarMulBackward<T> {
+    pub fn new(input: Tensor<T, DimDyn>, scalar: T) -> Self {
+        Self { input, scalar }
+    }
+}
+
+impl<T: FloatDType> GradFn<T> for ScalarMulBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
+        // Create a scalar tensor and multiply
+        let scalar_tensor = Tensor::<T, DimDyn>::full_dyn(&[], self.scalar.clone());
+        let grad_input = grad_output * &scalar_tensor;
+        vec![grad_input]
+    }
+
+    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
+        vec![self.input.clone()]
+    }
+
+    fn name(&self) -> &'static str {
+        "ScalarMulBackward"
+    }
+}
+
+// ============================================================================
 // Helper functions
 // ============================================================================
 
@@ -343,52 +404,160 @@ impl<T: FloatDType, D: Dimension> Mul for Tensor<T, D> {
 }
 
 // ============================================================================
-// Macro for scalar operations (still needed because T cannot unify both element and scalar)
+// Scalar operations with gradient tracking (f32)
 // ============================================================================
 
-macro_rules! impl_scalar_ops {
-    ($trait:ident, $method:ident, $op:expr, $T:ty, $scalar_fn:ident) => {
-        // Tensor op scalar
-        impl<D: Dimension> $trait<$T> for &Tensor<$T, D> {
-            type Output = Tensor<$T, D>;
-            fn $method(self, rhs: $T) -> Tensor<$T, D> {
-                let scalar = $scalar_fn(rhs);
-                create_binary_elementwise($op, self, &scalar)
-            }
+// Tensor + scalar (f32)
+impl<D: Dimension> Add<f32> for &Tensor<f32, D> {
+    type Output = Tensor<f32, D>;
+    fn add(self, rhs: f32) -> Tensor<f32, D> {
+        let scalar = scalar_tensor_f32(rhs);
+        let result = create_binary_elementwise(ElementwiseOp::Add, self, &scalar);
+        if self.requires_grad() {
+            let grad_fn = ScalarAddBackward::new(self.clone().into_dyn());
+            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
+        } else {
+            result
         }
-
-        impl<D: Dimension> $trait<$T> for Tensor<$T, D> {
-            type Output = Tensor<$T, D>;
-            fn $method(self, rhs: $T) -> Tensor<$T, D> {
-                (&self).$method(rhs)
-            }
-        }
-
-        // scalar op Tensor
-        impl<D: Dimension> $trait<&Tensor<$T, D>> for $T {
-            type Output = Tensor<$T, D>;
-            fn $method(self, rhs: &Tensor<$T, D>) -> Tensor<$T, D> {
-                let scalar = $scalar_fn(self);
-                create_binary_elementwise($op, rhs, &scalar)
-            }
-        }
-
-        impl<D: Dimension> $trait<Tensor<$T, D>> for $T {
-            type Output = Tensor<$T, D>;
-            fn $method(self, rhs: Tensor<$T, D>) -> Tensor<$T, D> {
-                self.$method(&rhs)
-            }
-        }
-    };
+    }
 }
 
-// Scalar operations for Add
-impl_scalar_ops!(Add, add, ElementwiseOp::Add, f32, scalar_tensor_f32);
-impl_scalar_ops!(Add, add, ElementwiseOp::Add, f64, scalar_tensor_f64);
+impl<D: Dimension> Add<f32> for Tensor<f32, D> {
+    type Output = Tensor<f32, D>;
+    fn add(self, rhs: f32) -> Tensor<f32, D> {
+        (&self).add(rhs)
+    }
+}
 
-// Scalar operations for Mul
-impl_scalar_ops!(Mul, mul, ElementwiseOp::Mul, f32, scalar_tensor_f32);
-impl_scalar_ops!(Mul, mul, ElementwiseOp::Mul, f64, scalar_tensor_f64);
+// scalar + Tensor (f32)
+impl<D: Dimension> Add<&Tensor<f32, D>> for f32 {
+    type Output = Tensor<f32, D>;
+    fn add(self, rhs: &Tensor<f32, D>) -> Tensor<f32, D> {
+        rhs + self // commutative
+    }
+}
+
+impl<D: Dimension> Add<Tensor<f32, D>> for f32 {
+    type Output = Tensor<f32, D>;
+    fn add(self, rhs: Tensor<f32, D>) -> Tensor<f32, D> {
+        self.add(&rhs)
+    }
+}
+
+// Tensor * scalar (f32)
+impl<D: Dimension> Mul<f32> for &Tensor<f32, D> {
+    type Output = Tensor<f32, D>;
+    fn mul(self, rhs: f32) -> Tensor<f32, D> {
+        let scalar = scalar_tensor_f32(rhs);
+        let result = create_binary_elementwise(ElementwiseOp::Mul, self, &scalar);
+        if self.requires_grad() {
+            let grad_fn = ScalarMulBackward::new(self.clone().into_dyn(), rhs);
+            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
+        } else {
+            result
+        }
+    }
+}
+
+impl<D: Dimension> Mul<f32> for Tensor<f32, D> {
+    type Output = Tensor<f32, D>;
+    fn mul(self, rhs: f32) -> Tensor<f32, D> {
+        (&self).mul(rhs)
+    }
+}
+
+// scalar * Tensor (f32)
+impl<D: Dimension> Mul<&Tensor<f32, D>> for f32 {
+    type Output = Tensor<f32, D>;
+    fn mul(self, rhs: &Tensor<f32, D>) -> Tensor<f32, D> {
+        rhs * self // commutative
+    }
+}
+
+impl<D: Dimension> Mul<Tensor<f32, D>> for f32 {
+    type Output = Tensor<f32, D>;
+    fn mul(self, rhs: Tensor<f32, D>) -> Tensor<f32, D> {
+        self.mul(&rhs)
+    }
+}
+
+// ============================================================================
+// Scalar operations with gradient tracking (f64)
+// ============================================================================
+
+// Tensor + scalar (f64)
+impl<D: Dimension> Add<f64> for &Tensor<f64, D> {
+    type Output = Tensor<f64, D>;
+    fn add(self, rhs: f64) -> Tensor<f64, D> {
+        let scalar = scalar_tensor_f64(rhs);
+        let result = create_binary_elementwise(ElementwiseOp::Add, self, &scalar);
+        if self.requires_grad() {
+            let grad_fn = ScalarAddBackward::new(self.clone().into_dyn());
+            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
+        } else {
+            result
+        }
+    }
+}
+
+impl<D: Dimension> Add<f64> for Tensor<f64, D> {
+    type Output = Tensor<f64, D>;
+    fn add(self, rhs: f64) -> Tensor<f64, D> {
+        (&self).add(rhs)
+    }
+}
+
+// scalar + Tensor (f64)
+impl<D: Dimension> Add<&Tensor<f64, D>> for f64 {
+    type Output = Tensor<f64, D>;
+    fn add(self, rhs: &Tensor<f64, D>) -> Tensor<f64, D> {
+        rhs + self // commutative
+    }
+}
+
+impl<D: Dimension> Add<Tensor<f64, D>> for f64 {
+    type Output = Tensor<f64, D>;
+    fn add(self, rhs: Tensor<f64, D>) -> Tensor<f64, D> {
+        self.add(&rhs)
+    }
+}
+
+// Tensor * scalar (f64)
+impl<D: Dimension> Mul<f64> for &Tensor<f64, D> {
+    type Output = Tensor<f64, D>;
+    fn mul(self, rhs: f64) -> Tensor<f64, D> {
+        let scalar = scalar_tensor_f64(rhs);
+        let result = create_binary_elementwise(ElementwiseOp::Mul, self, &scalar);
+        if self.requires_grad() {
+            let grad_fn = ScalarMulBackward::new(self.clone().into_dyn(), rhs);
+            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
+        } else {
+            result
+        }
+    }
+}
+
+impl<D: Dimension> Mul<f64> for Tensor<f64, D> {
+    type Output = Tensor<f64, D>;
+    fn mul(self, rhs: f64) -> Tensor<f64, D> {
+        (&self).mul(rhs)
+    }
+}
+
+// scalar * Tensor (f64)
+impl<D: Dimension> Mul<&Tensor<f64, D>> for f64 {
+    type Output = Tensor<f64, D>;
+    fn mul(self, rhs: &Tensor<f64, D>) -> Tensor<f64, D> {
+        rhs * self // commutative
+    }
+}
+
+impl<D: Dimension> Mul<Tensor<f64, D>> for f64 {
+    type Output = Tensor<f64, D>;
+    fn mul(self, rhs: Tensor<f64, D>) -> Tensor<f64, D> {
+        self.mul(&rhs)
+    }
+}
 
 // ============================================================================
 // Max: element-wise maximum
@@ -579,5 +748,71 @@ mod tests {
         let b = Tensor::<u64, Dim2>::full([2, 3], 3);
         let c = a.rem(&b);
         assert_eq!(c.shape(), &[2, 3]);
+    }
+
+    // ========================================================================
+    // Scalar operation gradient tests
+    // ========================================================================
+
+    #[test]
+    fn test_scalar_add_backward() {
+        let a = Tensor::<f32, Dim2>::ones([2, 3]).set_requires_grad(true);
+        let c = &a + 5.0;
+
+        assert!(c.requires_grad());
+        c.backward();
+
+        let grad_a = a.grad().expect("a should have gradient");
+        assert_eq!(grad_a.shape(), &[2, 3]);
+    }
+
+    #[test]
+    fn test_scalar_mul_backward() {
+        let a = Tensor::<f32, Dim2>::ones([2, 3]).set_requires_grad(true);
+        let c = &a * 3.0;
+
+        assert!(c.requires_grad());
+        c.backward();
+
+        let grad_a = a.grad().expect("a should have gradient");
+        assert_eq!(grad_a.shape(), &[2, 3]);
+    }
+
+    #[test]
+    fn test_scalar_add_chain_backward() {
+        // Test chained scalar operations: (a + 1) * 2
+        let a = Tensor::<f32, Dim2>::ones([2, 3]).set_requires_grad(true);
+        let b = &a + 1.0;
+        let c = &b * 2.0;
+
+        assert!(c.requires_grad());
+        c.backward();
+
+        let grad_a = a.grad().expect("a should have gradient");
+        assert_eq!(grad_a.shape(), &[2, 3]);
+    }
+
+    #[test]
+    fn test_scalar_add_backward_f64() {
+        let a = Tensor::<f64, Dim2>::ones([2, 3]).set_requires_grad(true);
+        let c = &a + 5.0f64;
+
+        assert!(c.requires_grad());
+        c.backward();
+
+        let grad_a = a.grad().expect("a should have gradient");
+        assert_eq!(grad_a.shape(), &[2, 3]);
+    }
+
+    #[test]
+    fn test_scalar_mul_backward_f64() {
+        let a = Tensor::<f64, Dim2>::ones([2, 3]).set_requires_grad(true);
+        let c = &a * 3.0f64;
+
+        assert!(c.requires_grad());
+        c.backward();
+
+        let grad_a = a.grad().expect("a should have gradient");
+        assert_eq!(grad_a.shape(), &[2, 3]);
     }
 }

@@ -56,8 +56,8 @@ impl MLP {
             .expand(&h.shape().to_vec());
         let h = &h + &b1_expanded;
 
-        // Activation: ReLU (tanh uses scalar ops which don't track gradients)
-        let h = h.relu();
+        // Activation: tanh (now works with gradient tracking for scalar ops)
+        let h = h.tanh();
 
         // Layer 2: h @ w2 + b2
         let h_dim2 = h.into_dim2();
