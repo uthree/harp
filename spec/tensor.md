@@ -300,6 +300,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T> for PadBackward<T, D> {
 | `Slice` | スライス（View::Linear経由、ゼロコピー） |
 | `Concat` | テンソル結合（複数入力を条件分岐で処理） |
 | `Unfold` | スライディングウィンドウ（im2col用、View::IndexExpr経由） |
+| `Fold` | Unfoldの逆操作（col2im、勾配計算用、slice+pad+sumで実装） |
 
 #### 特殊
 | 演算 | 説明 |
@@ -466,6 +467,8 @@ let t = Tensor::<DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2]);
 | `z = Pad(a, padding)` | ∂L/∂a = slice(∂L/∂z, padding位置) |
 | `z = Slice(a, ranges)` | ∂L/∂a = pad_zero(∂L/∂z, 逆範囲) |
 | `z = Concat([a,b,...], axis)` | ∂L/∂a = slice(∂L/∂z, aの範囲), ... |
+| `z = Unfold(a)` | ∂L/∂a = fold(∂L/∂z) |
+| `z = Fold(a)` | ∂L/∂a = unfold(∂L/∂z) |
 
 ### 融合演算の勾配
 
@@ -510,7 +513,13 @@ src/tensor/
     ├── bitwise.rs  # ビット演算（IntegerDType専用）
     ├── grad.rs     # 勾配関数
     ├── init.rs     # 初期化（zeros, ones, full）
-    ├── movement.rs # 形状変更
+    ├── movement/   # 形状変更演算
+    │   ├── mod.rs
+    │   ├── core.rs     # pad, slice, squeeze, unsqueeze, reshape等
+    │   ├── unfold.rs   # unfold1d/2d/3d
+    │   ├── fold.rs     # fold1d/2d/3d（unfoldの逆操作）
+    │   ├── backward.rs # 勾配関数
+    │   └── tests.rs
     ├── reduce.rs   # 縮約演算
     └── unary.rs    # 単項演算
 ```

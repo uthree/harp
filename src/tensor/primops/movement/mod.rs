@@ -9,11 +9,13 @@
 //! - Slice: extract sub-tensor
 //! - Concat: concatenate tensors along an axis
 //! - Unfold: sliding window operation (im2col)
+//! - Fold: inverse of unfold (col2im)
 //!
 //! These operations are generic over TensorDType since they only manipulate shape.
 //! Gradient tracking is available for FloatDType tensors (f32, f64).
 
 mod backward;
+mod fold;
 mod unfold;
 
 #[cfg(test)]

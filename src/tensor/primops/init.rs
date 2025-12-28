@@ -8,7 +8,6 @@ use std::sync::Arc;
 use std::sync::RwLock;
 
 use crate::ast::DType;
-use crate::ast::Literal;
 use crate::backend::Buffer;
 use crate::tensor::forward::VecBuffer;
 use crate::tensor::shape::{Expr, View};
@@ -98,7 +97,7 @@ fn generate_random_f64(count: usize) -> Vec<f64> {
 }
 
 // ============================================================================
-// Static dimension constructors
+// Static dimension constructors (f32)
 // ============================================================================
 
 impl<const N: usize> Tensor<f32, Dim<N>>
@@ -120,7 +119,7 @@ where
         let shape_vec: Vec<usize> = shape.to_vec();
         let view = view_from_shape(&shape_vec);
         let inner = TensorInner::new(
-            TensorOp::ConstFill(Literal::F32(value)),
+            TensorOp::ConstFill(crate::ast::Literal::F32(value)),
             view,
             shape_vec,
             DType::F32,
@@ -202,7 +201,7 @@ where
         let shape_vec: Vec<usize> = shape.to_vec();
         let view = view_from_shape(&shape_vec);
         let inner = TensorInner::new(
-            TensorOp::ConstFill(Literal::F64(value)),
+            TensorOp::ConstFill(crate::ast::Literal::F64(value)),
             view,
             shape_vec,
             DType::F64,

@@ -1,7 +1,7 @@
 //! Tests for movement primitive operations
 
 use crate::tensor::ops::PadValue;
-use crate::tensor::{Dim2, Dim3, Dim4, Dim5, DimDyn, Tensor};
+use crate::tensor::{Dim2, Dim3, Dim4, Dim5, Dim6, Dim8, DimDyn, Tensor};
 
 #[test]
 fn test_squeeze() {
@@ -685,4 +685,120 @@ fn test_unfold3d_shape() {
     let input = Tensor::<f32, Dim5>::ones([2, 3, 16, 16, 16]);
     let unfolded = input.unfold3d((3, 3, 3), (1, 1, 1));
     assert_eq!(unfolded.shape(), &[2, 3, 14, 14, 14, 3, 3, 3]);
+}
+
+// ============================================================================
+// Fold tests
+// ============================================================================
+
+#[test]
+fn test_fold1d_shape() {
+    // [N, C, out_L, k] -> [N, C, L]
+    let input = Tensor::<f32, Dim4>::ones([2, 3, 8, 3]);
+    let folded = input.fold1d(10, 1); // L = (out_L - 1) * stride + k = 7*1 + 3 = 10
+    assert_eq!(folded.shape(), &[2, 3, 10]);
+}
+
+#[test]
+fn test_fold1d_non_overlapping() {
+    // stride == k: simple reshape
+    let input = Tensor::<f32, Dim4>::ones([2, 3, 4, 3]);
+    let folded = input.fold1d(12, 3); // L = (4-1)*3 + 3 = 12
+    assert_eq!(folded.shape(), &[2, 3, 12]);
+}
+
+#[test]
+fn test_fold2d_shape() {
+    // [N, C, out_H, out_W, kH, kW] -> [N, C, H, W]
+    let input = Tensor::<f32, Dim6>::ones([2, 3, 6, 6, 3, 3]);
+    let folded = input.fold2d((8, 8), (1, 1)); // H,W = (6-1)*1 + 3 = 8
+    assert_eq!(folded.shape(), &[2, 3, 8, 8]);
+}
+
+#[test]
+fn test_fold2d_non_overlapping() {
+    // stride == kernel: simple permute + reshape
+    let input = Tensor::<f32, Dim6>::ones([2, 3, 4, 4, 2, 2]);
+    let folded = input.fold2d((8, 8), (2, 2)); // H,W = (4-1)*2 + 2 = 8
+    assert_eq!(folded.shape(), &[2, 3, 8, 8]);
+}
+
+#[test]
+fn test_fold3d_shape() {
+    // [N, C, out_H, out_W, out_D, kH, kW, kD] -> [N, C, H, W, D]
+    let input = Tensor::<f32, Dim8>::ones([2, 3, 4, 4, 4, 2, 2, 2]);
+    let folded = input.fold3d((5, 5, 5), (1, 1, 1)); // H,W,D = (4-1)*1 + 2 = 5
+    assert_eq!(folded.shape(), &[2, 3, 5, 5, 5]);
+}
+
+#[test]
+fn test_fold3d_non_overlapping() {
+    // stride == kernel: simple permute + reshape
+    let input = Tensor::<f32, Dim8>::ones([2, 3, 2, 2, 2, 3, 3, 3]);
+    let folded = input.fold3d((6, 6, 6), (3, 3, 3)); // H,W,D = (2-1)*3 + 3 = 6
+    assert_eq!(folded.shape(), &[2, 3, 6, 6, 6]);
+}
+
+// ============================================================================
+// Unfold gradient tests (unfold -> fold for backward)
+// ============================================================================
+
+#[test]
+fn test_unfold1d_backward_shape() {
+    let input = Tensor::<f32, Dim3>::ones([2, 3, 10]).set_requires_grad(true);
+    let unfolded = input.unfold1d(3, 1);
+    assert!(unfolded.requires_grad());
+    assert_eq!(unfolded.shape(), &[2, 3, 8, 3]);
+
+    // Backward
+    unfolded.backward();
+
+    let grad = input.grad().expect("input should have gradient");
+    assert_eq!(grad.shape(), &[2, 3, 10]); // Same as original input
+}
+
+#[test]
+fn test_unfold2d_backward_shape() {
+    let input = Tensor::<f32, Dim4>::ones([1, 1, 4, 4]).set_requires_grad(true);
+    let unfolded = input.unfold2d((2, 2), (1, 1));
+    assert!(unfolded.requires_grad());
+    assert_eq!(unfolded.shape(), &[1, 1, 3, 3, 2, 2]);
+
+    // Backward
+    unfolded.backward();
+
+    let grad = input.grad().expect("input should have gradient");
+    assert_eq!(grad.shape(), &[1, 1, 4, 4]); // Same as original input
+}
+
+#[test]
+fn test_unfold2d_backward_non_overlapping() {
+    // stride == kernel_size
+    let input = Tensor::<f32, Dim4>::ones([1, 1, 4, 4]).set_requires_grad(true);
+    let unfolded = input.unfold2d((2, 2), (2, 2));
+    assert!(unfolded.requires_grad());
+    assert_eq!(unfolded.shape(), &[1, 1, 2, 2, 2, 2]);
+
+    // Backward
+    unfolded.backward();
+
+    let grad = input.grad().expect("input should have gradient");
+    assert_eq!(grad.shape(), &[1, 1, 4, 4]);
+}
+
+#[test]
+fn test_unfold_fold_round_trip() {
+    // unfold -> fold should give back the same shape (but different values due to accumulation)
+    let input = Tensor::<f32, Dim4>::ones([2, 3, 4, 4]).set_requires_grad(true);
+    let unfolded = input.unfold2d((2, 2), (1, 1)); // [2, 3, 3, 3, 2, 2]
+    let folded = unfolded.fold2d((4, 4), (1, 1)); // Back to [2, 3, 4, 4]
+    assert_eq!(folded.shape(), &[2, 3, 4, 4]);
+}
+
+#[test]
+fn test_unfold_no_grad_propagation() {
+    // When input doesn't require grad, output shouldn't either
+    let input = Tensor::<f32, Dim4>::ones([1, 1, 4, 4]); // No requires_grad
+    let unfolded = input.unfold2d((2, 2), (1, 1));
+    assert!(!unfolded.requires_grad());
 }

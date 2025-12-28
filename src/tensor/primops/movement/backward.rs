@@ -313,3 +313,127 @@ impl<T: FloatDType> GradFn<T> for TransposeBackward<T> {
         "TransposeBackward"
     }
 }
+
+// ============================================================================
+// Unfold Gradients (uses fold as inverse)
+// ============================================================================
+
+/// Gradient for Unfold1d: y = unfold1d(x, size, stride)
+/// ∂L/∂x = fold1d(∂L/∂y, output_size, stride)
+pub struct Unfold1dBackward<T: FloatDType> {
+    input: Tensor<T, DimDyn>,
+    output_size: usize,
+    stride: usize,
+}
+
+impl<T: FloatDType> Unfold1dBackward<T> {
+    pub fn new(
+        input: Tensor<T, DimDyn>,
+        output_size: usize,
+        _kernel_size: usize,
+        stride: usize,
+    ) -> Self {
+        Self {
+            input,
+            output_size,
+            stride,
+        }
+    }
+}
+
+impl<T: FloatDType> GradFn<T> for Unfold1dBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
+        // fold1d is the inverse of unfold1d
+        let grad_4d = grad_output.into_dim4();
+        let folded = grad_4d.fold1d(self.output_size, self.stride);
+        vec![folded.into_dyn()]
+    }
+
+    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
+        vec![self.input.clone()]
+    }
+
+    fn name(&self) -> &'static str {
+        "Unfold1dBackward"
+    }
+}
+
+/// Gradient for Unfold2d: y = unfold2d(x, sizes, strides)
+/// ∂L/∂x = fold2d(∂L/∂y, output_size, strides)
+pub struct Unfold2dBackward<T: FloatDType> {
+    input: Tensor<T, DimDyn>,
+    output_size: (usize, usize),
+    strides: (usize, usize),
+}
+
+impl<T: FloatDType> Unfold2dBackward<T> {
+    pub fn new(
+        input: Tensor<T, DimDyn>,
+        output_size: (usize, usize),
+        _kernel_size: (usize, usize),
+        strides: (usize, usize),
+    ) -> Self {
+        Self {
+            input,
+            output_size,
+            strides,
+        }
+    }
+}
+
+impl<T: FloatDType> GradFn<T> for Unfold2dBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
+        // fold2d is the inverse of unfold2d
+        let grad_6d = grad_output.into_dim6();
+        let folded = grad_6d.fold2d(self.output_size, self.strides);
+        vec![folded.into_dyn()]
+    }
+
+    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
+        vec![self.input.clone()]
+    }
+
+    fn name(&self) -> &'static str {
+        "Unfold2dBackward"
+    }
+}
+
+/// Gradient for Unfold3d: y = unfold3d(x, sizes, strides)
+/// ∂L/∂x = fold3d(∂L/∂y, output_size, strides)
+pub struct Unfold3dBackward<T: FloatDType> {
+    input: Tensor<T, DimDyn>,
+    output_size: (usize, usize, usize),
+    strides: (usize, usize, usize),
+}
+
+impl<T: FloatDType> Unfold3dBackward<T> {
+    pub fn new(
+        input: Tensor<T, DimDyn>,
+        output_size: (usize, usize, usize),
+        _kernel_size: (usize, usize, usize),
+        strides: (usize, usize, usize),
+    ) -> Self {
+        Self {
+            input,
+            output_size,
+            strides,
+        }
+    }
+}
+
+impl<T: FloatDType> GradFn<T> for Unfold3dBackward<T> {
+    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
+        // fold3d is the inverse of unfold3d
+        let grad_8d = grad_output.into_dim8();
+        let folded = grad_8d.fold3d(self.output_size, self.strides);
+        vec![folded.into_dyn()]
+    }
+
+    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
+        vec![self.input.clone()]
+    }
+
+    fn name(&self) -> &'static str {
+        "Unfold3dBackward"
+    }
+}

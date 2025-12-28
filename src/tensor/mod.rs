@@ -253,6 +253,8 @@ pub trait FloatDType: NumericDType + sealed::Sealed {
     const ZERO: Self;
     /// One value for this type
     const ONE: Self;
+    /// Negative infinity value for this type
+    const NEG_INF: Self;
 
     /// Convert value to Literal for ConstFill operations
     fn to_literal(val: Self) -> Literal;
@@ -273,6 +275,7 @@ pub trait FloatDType: NumericDType + sealed::Sealed {
 impl FloatDType for f32 {
     const ZERO: Self = 0.0;
     const ONE: Self = 1.0;
+    const NEG_INF: Self = f32::NEG_INFINITY;
 
     fn to_literal(val: Self) -> Literal {
         Literal::F32(val)
@@ -298,6 +301,7 @@ impl FloatDType for f32 {
 impl FloatDType for f64 {
     const ZERO: Self = 0.0;
     const ONE: Self = 1.0;
+    const NEG_INF: Self = f64::NEG_INFINITY;
 
     fn to_literal(val: Self) -> Literal {
         Literal::F64(val)
@@ -988,6 +992,16 @@ impl<T: TensorDType> Tensor<T, DimDyn> {
 
     /// Convert to 6-dimensional tensor.
     pub fn into_dim6(&self) -> Tensor<T, Dim6> {
+        self.into_dimensioned()
+    }
+
+    /// Convert to 7-dimensional tensor.
+    pub fn into_dim7(&self) -> Tensor<T, Dim7> {
+        self.into_dimensioned()
+    }
+
+    /// Convert to 8-dimensional tensor.
+    pub fn into_dim8(&self) -> Tensor<T, Dim8> {
         self.into_dimensioned()
     }
 }

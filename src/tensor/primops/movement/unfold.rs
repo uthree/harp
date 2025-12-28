@@ -3,8 +3,12 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use super::super::binary::with_grad_fn_generic;
+use super::backward::{Unfold1dBackward, Unfold2dBackward, Unfold3dBackward};
 use crate::tensor::shape::Expr;
-use crate::tensor::{Dim3, Dim4, Dim5, Dim6, Dim8, FloatDType, Tensor, TensorInner, TensorOp};
+use crate::tensor::{
+    Dim3, Dim4, Dim5, Dim6, Dim8, FloatDType, GradFn, Tensor, TensorInner, TensorOp,
+};
 
 impl<T: FloatDType> Tensor<T, Dim3> {
     /// 1D unfold (sliding window) - [N, C, L] → [N, C, out_L, k]
@@ -50,12 +54,25 @@ impl<T: FloatDType> Tensor<T, Dim3> {
         let input = self.as_input_ref();
         let inner = TensorInner::new(TensorOp::View { input }, new_view, new_shape, T::DTYPE);
 
-        Tensor {
+        let result = Tensor {
             inner: Arc::new(inner),
             _dtype: PhantomData,
             _dim: PhantomData,
-        }
-        // Note: Gradient (fold) is not implemented yet
+        };
+
+        // Register gradient function
+        let grad_fn = if self.requires_grad() {
+            Some(Arc::new(Unfold1dBackward::new(
+                self.clone().into_dyn(),
+                l, // output_size (original L)
+                size,
+                stride,
+            )) as Arc<dyn GradFn<T>>)
+        } else {
+            None
+        };
+
+        with_grad_fn_generic(result, grad_fn)
     }
 }
 
@@ -111,12 +128,25 @@ impl<T: FloatDType> Tensor<T, Dim4> {
         let input = self.as_input_ref();
         let inner = TensorInner::new(TensorOp::View { input }, new_view, new_shape, T::DTYPE);
 
-        Tensor {
+        let result = Tensor {
             inner: Arc::new(inner),
             _dtype: PhantomData,
             _dim: PhantomData,
-        }
-        // Note: Gradient (fold) is not implemented yet
+        };
+
+        // Register gradient function
+        let grad_fn = if self.requires_grad() {
+            Some(Arc::new(Unfold2dBackward::new(
+                self.clone().into_dyn(),
+                (h, w), // output_size (original H, W)
+                (kh, kw),
+                (sh, sw),
+            )) as Arc<dyn GradFn<T>>)
+        } else {
+            None
+        };
+
+        with_grad_fn_generic(result, grad_fn)
     }
 }
 
@@ -196,11 +226,24 @@ impl<T: FloatDType> Tensor<T, Dim5> {
         let input = self.as_input_ref();
         let inner = TensorInner::new(TensorOp::View { input }, new_view, new_shape, T::DTYPE);
 
-        Tensor {
+        let result = Tensor {
             inner: Arc::new(inner),
             _dtype: PhantomData,
             _dim: PhantomData,
-        }
-        // Note: Gradient (fold) is not implemented yet
+        };
+
+        // Register gradient function
+        let grad_fn = if self.requires_grad() {
+            Some(Arc::new(Unfold3dBackward::new(
+                self.clone().into_dyn(),
+                (h, w, d), // output_size (original H, W, D)
+                (kh, kw, kd),
+                (sh, sw, sd),
+            )) as Arc<dyn GradFn<T>>)
+        } else {
+            None
+        };
+
+        with_grad_fn_generic(result, grad_fn)
     }
 }
