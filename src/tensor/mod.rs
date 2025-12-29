@@ -287,6 +287,12 @@ pub trait FloatDType: NumericDType + sealed::Sealed {
 
     /// Get autograd metadata reference from AutogradStorage (for generic access)
     fn autograd_ref(storage: &AutogradStorage) -> Option<&AutogradMeta<Self>>;
+
+    /// Square root of a scalar value
+    fn sqrt(self) -> Self;
+
+    /// Small epsilon for numerical stability
+    const EPSILON: Self;
 }
 
 impl FloatDType for f32 {
@@ -297,6 +303,7 @@ impl FloatDType for f32 {
     const ZERO: Self = 0.0;
     const ONE: Self = 1.0;
     const TWO: Self = 2.0;
+    const EPSILON: Self = 1e-8;
 
     fn from_usize(val: usize) -> Self {
         val as f32
@@ -321,6 +328,10 @@ impl FloatDType for f32 {
     fn autograd_ref(storage: &AutogradStorage) -> Option<&AutogradMeta<Self>> {
         storage.as_f32()
     }
+
+    fn sqrt(self) -> Self {
+        f32::sqrt(self)
+    }
 }
 
 impl FloatDType for f64 {
@@ -331,6 +342,7 @@ impl FloatDType for f64 {
     const ZERO: Self = 0.0;
     const ONE: Self = 1.0;
     const TWO: Self = 2.0;
+    const EPSILON: Self = 1e-8;
 
     fn from_usize(val: usize) -> Self {
         val as f64
@@ -354,6 +366,10 @@ impl FloatDType for f64 {
 
     fn autograd_ref(storage: &AutogradStorage) -> Option<&AutogradMeta<Self>> {
         storage.as_f64()
+    }
+
+    fn sqrt(self) -> Self {
+        f64::sqrt(self)
     }
 }
 

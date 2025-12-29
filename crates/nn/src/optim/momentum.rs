@@ -102,7 +102,7 @@ where
                 let velocity = self
                     .velocities
                     .entry(name.clone())
-                    .or_insert_with(|| vec![T::ZERO; param_data.len()]);
+                    .or_insert_with(|| vec![<T as FloatDType>::ZERO; param_data.len()]);
 
                 // Momentum更新: v = momentum * v + grad
                 //              param = param - lr * v

@@ -18,7 +18,9 @@ crates/
 │       └── optim/            # オプティマイザ
 │           ├── mod.rs        # Optimizer trait
 │           ├── sgd.rs        # SGD
-│           └── momentum.rs   # Momentum SGD
+│           ├── momentum.rs   # Momentum SGD
+│           ├── rmsprop.rs    # RMSProp
+│           └── adam.rs       # Adam
 └── nn-derive/                # derive マクロ
     └── src/
         └── lib.rs            # #[derive(Module)]
@@ -124,6 +126,8 @@ pub trait Optimizer<T: FloatDType> {
 **実装済みオプティマイザ：**
 - `SGD<T>`: 確率的勾配降下法
 - `Momentum<T>`: モメンタム付き SGD
+- `RMSProp<T>`: 勾配二乗の移動平均による適応的学習率 (Hinton, 2012)
+- `Adam<T>`: 一次・二次モーメントによる適応的学習率 (Kingma & Ba, 2014)
 
 ## 使用例
 
@@ -159,4 +163,10 @@ let sgd_f32 = SGD::<f32>::new(0.01);
 let linear_f64 = Linear::<f64>::new(10, 5);
 let relu_f64 = ReLU::<f64>::new();
 let sgd_f64 = SGD::<f64>::new(0.01);
+
+// 各オプティマイザの使い分け
+let sgd = SGD::<f32>::new(0.01);
+let momentum = Momentum::<f32>::new(0.01, 0.9);
+let rmsprop = RMSProp::<f32>::new(0.001);
+let adam = Adam::<f32>::new(0.001);
 ```
