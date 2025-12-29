@@ -1265,7 +1265,7 @@ impl<D: Dimension> Tensor<f64, D> {
 }
 
 // ============================================================================
-// Generic zero_grad for FloatDType
+// Generic autograd methods for FloatDType
 // ============================================================================
 
 impl<T: FloatDType, D: Dimension> Tensor<T, D> {
@@ -1276,6 +1276,29 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
         {
             *autograd.grad.write().unwrap() = None;
         }
+    }
+
+    /// Get the accumulated gradient for this tensor (generic version)
+    ///
+    /// Returns None if backward() hasn't been called or if this tensor
+    /// doesn't require gradients.
+    ///
+    /// The returned gradient has the same dimension type as the original tensor.
+    pub fn grad_generic(&self) -> Option<Tensor<T, D>> {
+        self.inner
+            .autograd
+            .as_ref()
+            .and_then(|storage| T::autograd_ref(storage))
+            .and_then(|ag| {
+                ag.grad.read().unwrap().as_ref().map(|g| {
+                    // Convert from DimDyn to D (same underlying data, different type marker)
+                    Tensor {
+                        inner: g.inner.clone(),
+                        _dtype: PhantomData,
+                        _dim: PhantomData,
+                    }
+                })
+            })
     }
 }
 

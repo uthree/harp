@@ -2,6 +2,8 @@
 //!
 //! パラメータ更新のための最適化アルゴリズムを提供します。
 
+use std::ops::{Mul, Sub};
+
 use harp::tensor::{DimDyn, FloatDType, Tensor};
 
 use crate::Module;
@@ -59,11 +61,14 @@ impl<T: FloatDType> SGD<T> {
     }
 }
 
-// f32専用の最適化実装
-impl Optimizer<f32> for SGD<f32> {
-    fn step<M: Module<f32>>(&mut self, module: &mut M) {
+// FloatDType でジェネリックな最適化実装
+impl<T> Optimizer<T> for SGD<T>
+where
+    T: FloatDType + Copy + Sub<T, Output = T> + Mul<T, Output = T>,
+{
+    fn step<M: Module<T>>(&mut self, module: &mut M) {
         for (_name, param) in module.parameters() {
-            if let Some(grad) = param.grad() {
+            if let Some(grad) = param.grad_generic() {
                 // 勾配を実体化
                 grad.realize().expect("Failed to realize gradient");
                 let grad_data = grad.data().expect("Failed to get gradient data");
@@ -73,44 +78,16 @@ impl Optimizer<f32> for SGD<f32> {
                 let param_data = param.data().expect("Failed to get parameter data");
 
                 // SGD更新: param = param - lr * grad
-                let new_data: Vec<f32> = param_data
+                let lr = self.lr;
+                let new_data: Vec<T> = param_data
                     .iter()
                     .zip(grad_data.iter())
-                    .map(|(p, g)| p - self.lr * g)
+                    .map(|(&p, &g)| p - lr * g)
                     .collect();
 
                 // 新しいテンソルを作成してパラメータを更新
                 let shape = param.shape().to_vec();
-                let new_tensor = Tensor::<f32, DimDyn>::from_data(new_data, shape);
-                param.set(new_tensor);
-            }
-        }
-    }
-}
-
-// f64専用の最適化実装
-impl Optimizer<f64> for SGD<f64> {
-    fn step<M: Module<f64>>(&mut self, module: &mut M) {
-        for (_name, param) in module.parameters() {
-            if let Some(grad) = param.grad() {
-                // 勾配を実体化
-                grad.realize().expect("Failed to realize gradient");
-                let grad_data = grad.data().expect("Failed to get gradient data");
-
-                // パラメータを実体化
-                param.realize().expect("Failed to realize parameter");
-                let param_data = param.data().expect("Failed to get parameter data");
-
-                // SGD更新: param = param - lr * grad
-                let new_data: Vec<f64> = param_data
-                    .iter()
-                    .zip(grad_data.iter())
-                    .map(|(p, g)| p - self.lr * g)
-                    .collect();
-
-                // 新しいテンソルを作成してパラメータを更新
-                let shape = param.shape().to_vec();
-                let new_tensor = Tensor::<f64, DimDyn>::from_data(new_data, shape);
+                let new_tensor = Tensor::<T, DimDyn>::from_data(new_data, shape);
                 param.set(new_tensor);
             }
         }
