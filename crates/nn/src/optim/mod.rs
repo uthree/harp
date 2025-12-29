@@ -2,8 +2,10 @@
 //!
 //! パラメータ更新のための最適化アルゴリズムを提供します。
 
+mod momentum;
 mod sgd;
 
+pub use momentum::Momentum;
 pub use sgd::SGD;
 
 use harp::tensor::FloatDType;
