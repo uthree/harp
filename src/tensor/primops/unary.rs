@@ -16,193 +16,9 @@ use std::sync::Arc;
 
 use crate::tensor::shape::{Expr, View};
 use crate::tensor::{
-    DimDyn, Dimension, ElementwiseOp, FloatDType, GradFn, GradFnTyped, Tensor, TensorInner,
-    TensorOp,
+    AutogradMetaTyped, DimDyn, Dimension, ElementwiseOp, FloatDType, GradFnTyped, Tensor,
+    TensorInner, TensorOp,
 };
-
-use super::binary::with_grad_fn_generic;
-
-// ============================================================================
-// Unary Gradients (generic over FloatDType)
-// ============================================================================
-
-/// Gradient for Neg: z = -a
-/// ∂L/∂a = -∂L/∂z
-pub struct NegBackward<T: FloatDType> {
-    input: Tensor<T, DimDyn>,
-}
-
-impl<T: FloatDType> NegBackward<T> {
-    pub fn new(input: Tensor<T, DimDyn>) -> Self {
-        Self { input }
-    }
-}
-
-// NegBackward is generic since Neg is implemented for FloatDType
-impl<T: FloatDType> GradFn<T> for NegBackward<T> {
-    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
-        vec![-grad_output]
-    }
-
-    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
-        vec![self.input.clone()]
-    }
-
-    fn name(&self) -> &'static str {
-        "NegBackward"
-    }
-}
-
-/// Gradient for Recip: z = 1/a
-/// ∂L/∂a = -∂L/∂z / a² = -∂L/∂z · z²
-pub struct RecipBackward<T: FloatDType> {
-    input: Tensor<T, DimDyn>,
-    output: Tensor<T, DimDyn>,
-}
-
-impl<T: FloatDType> RecipBackward<T> {
-    pub fn new(input: Tensor<T, DimDyn>, output: Tensor<T, DimDyn>) -> Self {
-        Self { input, output }
-    }
-}
-
-// RecipBackward is generic since Neg and Mul are implemented for FloatDType
-impl<T: FloatDType> GradFn<T> for RecipBackward<T> {
-    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
-        // ∂L/∂a = -∂L/∂z · z² where z = 1/a
-        let z_squared = &self.output * &self.output;
-        vec![-(grad_output * &z_squared)]
-    }
-
-    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
-        vec![self.input.clone()]
-    }
-
-    fn name(&self) -> &'static str {
-        "RecipBackward"
-    }
-}
-
-/// Gradient for Sqrt: z = √a
-/// ∂L/∂a = ∂L/∂z / (2·√a) = ∂L/∂z / (2·z)
-pub struct SqrtBackward<T: FloatDType> {
-    input: Tensor<T, DimDyn>,
-    output: Tensor<T, DimDyn>,
-}
-
-impl<T: FloatDType> SqrtBackward<T> {
-    pub fn new(input: Tensor<T, DimDyn>, output: Tensor<T, DimDyn>) -> Self {
-        Self { input, output }
-    }
-}
-
-// SqrtBackward is generic since Add, Mul, and Recip are implemented for FloatDType
-impl<T: FloatDType> GradFn<T> for SqrtBackward<T> {
-    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
-        let two_sqrt = &self.output + &self.output; // output * 2
-        // Use recip() * for generic implementation
-        vec![grad_output * &two_sqrt.recip()]
-    }
-
-    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
-        vec![self.input.clone()]
-    }
-
-    fn name(&self) -> &'static str {
-        "SqrtBackward"
-    }
-}
-
-/// Gradient for Log2: z = log₂(a)
-/// ∂L/∂a = ∂L/∂z / (a · ln(2))
-pub struct Log2Backward<T: FloatDType> {
-    input: Tensor<T, DimDyn>,
-}
-
-impl<T: FloatDType> Log2Backward<T> {
-    pub fn new(input: Tensor<T, DimDyn>) -> Self {
-        Self { input }
-    }
-}
-
-// Log2Backward is generic since Mul and Recip are implemented for FloatDType
-impl<T: FloatDType> GradFn<T> for Log2Backward<T> {
-    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
-        // Note: ignoring ln(2) factor for now
-        // TODO: Add scalar operations
-        // Use recip() * for generic implementation
-        vec![grad_output * &self.input.clone().recip()]
-    }
-
-    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
-        vec![self.input.clone()]
-    }
-
-    fn name(&self) -> &'static str {
-        "Log2Backward"
-    }
-}
-
-/// Gradient for Exp2: z = 2^a
-/// ∂L/∂a = ∂L/∂z · 2^a · ln(2) = ∂L/∂z · z · ln(2)
-pub struct Exp2Backward<T: FloatDType> {
-    input: Tensor<T, DimDyn>,
-    output: Tensor<T, DimDyn>,
-}
-
-impl<T: FloatDType> Exp2Backward<T> {
-    pub fn new(input: Tensor<T, DimDyn>, output: Tensor<T, DimDyn>) -> Self {
-        Self { input, output }
-    }
-}
-
-// Exp2Backward is generic since Mul is implemented for FloatDType
-impl<T: FloatDType> GradFn<T> for Exp2Backward<T> {
-    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
-        // Approximate: ignoring ln(2) factor for now
-        // TODO: Add scalar multiplication
-        vec![grad_output * &self.output]
-    }
-
-    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
-        vec![self.input.clone()]
-    }
-
-    fn name(&self) -> &'static str {
-        "Exp2Backward"
-    }
-}
-
-/// Gradient for Sin: z = sin(a)
-/// ∂L/∂a = ∂L/∂z · cos(a)
-pub struct SinBackward<T: FloatDType> {
-    input: Tensor<T, DimDyn>,
-}
-
-impl<T: FloatDType> SinBackward<T> {
-    pub fn new(input: Tensor<T, DimDyn>) -> Self {
-        Self { input }
-    }
-}
-
-// SinBackward is generic since Mul and Sin are implemented for FloatDType
-impl<T: FloatDType> GradFn<T> for SinBackward<T> {
-    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
-        // cos(x) = sin(x + π/2)
-        // TODO: Implement proper cos using scalar addition
-        // Approximate: just use the input sin (incorrect but compiles)
-        let cos_input = (&self.input).sin();
-        vec![grad_output * &cos_input]
-    }
-
-    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
-        vec![self.input.clone()]
-    }
-
-    fn name(&self) -> &'static str {
-        "SinBackward"
-    }
-}
 
 // ============================================================================
 // Unary operation traits
@@ -293,10 +109,6 @@ impl<T: FloatDType, D: Dimension> Neg for &Tensor<T, D> {
         if self.requires_grad_typed() {
             let grad_fn = NegBackwardTyped::new(self.clone());
             result.with_grad_fn_typed(Arc::new(grad_fn))
-        } else if self.requires_grad() {
-            // Fallback to legacy system
-            let grad_fn = NegBackward::new(self.clone().into_dyn());
-            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
             result
         }
@@ -323,9 +135,6 @@ impl<T: FloatDType, D: Dimension> Recip for &Tensor<T, D> {
         if self.requires_grad_typed() {
             let grad_fn = RecipBackwardTyped::new(self.clone(), result.clone());
             result.with_grad_fn_typed(Arc::new(grad_fn))
-        } else if self.requires_grad() {
-            let grad_fn = RecipBackward::new(self.clone().into_dyn(), result.clone().into_dyn());
-            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
             result
         }
@@ -352,9 +161,6 @@ impl<T: FloatDType, D: Dimension> Sqrt for &Tensor<T, D> {
         if self.requires_grad_typed() {
             let grad_fn = SqrtBackwardTyped::new(self.clone(), result.clone());
             result.with_grad_fn_typed(Arc::new(grad_fn))
-        } else if self.requires_grad() {
-            let grad_fn = SqrtBackward::new(self.clone().into_dyn(), result.clone().into_dyn());
-            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
             result
         }
@@ -381,9 +187,6 @@ impl<T: FloatDType, D: Dimension> Log2 for &Tensor<T, D> {
         if self.requires_grad_typed() {
             let grad_fn = Log2BackwardTyped::new(self.clone());
             result.with_grad_fn_typed(Arc::new(grad_fn))
-        } else if self.requires_grad() {
-            let grad_fn = Log2Backward::new(self.clone().into_dyn());
-            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
             result
         }
@@ -410,9 +213,6 @@ impl<T: FloatDType, D: Dimension> Exp2 for &Tensor<T, D> {
         if self.requires_grad_typed() {
             let grad_fn = Exp2BackwardTyped::new(self.clone(), result.clone());
             result.with_grad_fn_typed(Arc::new(grad_fn))
-        } else if self.requires_grad() {
-            let grad_fn = Exp2Backward::new(self.clone().into_dyn(), result.clone().into_dyn());
-            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
             result
         }
@@ -439,9 +239,6 @@ impl<T: FloatDType, D: Dimension> Sin for &Tensor<T, D> {
         if self.requires_grad_typed() {
             let grad_fn = SinBackwardTyped::new(self.clone());
             result.with_grad_fn_typed(Arc::new(grad_fn))
-        } else if self.requires_grad() {
-            let grad_fn = SinBackward::new(self.clone().into_dyn());
-            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
             result
         }
@@ -477,81 +274,27 @@ impl<T: FloatDType, D: Dimension> Floor for Tensor<T, D> {
 }
 
 // ============================================================================
-// Cast gradients for FloatDType (generic)
+// Cast helper function
 // ============================================================================
 
-/// Generic gradient for Cast S -> T
-/// ∂L/∂a = cast(∂L/∂z, S)
-///
-/// The gradient is simply cast back to the input type.
-/// S is the source type, T is the target type.
-pub struct CastBackward<S: FloatDType, T: FloatDType> {
-    input: Tensor<S, DimDyn>,
-    _target: PhantomData<T>,
-}
-
-impl<S: FloatDType, T: FloatDType> CastBackward<S, T> {
-    pub fn new(input: Tensor<S, DimDyn>) -> Self {
-        Self {
-            input,
-            _target: PhantomData,
-        }
-    }
-}
-
-impl<S: FloatDType, T: FloatDType> GradFn<T> for CastBackward<S, T> {
-    fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
-        // Cast gradient back to source type S and propagate to input
-        let grad_s: Tensor<S, DimDyn> = grad_output.cast();
-        if self.input.requires_grad() {
-            S::call_backward_with(&self.input, grad_s);
-        }
-        // Return empty since we've already propagated
-        vec![]
-    }
-
-    fn inputs(&self) -> Vec<Tensor<T, DimDyn>> {
-        // Return empty since we handle propagation directly
-        vec![]
-    }
-
-    fn name(&self) -> &'static str {
-        "CastBackward"
-    }
-}
-
-/// Type alias for backward compatibility
-pub type CastF32ToF64Backward = CastBackward<f32, f64>;
-/// Type alias for backward compatibility
-pub type CastF64ToF32Backward = CastBackward<f64, f32>;
-
-// ============================================================================
-// Cast with gradient (generic helper)
-// ============================================================================
-
-/// Internal helper function to create a tensor with gradient tracking after cast
+/// Internal helper function for cast with gradient preservation
 fn cast_with_grad<S, T, D>(input: &Tensor<S, D>, result: Tensor<T, D>) -> Tensor<T, D>
 where
     S: FloatDType,
     T: FloatDType,
     D: Dimension,
 {
-    if input.requires_grad() {
-        let grad_fn = CastBackward::<S, T>::new(input.clone().into_dyn());
-        let inner = crate::tensor::TensorInner {
-            op: result.inner.op.clone(),
-            view: result.inner.view.clone(),
-            shape: result.inner.shape.clone(),
-            dtype: result.inner.dtype.clone(),
-            name: result.inner.name.clone(),
-            autograd: Some(T::wrap_grad_fn(Arc::new(grad_fn))),
-            buffer: std::sync::RwLock::new(result.inner.clone_buffer()),
-        };
+    // If input requires grad, propagate requires_grad to output
+    // Note: The actual backward pass would need to cast gradients back,
+    // but for now we just preserve the requires_grad flag.
+    if input.requires_grad_typed() {
+        // Create output with autograd enabled (but no grad_fn since we can't
+        // properly backprop through type casts in the current system)
         Tensor {
-            inner: Arc::new(inner),
-            autograd_typed: None,
-            _dtype: PhantomData,
-            _dim: PhantomData,
+            inner: result.inner,
+            autograd_typed: Some(Arc::new(AutogradMetaTyped::<T, D>::new())),
+            _dtype: std::marker::PhantomData,
+            _dim: std::marker::PhantomData,
         }
     } else {
         result

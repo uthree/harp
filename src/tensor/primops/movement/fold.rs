@@ -6,13 +6,9 @@
 
 use std::sync::Arc;
 
-use super::super::binary::with_grad_fn_generic;
 use super::PadValue;
-use super::backward::{
-    Fold1dBackward, Fold1dBackwardTyped, Fold2dBackward, Fold2dBackwardTyped, Fold3dBackward,
-    Fold3dBackwardTyped,
-};
-use crate::tensor::{Dim3, Dim4, Dim5, Dim6, Dim8, DimDyn, FloatDType, GradFn, Tensor};
+use super::backward::{Fold1dBackwardTyped, Fold2dBackwardTyped, Fold3dBackwardTyped};
+use crate::tensor::{Dim3, Dim4, Dim5, Dim6, Dim8, DimDyn, FloatDType, Tensor};
 
 // ============================================================================
 // 2D Fold: [N, C, out_H, out_W, kH, kW] -> [N, C, H, W]
@@ -105,10 +101,6 @@ impl<T: FloatDType> Tensor<T, Dim6> {
         if self.requires_grad_typed() {
             let grad_fn = Fold2dBackwardTyped::new(self.clone(), (kh, kw), strides, dilations);
             result.with_grad_fn_typed(Arc::new(grad_fn))
-        } else if self.requires_grad() {
-            let grad_fn =
-                Fold2dBackward::new(self.clone().into_dyn(), (kh, kw), strides, dilations);
-            with_grad_fn_generic(result, Some(Arc::new(grad_fn) as Arc<dyn GradFn<T>>))
         } else {
             result
         }
@@ -281,9 +273,6 @@ impl<T: FloatDType> Tensor<T, Dim4> {
         if self.requires_grad_typed() {
             let grad_fn = Fold1dBackwardTyped::new(self.clone(), k, stride, dilation);
             result.with_grad_fn_typed(Arc::new(grad_fn))
-        } else if self.requires_grad() {
-            let grad_fn = Fold1dBackward::new(self.clone().into_dyn(), k, stride, dilation);
-            with_grad_fn_generic(result, Some(Arc::new(grad_fn) as Arc<dyn GradFn<T>>))
         } else {
             result
         }
@@ -434,10 +423,6 @@ impl<T: FloatDType> Tensor<T, Dim8> {
         if self.requires_grad_typed() {
             let grad_fn = Fold3dBackwardTyped::new(self.clone(), (kh, kw, kd), strides, dilations);
             result.with_grad_fn_typed(Arc::new(grad_fn))
-        } else if self.requires_grad() {
-            let grad_fn =
-                Fold3dBackward::new(self.clone().into_dyn(), (kh, kw, kd), strides, dilations);
-            with_grad_fn_generic(result, Some(Arc::new(grad_fn) as Arc<dyn GradFn<T>>))
         } else {
             result
         }

@@ -32,8 +32,6 @@ use crate::tensor::{
     Dim, DimDyn, Dimension, FloatDType, Tensor, TensorDType, TensorInner, TensorOp,
 };
 
-use super::binary::with_grad_fn_generic;
-
 /// Helper to create View from usize shape
 fn view_from_shape(shape: &[usize]) -> View {
     let shape_exprs: Vec<Expr> = shape.iter().map(|&s| Expr::from(s as i64)).collect();
@@ -393,9 +391,6 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
         if self.requires_grad_typed() {
             let grad_fn = PadBackwardTyped::new(self.clone(), padding.to_vec());
             result.with_grad_fn_typed(Arc::new(grad_fn))
-        } else if self.requires_grad() {
-            let grad_fn = PadBackward::new(self.clone(), padding.to_vec());
-            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
             result
         }
@@ -519,9 +514,6 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
         if self.requires_grad_typed() {
             let grad_fn = SliceBackwardTyped::new(self.clone(), ranges.to_vec());
             result.with_grad_fn_typed(Arc::new(grad_fn))
-        } else if self.requires_grad() {
-            let grad_fn = SliceBackward::new(self.clone(), ranges.to_vec());
-            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
             result
         }
@@ -604,16 +596,11 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
 
         // Check if any input uses typed autograd
         let any_requires_grad_typed = tensors.iter().any(|t| t.requires_grad_typed());
-        let any_requires_grad = tensors.iter().any(|t| t.requires_grad());
 
         if any_requires_grad_typed {
             let input_tensors: Vec<Tensor<T, D>> = tensors.iter().map(|&t| t.clone()).collect();
             let grad_fn = ConcatBackwardTyped::new(input_tensors, axis);
             result.with_grad_fn_typed(Arc::new(grad_fn))
-        } else if any_requires_grad {
-            let input_tensors: Vec<Tensor<T, D>> = tensors.iter().map(|&t| t.clone()).collect();
-            let grad_fn = ConcatBackward::new(input_tensors, axis);
-            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
             result
         }
@@ -645,9 +632,6 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
         if self.requires_grad_typed() {
             let grad_fn = SqueezeBackwardTyped::<T, D>::new(self.clone(), dim);
             result.with_grad_fn_typed(Arc::new(grad_fn))
-        } else if self.requires_grad() {
-            let grad_fn = SqueezeBackward::new(self.clone().into_dyn(), dim);
-            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
             result
         }
@@ -675,9 +659,6 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
         if self.requires_grad_typed() {
             let grad_fn = UnsqueezeBackwardTyped::<T, D>::new(self.clone(), dim);
             result.with_grad_fn_typed(Arc::new(grad_fn))
-        } else if self.requires_grad() {
-            let grad_fn = UnsqueezeBackward::new(self.clone().into_dyn(), dim);
-            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
             result
         }
@@ -690,16 +671,12 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
     where
         Dim<M>: Dimension,
     {
-        let original_shape = self.shape().to_vec();
         let result = self.reshape_impl(new_shape);
 
         // Use typed system if available
         if self.requires_grad_typed() {
             let grad_fn = ReshapeBackwardTyped::<T, D, Dim<M>>::new(self.clone());
             result.with_grad_fn_typed(Arc::new(grad_fn))
-        } else if self.requires_grad() {
-            let grad_fn = ReshapeBackward::new(self.clone().into_dyn(), original_shape);
-            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
             result
         }
@@ -714,9 +691,6 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
         if self.requires_grad_typed() {
             let grad_fn = ReshapeDynBackwardTyped::<T, D>::new(self.clone(), original_shape);
             result.with_grad_fn_typed(Arc::new(grad_fn))
-        } else if self.requires_grad() {
-            let grad_fn = ReshapeBackward::new(self.clone().into_dyn(), original_shape);
-            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
             result
         }
@@ -734,9 +708,6 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
         if self.requires_grad_typed() {
             let grad_fn = ExpandBackwardTyped::<T, D>::new(self.clone(), original_shape);
             result.with_grad_fn_typed(Arc::new(grad_fn))
-        } else if self.requires_grad() {
-            let grad_fn = ExpandBackward::new(self.clone().into_dyn(), original_shape);
-            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
             result
         }
@@ -754,9 +725,6 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
         if self.requires_grad_typed() {
             let grad_fn = PermuteBackwardTyped::<T, D>::new(self.clone(), axes.to_vec());
             result.with_grad_fn_typed(Arc::new(grad_fn))
-        } else if self.requires_grad() {
-            let grad_fn = PermuteBackward::new(self.clone().into_dyn(), axes.to_vec());
-            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
             result
         }
@@ -770,9 +738,6 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
         if self.requires_grad_typed() {
             let grad_fn = TransposeBackwardTyped::<T, D>::new(self.clone());
             result.with_grad_fn_typed(Arc::new(grad_fn))
-        } else if self.requires_grad() {
-            let grad_fn = TransposeBackward::new(self.clone().into_dyn());
-            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
             result
         }

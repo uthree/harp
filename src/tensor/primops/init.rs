@@ -189,7 +189,6 @@ where
             shape: shape_vec,
             dtype: T::DTYPE,
             name: None,
-            autograd: None,
             buffer: RwLock::new(Some(vec_buffer)),
         };
         Self {
@@ -286,7 +285,6 @@ impl<T: FloatDType> Tensor<T, DimDyn> {
             shape: shape_vec,
             dtype: T::DTYPE,
             name: None,
-            autograd: None,
             buffer: RwLock::new(Some(vec_buffer)),
         };
         Self {

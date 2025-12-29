@@ -697,7 +697,6 @@ impl<T: FloatDType> Tensor<T, DimDyn> {
             shape,
             dtype: T::DTYPE,
             name: None,
-            autograd: None,
             buffer: RwLock::new(Some(Box::new(vec_buffer) as Box<dyn Buffer>)),
         };
 
@@ -819,7 +818,6 @@ macro_rules! impl_from_ndarray {
                     shape,
                     dtype: DType::F32,
                     name: None,
-                    autograd: None,
                     buffer: RwLock::new(Some(Box::new(vec_buffer) as Box<dyn Buffer>)),
                 };
 

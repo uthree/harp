@@ -28,16 +28,12 @@ mod unary;
 // Re-export unary operation traits
 pub use unary::{Exp2, Floor, Log2, Recip, Sin, Sqrt};
 
-// Re-export unary gradient functions
-pub use unary::{
-    CastBackward, CastF32ToF64Backward, CastF64ToF32Backward, Exp2Backward, Log2Backward,
-    NegBackward, RecipBackward, SinBackward, SqrtBackward,
-};
-
-// Re-export binary gradient functions
-pub use binary::{AddBackward, MaxBackward, MulBackward};
+// Unary gradient functions are now typed - used internally only
 
 // Reduce gradient functions are pub(crate) - used internally only
 
 // Re-export general gradient utilities and fused operation gradients
-pub use grad::{CloneBackward, FusedElementwiseBackward, FusedElementwiseReduceBackward};
+pub use grad::reduce_grad_for_broadcast;
+
+// Re-export dimension conversion backward
+pub use movement::IntoDynBackwardTyped;
