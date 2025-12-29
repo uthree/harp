@@ -408,20 +408,6 @@ impl MetalKernelRenderer {
     }
 }
 
-// MetalKernelRenderer用のRenderer実装（内部使用のためダミー）
-impl Renderer for MetalKernelRenderer {
-    type CodeRepr = MetalCode;
-    type Option = ();
-
-    fn render(&self, _program: &AstNode) -> Self::CodeRepr {
-        panic!("MetalKernelRenderer::render should not be called directly");
-    }
-
-    fn is_available(&self) -> bool {
-        true
-    }
-}
-
 // MetalKernelRenderer用のCLikeRenderer実装（共通ヘルパー関数を使用）
 impl CLikeRenderer for MetalKernelRenderer {
     fn indent_level(&self) -> usize {

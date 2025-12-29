@@ -626,6 +626,7 @@ dependencies = [
  "crossterm",
  "directories",
  "env_logger",
+ "harp-nn",
  "indexmap",
  "indicatif",
  "log",

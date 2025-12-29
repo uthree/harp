@@ -1,4 +1,3 @@
-use super::Renderer;
 use crate::ast::{AstNode, DType, Literal, VarDecl};
 
 // C言語に近い構文の言語のためのレンダラー
@@ -33,7 +32,7 @@ impl OptimizationLevel {
     }
 }
 
-pub trait CLikeRenderer: Renderer {
+pub trait CLikeRenderer {
     // ========== インデント管理（実装側で提供） ==========
     fn indent_level(&self) -> usize;
     fn indent_level_mut(&mut self) -> &mut usize;

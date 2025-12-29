@@ -44,6 +44,7 @@ viz = ["dep:ratatui", "dep:crossterm", "dep:syntect"]
 env_logger = "0.11"
 serial_test = "3.2"
 rstest = "0.24"
+harp-nn = { path = "crates/nn" }
 
 [[example]]
 name = "viz_matmul_demo"
