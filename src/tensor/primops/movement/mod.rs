@@ -750,4 +750,101 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
 
         with_grad_fn_generic(result, grad_fn)
     }
+
+    /// Interleave: insert zeros at stride intervals along specified axes
+    ///
+    /// Used for fold operations with stride > 1. For each axis, elements are
+    /// spaced at `stride` intervals with zeros in between.
+    ///
+    /// # Arguments
+    /// * `axes` - The axes along which to interleave
+    /// * `strides` - The stride for each axis (spacing between elements)
+    ///
+    /// # Output Shape
+    /// For each axis i in axes with size s and stride st:
+    /// `new_size[i] = 1 + (s - 1) * st` if s > 0, else 0
+    ///
+    /// # Example
+    /// ```ignore
+    /// // [1, 2, 3] with stride=2 on axis 0 -> [1, 0, 2, 0, 3]
+    /// let a = Tensor::<f32, Dim1>::from_data(vec![1.0, 2.0, 3.0], [3]);
+    /// let b = a.interleave(&[0], &[2]);
+    /// assert_eq!(b.shape(), &[5]); // 1 + (3-1) * 2 = 5
+    /// ```
+    pub fn interleave(&self, axes: &[usize], strides: &[usize]) -> Tensor<T, DimDyn> {
+        assert_eq!(
+            axes.len(),
+            strides.len(),
+            "axes and strides must have the same length"
+        );
+
+        if axes.is_empty() {
+            return self.clone().into_dyn();
+        }
+
+        // Validate axes
+        for &axis in axes {
+            assert!(
+                axis < self.ndim(),
+                "axis {} out of bounds for tensor with {} dimensions",
+                axis,
+                self.ndim()
+            );
+        }
+
+        // Calculate output shape
+        let mut new_shape = self.shape().to_vec();
+        for (&axis, &stride) in axes.iter().zip(strides.iter()) {
+            let s = self.shape()[axis];
+            if s > 0 && stride > 1 {
+                new_shape[axis] = 1 + (s - 1) * stride;
+            }
+        }
+
+        // If all strides are 1, no interleaving needed
+        if strides.iter().all(|&s| s == 1) {
+            return self.reshape_dyn(&new_shape);
+        }
+
+        // Build interleaved result using reshape + pad + reshape + slice
+        // This approach works for any number of axes
+        let mut result = self.clone().into_dyn();
+
+        for (&axis, &stride) in axes.iter().zip(strides.iter()) {
+            if stride <= 1 {
+                continue;
+            }
+
+            let s = result.shape()[axis];
+            if s == 0 {
+                continue;
+            }
+
+            // Step 1: Unsqueeze to add dimension after the axis
+            // [... s ...] -> [... s, 1, ...]
+            let unsqueezed = result.unsqueeze(axis + 1);
+
+            // Step 2: Pad with zeros on the new dimension
+            // [... s, 1, ...] -> [... s, stride, ...]
+            let mut padding = vec![(0, 0); unsqueezed.ndim()];
+            padding[axis + 1] = (0, stride - 1);
+            let padded = unsqueezed.pad(&padding, PadValue::Zero);
+
+            // Step 3: Reshape to merge the two dimensions
+            // [... s, stride, ...] -> [... s*stride, ...]
+            let mut merged_shape = result.shape().to_vec();
+            merged_shape[axis] = s * stride;
+            let reshaped = padded.reshape_dyn(&merged_shape);
+
+            // Step 4: Slice to get the correct output size
+            // [... s*stride, ...] -> [... 1+(s-1)*stride, ...]
+            let target_size = 1 + (s - 1) * stride;
+            let mut ranges: Vec<(usize, usize)> =
+                reshaped.shape().iter().map(|&dim| (0, dim)).collect();
+            ranges[axis] = (0, target_size);
+            result = reshaped.slice(&ranges).into_dyn();
+        }
+
+        result
+    }
 }

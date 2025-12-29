@@ -318,12 +318,13 @@ impl<T: FloatDType> GradFn<T> for TransposeBackward<T> {
 // Unfold Gradients (uses fold as inverse)
 // ============================================================================
 
-/// Gradient for Unfold1d: y = unfold1d(x, size, stride)
-/// ∂L/∂x = fold1d(∂L/∂y, output_size, stride)
+/// Gradient for Unfold1d: y = unfold1d(x, size, stride, dilation)
+/// ∂L/∂x = fold1d(∂L/∂y, output_size, stride, dilation)
 pub struct Unfold1dBackward<T: FloatDType> {
     input: Tensor<T, DimDyn>,
     output_size: usize,
     stride: usize,
+    dilation: usize,
 }
 
 impl<T: FloatDType> Unfold1dBackward<T> {
@@ -332,20 +333,22 @@ impl<T: FloatDType> Unfold1dBackward<T> {
         output_size: usize,
         _kernel_size: usize,
         stride: usize,
+        dilation: usize,
     ) -> Self {
         Self {
             input,
             output_size,
             stride,
+            dilation,
         }
     }
 }
 
 impl<T: FloatDType> GradFn<T> for Unfold1dBackward<T> {
     fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
-        // fold1d is the inverse of unfold1d
+        // fold1d_dilated is the inverse of unfold1d_dilated
         let grad_4d = grad_output.into_dim4();
-        let folded = grad_4d.fold1d(self.output_size, self.stride);
+        let folded = grad_4d.fold1d_dilated(self.output_size, self.stride, self.dilation);
         vec![folded.into_dyn()]
     }
 
@@ -358,12 +361,13 @@ impl<T: FloatDType> GradFn<T> for Unfold1dBackward<T> {
     }
 }
 
-/// Gradient for Unfold2d: y = unfold2d(x, sizes, strides)
-/// ∂L/∂x = fold2d(∂L/∂y, output_size, strides)
+/// Gradient for Unfold2d: y = unfold2d(x, sizes, strides, dilations)
+/// ∂L/∂x = fold2d(∂L/∂y, output_size, strides, dilations)
 pub struct Unfold2dBackward<T: FloatDType> {
     input: Tensor<T, DimDyn>,
     output_size: (usize, usize),
     strides: (usize, usize),
+    dilations: (usize, usize),
 }
 
 impl<T: FloatDType> Unfold2dBackward<T> {
@@ -372,20 +376,22 @@ impl<T: FloatDType> Unfold2dBackward<T> {
         output_size: (usize, usize),
         _kernel_size: (usize, usize),
         strides: (usize, usize),
+        dilations: (usize, usize),
     ) -> Self {
         Self {
             input,
             output_size,
             strides,
+            dilations,
         }
     }
 }
 
 impl<T: FloatDType> GradFn<T> for Unfold2dBackward<T> {
     fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
-        // fold2d is the inverse of unfold2d
+        // fold2d_dilated is the inverse of unfold2d_dilated
         let grad_6d = grad_output.into_dim6();
-        let folded = grad_6d.fold2d(self.output_size, self.strides);
+        let folded = grad_6d.fold2d_dilated(self.output_size, self.strides, self.dilations);
         vec![folded.into_dyn()]
     }
 
@@ -398,12 +404,13 @@ impl<T: FloatDType> GradFn<T> for Unfold2dBackward<T> {
     }
 }
 
-/// Gradient for Unfold3d: y = unfold3d(x, sizes, strides)
-/// ∂L/∂x = fold3d(∂L/∂y, output_size, strides)
+/// Gradient for Unfold3d: y = unfold3d(x, sizes, strides, dilations)
+/// ∂L/∂x = fold3d(∂L/∂y, output_size, strides, dilations)
 pub struct Unfold3dBackward<T: FloatDType> {
     input: Tensor<T, DimDyn>,
     output_size: (usize, usize, usize),
     strides: (usize, usize, usize),
+    dilations: (usize, usize, usize),
 }
 
 impl<T: FloatDType> Unfold3dBackward<T> {
@@ -412,20 +419,22 @@ impl<T: FloatDType> Unfold3dBackward<T> {
         output_size: (usize, usize, usize),
         _kernel_size: (usize, usize, usize),
         strides: (usize, usize, usize),
+        dilations: (usize, usize, usize),
     ) -> Self {
         Self {
             input,
             output_size,
             strides,
+            dilations,
         }
     }
 }
 
 impl<T: FloatDType> GradFn<T> for Unfold3dBackward<T> {
     fn backward(&self, grad_output: &Tensor<T, DimDyn>) -> Vec<Tensor<T, DimDyn>> {
-        // fold3d is the inverse of unfold3d
+        // fold3d_dilated is the inverse of unfold3d_dilated
         let grad_8d = grad_output.into_dim8();
-        let folded = grad_8d.fold3d(self.output_size, self.strides);
+        let folded = grad_8d.fold3d_dilated(self.output_size, self.strides, self.dilations);
         vec![folded.into_dyn()]
     }
 

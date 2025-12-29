@@ -973,20 +973,27 @@ impl View {
     /// * `axes` - unfoldする軸のリスト（ソート済み、重複なし）
     /// * `sizes` - 各軸のウィンドウサイズ
     /// * `strides` - 各軸のストライド
+    /// * `dilations` - 各軸のdilation（カーネル要素間の間隔）
     ///
     /// # Output Shape
     /// `[preserved_dims..., output_positions..., window_dims...]`
+    ///
+    /// # Dilation
+    /// dilationは各カーネル要素間の間隔を指定します。
+    /// effective_kernel_size = (kernel_size - 1) * dilation + 1
+    /// output_size = (input_size - effective_kernel_size) / stride + 1
     ///
     /// # Example
     /// ```
     /// use harp::tensor::shape::{View, Expr};
     ///
-    /// // [N, C, H, W] + unfold(axes=[2,3], sizes=[kH,kW], strides=[sH,sW])
+    /// // [N, C, H, W] + unfold(axes=[2,3], sizes=[kH,kW], strides=[sH,sW], dilations=[1,1])
     /// // → [N, C, out_H, out_W, kH, kW]
     /// let view = View::contiguous(vec![2, 3, 8, 10]);
     /// let unfolded = view.unfold(
     ///     &[2, 3],
     ///     &[Expr::from(3), Expr::from(3)],
+    ///     &[Expr::from(1), Expr::from(1)],
     ///     &[Expr::from(1), Expr::from(1)],
     /// );
     /// assert_eq!(unfolded.shape(), vec![
@@ -995,9 +1002,16 @@ impl View {
     ///     Expr::from(3), Expr::from(3),   // kH, kW
     /// ]);
     /// ```
-    pub fn unfold<E: Into<Expr> + Clone>(self, axes: &[usize], sizes: &[E], strides: &[E]) -> Self {
+    pub fn unfold<E: Into<Expr> + Clone>(
+        self,
+        axes: &[usize],
+        sizes: &[E],
+        strides: &[E],
+        dilations: &[E],
+    ) -> Self {
         let sizes: Vec<Expr> = sizes.iter().map(|s| s.clone().into()).collect();
         let strides: Vec<Expr> = strides.iter().map(|s| s.clone().into()).collect();
+        let dilations: Vec<Expr> = dilations.iter().map(|d| d.clone().into()).collect();
 
         assert_eq!(
             axes.len(),
@@ -1008,6 +1022,11 @@ impl View {
             axes.len(),
             strides.len(),
             "axes and strides must have same length"
+        );
+        assert_eq!(
+            axes.len(),
+            dilations.len(),
+            "axes and dilations must have same length"
         );
 
         let ndim = self.ndim();
@@ -1040,12 +1059,17 @@ impl View {
                     }
                 }
 
-                // 2. output positions: (dim - size) / stride + 1
+                // 2. output positions: (dim - effective_size) / stride + 1
+                // where effective_size = (size - 1) * dilation + 1
                 for (i, &axis) in axes.iter().enumerate() {
                     let dim = shape[axis].clone();
                     let size = sizes[i].clone();
                     let stride = strides[i].clone();
-                    let out_size = ((dim - size.clone()) / stride + Expr::from(1)).simplify();
+                    let dilation = dilations[i].clone();
+                    // effective_size = (size - 1) * dilation + 1
+                    let effective_size =
+                        ((size.clone() - Expr::from(1)) * dilation + Expr::from(1)).simplify();
+                    let out_size = ((dim - effective_size) / stride + Expr::from(1)).simplify();
                     new_shape.push(out_size);
                 }
 
@@ -1073,11 +1097,12 @@ impl View {
                         let out_pos_idx = num_preserved + unfold_i;
                         let win_pos_idx = num_preserved + num_unfolded + unfold_i;
                         let unfold_stride = strides[unfold_i].clone();
+                        let dilation = dilations[unfold_i].clone();
 
-                        // input_idx = out_pos * unfold_stride + win_pos
+                        // input_idx = out_pos * unfold_stride + win_pos * dilation
                         let input_idx = (Expr::Idx(out_pos_idx) * unfold_stride
-                            + Expr::Idx(win_pos_idx))
-                        .simplify();
+                            + Expr::Idx(win_pos_idx) * dilation)
+                            .simplify();
                         index_expr = (index_expr + input_idx * stride.clone()).simplify();
                     } else {
                         // preserved軸
@@ -1109,12 +1134,17 @@ impl View {
                     }
                 }
 
-                // 2. output positions
+                // 2. output positions: (dim - effective_size) / stride + 1
+                // where effective_size = (size - 1) * dilation + 1
                 for (i, &axis) in axes.iter().enumerate() {
                     let dim = shape[axis].clone();
                     let size = sizes[i].clone();
                     let stride = strides[i].clone();
-                    let out_size = ((dim - size.clone()) / stride + Expr::from(1)).simplify();
+                    let dilation = dilations[i].clone();
+                    // effective_size = (size - 1) * dilation + 1
+                    let effective_size =
+                        ((size.clone() - Expr::from(1)) * dilation + Expr::from(1)).simplify();
+                    let out_size = ((dim - effective_size) / stride + Expr::from(1)).simplify();
                     new_shape.push(out_size);
                 }
 
@@ -1134,11 +1164,12 @@ impl View {
                     let out_pos_idx = num_preserved + unfold_i;
                     let win_pos_idx = num_preserved + num_unfolded + unfold_i;
                     let unfold_stride = strides[unfold_i].clone();
+                    let dilation = dilations[unfold_i].clone();
 
-                    // Idx(original_axis) を (Idx(out_pos_idx) * stride + Idx(win_pos_idx)) に置換
+                    // Idx(original_axis) を (Idx(out_pos_idx) * stride + Idx(win_pos_idx) * dilation) に置換
                     let replacement = (Expr::Idx(out_pos_idx) * unfold_stride
-                        + Expr::Idx(win_pos_idx))
-                    .simplify();
+                        + Expr::Idx(win_pos_idx) * dilation)
+                        .simplify();
                     new_index_expr = new_index_expr.substitute_idx(original_axis, replacement);
                 }
 
@@ -1175,11 +1206,69 @@ impl View {
                     index_expr: new_index_expr.simplify(),
                 }
             }
-            View::Masked { .. } => {
-                // MaskedのunfoldはTODO: 複雑なので一旦未サポート
-                // 内側のViewをunfoldし、conditionを適切に変換する必要がある
-                // conditionの軸変換も必要だが、unfoldは軸の追加・再配置を行うため複雑
-                unimplemented!("Masked.unfold is not yet supported")
+            View::Masked {
+                inner,
+                condition,
+                default_value,
+            } => {
+                // Unfold the inner view first
+                let unfolded_inner = inner.unfold(axes, &sizes, &strides, &dilations);
+
+                // Transform the condition expression
+                // The index mapping is:
+                // - Original: Idx(0), Idx(1), ..., Idx(ndim-1)
+                // - After unfold:
+                //   - Preserved dims: indices 0..(ndim - num_unfolded)
+                //   - Output positions: indices (ndim - num_unfolded)..(ndim)
+                //   - Window positions: indices ndim..(ndim + num_unfolded)
+                //
+                // For each original Idx(i):
+                // - If i is preserved: maps to new preserved index
+                // - If i is unfolded: maps to out_pos * stride + win_pos * dilation
+                let num_preserved = ndim - num_unfolded;
+
+                // Build a mapping for index substitution
+                let mut new_condition = condition.clone();
+
+                // First, substitute temporary indices to avoid conflicts
+                // Then substitute to final values
+                let temp_offset = 1000; // Use large offset for temporary indices
+
+                // Calculate the mapping: original_idx -> (is_preserved, new_idx or unfold_info)
+                let mut preserved_count = 0;
+                for original_idx in 0..ndim {
+                    if axes_set.contains(&original_idx) {
+                        // This is an unfolded axis
+                        let unfold_i = axes.iter().position(|&a| a == original_idx).unwrap();
+                        let out_pos_idx = num_preserved + unfold_i;
+                        let win_pos_idx = num_preserved + num_unfolded + unfold_i;
+                        let unfold_stride = strides[unfold_i].clone();
+                        let dilation = dilations[unfold_i].clone();
+
+                        // Replace Idx(original_idx) with (Idx(out_pos_idx) * stride + Idx(win_pos_idx) * dilation)
+                        let replacement = (Expr::Idx(out_pos_idx) * unfold_stride
+                            + Expr::Idx(win_pos_idx) * dilation)
+                            .simplify();
+
+                        new_condition = new_condition
+                            .substitute_idx(original_idx, Expr::Idx(temp_offset + original_idx));
+                        new_condition =
+                            new_condition.substitute_idx(temp_offset + original_idx, replacement);
+                    } else {
+                        // This is a preserved axis - maps to new preserved index
+                        new_condition = new_condition
+                            .substitute_idx(original_idx, Expr::Idx(temp_offset + original_idx));
+                        new_condition = new_condition
+                            .substitute_idx(temp_offset + original_idx, Expr::Idx(preserved_count));
+                        preserved_count += 1;
+                    }
+                }
+
+                View::Masked {
+                    inner: Box::new(unfolded_inner),
+                    condition: new_condition.simplify(),
+                    default_value,
+                }
             }
         }
     }
@@ -1887,11 +1976,11 @@ mod tests {
 
     #[test]
     fn test_unfold_1d_shape() {
-        // [2, 3, 10] + unfold(axes=[2], sizes=[3], strides=[1])
+        // [2, 3, 10] + unfold(axes=[2], sizes=[3], strides=[1], dilations=[1])
         // → [2, 3, 8, 3]
         // out_size = (10 - 3) / 1 + 1 = 8
         let view = View::contiguous(vec![2, 3, 10]);
-        let unfolded = view.unfold(&[2], &[Expr::from(3)], &[Expr::from(1)]);
+        let unfolded = view.unfold(&[2], &[Expr::from(3)], &[Expr::from(1)], &[Expr::from(1)]);
 
         assert_eq!(
             unfolded.shape(),
@@ -1902,11 +1991,11 @@ mod tests {
 
     #[test]
     fn test_unfold_1d_with_stride() {
-        // [2, 3, 10] + unfold(axes=[2], sizes=[3], strides=[2])
+        // [2, 3, 10] + unfold(axes=[2], sizes=[3], strides=[2], dilations=[1])
         // → [2, 3, 4, 3]
         // out_size = (10 - 3) / 2 + 1 = 4
         let view = View::contiguous(vec![2, 3, 10]);
-        let unfolded = view.unfold(&[2], &[Expr::from(3)], &[Expr::from(2)]);
+        let unfolded = view.unfold(&[2], &[Expr::from(3)], &[Expr::from(2)], &[Expr::from(1)]);
 
         assert_eq!(
             unfolded.shape(),
@@ -1916,7 +2005,7 @@ mod tests {
 
     #[test]
     fn test_unfold_2d_shape() {
-        // [2, 3, 8, 10] + unfold(axes=[2,3], sizes=[3,3], strides=[1,1])
+        // [2, 3, 8, 10] + unfold(axes=[2,3], sizes=[3,3], strides=[1,1], dilations=[1,1])
         // → [2, 3, 6, 8, 3, 3]
         // out_H = (8 - 3) / 1 + 1 = 6
         // out_W = (10 - 3) / 1 + 1 = 8
@@ -1924,6 +2013,7 @@ mod tests {
         let unfolded = view.unfold(
             &[2, 3],
             &[Expr::from(3), Expr::from(3)],
+            &[Expr::from(1), Expr::from(1)],
             &[Expr::from(1), Expr::from(1)],
         );
 
@@ -1942,7 +2032,7 @@ mod tests {
 
     #[test]
     fn test_unfold_2d_with_stride() {
-        // [2, 3, 8, 10] + unfold(axes=[2,3], sizes=[3,3], strides=[2,2])
+        // [2, 3, 8, 10] + unfold(axes=[2,3], sizes=[3,3], strides=[2,2], dilations=[1,1])
         // → [2, 3, 3, 4, 3, 3]
         // out_H = (8 - 3) / 2 + 1 = 3
         // out_W = (10 - 3) / 2 + 1 = 4
@@ -1951,6 +2041,7 @@ mod tests {
             &[2, 3],
             &[Expr::from(3), Expr::from(3)],
             &[Expr::from(2), Expr::from(2)],
+            &[Expr::from(1), Expr::from(1)],
         );
 
         assert_eq!(
@@ -1969,10 +2060,10 @@ mod tests {
     #[test]
     fn test_unfold_1d_index_expr() {
         // 簡単な1Dケースでインデックス式を検証
-        // [5] + unfold(axes=[0], sizes=[3], strides=[1]) → [3, 3]
-        // output[i, j] = input[i * 1 + j] = input[i + j]
+        // [5] + unfold(axes=[0], sizes=[3], strides=[1], dilations=[1]) → [3, 3]
+        // output[i, j] = input[i * 1 + j * 1] = input[i + j]
         let view = View::contiguous(vec![5]);
-        let unfolded = view.unfold(&[0], &[Expr::from(3)], &[Expr::from(1)]);
+        let unfolded = view.unfold(&[0], &[Expr::from(3)], &[Expr::from(1)], &[Expr::from(1)]);
 
         assert_eq!(unfolded.shape(), vec![Expr::from(3), Expr::from(3)]);
 
@@ -1987,10 +2078,10 @@ mod tests {
 
     #[test]
     fn test_unfold_1d_index_expr_with_stride() {
-        // [10] + unfold(axes=[0], sizes=[3], strides=[2]) → [4, 3]
-        // output[i, j] = input[i * 2 + j]
+        // [10] + unfold(axes=[0], sizes=[3], strides=[2], dilations=[1]) → [4, 3]
+        // output[i, j] = input[i * 2 + j * 1]
         let view = View::contiguous(vec![10]);
-        let unfolded = view.unfold(&[0], &[Expr::from(3)], &[Expr::from(2)]);
+        let unfolded = view.unfold(&[0], &[Expr::from(3)], &[Expr::from(2)], &[Expr::from(1)]);
 
         assert_eq!(unfolded.shape(), vec![Expr::from(4), Expr::from(3)]);
 
@@ -2006,12 +2097,13 @@ mod tests {
     #[test]
     fn test_unfold_conv_pattern() {
         // 典型的なConv2Dパターン: [N, C, H, W] → [N, C, out_H, out_W, kH, kW]
-        // [1, 3, 28, 28] + unfold(axes=[2,3], sizes=[3,3], strides=[1,1])
+        // [1, 3, 28, 28] + unfold(axes=[2,3], sizes=[3,3], strides=[1,1], dilations=[1,1])
         // → [1, 3, 26, 26, 3, 3]
         let view = View::contiguous(vec![1, 3, 28, 28]);
         let unfolded = view.unfold(
             &[2, 3],
             &[Expr::from(3), Expr::from(3)],
+            &[Expr::from(1), Expr::from(1)],
             &[Expr::from(1), Expr::from(1)],
         );
 
@@ -2032,7 +2124,7 @@ mod tests {
     fn test_unfold_with_usize() {
         // usizeでも呼び出せることを確認
         let view = View::contiguous(vec![2, 3, 10]);
-        let unfolded = view.unfold(&[2], &[3_usize], &[1_usize]);
+        let unfolded = view.unfold(&[2], &[3_usize], &[1_usize], &[1_usize]);
 
         assert_eq!(
             unfolded.shape(),
@@ -2044,7 +2136,7 @@ mod tests {
     #[should_panic(expected = "axis 5 out of bounds")]
     fn test_unfold_axis_out_of_bounds() {
         let view = View::contiguous(vec![2, 3, 10]);
-        let _ = view.unfold(&[5], &[Expr::from(3)], &[Expr::from(1)]);
+        let _ = view.unfold(&[5], &[Expr::from(3)], &[Expr::from(1)], &[Expr::from(1)]);
     }
 
     #[test]
@@ -2054,6 +2146,7 @@ mod tests {
         let _ = view.unfold(
             &[3, 2], // wrong order
             &[Expr::from(3), Expr::from(3)],
+            &[Expr::from(1), Expr::from(1)],
             &[Expr::from(1), Expr::from(1)],
         );
     }
@@ -2169,5 +2262,61 @@ mod tests {
         assert_eq!(view.default_value(), Some(PadValue::Zero));
         assert!(view.inner_view().is_some());
         assert_eq!(view.condition(), Some(&condition));
+    }
+
+    #[test]
+    fn test_masked_unfold() {
+        use crate::tensor::ops::PadValue;
+
+        // Test that Masked view can be unfolded properly
+        // Input: [4, 4] masked view with condition Idx(0) < 2 (rows 0,1 are valid, rows 2,3 are masked)
+        let inner = View::contiguous(vec![4, 4]);
+        let condition = Expr::Idx(0).lt(Expr::from(2));
+        let masked = View::masked(inner, condition, PadValue::Zero);
+
+        // Unfold on axis 0: size=2, stride=1, dilation=1
+        // Output shape: [preserved_axes..., output_positions..., window_sizes...]
+        // = [4, 3, 2] (4 cols preserved, 3 windows, 2 elements per window)
+        let unfolded = masked.unfold(&[0], &[Expr::from(2)], &[Expr::from(1)], &[Expr::from(1)]);
+
+        assert_eq!(
+            unfolded.shape(),
+            vec![Expr::from(4), Expr::from(3), Expr::from(2)]
+        );
+
+        // The view should still be masked
+        assert!(unfolded.condition().is_some());
+        assert_eq!(unfolded.default_value(), Some(PadValue::Zero));
+    }
+
+    #[test]
+    fn test_masked_unfold_2d() {
+        use crate::tensor::ops::PadValue;
+
+        // Test 2D unfold on masked view
+        // Input: [6, 6] with condition Idx(0) >= 1 && Idx(0) < 5 && Idx(1) >= 1 && Idx(1) < 5
+        // This simulates a padded tensor with 1-padding
+        let inner = View::contiguous(vec![6, 6]);
+        let condition = Expr::Idx(0)
+            .ge(Expr::from(1))
+            .and(Expr::Idx(0).lt(Expr::from(5)))
+            .and(Expr::Idx(1).ge(Expr::from(1)))
+            .and(Expr::Idx(1).lt(Expr::from(5)));
+        let masked = View::masked(inner, condition, PadValue::Zero);
+
+        // Unfold with size=(3,3), stride=(1,1), dilation=(1,1)
+        // Output: [4, 4, 3, 3]
+        let unfolded = masked.unfold(
+            &[0, 1],
+            &[Expr::from(3), Expr::from(3)],
+            &[Expr::from(1), Expr::from(1)],
+            &[Expr::from(1), Expr::from(1)],
+        );
+
+        assert_eq!(
+            unfolded.shape(),
+            vec![Expr::from(4), Expr::from(4), Expr::from(3), Expr::from(3)]
+        );
+        assert!(unfolded.condition().is_some());
     }
 }

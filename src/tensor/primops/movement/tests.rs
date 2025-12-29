@@ -802,3 +802,244 @@ fn test_unfold_no_grad_propagation() {
     let unfolded = input.unfold2d((2, 2), (1, 1));
     assert!(!unfolded.requires_grad());
 }
+
+// ============================================================================
+// Dilated Unfold/Fold tests
+// ============================================================================
+
+#[test]
+fn test_unfold1d_dilated_shape() {
+    let input = Tensor::<f32, Dim3>::ones([2, 3, 10]);
+    // dilation=2: effective kernel size = (3-1)*2+1 = 5
+    // output length = (10-5)/1+1 = 6
+    let unfolded = input.unfold1d_dilated(3, 1, 2);
+    assert_eq!(unfolded.shape(), &[2, 3, 6, 3]);
+}
+
+#[test]
+fn test_unfold1d_dilated_with_stride() {
+    let input = Tensor::<f32, Dim3>::ones([2, 3, 14]);
+    // dilation=2: effective kernel size = (3-1)*2+1 = 5
+    // output length = (14-5)/2+1 = 5
+    let unfolded = input.unfold1d_dilated(3, 2, 2);
+    assert_eq!(unfolded.shape(), &[2, 3, 5, 3]);
+}
+
+#[test]
+fn test_unfold2d_dilated_shape() {
+    let input = Tensor::<f32, Dim4>::ones([2, 3, 10, 10]);
+    // dilation=(2,2): effective kernel size = (3-1)*2+1 = 5
+    // output size = (10-5)/1+1 = 6
+    let unfolded = input.unfold2d_dilated((3, 3), (1, 1), (2, 2));
+    assert_eq!(unfolded.shape(), &[2, 3, 6, 6, 3, 3]);
+}
+
+#[test]
+fn test_unfold2d_dilated_with_stride() {
+    let input = Tensor::<f32, Dim4>::ones([2, 3, 15, 15]);
+    // dilation=(2,2): effective kernel size = (3-1)*2+1 = 5
+    // output size = (15-5)/2+1 = 6
+    let unfolded = input.unfold2d_dilated((3, 3), (2, 2), (2, 2));
+    assert_eq!(unfolded.shape(), &[2, 3, 6, 6, 3, 3]);
+}
+
+#[test]
+fn test_unfold3d_dilated_shape() {
+    let input = Tensor::<f32, Dim5>::ones([2, 3, 10, 10, 10]);
+    // dilation=(2,2,2): effective kernel size = (3-1)*2+1 = 5
+    // output size = (10-5)/1+1 = 6
+    let unfolded = input.unfold3d_dilated((3, 3, 3), (1, 1, 1), (2, 2, 2));
+    assert_eq!(unfolded.shape(), &[2, 3, 6, 6, 6, 3, 3, 3]);
+}
+
+#[test]
+fn test_fold1d_dilated_shape() {
+    // [N, C, out_L, k] -> [N, C, L]
+    // effective kernel size = (3-1)*2+1 = 5
+    // L = (out_L - 1) * stride + effective_k = (6-1)*1 + 5 = 10
+    let input = Tensor::<f32, Dim4>::ones([2, 3, 6, 3]);
+    let folded = input.fold1d_dilated(10, 1, 2);
+    assert_eq!(folded.shape(), &[2, 3, 10]);
+}
+
+#[test]
+fn test_fold2d_dilated_shape() {
+    // [N, C, out_H, out_W, kH, kW] -> [N, C, H, W]
+    // effective kernel size = (3-1)*2+1 = 5
+    // H,W = (out_H - 1) * stride + effective_k = (6-1)*1 + 5 = 10
+    let input = Tensor::<f32, Dim6>::ones([2, 3, 6, 6, 3, 3]);
+    let folded = input.fold2d_dilated((10, 10), (1, 1), (2, 2));
+    assert_eq!(folded.shape(), &[2, 3, 10, 10]);
+}
+
+#[test]
+fn test_fold3d_dilated_shape() {
+    // [N, C, out_H, out_W, out_D, kH, kW, kD] -> [N, C, H, W, D]
+    // effective kernel size = (3-1)*2+1 = 5
+    // H,W,D = (out - 1) * stride + effective_k = (6-1)*1 + 5 = 10
+    let input = Tensor::<f32, Dim8>::ones([2, 3, 6, 6, 6, 3, 3, 3]);
+    let folded = input.fold3d_dilated((10, 10, 10), (1, 1, 1), (2, 2, 2));
+    assert_eq!(folded.shape(), &[2, 3, 10, 10, 10]);
+}
+
+#[test]
+fn test_unfold1d_dilated_backward_shape() {
+    let input = Tensor::<f32, Dim3>::ones([2, 3, 10]).set_requires_grad(true);
+    let unfolded = input.unfold1d_dilated(3, 1, 2);
+    assert!(unfolded.requires_grad());
+    assert_eq!(unfolded.shape(), &[2, 3, 6, 3]);
+
+    unfolded.backward();
+
+    let grad = input.grad().expect("input should have gradient");
+    assert_eq!(grad.shape(), &[2, 3, 10]); // Same as original input
+}
+
+#[test]
+fn test_unfold2d_dilated_backward_shape() {
+    let input = Tensor::<f32, Dim4>::ones([1, 1, 8, 8]).set_requires_grad(true);
+    let unfolded = input.unfold2d_dilated((3, 3), (1, 1), (2, 2));
+    assert!(unfolded.requires_grad());
+    // effective kernel size = (3-1)*2+1 = 5
+    // output size = (8-5)/1+1 = 4
+    assert_eq!(unfolded.shape(), &[1, 1, 4, 4, 3, 3]);
+
+    unfolded.backward();
+
+    let grad = input.grad().expect("input should have gradient");
+    assert_eq!(grad.shape(), &[1, 1, 8, 8]); // Same as original input
+}
+
+#[test]
+fn test_unfold3d_dilated_backward_shape() {
+    let input = Tensor::<f32, Dim5>::ones([1, 1, 8, 8, 8]).set_requires_grad(true);
+    let unfolded = input.unfold3d_dilated((2, 2, 2), (1, 1, 1), (2, 2, 2));
+    assert!(unfolded.requires_grad());
+    // effective kernel size = (2-1)*2+1 = 3
+    // output size = (8-3)/1+1 = 6
+    assert_eq!(unfolded.shape(), &[1, 1, 6, 6, 6, 2, 2, 2]);
+
+    unfolded.backward();
+
+    let grad = input.grad().expect("input should have gradient");
+    assert_eq!(grad.shape(), &[1, 1, 8, 8, 8]); // Same as original input
+}
+
+#[test]
+fn test_unfold_fold_dilated_round_trip() {
+    // unfold -> fold with dilation should give back the same shape
+    let input = Tensor::<f32, Dim4>::ones([2, 3, 10, 10]).set_requires_grad(true);
+    // effective kernel size = (3-1)*2+1 = 5, output = (10-5)/1+1 = 6
+    let unfolded = input.unfold2d_dilated((3, 3), (1, 1), (2, 2)); // [2, 3, 6, 6, 3, 3]
+    let folded = unfolded.fold2d_dilated((10, 10), (1, 1), (2, 2)); // Back to [2, 3, 10, 10]
+    assert_eq!(folded.shape(), &[2, 3, 10, 10]);
+}
+
+// ============================================================================
+// Interleave tests
+// ============================================================================
+
+#[test]
+fn test_interleave_1d_stride2() {
+    use crate::tensor::Dim1;
+    // [3] with stride=2 on axis 0 -> [5] (1 + (3-1) * 2 = 5)
+    let a = Tensor::<f32, Dim1>::ones([3]);
+    let b = a.interleave(&[0], &[2]);
+    assert_eq!(b.shape(), &[5]);
+}
+
+#[test]
+fn test_interleave_2d_stride2() {
+    // [2, 3, 4, 5] with stride=(2, 3) on axes (2, 3)
+    // new_h = 1 + (4-1) * 2 = 7
+    // new_w = 1 + (5-1) * 3 = 13
+    let a = Tensor::<f32, Dim4>::ones([2, 3, 4, 5]);
+    let b = a.interleave(&[2, 3], &[2, 3]);
+    assert_eq!(b.shape(), &[2, 3, 7, 13]);
+}
+
+#[test]
+fn test_interleave_no_change_stride1() {
+    let a = Tensor::<f32, Dim2>::ones([3, 4]);
+    let b = a.interleave(&[0, 1], &[1, 1]);
+    assert_eq!(b.shape(), &[3, 4]);
+}
+
+#[test]
+fn test_interleave_single_element() {
+    use crate::tensor::Dim1;
+    // Single element: [1] with stride=2 -> [1] (1 + (1-1) * 2 = 1)
+    let a = Tensor::<f32, Dim1>::ones([1]);
+    let b = a.interleave(&[0], &[2]);
+    assert_eq!(b.shape(), &[1]);
+}
+
+// ============================================================================
+// Fold with stride > 1 tests
+// ============================================================================
+
+#[test]
+fn test_fold1d_stride2() {
+    // [N, C, out_L, k] -> [N, C, L]
+    // k=2, out_L=3, stride=2
+    // L = (out_L - 1) * stride + k = (3-1)*2 + 2 = 6
+    let input = Tensor::<f32, Dim4>::ones([1, 1, 3, 2]);
+    let folded = input.fold1d(6, 2);
+    assert_eq!(folded.shape(), &[1, 1, 6]);
+}
+
+#[test]
+fn test_fold2d_stride2() {
+    // [N, C, out_H, out_W, kH, kW] -> [N, C, H, W]
+    // k=(2,2), out=(3,3), stride=(2,2)
+    // H,W = (3-1)*2 + 2 = 6
+    let input = Tensor::<f32, Dim6>::ones([1, 1, 3, 3, 2, 2]);
+    let folded = input.fold2d((6, 6), (2, 2));
+    assert_eq!(folded.shape(), &[1, 1, 6, 6]);
+}
+
+#[test]
+fn test_fold3d_stride2() {
+    // [N, C, out_H, out_W, out_D, kH, kW, kD] -> [N, C, H, W, D]
+    // k=(2,2,2), out=(2,2,2), stride=(2,2,2)
+    // H,W,D = (2-1)*2 + 2 = 4
+    let input = Tensor::<f32, Dim8>::ones([1, 1, 2, 2, 2, 2, 2, 2]);
+    let folded = input.fold3d((4, 4, 4), (2, 2, 2));
+    assert_eq!(folded.shape(), &[1, 1, 4, 4, 4]);
+}
+
+#[test]
+fn test_fold2d_stride2_dilation2() {
+    // k=(2,2), dilation=(2,2) -> effective_k = 3
+    // out=(2,2), stride=(2,2)
+    // H,W = (2-1)*2 + 3 = 5
+    let input = Tensor::<f32, Dim6>::ones([1, 1, 2, 2, 2, 2]);
+    let folded = input.fold2d_dilated((5, 5), (2, 2), (2, 2));
+    assert_eq!(folded.shape(), &[1, 1, 5, 5]);
+}
+
+#[test]
+fn test_unfold_fold_stride2_round_trip() {
+    // unfold -> fold with stride > 1 should give back the same shape
+    let input = Tensor::<f32, Dim4>::ones([1, 1, 8, 8]).set_requires_grad(true);
+    // k=2, stride=2 -> out = (8-2)/2+1 = 4
+    let unfolded = input.unfold2d((2, 2), (2, 2)); // [1, 1, 4, 4, 2, 2]
+    assert_eq!(unfolded.shape(), &[1, 1, 4, 4, 2, 2]);
+    // fold back: (4-1)*2 + 2 = 8
+    let folded = unfolded.fold2d((8, 8), (2, 2)); // [1, 1, 8, 8]
+    assert_eq!(folded.shape(), &[1, 1, 8, 8]);
+}
+
+#[test]
+fn test_unfold_fold_stride2_backward() {
+    // Test gradient flow with stride > 1
+    let input = Tensor::<f32, Dim4>::ones([1, 1, 6, 6]).set_requires_grad(true);
+    // k=2, stride=2 -> out = (6-2)/2+1 = 3
+    let unfolded = input.unfold2d((2, 2), (2, 2)); // [1, 1, 3, 3, 2, 2]
+    assert!(unfolded.requires_grad());
+
+    unfolded.backward();
+
+    let grad = input.grad().expect("input should have gradient");
+    assert_eq!(grad.shape(), &[1, 1, 6, 6]);
+}

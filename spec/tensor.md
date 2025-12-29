@@ -328,8 +328,8 @@ impl<T: FloatDType, D: Dimension> GradFn<T> for PadBackward<T, D> {
 | `Pad` | パディング（View::Masked経由） |
 | `Slice` | スライス（View::Linear経由、ゼロコピー） |
 | `Concat` | テンソル結合（複数入力を条件分岐で処理） |
-| `Unfold` | スライディングウィンドウ（im2col用、View::IndexExpr経由） |
-| `Fold` | Unfoldの逆操作（col2im、勾配計算用、slice+pad+sumで実装） |
+| `Unfold` | スライディングウィンドウ（im2col用、View::IndexExpr経由、dilation対応） |
+| `Fold` | Unfoldの逆操作（col2im、勾配計算用、slice+pad+sumで実装、dilation対応） |
 
 #### 特殊
 | 演算 | 説明 |
@@ -545,8 +545,8 @@ src/tensor/
     ├── movement/   # 形状変更演算
     │   ├── mod.rs
     │   ├── core.rs     # pad, slice, squeeze, unsqueeze, reshape等
-    │   ├── unfold.rs   # unfold1d/2d/3d
-    │   ├── fold.rs     # fold1d/2d/3d（unfoldの逆操作）
+    │   ├── unfold.rs   # unfold1d/2d/3d_dilated（stride, dilation対応）
+    │   ├── fold.rs     # fold1d/2d/3d_dilated（unfoldの逆操作、stride, dilation対応）
     │   ├── backward.rs # 勾配関数
     │   └── tests.rs
     ├── reduce.rs   # 縮約演算
