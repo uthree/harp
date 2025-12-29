@@ -60,14 +60,16 @@ impl<T: FloatDType + Div<T, Output = T>> RMSProp<T> {
         }
     }
 
-    /// カスタムパラメータで RMSProp を作成
-    pub fn with_params(lr: T, rho: T, epsilon: T) -> Self {
-        Self {
-            lr,
-            rho,
-            epsilon,
-            square_avg: HashMap::new(),
-        }
+    /// rho を設定（ビルダーパターン）
+    pub fn with_rho(mut self, rho: T) -> Self {
+        self.rho = rho;
+        self
+    }
+
+    /// epsilon を設定（ビルダーパターン）
+    pub fn with_eps(mut self, epsilon: T) -> Self {
+        self.epsilon = epsilon;
+        self
     }
 
     /// 学習率を取得
@@ -158,8 +160,8 @@ mod tests {
     }
 
     #[test]
-    fn test_rmsprop_with_params() {
-        let optimizer = RMSProp::<f32>::with_params(0.01, 0.9, 1e-7);
+    fn test_rmsprop_builder() {
+        let optimizer = RMSProp::<f32>::new(0.01).with_rho(0.9).with_eps(1e-7);
         assert!((optimizer.learning_rate() - 0.01).abs() < 1e-6);
         assert!((optimizer.rho() - 0.9).abs() < 1e-6);
     }

@@ -74,17 +74,17 @@ impl<T: FloatDType + Div<T, Output = T>> Adam<T> {
         }
     }
 
-    /// カスタムパラメータで Adam を作成
-    pub fn with_params(lr: T, beta1: T, beta2: T, epsilon: T) -> Self {
-        Self {
-            lr,
-            beta1,
-            beta2,
-            epsilon,
-            m: HashMap::new(),
-            v: HashMap::new(),
-            t: 0,
-        }
+    /// β1, β2 を設定（ビルダーパターン）
+    pub fn with_betas(mut self, beta1: T, beta2: T) -> Self {
+        self.beta1 = beta1;
+        self.beta2 = beta2;
+        self
+    }
+
+    /// epsilon を設定（ビルダーパターン）
+    pub fn with_eps(mut self, epsilon: T) -> Self {
+        self.epsilon = epsilon;
+        self
     }
 
     /// 学習率を取得
@@ -218,8 +218,8 @@ mod tests {
     }
 
     #[test]
-    fn test_adam_with_params() {
-        let optimizer = Adam::<f32>::with_params(0.01, 0.85, 0.99, 1e-7);
+    fn test_adam_builder() {
+        let optimizer = Adam::<f32>::new(0.01).with_betas(0.85, 0.99).with_eps(1e-7);
         assert!((optimizer.learning_rate() - 0.01).abs() < 1e-6);
         assert!((optimizer.beta1() - 0.85).abs() < 1e-6);
         assert!((optimizer.beta2() - 0.99).abs() < 1e-6);
