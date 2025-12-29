@@ -13,6 +13,7 @@ crates/
 │       ├── layers/           # レイヤー
 │       │   ├── mod.rs        # 公開API
 │       │   ├── linear.rs     # 全結合層
+│       │   ├── conv.rs       # 畳み込み層 (Conv/ConvTranspose)
 │       │   └── activation.rs # 活性化関数層
 │       ├── loss.rs           # 損失関数
 │       └── optim/            # オプティマイザ
@@ -54,6 +55,55 @@ pub struct Parameter<T: FloatDType>(Tensor<T, DimDyn>);
 #### 全結合層
 
 - `Linear<T>` - 全結合層 (`y = x @ W + b`)
+
+#### 畳み込み層
+
+`unfold + matmul` アプローチで実装。groups による分割畳み込み、depthwise 畳み込みに対応。
+
+| 層 | 入力 | カーネル | 出力 |
+|----|------|----------|------|
+| `Conv1d<T>` | `[N, C_in, L]` | k | `[N, C_out, L_out]` |
+| `Conv2d<T>` | `[N, C_in, H, W]` | (kH, kW) | `[N, C_out, H_out, W_out]` |
+| `Conv3d<T>` | `[N, C_in, D, H, W]` | (kD, kH, kW) | `[N, C_out, D_out, H_out, W_out]` |
+
+**パラメータ：** stride, padding, dilation, groups, bias
+
+```rust
+// ビルダーパターン
+let conv = Conv2d::<f32>::new(3, 64, (3, 3))
+    .stride((2, 2))
+    .padding((1, 1))
+    .groups(1)
+    .bias(true)
+    .build();
+
+let output = conv.forward(&input);
+```
+
+#### 転置畳み込み層
+
+`matmul + fold` アプローチで実装。アップサンプリングや生成モデルで使用。
+
+| 層 | 入力 | カーネル | 出力 |
+|----|------|----------|------|
+| `ConvTranspose1d<T>` | `[N, C_in, L]` | k | `[N, C_out, L_out]` |
+| `ConvTranspose2d<T>` | `[N, C_in, H, W]` | (kH, kW) | `[N, C_out, H_out, W_out]` |
+| `ConvTranspose3d<T>` | `[N, C_in, D, H, W]` | (kD, kH, kW) | `[N, C_out, D_out, H_out, W_out]` |
+
+**パラメータ：** stride, padding, output_padding, dilation, groups, bias
+
+出力サイズ（1次元の場合）：
+`L_out = (L_in - 1) * stride - 2 * padding + dilation * (k - 1) + output_padding + 1`
+
+```rust
+let conv_t = ConvTranspose2d::<f32>::new(64, 3, (3, 3))
+    .stride((2, 2))
+    .padding((1, 1))
+    .output_padding((1, 1))  // stride > 1 で出力サイズの曖昧さを解消
+    .build();
+
+let upsampled = conv_t.forward(&input);
+```
 
 #### 活性化関数層
 
@@ -131,6 +181,8 @@ pub trait Optimizer<T: FloatDType> {
 
 ## 使用例
 
+### MLP
+
 ```rust
 use harp::tensor::{Tensor, Dim2, FloatDType};
 use harp_nn::{Linear, ReLU, Module, SGD, Optimizer};
@@ -147,6 +199,27 @@ let output = relu.forward(&hidden.into_dim2());
 let loss = mse_loss(&output, &target);
 loss.backward();
 optimizer.step(&mut linear);
+```
+
+### CNN
+
+```rust
+use harp::tensor::{Tensor, Dim4};
+use harp_nn::{Conv2d, ReLU};
+
+// 畳み込みネットワーク
+let conv1 = Conv2d::<f32>::new(3, 64, (3, 3))
+    .padding((1, 1))
+    .build();
+let conv2 = Conv2d::<f32>::new(64, 128, (3, 3))
+    .stride((2, 2))
+    .padding((1, 1))
+    .build();
+let relu = ReLU::<f32>::new();
+
+let input = Tensor::<f32, Dim4>::rand([1, 3, 32, 32]);
+let h = relu.forward(&conv1.forward(&input).into_dyn()).into_dim4();
+let h = relu.forward(&conv2.forward(&h).into_dyn()).into_dim4();
 ```
 
 ## ジェネリクス
