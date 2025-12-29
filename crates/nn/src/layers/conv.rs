@@ -2706,4 +2706,30 @@ mod tests {
         // output_size = (8 - 1) * 2 - 2 * 1 + 3 + 0 = 15
         assert_eq!(output.shape(), &[2, 16, 15, 15, 15]);
     }
+
+    // Gradient propagation tests
+    #[test]
+    fn test_conv2d_gradient() {
+        let conv = Conv2d::<f32>::new(3, 8, (3, 3)).padding((1, 1)).build();
+        let input = Tensor::<f32, Dim4>::rand([1, 3, 8, 8]).set_requires_grad(true);
+        let output = conv.forward(&input);
+        output.backward();
+
+        // Input should have gradients
+        assert!(input.grad().is_some());
+    }
+
+    #[test]
+    fn test_conv_transpose2d_gradient() {
+        let conv = ConvTranspose2d::<f32>::new(3, 8, (3, 3))
+            .stride((2, 2))
+            .padding((1, 1))
+            .build();
+        let input = Tensor::<f32, Dim4>::rand([1, 3, 4, 4]).set_requires_grad(true);
+        let output = conv.forward(&input);
+        output.backward();
+
+        // Input should have gradients
+        assert!(input.grad().is_some());
+    }
 }
