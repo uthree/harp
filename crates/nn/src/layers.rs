@@ -2,12 +2,11 @@
 //!
 //! 基本的な層の実装を提供します。
 
-use std::collections::HashMap;
 use std::marker::PhantomData;
 
 use harp::tensor::{Dim2, DimDyn, FloatDType, Tensor};
 
-use crate::{Module, Parameter};
+use crate::Parameter;
 
 /// 全結合層（Linear Layer）
 ///
@@ -23,6 +22,8 @@ use crate::{Module, Parameter};
 /// let linear = Linear::<f32>::new(784, 128);
 /// let output = linear.forward(&input);
 /// ```
+#[derive(harp_nn_derive::Module)]
+#[module(crate = "crate")]
 pub struct Linear<T: FloatDType = f32> {
     /// 重み行列 [in_features, out_features]
     weight: Parameter<T>,
@@ -79,27 +80,10 @@ impl<T: FloatDType> Linear<T> {
     }
 }
 
-impl<T: FloatDType> Module<T> for Linear<T> {
-    fn parameters(&mut self) -> HashMap<String, &mut Parameter<T>> {
-        let mut params = HashMap::new();
-        params.insert("weight".to_string(), &mut self.weight);
-        params.insert("bias".to_string(), &mut self.bias);
-        params
-    }
-
-    fn load_parameters(&mut self, params: HashMap<String, Parameter<T>>) {
-        if let Some(w) = params.get("weight") {
-            self.weight = w.clone();
-        }
-        if let Some(b) = params.get("bias") {
-            self.bias = b.clone();
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Module;
 
     #[test]
     fn test_linear_creation() {

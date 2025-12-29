@@ -23,12 +23,16 @@ pub mod loss;
 pub mod module;
 pub mod optim;
 
+// Derive マクロを re-export
+pub use harp_nn_derive::Module;
+
 pub mod prelude {
     //! 一般的に使用される型のre-export
     pub use crate::layers::*;
     pub use crate::loss::*;
     pub use crate::module::*;
     pub use crate::optim::*;
+    pub use harp_nn_derive::Module;
 }
 
 pub use layers::*;

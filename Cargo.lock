@@ -648,6 +648,16 @@ name = "harp-nn"
 version = "0.1.0"
 dependencies = [
  "harp",
+ "harp-nn-derive",
+]
+
+[[package]]
+name = "harp-nn-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
