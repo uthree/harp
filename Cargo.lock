@@ -644,6 +644,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "harp-nn"
+version = "0.1.0"
+dependencies = [
+ "harp",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.15.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"

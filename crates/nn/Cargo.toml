@@ -1,0 +1,8 @@
+[package]
+name = "harp-nn"
+version = "0.1.0"
+edition = "2024"
+description = "Neural network layers and utilities for Harp"
+
+[dependencies]
+harp = { path = "../.." }
