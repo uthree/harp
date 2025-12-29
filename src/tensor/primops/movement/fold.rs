@@ -93,32 +93,13 @@ impl<T: FloatDType> Tensor<T, Dim6> {
             dw
         );
 
-        // Fast path: non-overlapping (stride == effective_kernel_size) and dilation=1
-        if sh == eff_kh && sw == eff_kw && dh == 1 && dw == 1 {
-            return self.fold2d_non_overlapping(output_size);
-        }
-
-        // General case: use interleave + pad + sum
-        self.fold2d_overlapping_strided(output_size, strides, dilations)
+        // Unified implementation using interleave + pad + sum pattern
+        // This handles all cases uniformly: any stride, any dilation
+        self.fold2d_impl(output_size, strides, dilations)
     }
 
-    /// Fast path for non-overlapping fold (stride == kernel_size, dilation=1)
-    #[allow(unused_variables)]
-    fn fold2d_non_overlapping(&self, output_size: (usize, usize)) -> Tensor<T, Dim4> {
-        let shape = self.shape();
-        let (n, c, _out_h, _out_w, _kh, _kw) =
-            (shape[0], shape[1], shape[2], shape[3], shape[4], shape[5]);
-        let (h, w) = output_size;
-
-        // [N, C, out_H, out_W, kH, kW] -> [N, C, out_H, kH, out_W, kW]
-        let permuted = self.permute(&[0, 1, 2, 4, 3, 5]);
-
-        // [N, C, out_H, kH, out_W, kW] -> [N, C, H, W]
-        permuted.reshape([n, c, h, w])
-    }
-
-    /// Overlapping fold with stride and dilation using interleave + pad + sum pattern
-    fn fold2d_overlapping_strided(
+    /// Unified fold implementation using interleave + pad + sum pattern
+    fn fold2d_impl(
         &self,
         output_size: (usize, usize),
         strides: (usize, usize),
@@ -240,13 +221,9 @@ impl<T: FloatDType> Tensor<T, Dim4> {
             dilation
         );
 
-        // Fast path: non-overlapping (stride == effective_kernel_size) and dilation=1
-        if stride == eff_k && dilation == 1 {
-            // [N, C, out_L, k] -> [N, C, L]
-            return self.reshape([n, c, l]);
-        }
+        // Unified implementation using interleave + pad + sum pattern
+        // This handles all cases uniformly: any stride, any dilation
 
-        // General case: use interleave + pad + sum
         // Initialize result
         let mut result: Tensor<T, Dim3> = Tensor::<T, DimDyn>::zeros_dyn(&[n, c, l]).into_dim3();
 
@@ -361,14 +338,9 @@ impl<T: FloatDType> Tensor<T, Dim8> {
             dd
         );
 
-        // Fast path: non-overlapping (stride == effective_kernel_size) and dilation=1
-        if sh == eff_kh && sw == eff_kw && sd == eff_kd && dh == 1 && dw == 1 && dd == 1 {
-            // [N, C, out_H, out_W, out_D, kH, kW, kD] -> permute -> reshape
-            let permuted = self.permute(&[0, 1, 2, 5, 3, 6, 4, 7]);
-            return permuted.reshape([n, c, target_h, target_w, target_d]);
-        }
+        // Unified implementation using interleave + pad + sum pattern
+        // This handles all cases uniformly: any stride, any dilation
 
-        // General case: use interleave + pad + sum
         // Initialize result
         let (h, w, d) = output_size;
         let mut result: Tensor<T, Dim5> =
