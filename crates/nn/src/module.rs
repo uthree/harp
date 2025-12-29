@@ -10,6 +10,10 @@ use harp::tensor::{DimDyn, Tensor};
 /// 学習可能なパラメータを表すラッパー
 ///
 /// Tensorをラップし、自動的に `requires_grad = true` を設定します。
+///
+/// # Note
+///
+/// 現在はf32のみをサポート。将来的にはジェネリック化予定。
 #[derive(Clone)]
 pub struct Parameter(pub Tensor<f32, DimDyn>);
 
@@ -62,6 +66,10 @@ impl DerefMut for Parameter {
 ///
 /// 学習可能なパラメータを持つ計算ユニットを表現します。
 /// `forward()` メソッドは各実装で独自に定義してください。
+///
+/// # Note
+///
+/// 現在はf32のみをサポート。将来的にはジェネリック化予定。
 ///
 /// # Example
 ///
