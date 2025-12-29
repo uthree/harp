@@ -121,6 +121,94 @@ impl<D: Dimension> Tensor<f32, D> {
     }
 }
 
+// ============================================================================
+// f64 implementations
+// ============================================================================
+
+impl<D: Dimension> Tensor<f64, D> {
+    /// ReLU activation: max(0, x) (hlop)
+    pub fn relu(&self) -> Tensor<f64, D> {
+        self.maximum_scalar(0.0)
+    }
+
+    /// Leaky ReLU activation (hlop)
+    pub fn leaky_relu(&self, alpha: f64) -> Tensor<f64, D> {
+        let scaled = self * alpha;
+        self.maximum(&scaled)
+    }
+
+    /// Sigmoid activation: 1 / (1 + exp(-x)) (hlop)
+    pub fn sigmoid(&self) -> Tensor<f64, D> {
+        let neg_x = -self;
+        let exp_neg_x = neg_x.exp();
+        let one_plus = exp_neg_x + 1.0;
+        one_plus.recip()
+    }
+
+    /// Tanh activation (hlop)
+    pub fn tanh(&self) -> Tensor<f64, D> {
+        let two_x = self * 2.0;
+        let exp_2x = two_x.exp();
+        let numerator = &exp_2x - 1.0;
+        let denominator = &exp_2x + 1.0;
+        numerator / denominator
+    }
+
+    /// GELU activation (fast approximation) (hlop)
+    pub fn gelu(&self) -> Tensor<f64, D> {
+        let scaled = self * 1.702;
+        let sig = scaled.sigmoid();
+        self * &sig
+    }
+
+    /// SiLU (Swish) activation (hlop)
+    pub fn silu(&self) -> Tensor<f64, D> {
+        let sig = self.sigmoid();
+        self * &sig
+    }
+
+    /// Softplus activation (hlop)
+    pub fn softplus(&self) -> Tensor<f64, D> {
+        let exp_x = self.exp();
+        let one_plus = exp_x + 1.0;
+        one_plus.ln()
+    }
+
+    /// Mish activation (hlop)
+    pub fn mish(&self) -> Tensor<f64, D> {
+        let sp = self.softplus();
+        let tanh_sp = sp.tanh();
+        self * &tanh_sp
+    }
+
+    /// ELU activation (hlop)
+    pub fn elu(&self, alpha: f64) -> Tensor<f64, D> {
+        let exp_x = self.exp();
+        let exp_minus_1 = exp_x - 1.0;
+        let negative_part = exp_minus_1 * alpha;
+        let positive = self.relu();
+        let _negative = self.maximum_scalar(0.0);
+        positive + (-(&negative_part - &negative_part.relu()))
+    }
+
+    /// Hardtanh: clamp to [-min_val, max_val] (hlop)
+    pub fn hardtanh(&self, min_val: f64, max_val: f64) -> Tensor<f64, D> {
+        self.maximum_scalar(min_val).min_scalar(max_val)
+    }
+
+    /// Element-wise minimum with scalar (hlop)
+    pub fn min_scalar(&self, value: f64) -> Tensor<f64, D> {
+        let neg_self = -self;
+        let neg_max = neg_self.maximum_scalar(-value);
+        -neg_max
+    }
+
+    /// Clamp values to [min, max] (hlop)
+    pub fn clamp(&self, min: f64, max: f64) -> Tensor<f64, D> {
+        self.maximum_scalar(min).min_scalar(max)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

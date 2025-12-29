@@ -10,7 +10,10 @@ crates/
 │   └── src/
 │       ├── lib.rs            # エントリポイント
 │       ├── module.rs         # Module trait, Parameter
-│       ├── layers.rs         # Linear など
+│       ├── layers/           # レイヤー
+│       │   ├── mod.rs        # 公開API
+│       │   ├── linear.rs     # 全結合層
+│       │   └── activation.rs # 活性化関数層
 │       ├── loss.rs           # 損失関数
 │       └── optim/            # オプティマイザ
 │           ├── mod.rs        # Optimizer trait
@@ -42,6 +45,37 @@ pub trait Module<T: FloatDType> {
 
 ```rust
 pub struct Parameter<T: FloatDType>(Tensor<T, DimDyn>);
+```
+
+### レイヤー
+
+#### 全結合層
+
+- `Linear<T>` - 全結合層 (`y = x @ W + b`)
+
+#### 活性化関数層
+
+全て `FloatDType` でジェネリック化されており、f32/f64 に対応。
+
+| 層 | 関数 | 説明 |
+|----|------|------|
+| `ReLU<T>` | `max(0, x)` | 負の値を0にする |
+| `LeakyReLU<T>` | `max(alpha*x, x)` | 負の値に小さな傾きを持たせる |
+| `Sigmoid<T>` | `1 / (1 + exp(-x))` | 0〜1に正規化 |
+| `Tanh<T>` | `(exp(2x)-1)/(exp(2x)+1)` | -1〜1に正規化 |
+| `GELU<T>` | `x * sigmoid(1.702 * x)` | 高速近似版GELU |
+| `SiLU<T>` | `x * sigmoid(x)` | Swish関数 |
+| `Softplus<T>` | `ln(1 + exp(x))` | 滑らかなReLU |
+| `Mish<T>` | `x * tanh(softplus(x))` | Mish活性化 |
+| `ELU<T>` | `x if x>0, else alpha*(exp(x)-1)` | 指数線形ユニット |
+
+```rust
+// 使用例
+let relu = ReLU::<f32>::new();
+let output = relu.forward(&input);
+
+let leaky = LeakyReLU::<f64>::new(0.01);
+let output = leaky.forward(&input);
 ```
 
 ### #[derive(Module)] マクロ
@@ -95,15 +129,17 @@ pub trait Optimizer<T: FloatDType> {
 
 ```rust
 use harp::tensor::{Tensor, Dim2, FloatDType};
-use harp_nn::{Linear, Module, SGD, Optimizer};
+use harp_nn::{Linear, ReLU, Module, SGD, Optimizer};
 
 // モデル作成
 let mut linear = Linear::<f32>::new(784, 128);
+let relu = ReLU::<f32>::new();
 let mut optimizer = SGD::new(0.01);
 
 // 学習ループ
 linear.zero_grad();
-let output = linear.forward(&input);
+let hidden = linear.forward(&input);
+let output = relu.forward(&hidden.into_dim2());
 let loss = mse_loss(&output, &target);
 loss.backward();
 optimizer.step(&mut linear);
@@ -116,9 +152,11 @@ optimizer.step(&mut linear);
 ```rust
 // f32 (デフォルト)
 let linear_f32 = Linear::<f32>::new(10, 5);
+let relu_f32 = ReLU::<f32>::new();
 let sgd_f32 = SGD::<f32>::new(0.01);
 
 // f64
 let linear_f64 = Linear::<f64>::new(10, 5);
+let relu_f64 = ReLU::<f64>::new();
 let sgd_f64 = SGD::<f64>::new(0.01);
 ```

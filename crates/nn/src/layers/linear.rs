@@ -1,6 +1,4 @@
-//! ニューラルネットワーク層
-//!
-//! 基本的な層の実装を提供します。
+//! 全結合層（Linear Layer）
 
 use std::marker::PhantomData;
 

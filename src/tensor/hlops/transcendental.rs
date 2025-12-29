@@ -64,9 +64,57 @@ impl<D: Dimension> Tensor<f32, D> {
     }
 }
 
-// Note: f64 hlops (exp, ln, cos, tan, pow, square) require binary operations
-// (Add, Mul, Div) for f64 tensors. Currently only primops (sin, sqrt, log2,
-// exp2, recip, floor) support f64 directly.
+impl<D: Dimension> Tensor<f64, D> {
+    /// Compute exp(x) = e^x for each element (hlop)
+    ///
+    /// Implemented as: Exp2(x * log2(e))
+    pub fn exp(&self) -> Tensor<f64, D> {
+        let log2_e = std::f64::consts::LOG2_E;
+        let scaled = self * log2_e;
+        scaled.exp2()
+    }
+
+    /// Compute natural logarithm ln(x) for each element (hlop)
+    ///
+    /// Implemented as: Log2(x) * ln(2)
+    pub fn ln(&self) -> Tensor<f64, D> {
+        let ln2 = std::f64::consts::LN_2;
+        let log2_x = self.log2();
+        log2_x * ln2
+    }
+
+    /// Compute cos(x) for each element (hlop)
+    ///
+    /// Implemented as: Sin(x + π/2)
+    pub fn cos(&self) -> Tensor<f64, D> {
+        use std::f64::consts::FRAC_PI_2;
+        let shifted = self + FRAC_PI_2;
+        shifted.sin()
+    }
+
+    /// Compute tan(x) for each element (hlop)
+    ///
+    /// Implemented as: Sin(x) / Cos(x)
+    pub fn tan(&self) -> Tensor<f64, D> {
+        let sin_x = self.sin();
+        let cos_x = self.cos();
+        sin_x / cos_x
+    }
+
+    /// Compute x^n for each element (hlop)
+    ///
+    /// Implemented as: Exp2(n * Log2(x)) for positive x
+    pub fn pow(&self, n: f64) -> Tensor<f64, D> {
+        let log2_x = self.log2();
+        let scaled = log2_x * n;
+        scaled.exp2()
+    }
+
+    /// Compute x^2 for each element (hlop)
+    pub fn square(&self) -> Tensor<f64, D> {
+        self * self
+    }
+}
 
 #[cfg(test)]
 mod tests {
