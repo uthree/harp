@@ -6,6 +6,9 @@
 //!
 //! ## パラメータを持つ層
 //! - [`Linear`] - 全結合層
+//! - [`Conv1d`] - 1D畳み込み層
+//! - [`Conv2d`] - 2D畳み込み層
+//! - [`Conv3d`] - 3D畳み込み層
 //!
 //! ## 活性化関数層（パラメータなし）
 //! - [`ReLU`] - ReLU 活性化関数
@@ -20,7 +23,9 @@
 //! - [`Activation`] - 汎用活性化層
 
 mod activation;
+mod conv;
 mod linear;
 
 pub use activation::{ELU, GELU, LeakyReLU, Mish, ReLU, SiLU, Sigmoid, Softplus, Swish, Tanh};
+pub use conv::{Conv1d, Conv1dBuilder, Conv2d, Conv2dBuilder, Conv3d, Conv3dBuilder};
 pub use linear::Linear;
