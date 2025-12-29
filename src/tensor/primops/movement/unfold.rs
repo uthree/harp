@@ -4,11 +4,12 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use super::super::binary::with_grad_fn_generic;
-use super::backward::{Unfold1dBackward, Unfold2dBackward, Unfold3dBackward};
-use crate::tensor::shape::Expr;
-use crate::tensor::{
-    Dim3, Dim4, Dim5, Dim6, Dim8, FloatDType, GradFn, Tensor, TensorInner, TensorOp,
+use super::backward::{
+    Unfold1dBackward, Unfold1dBackwardTyped, Unfold2dBackward, Unfold2dBackwardTyped,
+    Unfold3dBackward, Unfold3dBackwardTyped,
 };
+use crate::tensor::shape::Expr;
+use crate::tensor::{Dim3, Dim4, Dim5, Dim6, Dim8, FloatDType, Tensor, TensorInner, TensorOp};
 
 impl<T: FloatDType> Tensor<T, Dim3> {
     /// 1D unfold (sliding window) - [N, C, L] → [N, C, out_L, k]
@@ -89,20 +90,16 @@ impl<T: FloatDType> Tensor<T, Dim3> {
             _dim: PhantomData,
         };
 
-        // Register gradient function
-        let grad_fn = if self.requires_grad() {
-            Some(Arc::new(Unfold1dBackward::new(
-                self.clone().into_dyn(),
-                l, // output_size (original L)
-                size,
-                stride,
-                dilation,
-            )) as Arc<dyn GradFn<T>>)
+        // Use typed system if available
+        if self.requires_grad_typed() {
+            let grad_fn = Unfold1dBackwardTyped::new(self.clone(), l, stride, dilation);
+            result.with_grad_fn_typed(Arc::new(grad_fn))
+        } else if self.requires_grad() {
+            let grad_fn = Unfold1dBackward::new(self.clone().into_dyn(), l, size, stride, dilation);
+            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
-            None
-        };
-
-        with_grad_fn_generic(result, grad_fn)
+            result
+        }
     }
 }
 
@@ -206,20 +203,22 @@ impl<T: FloatDType> Tensor<T, Dim4> {
             _dim: PhantomData,
         };
 
-        // Register gradient function
-        let grad_fn = if self.requires_grad() {
-            Some(Arc::new(Unfold2dBackward::new(
+        // Use typed system if available
+        if self.requires_grad_typed() {
+            let grad_fn = Unfold2dBackwardTyped::new(self.clone(), (h, w), (sh, sw), (dh, dw));
+            result.with_grad_fn_typed(Arc::new(grad_fn))
+        } else if self.requires_grad() {
+            let grad_fn = Unfold2dBackward::new(
                 self.clone().into_dyn(),
-                (h, w), // output_size (original H, W)
+                (h, w),
                 (kh, kw),
                 (sh, sw),
                 (dh, dw),
-            )) as Arc<dyn GradFn<T>>)
+            );
+            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
-            None
-        };
-
-        with_grad_fn_generic(result, grad_fn)
+            result
+        }
     }
 }
 
@@ -360,19 +359,26 @@ impl<T: FloatDType> Tensor<T, Dim5> {
             _dim: PhantomData,
         };
 
-        // Register gradient function
-        let grad_fn = if self.requires_grad() {
-            Some(Arc::new(Unfold3dBackward::new(
+        // Use typed system if available
+        if self.requires_grad_typed() {
+            let grad_fn = Unfold3dBackwardTyped::new(
+                self.clone(),
+                (h, w, d),
+                (sh, sw, sd),
+                (dil_h, dil_w, dil_d),
+            );
+            result.with_grad_fn_typed(Arc::new(grad_fn))
+        } else if self.requires_grad() {
+            let grad_fn = Unfold3dBackward::new(
                 self.clone().into_dyn(),
-                (h, w, d), // output_size (original H, W, D)
+                (h, w, d),
                 (kh, kw, kd),
                 (sh, sw, sd),
                 (dil_h, dil_w, dil_d),
-            )) as Arc<dyn GradFn<T>>)
+            );
+            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
-            None
-        };
-
-        with_grad_fn_generic(result, grad_fn)
+            result
+        }
     }
 }

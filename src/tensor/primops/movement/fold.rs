@@ -8,7 +8,10 @@ use std::sync::Arc;
 
 use super::super::binary::with_grad_fn_generic;
 use super::PadValue;
-use super::backward::{Fold1dBackward, Fold2dBackward, Fold3dBackward};
+use super::backward::{
+    Fold1dBackward, Fold1dBackwardTyped, Fold2dBackward, Fold2dBackwardTyped, Fold3dBackward,
+    Fold3dBackwardTyped,
+};
 use crate::tensor::{Dim3, Dim4, Dim5, Dim6, Dim8, DimDyn, FloatDType, GradFn, Tensor};
 
 // ============================================================================
@@ -98,19 +101,17 @@ impl<T: FloatDType> Tensor<T, Dim6> {
         // This handles all cases uniformly: any stride, any dilation
         let result = self.fold2d_impl(output_size, strides, dilations);
 
-        // Register gradient function
-        let grad_fn = if self.requires_grad() {
-            Some(Arc::new(Fold2dBackward::new(
-                self.clone().into_dyn(),
-                (kh, kw),
-                strides,
-                dilations,
-            )) as Arc<dyn GradFn<T>>)
+        // Register gradient function - prefer typed system
+        if self.requires_grad_typed() {
+            let grad_fn = Fold2dBackwardTyped::new(self.clone(), (kh, kw), strides, dilations);
+            result.with_grad_fn_typed(Arc::new(grad_fn))
+        } else if self.requires_grad() {
+            let grad_fn =
+                Fold2dBackward::new(self.clone().into_dyn(), (kh, kw), strides, dilations);
+            with_grad_fn_generic(result, Some(Arc::new(grad_fn) as Arc<dyn GradFn<T>>))
         } else {
-            None
-        };
-
-        with_grad_fn_generic(result, grad_fn)
+            result
+        }
     }
 
     /// Unified fold implementation using interleave + pad + sum pattern
@@ -276,19 +277,16 @@ impl<T: FloatDType> Tensor<T, Dim4> {
             result = result + padded;
         }
 
-        // Register gradient function
-        let grad_fn = if self.requires_grad() {
-            Some(Arc::new(Fold1dBackward::new(
-                self.clone().into_dyn(),
-                k,
-                stride,
-                dilation,
-            )) as Arc<dyn GradFn<T>>)
+        // Register gradient function - prefer typed system
+        if self.requires_grad_typed() {
+            let grad_fn = Fold1dBackwardTyped::new(self.clone(), k, stride, dilation);
+            result.with_grad_fn_typed(Arc::new(grad_fn))
+        } else if self.requires_grad() {
+            let grad_fn = Fold1dBackward::new(self.clone().into_dyn(), k, stride, dilation);
+            with_grad_fn_generic(result, Some(Arc::new(grad_fn) as Arc<dyn GradFn<T>>))
         } else {
-            None
-        };
-
-        with_grad_fn_generic(result, grad_fn)
+            result
+        }
     }
 }
 
@@ -432,18 +430,16 @@ impl<T: FloatDType> Tensor<T, Dim8> {
             }
         }
 
-        // Register gradient function
-        let grad_fn = if self.requires_grad() {
-            Some(Arc::new(Fold3dBackward::new(
-                self.clone().into_dyn(),
-                (kh, kw, kd),
-                strides,
-                dilations,
-            )) as Arc<dyn GradFn<T>>)
+        // Register gradient function - prefer typed system
+        if self.requires_grad_typed() {
+            let grad_fn = Fold3dBackwardTyped::new(self.clone(), (kh, kw, kd), strides, dilations);
+            result.with_grad_fn_typed(Arc::new(grad_fn))
+        } else if self.requires_grad() {
+            let grad_fn =
+                Fold3dBackward::new(self.clone().into_dyn(), (kh, kw, kd), strides, dilations);
+            with_grad_fn_generic(result, Some(Arc::new(grad_fn) as Arc<dyn GradFn<T>>))
         } else {
-            None
-        };
-
-        with_grad_fn_generic(result, grad_fn)
+            result
+        }
     }
 }

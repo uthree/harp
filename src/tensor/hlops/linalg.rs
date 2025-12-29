@@ -4,7 +4,6 @@
 //! - BatchMatMul = MatMul with batch dimensions
 //! - Dot = Sum(a * b)
 
-
 use crate::tensor::{Dim1, Dim2, DimDyn, FloatDType, Tensor};
 
 // ============================================================================

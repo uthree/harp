@@ -1625,14 +1625,15 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
 
         // Fallback: try DimDyn and convert
         if let Some(ref autograd_arc) = self.autograd_typed
-            && let Some(autograd) = autograd_arc.downcast_ref::<AutogradMetaTyped<T, DimDyn>>() {
-                return autograd.grad.read().unwrap().as_ref().map(|g| Tensor {
-                    inner: g.inner.clone(),
-                    autograd_typed: None,
-                    _dtype: PhantomData,
-                    _dim: PhantomData,
-                });
-            }
+            && let Some(autograd) = autograd_arc.downcast_ref::<AutogradMetaTyped<T, DimDyn>>()
+        {
+            return autograd.grad.read().unwrap().as_ref().map(|g| Tensor {
+                inner: g.inner.clone(),
+                autograd_typed: None,
+                _dtype: PhantomData,
+                _dim: PhantomData,
+            });
+        }
 
         None
     }

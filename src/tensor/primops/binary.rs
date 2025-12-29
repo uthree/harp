@@ -591,10 +591,14 @@ impl<D: Dimension> Mul<Tensor<f64, D>> for f64 {
 
 impl<D: Dimension> Tensor<f32, D> {
     /// Compute element-wise maximum with another tensor (primop)
-    pub fn maximum(&self, other: &Tensor<f32, impl Dimension>) -> Tensor<f32, D> {
+    pub fn maximum(&self, other: &Tensor<f32, D>) -> Tensor<f32, D> {
         let result = create_binary_elementwise(ElementwiseOp::Max, self, other);
 
-        if self.requires_grad() || other.requires_grad() {
+        // Use typed system if available
+        if self.requires_grad_typed() || other.requires_grad_typed() {
+            let grad_fn = MaxBackwardTyped::new(self.clone(), other.clone());
+            result.with_grad_fn_typed(Arc::new(grad_fn))
+        } else if self.requires_grad() || other.requires_grad() {
             let grad_fn = MaxBackward::new(self.clone().into_dyn(), other.clone().into_dyn());
             with_grad_fn(result, Some(Arc::new(grad_fn)))
         } else {
@@ -605,7 +609,15 @@ impl<D: Dimension> Tensor<f32, D> {
     /// Compute element-wise maximum with a scalar
     pub fn maximum_scalar(&self, value: f32) -> Tensor<f32, D> {
         let scalar = scalar_tensor_f32(value);
-        self.maximum(&scalar)
+        let result = create_binary_elementwise(ElementwiseOp::Max, self, &scalar);
+
+        // Scalar operations use legacy system (scalar is DimDyn)
+        if self.requires_grad() || self.requires_grad_typed() {
+            let grad_fn = MaxBackward::new(self.clone().into_dyn(), scalar);
+            with_grad_fn(result, Some(Arc::new(grad_fn)))
+        } else {
+            result
+        }
     }
 }
 
@@ -615,14 +627,22 @@ impl<D: Dimension> Tensor<f32, D> {
 
 impl<D: Dimension> Tensor<f64, D> {
     /// Compute element-wise maximum with another tensor (primop)
-    pub fn maximum(&self, other: &Tensor<f64, impl Dimension>) -> Tensor<f64, D> {
-        create_binary_elementwise(ElementwiseOp::Max, self, other)
+    pub fn maximum(&self, other: &Tensor<f64, D>) -> Tensor<f64, D> {
+        let result = create_binary_elementwise(ElementwiseOp::Max, self, other);
+
+        // Use typed system if available
+        if self.requires_grad_typed() || other.requires_grad_typed() {
+            let grad_fn = MaxBackwardTyped::new(self.clone(), other.clone());
+            result.with_grad_fn_typed(Arc::new(grad_fn))
+        } else {
+            result
+        }
     }
 
     /// Compute element-wise maximum with a scalar
     pub fn maximum_scalar(&self, value: f64) -> Tensor<f64, D> {
         let scalar = scalar_tensor_f64(value);
-        self.maximum(&scalar)
+        create_binary_elementwise(ElementwiseOp::Max, self, &scalar)
     }
 }
 

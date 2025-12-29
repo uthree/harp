@@ -990,3 +990,236 @@ impl<T: FloatDType, D: Dimension> GradFnTyped<T, DimDyn> for TransposeBackwardTy
         "TransposeBackwardTyped"
     }
 }
+
+// ============================================================================
+// Typed Unfold/Fold Backward Structs
+// ============================================================================
+
+use crate::tensor::{Dim3, Dim4, Dim5, Dim6, Dim8};
+
+/// Typed gradient for Unfold1d: y = unfold1d(x, size, stride, dilation)
+/// Input: Dim3, Output: Dim4
+/// ∂L/∂x = fold1d(∂L/∂y, output_size, stride, dilation)
+pub struct Unfold1dBackwardTyped<T: FloatDType> {
+    input: Tensor<T, Dim3>,
+    output_size: usize,
+    stride: usize,
+    dilation: usize,
+}
+
+impl<T: FloatDType> Unfold1dBackwardTyped<T> {
+    pub fn new(input: Tensor<T, Dim3>, output_size: usize, stride: usize, dilation: usize) -> Self {
+        Self {
+            input,
+            output_size,
+            stride,
+            dilation,
+        }
+    }
+}
+
+impl<T: FloatDType> GradFnTyped<T, Dim4> for Unfold1dBackwardTyped<T> {
+    fn backward(&self, grad_output: &Tensor<T, Dim4>) {
+        if self.input.requires_grad_typed() {
+            let folded = grad_output.fold1d_dilated(self.output_size, self.stride, self.dilation);
+            self.input.backward_with_typed(folded);
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "Unfold1dBackwardTyped"
+    }
+}
+
+/// Typed gradient for Unfold2d: y = unfold2d(x, sizes, strides, dilations)
+/// Input: Dim4, Output: Dim6
+/// ∂L/∂x = fold2d(∂L/∂y, output_size, strides, dilations)
+pub struct Unfold2dBackwardTyped<T: FloatDType> {
+    input: Tensor<T, Dim4>,
+    output_size: (usize, usize),
+    strides: (usize, usize),
+    dilations: (usize, usize),
+}
+
+impl<T: FloatDType> Unfold2dBackwardTyped<T> {
+    pub fn new(
+        input: Tensor<T, Dim4>,
+        output_size: (usize, usize),
+        strides: (usize, usize),
+        dilations: (usize, usize),
+    ) -> Self {
+        Self {
+            input,
+            output_size,
+            strides,
+            dilations,
+        }
+    }
+}
+
+impl<T: FloatDType> GradFnTyped<T, Dim6> for Unfold2dBackwardTyped<T> {
+    fn backward(&self, grad_output: &Tensor<T, Dim6>) {
+        if self.input.requires_grad_typed() {
+            let folded = grad_output.fold2d_dilated(self.output_size, self.strides, self.dilations);
+            self.input.backward_with_typed(folded);
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "Unfold2dBackwardTyped"
+    }
+}
+
+/// Typed gradient for Unfold3d: y = unfold3d(x, sizes, strides, dilations)
+/// Input: Dim5, Output: Dim8
+/// ∂L/∂x = fold3d(∂L/∂y, output_size, strides, dilations)
+pub struct Unfold3dBackwardTyped<T: FloatDType> {
+    input: Tensor<T, Dim5>,
+    output_size: (usize, usize, usize),
+    strides: (usize, usize, usize),
+    dilations: (usize, usize, usize),
+}
+
+impl<T: FloatDType> Unfold3dBackwardTyped<T> {
+    pub fn new(
+        input: Tensor<T, Dim5>,
+        output_size: (usize, usize, usize),
+        strides: (usize, usize, usize),
+        dilations: (usize, usize, usize),
+    ) -> Self {
+        Self {
+            input,
+            output_size,
+            strides,
+            dilations,
+        }
+    }
+}
+
+impl<T: FloatDType> GradFnTyped<T, Dim8> for Unfold3dBackwardTyped<T> {
+    fn backward(&self, grad_output: &Tensor<T, Dim8>) {
+        if self.input.requires_grad_typed() {
+            let folded = grad_output.fold3d_dilated(self.output_size, self.strides, self.dilations);
+            self.input.backward_with_typed(folded);
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "Unfold3dBackwardTyped"
+    }
+}
+
+/// Typed gradient for Fold1d: y = fold1d(x, output_size, stride, dilation)
+/// Input: Dim4, Output: Dim3
+/// ∂L/∂x = unfold1d(∂L/∂y, kernel_size, stride, dilation)
+pub struct Fold1dBackwardTyped<T: FloatDType> {
+    input: Tensor<T, Dim4>,
+    kernel_size: usize,
+    stride: usize,
+    dilation: usize,
+}
+
+impl<T: FloatDType> Fold1dBackwardTyped<T> {
+    pub fn new(input: Tensor<T, Dim4>, kernel_size: usize, stride: usize, dilation: usize) -> Self {
+        Self {
+            input,
+            kernel_size,
+            stride,
+            dilation,
+        }
+    }
+}
+
+impl<T: FloatDType> GradFnTyped<T, Dim3> for Fold1dBackwardTyped<T> {
+    fn backward(&self, grad_output: &Tensor<T, Dim3>) {
+        if self.input.requires_grad_typed() {
+            let unfolded =
+                grad_output.unfold1d_dilated(self.kernel_size, self.stride, self.dilation);
+            self.input.backward_with_typed(unfolded);
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "Fold1dBackwardTyped"
+    }
+}
+
+/// Typed gradient for Fold2d: y = fold2d(x, output_size, strides, dilations)
+/// Input: Dim6, Output: Dim4
+/// ∂L/∂x = unfold2d(∂L/∂y, kernel_size, strides, dilations)
+pub struct Fold2dBackwardTyped<T: FloatDType> {
+    input: Tensor<T, Dim6>,
+    kernel_size: (usize, usize),
+    strides: (usize, usize),
+    dilations: (usize, usize),
+}
+
+impl<T: FloatDType> Fold2dBackwardTyped<T> {
+    pub fn new(
+        input: Tensor<T, Dim6>,
+        kernel_size: (usize, usize),
+        strides: (usize, usize),
+        dilations: (usize, usize),
+    ) -> Self {
+        Self {
+            input,
+            kernel_size,
+            strides,
+            dilations,
+        }
+    }
+}
+
+impl<T: FloatDType> GradFnTyped<T, Dim4> for Fold2dBackwardTyped<T> {
+    fn backward(&self, grad_output: &Tensor<T, Dim4>) {
+        if self.input.requires_grad_typed() {
+            let unfolded =
+                grad_output.unfold2d_dilated(self.kernel_size, self.strides, self.dilations);
+            self.input.backward_with_typed(unfolded);
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "Fold2dBackwardTyped"
+    }
+}
+
+/// Typed gradient for Fold3d: y = fold3d(x, output_size, strides, dilations)
+/// Input: Dim8, Output: Dim5
+/// ∂L/∂x = unfold3d(∂L/∂y, kernel_size, strides, dilations)
+pub struct Fold3dBackwardTyped<T: FloatDType> {
+    input: Tensor<T, Dim8>,
+    kernel_size: (usize, usize, usize),
+    strides: (usize, usize, usize),
+    dilations: (usize, usize, usize),
+}
+
+impl<T: FloatDType> Fold3dBackwardTyped<T> {
+    pub fn new(
+        input: Tensor<T, Dim8>,
+        kernel_size: (usize, usize, usize),
+        strides: (usize, usize, usize),
+        dilations: (usize, usize, usize),
+    ) -> Self {
+        Self {
+            input,
+            kernel_size,
+            strides,
+            dilations,
+        }
+    }
+}
+
+impl<T: FloatDType> GradFnTyped<T, Dim5> for Fold3dBackwardTyped<T> {
+    fn backward(&self, grad_output: &Tensor<T, Dim5>) {
+        if self.input.requires_grad_typed() {
+            let unfolded =
+                grad_output.unfold3d_dilated(self.kernel_size, self.strides, self.dilations);
+            self.input.backward_with_typed(unfolded);
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "Fold3dBackwardTyped"
+    }
+}
