@@ -252,6 +252,24 @@ pub trait FloatDType: NumericDType + sealed::Sealed {
     /// Negative infinity value for this type
     const NEG_INF: Self;
 
+    /// Mathematical constant: log₂(e)
+    const LOG2_E: Self;
+
+    /// Mathematical constant: ln(2)
+    const LN_2: Self;
+
+    /// Mathematical constant: π/2
+    const FRAC_PI_2: Self;
+
+    /// Zero value
+    const ZERO: Self;
+
+    /// One value
+    const ONE: Self;
+
+    /// Two value
+    const TWO: Self;
+
     /// Convert from usize to this type
     fn from_usize(val: usize) -> Self;
 
@@ -273,6 +291,12 @@ pub trait FloatDType: NumericDType + sealed::Sealed {
 
 impl FloatDType for f32 {
     const NEG_INF: Self = f32::NEG_INFINITY;
+    const LOG2_E: Self = std::f32::consts::LOG2_E;
+    const LN_2: Self = std::f32::consts::LN_2;
+    const FRAC_PI_2: Self = std::f32::consts::FRAC_PI_2;
+    const ZERO: Self = 0.0;
+    const ONE: Self = 1.0;
+    const TWO: Self = 2.0;
 
     fn from_usize(val: usize) -> Self {
         val as f32
@@ -301,6 +325,12 @@ impl FloatDType for f32 {
 
 impl FloatDType for f64 {
     const NEG_INF: Self = f64::NEG_INFINITY;
+    const LOG2_E: Self = std::f64::consts::LOG2_E;
+    const LN_2: Self = std::f64::consts::LN_2;
+    const FRAC_PI_2: Self = std::f64::consts::FRAC_PI_2;
+    const ZERO: Self = 0.0;
+    const ONE: Self = 1.0;
+    const TWO: Self = 2.0;
 
     fn from_usize(val: usize) -> Self {
         val as f64
