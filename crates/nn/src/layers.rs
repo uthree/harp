@@ -3,8 +3,9 @@
 //! 基本的な層の実装を提供します。
 
 use std::collections::HashMap;
+use std::marker::PhantomData;
 
-use harp::tensor::{Dim2, DimDyn, Tensor};
+use harp::tensor::{Dim2, DimDyn, FloatDType, Tensor};
 
 use crate::{Module, Parameter};
 
@@ -12,33 +13,37 @@ use crate::{Module, Parameter};
 ///
 /// `y = x @ W + b`
 ///
+/// # Type Parameters
+///
+/// * `T` - テンソルのデータ型（デフォルト: f32）
+///
 /// # Example
 ///
 /// ```ignore
-/// let linear = Linear::new(784, 128);
+/// let linear = Linear::<f32>::new(784, 128);
 /// let output = linear.forward(&input);
 /// ```
-pub struct Linear {
+pub struct Linear<T: FloatDType = f32> {
     /// 重み行列 [in_features, out_features]
-    weight: Parameter,
+    weight: Parameter<T>,
     /// バイアス [out_features]
-    bias: Parameter,
+    bias: Parameter<T>,
+    /// 型マーカー
+    _dtype: PhantomData<T>,
 }
 
-impl Linear {
+impl<T: FloatDType> Linear<T> {
     /// 新しいLinear層を作成
     ///
-    /// 重みはXavier初期化、バイアスはゼロ初期化されます。
+    /// 重みはランダム初期化、バイアスはゼロ初期化されます。
     pub fn new(in_features: usize, out_features: usize) -> Self {
-        // Xavier-like initialization: scale by sqrt(2 / fan_in)
-        let scale = (2.0 / in_features as f32).sqrt();
-        let weight =
-            (Tensor::<f32, Dim2>::rand([in_features, out_features]) * 2.0 - 1.0) * scale * 0.5;
-        let bias = Tensor::<f32, DimDyn>::zeros_dyn(&[out_features]);
+        let weight = Tensor::<T, Dim2>::rand([in_features, out_features]);
+        let bias = Tensor::<T, DimDyn>::zeros_dyn(&[out_features]);
 
         Self {
             weight: Parameter::new(weight.into_dyn()),
             bias: Parameter::new(bias),
+            _dtype: PhantomData,
         }
     }
 
@@ -55,7 +60,7 @@ impl Linear {
     /// 順伝播
     ///
     /// `y = x @ W + b`
-    pub fn forward(&self, input: &Tensor<f32, Dim2>) -> Tensor<f32, DimDyn> {
+    pub fn forward(&self, input: &Tensor<T, Dim2>) -> Tensor<T, DimDyn> {
         // weightを[in, out]として保持しているので、x @ W で計算
         // weightをDim2として扱うためにreshape
         let weight_shape = self.weight.shape();
@@ -74,15 +79,15 @@ impl Linear {
     }
 }
 
-impl Module for Linear {
-    fn parameters(&mut self) -> HashMap<String, &mut Parameter> {
+impl<T: FloatDType> Module<T> for Linear<T> {
+    fn parameters(&mut self) -> HashMap<String, &mut Parameter<T>> {
         let mut params = HashMap::new();
         params.insert("weight".to_string(), &mut self.weight);
         params.insert("bias".to_string(), &mut self.bias);
         params
     }
 
-    fn load_parameters(&mut self, params: HashMap<String, Parameter>) {
+    fn load_parameters(&mut self, params: HashMap<String, Parameter<T>>) {
         if let Some(w) = params.get("weight") {
             self.weight = w.clone();
         }
@@ -98,14 +103,14 @@ mod tests {
 
     #[test]
     fn test_linear_creation() {
-        let linear = Linear::new(10, 5);
+        let linear = Linear::<f32>::new(10, 5);
         assert_eq!(linear.in_features(), 10);
         assert_eq!(linear.out_features(), 5);
     }
 
     #[test]
     fn test_linear_named_parameters() {
-        let mut linear = Linear::new(10, 5);
+        let mut linear = Linear::<f32>::new(10, 5);
         let params = linear.parameters();
         assert!(params.contains_key("weight"));
         assert!(params.contains_key("bias"));
@@ -114,8 +119,16 @@ mod tests {
 
     #[test]
     fn test_linear_num_parameters() {
-        let mut linear = Linear::new(10, 5);
+        let mut linear = Linear::<f32>::new(10, 5);
         // weight: 10 * 5 = 50, bias: 5
         assert_eq!(linear.num_parameters(), 55);
+    }
+
+    #[test]
+    fn test_linear_f64() {
+        // f64でも動作することを確認
+        let linear = Linear::<f64>::new(8, 4);
+        assert_eq!(linear.in_features(), 8);
+        assert_eq!(linear.out_features(), 4);
     }
 }

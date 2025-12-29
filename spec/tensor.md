@@ -70,17 +70,17 @@ pub trait UnsignedIntDType: IntegerDType {}
 | u8, u16, u32, u64 | ○ | ○ | × | ○ (Unsigned) |
 | bool | ○ | × | × | × |
 
-**NumericInitDType**: 初期化操作のための共通トレイト
+**NumericDType**: 数値型の基底トレイト（初期化定数を含む）
 
 ```rust
-pub trait NumericInitDType: NumericDType {
+pub trait NumericDType: TensorDType {
     const ZERO: Self;
     const ONE: Self;
     fn to_literal(val: Self) -> Literal;
 }
 ```
 
-FloatDType と IntegerDType の両方がこのトレイトを実装しており、`zeros`, `ones`, `full`, `input` などの初期化メソッドが統一的に利用可能です。
+すべての数値型がこのトレイトを実装しており、`zeros`, `ones`, `full`, `input` などの初期化メソッドが統一的に利用可能です。
 
 ### TensorOp
 

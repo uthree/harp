@@ -10,7 +10,7 @@
 //! - `data()`: Returns the computed data if available.
 //! - `from_data()`: Creates a tensor with pre-populated buffer data.
 
-use super::{DimDyn, Dimension, Tensor, TensorInner, TensorOp};
+use super::{DimDyn, Dimension, FloatDType, Tensor, TensorDType, TensorInner, TensorOp};
 use crate::ast::DType;
 use crate::backend::Buffer;
 #[cfg(any(all(feature = "metal", target_os = "macos"), feature = "opencl"))]
@@ -569,7 +569,11 @@ impl TensorInner {
     }
 }
 
-impl<D: Dimension> Tensor<f32, D> {
+// ============================================================================
+// realize - Generic over TensorDType
+// ============================================================================
+
+impl<T: TensorDType, D: Dimension> Tensor<T, D> {
     /// Execute the computation graph and store the result in self
     ///
     /// This is the primary execution trigger for lazy evaluation (like tinygrad's `.realize()`).
@@ -630,20 +634,68 @@ impl<D: Dimension> Tensor<f32, D> {
     pub fn realize(&self) -> Result<&Self, ForwardError> {
         Err(ForwardError::NoDefaultDevice)
     }
+}
 
+// ============================================================================
+// data - Generic over FloatDType and Dimension
+// ============================================================================
+
+impl<T: FloatDType, D: Dimension> Tensor<T, D> {
+    /// Get the computed data from the tensor
+    ///
+    /// Returns the data if the tensor has been executed (via contiguous() or forward()).
+    ///
+    /// Returns None if the tensor has not been executed yet.
+    pub fn data(&self) -> Option<Vec<T>> {
+        Self::data_inner(&self.inner)
+    }
+
+    /// Internal helper to get data from a TensorInner, handling Views recursively
+    fn data_inner(inner: &TensorInner) -> Option<Vec<T>> {
+        // Check the buffer field in TensorInner
+        if let Ok(guard) = inner.buffer.read()
+            && let Some(buf) = guard.as_ref()
+            && let Ok(bytes) = buf.read_to_host()
+        {
+            // Convert bytes to Vec<T>
+            let len = bytes.len() / std::mem::size_of::<T>();
+            let mut result = Vec::with_capacity(len);
+            unsafe {
+                let ptr = bytes.as_ptr() as *const T;
+                result.extend_from_slice(std::slice::from_raw_parts(ptr, len));
+            }
+            return Some(result);
+        }
+
+        // For View operations, get data from the underlying tensor
+        // Note: This returns the raw underlying data. For non-contiguous views,
+        // the caller may need to reinterpret according to the view's strides.
+        if let TensorOp::View { input } = inner.op() {
+            return Self::data_inner(input.as_ref());
+        }
+
+        None
+    }
+}
+
+// ============================================================================
+// from_data - Generic over FloatDType (DimDyn only)
+// ============================================================================
+
+impl<T: FloatDType> Tensor<T, DimDyn> {
     /// Create an executed tensor from raw data
     ///
     /// This creates a tensor with the buffer already populated,
     /// bypassing the computation graph.
-    pub fn from_data(data: Vec<f32>, shape: Vec<usize>) -> Tensor<f32, DimDyn> {
+    pub fn from_data(data: Vec<T>, shape: Vec<usize>) -> Tensor<T, DimDyn> {
         let shape_exprs: Vec<Expr> = shape.iter().map(|&s| Expr::from(s as i64)).collect();
         let view = View::contiguous(shape_exprs);
-        let vec_buffer = VecBuffer::from_vec(&data, shape.clone(), DType::F32);
+        let vec_buffer = VecBuffer::from_vec(&data, shape.clone(), T::DTYPE);
         let inner = TensorInner {
             op: TensorOp::Executed,
             view,
             shape,
-            dtype: DType::F32,
+            dtype: T::DTYPE,
             name: None,
             autograd: None,
             buffer: RwLock::new(Some(Box::new(vec_buffer) as Box<dyn Buffer>)),
@@ -655,47 +707,13 @@ impl<D: Dimension> Tensor<f32, D> {
             _dim: PhantomData,
         }
     }
+}
 
-    /// Get the computed data from the tensor
-    ///
-    /// Returns the data if the tensor has been executed (via contiguous() or forward()).
-    ///
-    /// Returns None if the tensor has not been executed yet.
-    pub fn data(&self) -> Option<Vec<f32>> {
-        self.data_inner(&self.inner)
-    }
+// ============================================================================
+// ndarray conversion methods - f32 only
+// ============================================================================
 
-    /// Internal helper to get data from a TensorInner, handling Views recursively
-    fn data_inner(&self, inner: &TensorInner) -> Option<Vec<f32>> {
-        // Check the buffer field in TensorInner
-        if let Ok(guard) = inner.buffer.read()
-            && let Some(buf) = guard.as_ref()
-            && let Ok(bytes) = buf.read_to_host()
-        {
-            // Convert bytes to Vec<f32>
-            let len = bytes.len() / std::mem::size_of::<f32>();
-            let mut result = Vec::with_capacity(len);
-            unsafe {
-                let ptr = bytes.as_ptr() as *const f32;
-                result.extend_from_slice(std::slice::from_raw_parts(ptr, len));
-            }
-            return Some(result);
-        }
-
-        // For View operations, get data from the underlying tensor
-        // Note: This returns the raw underlying data. For non-contiguous views,
-        // the caller may need to reinterpret according to the view's strides.
-        if let TensorOp::View { input } = inner.op() {
-            return self.data_inner(input.as_ref());
-        }
-
-        None
-    }
-
-    // ========================================================================
-    // ndarray conversion methods
-    // ========================================================================
-
+impl<D: Dimension> Tensor<f32, D> {
     /// Convert the tensor to an ndarray with dynamic dimensions
     ///
     /// Returns the data as an ndarray if the tensor has been executed.
@@ -840,7 +858,7 @@ mod tests {
         let arr: Array1<f32> = array![1.0, 2.0, 3.0];
         let tensor = Tensor::<f32, Dim1>::from_ndarray(&arr);
         assert_eq!(tensor.shape(), &[3]);
-        assert_eq!(tensor.data(), Some(vec![1.0, 2.0, 3.0]));
+        assert_eq!(tensor.into_dyn().data(), Some(vec![1.0, 2.0, 3.0]));
     }
 
     #[test]
@@ -848,7 +866,7 @@ mod tests {
         let arr: Array2<f32> = array![[1.0, 2.0], [3.0, 4.0]];
         let tensor = Tensor::<f32, Dim2>::from_ndarray(&arr);
         assert_eq!(tensor.shape(), &[2, 2]);
-        assert_eq!(tensor.data(), Some(vec![1.0, 2.0, 3.0, 4.0]));
+        assert_eq!(tensor.into_dyn().data(), Some(vec![1.0, 2.0, 3.0, 4.0]));
     }
 
     #[test]
@@ -935,7 +953,7 @@ mod tests {
         // on intermediate Compute nodes
 
         // Create a tensor with data (simulating a realized intermediate)
-        let intermediate = Tensor::<f32, Dim1>::from_data(vec![1.0, 2.0, 3.0], vec![3]);
+        let intermediate = Tensor::<f32, DimDyn>::from_data(vec![1.0, 2.0, 3.0], vec![3]);
 
         // Create a Compute op that uses this intermediate
         let result = &intermediate + &intermediate;
@@ -952,7 +970,7 @@ mod tests {
         // Verify that has_buffer works correctly on different tensor types
 
         // Tensor with data - should have buffer
-        let with_data = Tensor::<f32, Dim1>::from_data(vec![1.0, 2.0], vec![2]);
+        let with_data = Tensor::<f32, DimDyn>::from_data(vec![1.0, 2.0], vec![2]);
         assert!(with_data.inner.has_buffer());
 
         // Input tensor - should not have buffer initially

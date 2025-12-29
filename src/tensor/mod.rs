@@ -98,7 +98,7 @@ use crate::backend::Buffer;
 
 pub use dimension::{Dim, Dim0, Dim1, Dim2, Dim3, Dim4, Dim5, Dim6, Dim7, Dim8, DimDyn, Dimension};
 pub use dtype::{NumericDType, TensorDType};
-// IntegerDType, SignedIntDType, UnsignedIntDType, NumericInitDType are defined below
+// IntegerDType, SignedIntDType, UnsignedIntDType are defined below
 pub use forward::ForwardError;
 pub use ops::{ElementwiseOp, InputRef, ReduceOp, TensorOp};
 pub use primops::{Exp2, Floor, Log2, Recip, Sin, Sqrt};
@@ -125,7 +125,7 @@ pub type Tensor6 = Tensor<f32, Dim6>;
 /// Dynamic-dimensional tensor
 pub type TensorDyn = Tensor<f32, DimDyn>;
 
-use crate::ast::{DType, Literal};
+use crate::ast::DType;
 
 // ============================================================================
 // GradFn trait - Generic over FloatDType
@@ -249,15 +249,11 @@ mod sealed {
 /// Provides transcendental functions (sin, cos, exp, log, etc.), gradient computation, and
 /// floor/ceil/round operations.
 pub trait FloatDType: NumericDType + sealed::Sealed {
-    /// Zero value for this type
-    const ZERO: Self;
-    /// One value for this type
-    const ONE: Self;
     /// Negative infinity value for this type
     const NEG_INF: Self;
 
-    /// Convert value to Literal for ConstFill operations
-    fn to_literal(val: Self) -> Literal;
+    /// Convert from usize to this type
+    fn from_usize(val: usize) -> Self;
 
     /// Create AutogradStorage from AutogradMeta<Self>
     fn wrap_autograd(meta: AutogradMeta<Self>) -> AutogradStorage;
@@ -270,15 +266,16 @@ pub trait FloatDType: NumericDType + sealed::Sealed {
 
     /// Call backward_with on a tensor (for generic gradient propagation)
     fn call_backward_with(tensor: &Tensor<Self, DimDyn>, grad: Tensor<Self, DimDyn>);
+
+    /// Get autograd metadata reference from AutogradStorage (for generic access)
+    fn autograd_ref(storage: &AutogradStorage) -> Option<&AutogradMeta<Self>>;
 }
 
 impl FloatDType for f32 {
-    const ZERO: Self = 0.0;
-    const ONE: Self = 1.0;
     const NEG_INF: Self = f32::NEG_INFINITY;
 
-    fn to_literal(val: Self) -> Literal {
-        Literal::F32(val)
+    fn from_usize(val: usize) -> Self {
+        val as f32
     }
 
     fn wrap_autograd(meta: AutogradMeta<Self>) -> AutogradStorage {
@@ -296,15 +293,17 @@ impl FloatDType for f32 {
     fn call_backward_with(tensor: &Tensor<Self, DimDyn>, grad: Tensor<Self, DimDyn>) {
         tensor.backward_with(grad);
     }
+
+    fn autograd_ref(storage: &AutogradStorage) -> Option<&AutogradMeta<Self>> {
+        storage.as_f32()
+    }
 }
 
 impl FloatDType for f64 {
-    const ZERO: Self = 0.0;
-    const ONE: Self = 1.0;
     const NEG_INF: Self = f64::NEG_INFINITY;
 
-    fn to_literal(val: Self) -> Literal {
-        Literal::F64(val)
+    fn from_usize(val: usize) -> Self {
+        val as f64
     }
 
     fn wrap_autograd(meta: AutogradMeta<Self>) -> AutogradStorage {
@@ -321,6 +320,10 @@ impl FloatDType for f64 {
 
     fn call_backward_with(tensor: &Tensor<Self, DimDyn>, grad: Tensor<Self, DimDyn>) {
         tensor.backward_with(grad);
+    }
+
+    fn autograd_ref(storage: &AutogradStorage) -> Option<&AutogradMeta<Self>> {
+        storage.as_f64()
     }
 }
 
@@ -345,15 +348,7 @@ mod sealed_int {
 /// This is a sealed trait. Provides:
 /// - Bitwise operations (and, or, xor, shl, shr)
 /// - Integer division and remainder
-pub trait IntegerDType: NumericDType + sealed_int::Sealed {
-    /// Zero value for this type
-    const ZERO: Self;
-    /// One value for this type
-    const ONE: Self;
-
-    /// Convert value to Literal for ConstFill operations
-    fn to_literal(val: Self) -> Literal;
-}
+pub trait IntegerDType: NumericDType + sealed_int::Sealed {}
 
 /// Trait for signed integer types (i8, i16, i32, i64)
 pub trait SignedIntDType: IntegerDType {}
@@ -363,15 +358,9 @@ pub trait UnsignedIntDType: IntegerDType {}
 
 /// Macro to implement IntegerDType for signed integers
 macro_rules! impl_signed_int_dtype {
-    ($($ty:ty => $literal:ident);+ $(;)?) => {
+    ($($ty:ty);+ $(;)?) => {
         $(
-            impl IntegerDType for $ty {
-                const ZERO: Self = 0;
-                const ONE: Self = 1;
-                fn to_literal(val: Self) -> Literal {
-                    Literal::$literal(val)
-                }
-            }
+            impl IntegerDType for $ty {}
             impl SignedIntDType for $ty {}
         )+
     };
@@ -379,90 +368,17 @@ macro_rules! impl_signed_int_dtype {
 
 /// Macro to implement IntegerDType for unsigned integers
 macro_rules! impl_unsigned_int_dtype {
-    ($($ty:ty => $literal:ident);+ $(;)?) => {
+    ($($ty:ty);+ $(;)?) => {
         $(
-            impl IntegerDType for $ty {
-                const ZERO: Self = 0;
-                const ONE: Self = 1;
-                fn to_literal(val: Self) -> Literal {
-                    Literal::$literal(val)
-                }
-            }
+            impl IntegerDType for $ty {}
             impl UnsignedIntDType for $ty {}
         )+
     };
 }
 
-impl_signed_int_dtype!(
-    i8  => I8;
-    i16 => I16;
-    i32 => I32;
-    i64 => I64;
-);
+impl_signed_int_dtype!(i8; i16; i32; i64);
 
-impl_unsigned_int_dtype!(
-    u8  => U8;
-    u16 => U16;
-    u32 => U32;
-    u64 => U64;
-);
-
-// ============================================================================
-// NumericInitDType - Common trait for numeric types with initialization
-// ============================================================================
-
-/// Trait for numeric types that support tensor initialization
-///
-/// This is a common trait that both FloatDType and IntegerDType implement,
-/// allowing unified initialization methods (zeros, ones, full, input) for
-/// all numeric tensor types.
-pub trait NumericInitDType: NumericDType {
-    /// Zero value for this type
-    const ZERO: Self;
-    /// One value for this type
-    const ONE: Self;
-
-    /// Convert value to Literal for ConstFill operations
-    fn to_literal(val: Self) -> Literal;
-}
-
-// Blanket implementations for FloatDType and IntegerDType
-impl<T: FloatDType> NumericInitDType for T {
-    const ZERO: Self = <T as FloatDType>::ZERO;
-    const ONE: Self = <T as FloatDType>::ONE;
-
-    fn to_literal(val: Self) -> Literal {
-        <T as FloatDType>::to_literal(val)
-    }
-}
-
-// Note: IntegerDType implementation is done via macro below
-
-/// Macro to implement NumericInitDType for integer types
-macro_rules! impl_numeric_init_for_int {
-    ($($ty:ty => $literal:ident);+ $(;)?) => {
-        $(
-            impl NumericInitDType for $ty {
-                const ZERO: Self = 0;
-                const ONE: Self = 1;
-                fn to_literal(val: Self) -> Literal {
-                    Literal::$literal(val)
-                }
-            }
-        )+
-    };
-}
-
-impl_numeric_init_for_int!(
-    i8  => I8;
-    i16 => I16;
-    i32 => I32;
-    i64 => I64;
-    u8  => U8;
-    u16 => U16;
-    u32 => U32;
-    u64 => U64;
-);
+impl_unsigned_int_dtype!(u8; u16; u32; u64);
 
 // ============================================================================
 // TensorInner: Internal tensor data
@@ -1165,15 +1081,6 @@ impl<D: Dimension> Tensor<f32, D> {
             })
     }
 
-    /// Reset the gradient to None
-    pub fn zero_grad(&self) {
-        if let Some(ref autograd_storage) = self.inner.autograd
-            && let Some(autograd) = autograd_storage.as_f32()
-        {
-            *autograd.grad.write().unwrap() = None;
-        }
-    }
-
     /// Detach this tensor from the computation graph
     ///
     /// Returns a new tensor with the same data but no gradient tracking.
@@ -1336,15 +1243,6 @@ impl<D: Dimension> Tensor<f64, D> {
             })
     }
 
-    /// Reset the gradient to None
-    pub fn zero_grad(&self) {
-        if let Some(ref autograd_storage) = self.inner.autograd
-            && let Some(autograd) = autograd_storage.as_f64()
-        {
-            *autograd.grad.write().unwrap() = None;
-        }
-    }
-
     /// Detach this tensor from the computation graph
     ///
     /// Returns a new tensor with the same data but no gradient tracking.
@@ -1362,6 +1260,21 @@ impl<D: Dimension> Tensor<f64, D> {
             inner: Arc::new(inner),
             _dtype: PhantomData,
             _dim: PhantomData,
+        }
+    }
+}
+
+// ============================================================================
+// Generic zero_grad for FloatDType
+// ============================================================================
+
+impl<T: FloatDType, D: Dimension> Tensor<T, D> {
+    /// Reset the gradient to None
+    pub fn zero_grad(&self) {
+        if let Some(ref autograd_storage) = self.inner.autograd
+            && let Some(autograd) = T::autograd_ref(autograd_storage)
+        {
+            *autograd.grad.write().unwrap() = None;
         }
     }
 }
@@ -1750,7 +1663,7 @@ mod tests {
     #[test]
     fn test_cast_f64_to_f32() {
         // Cast from f64 to f32
-        let a = Tensor::<f64, Dim1>::full([10], 3.14);
+        let a = Tensor::<f64, Dim1>::full([10], 2.5);
         let b: Tensor<f32, Dim1> = a.cast();
         assert_eq!(b.shape(), &[10]);
         assert_eq!(*b.dtype(), DType::F32);

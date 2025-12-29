@@ -640,8 +640,8 @@ mod tests {
 
     #[test]
     fn test_float_literals() {
-        assert_eq!(Literal::F32(3.14).dtype(), DType::F32);
-        assert_eq!(Literal::F64(3.14).dtype(), DType::F64);
+        assert_eq!(Literal::F32(2.5).dtype(), DType::F32);
+        assert_eq!(Literal::F64(2.5).dtype(), DType::F64);
     }
 
     #[test]
@@ -655,8 +655,8 @@ mod tests {
         let lit: Literal = 42u64.into();
         assert_eq!(lit, Literal::U64(42));
 
-        let lit: Literal = 3.14f64.into();
-        assert_eq!(lit, Literal::F64(3.14));
+        let lit: Literal = 2.5f64.into();
+        assert_eq!(lit, Literal::F64(2.5));
     }
 
     #[test]

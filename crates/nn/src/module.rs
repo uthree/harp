@@ -3,42 +3,43 @@
 //! ニューラルネットワーク層の基底トレイトと学習可能パラメータを提供します。
 
 use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
-use harp::tensor::{DimDyn, Tensor};
+use harp::tensor::{DimDyn, FloatDType, Tensor};
 
 /// 学習可能なパラメータを表すラッパー
 ///
 /// Tensorをラップし、自動的に `requires_grad = true` を設定します。
 ///
-/// # Note
+/// # Type Parameters
 ///
-/// 現在はf32のみをサポート。将来的にはジェネリック化予定。
+/// * `T` - テンソルのデータ型（デフォルト: f32）
 #[derive(Clone)]
-pub struct Parameter(pub Tensor<f32, DimDyn>);
+pub struct Parameter<T: FloatDType = f32>(pub Tensor<T, DimDyn>);
 
-impl Parameter {
+impl<T: FloatDType> Parameter<T> {
     /// 新しいParameterを作成
     ///
     /// テンソルは自動的に勾配追跡が有効になります。
-    pub fn new(tensor: Tensor<f32, DimDyn>) -> Self {
+    pub fn new(tensor: Tensor<T, DimDyn>) -> Self {
         Self(tensor.set_requires_grad(true))
     }
 
     /// 内部テンソルへの参照を取得
-    pub fn tensor(&self) -> &Tensor<f32, DimDyn> {
+    pub fn tensor(&self) -> &Tensor<T, DimDyn> {
         &self.0
     }
 
     /// 内部テンソルへの可変参照を取得
-    pub fn tensor_mut(&mut self) -> &mut Tensor<f32, DimDyn> {
+    pub fn tensor_mut(&mut self) -> &mut Tensor<T, DimDyn> {
         &mut self.0
     }
 
     /// テンソルを置き換え
     ///
     /// 新しいテンソルは自動的に勾配追跡が有効になります。
-    pub fn set(&mut self, tensor: Tensor<f32, DimDyn>) {
+    pub fn set(&mut self, tensor: Tensor<T, DimDyn>) {
         self.0 = tensor.set_requires_grad(true);
     }
 
@@ -48,15 +49,15 @@ impl Parameter {
     }
 }
 
-impl Deref for Parameter {
-    type Target = Tensor<f32, DimDyn>;
+impl<T: FloatDType> Deref for Parameter<T> {
+    type Target = Tensor<T, DimDyn>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl DerefMut for Parameter {
+impl<T: FloatDType> DerefMut for Parameter<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
@@ -67,22 +68,22 @@ impl DerefMut for Parameter {
 /// 学習可能なパラメータを持つ計算ユニットを表現します。
 /// `forward()` メソッドは各実装で独自に定義してください。
 ///
-/// # Note
+/// # Type Parameters
 ///
-/// 現在はf32のみをサポート。将来的にはジェネリック化予定。
+/// * `T` - パラメータのデータ型（デフォルト: f32）
 ///
 /// # Example
 ///
 /// ```ignore
-/// impl Module for Linear {
-///     fn parameters(&mut self) -> HashMap<String, &mut Parameter> {
+/// impl Module for Linear<f32> {
+///     fn parameters(&mut self) -> HashMap<String, &mut Parameter<f32>> {
 ///         let mut params = HashMap::new();
 ///         params.insert("weight".to_string(), &mut self.weight);
 ///         params.insert("bias".to_string(), &mut self.bias);
 ///         params
 ///     }
 ///
-///     fn load_parameters(&mut self, params: HashMap<String, Parameter>) {
+///     fn load_parameters(&mut self, params: HashMap<String, Parameter<f32>>) {
 ///         if let Some(w) = params.get("weight") {
 ///             self.weight = w.clone();
 ///         }
@@ -92,15 +93,15 @@ impl DerefMut for Parameter {
 ///     }
 /// }
 /// ```
-pub trait Module {
+pub trait Module<T: FloatDType = f32> {
     /// 名前付きパラメータへの可変参照を取得
     ///
     /// ネストしたモジュールの場合、ドット区切りで名前空間化します。
     /// 例: `layer1.weight`, `layer1.bias`
-    fn parameters(&mut self) -> HashMap<String, &mut Parameter>;
+    fn parameters(&mut self) -> HashMap<String, &mut Parameter<T>>;
 
     /// 名前付きパラメータをロード（チェックポイント復元用）
-    fn load_parameters(&mut self, params: HashMap<String, Parameter>);
+    fn load_parameters(&mut self, params: HashMap<String, Parameter<T>>);
 
     /// パラメータ総数を取得
     fn num_parameters(&mut self) -> usize {
@@ -115,6 +116,17 @@ pub trait Module {
         for (_name, param) in self.parameters() {
             param.zero_grad();
         }
+    }
+}
+
+/// Module実装のためのヘルパーマーカー
+///
+/// ジェネリックなModule実装で型パラメータを明示するために使用
+pub struct ModuleMarker<T: FloatDType>(PhantomData<T>);
+
+impl<T: FloatDType> Default for ModuleMarker<T> {
+    fn default() -> Self {
+        Self(PhantomData)
     }
 }
 
@@ -146,5 +158,13 @@ mod tests {
         p.set(t2);
 
         assert_eq!(p.shape(), &[3, 3]);
+    }
+
+    #[test]
+    fn test_parameter_f64() {
+        // f64でも動作することを確認
+        let t = Tensor::<f64, DimDyn>::zeros_dyn(&[2, 3]);
+        let p = Parameter::<f64>::new(t);
+        assert_eq!(p.shape(), &[2, 3]);
     }
 }

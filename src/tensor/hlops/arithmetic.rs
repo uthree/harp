@@ -5,44 +5,44 @@
 
 use std::ops::{Div, Sub};
 
-use crate::tensor::{Dimension, Recip, Tensor};
+use crate::tensor::{Dimension, FloatDType, Recip, Tensor};
 
 // ============================================================================
-// Sub: Tensor - Tensor = Add(a, Neg(b))
+// Sub: Tensor - Tensor = Add(a, Neg(b)) - Generic over FloatDType
 // ============================================================================
 
-impl<D: Dimension> Sub for &Tensor<f32, D> {
-    type Output = Tensor<f32, D>;
+impl<T: FloatDType, D: Dimension> Sub for &Tensor<T, D> {
+    type Output = Tensor<T, D>;
 
-    fn sub(self, rhs: Self) -> Tensor<f32, D> {
+    fn sub(self, rhs: Self) -> Tensor<T, D> {
         // Sub(a, b) = Add(a, Neg(b))
         let neg_rhs = -rhs;
         self + &neg_rhs
     }
 }
 
-impl<D: Dimension> Sub<Tensor<f32, D>> for &Tensor<f32, D> {
-    type Output = Tensor<f32, D>;
-    fn sub(self, rhs: Tensor<f32, D>) -> Tensor<f32, D> {
+impl<T: FloatDType, D: Dimension> Sub<Tensor<T, D>> for &Tensor<T, D> {
+    type Output = Tensor<T, D>;
+    fn sub(self, rhs: Tensor<T, D>) -> Tensor<T, D> {
         self - &rhs
     }
 }
 
-impl<D: Dimension> Sub<&Tensor<f32, D>> for Tensor<f32, D> {
-    type Output = Tensor<f32, D>;
-    fn sub(self, rhs: &Tensor<f32, D>) -> Tensor<f32, D> {
+impl<T: FloatDType, D: Dimension> Sub<&Tensor<T, D>> for Tensor<T, D> {
+    type Output = Tensor<T, D>;
+    fn sub(self, rhs: &Tensor<T, D>) -> Tensor<T, D> {
         &self - rhs
     }
 }
 
-impl<D: Dimension> Sub for Tensor<f32, D> {
-    type Output = Tensor<f32, D>;
-    fn sub(self, rhs: Self) -> Tensor<f32, D> {
+impl<T: FloatDType, D: Dimension> Sub for Tensor<T, D> {
+    type Output = Tensor<T, D>;
+    fn sub(self, rhs: Self) -> Tensor<T, D> {
         &self - &rhs
     }
 }
 
-// Sub: Tensor - f32
+// Sub: Tensor - scalar (f32)
 impl<D: Dimension> Sub<f32> for &Tensor<f32, D> {
     type Output = Tensor<f32, D>;
     fn sub(self, rhs: f32) -> Tensor<f32, D> {
@@ -58,7 +58,7 @@ impl<D: Dimension> Sub<f32> for Tensor<f32, D> {
     }
 }
 
-// Sub: f32 - Tensor
+// Sub: scalar - Tensor (f32)
 impl<D: Dimension> Sub<&Tensor<f32, D>> for f32 {
     type Output = Tensor<f32, D>;
     fn sub(self, rhs: &Tensor<f32, D>) -> Tensor<f32, D> {
@@ -74,42 +74,7 @@ impl<D: Dimension> Sub<Tensor<f32, D>> for f32 {
     }
 }
 
-// ============================================================================
-// Sub: Tensor<f64> - Tensor<f64> = Add(a, Neg(b))
-// ============================================================================
-
-impl<D: Dimension> Sub for &Tensor<f64, D> {
-    type Output = Tensor<f64, D>;
-
-    fn sub(self, rhs: Self) -> Tensor<f64, D> {
-        // Sub(a, b) = Add(a, Neg(b))
-        let neg_rhs = -rhs;
-        self + &neg_rhs
-    }
-}
-
-impl<D: Dimension> Sub<Tensor<f64, D>> for &Tensor<f64, D> {
-    type Output = Tensor<f64, D>;
-    fn sub(self, rhs: Tensor<f64, D>) -> Tensor<f64, D> {
-        self - &rhs
-    }
-}
-
-impl<D: Dimension> Sub<&Tensor<f64, D>> for Tensor<f64, D> {
-    type Output = Tensor<f64, D>;
-    fn sub(self, rhs: &Tensor<f64, D>) -> Tensor<f64, D> {
-        &self - rhs
-    }
-}
-
-impl<D: Dimension> Sub for Tensor<f64, D> {
-    type Output = Tensor<f64, D>;
-    fn sub(self, rhs: Self) -> Tensor<f64, D> {
-        &self - &rhs
-    }
-}
-
-// Sub: Tensor - f64
+// Sub: Tensor - scalar (f64)
 impl<D: Dimension> Sub<f64> for &Tensor<f64, D> {
     type Output = Tensor<f64, D>;
     fn sub(self, rhs: f64) -> Tensor<f64, D> {
@@ -125,7 +90,7 @@ impl<D: Dimension> Sub<f64> for Tensor<f64, D> {
     }
 }
 
-// Sub: f64 - Tensor
+// Sub: scalar - Tensor (f64)
 impl<D: Dimension> Sub<&Tensor<f64, D>> for f64 {
     type Output = Tensor<f64, D>;
     fn sub(self, rhs: &Tensor<f64, D>) -> Tensor<f64, D> {
@@ -142,42 +107,42 @@ impl<D: Dimension> Sub<Tensor<f64, D>> for f64 {
 }
 
 // ============================================================================
-// Div: Tensor / Tensor = Mul(a, Recip(b))
+// Div: Tensor / Tensor = Mul(a, Recip(b)) - Generic over FloatDType
 // ============================================================================
 
 #[allow(clippy::suspicious_arithmetic_impl)]
-impl<D: Dimension> Div for &Tensor<f32, D> {
-    type Output = Tensor<f32, D>;
+impl<T: FloatDType, D: Dimension> Div for &Tensor<T, D> {
+    type Output = Tensor<T, D>;
 
-    fn div(self, rhs: Self) -> Tensor<f32, D> {
+    fn div(self, rhs: Self) -> Tensor<T, D> {
         // Div(a, b) = Mul(a, Recip(b))
         let recip_rhs = rhs.recip();
         self * &recip_rhs
     }
 }
 
-impl<D: Dimension> Div<Tensor<f32, D>> for &Tensor<f32, D> {
-    type Output = Tensor<f32, D>;
-    fn div(self, rhs: Tensor<f32, D>) -> Tensor<f32, D> {
+impl<T: FloatDType, D: Dimension> Div<Tensor<T, D>> for &Tensor<T, D> {
+    type Output = Tensor<T, D>;
+    fn div(self, rhs: Tensor<T, D>) -> Tensor<T, D> {
         self / &rhs
     }
 }
 
-impl<D: Dimension> Div<&Tensor<f32, D>> for Tensor<f32, D> {
-    type Output = Tensor<f32, D>;
-    fn div(self, rhs: &Tensor<f32, D>) -> Tensor<f32, D> {
+impl<T: FloatDType, D: Dimension> Div<&Tensor<T, D>> for Tensor<T, D> {
+    type Output = Tensor<T, D>;
+    fn div(self, rhs: &Tensor<T, D>) -> Tensor<T, D> {
         &self / rhs
     }
 }
 
-impl<D: Dimension> Div for Tensor<f32, D> {
-    type Output = Tensor<f32, D>;
-    fn div(self, rhs: Self) -> Tensor<f32, D> {
+impl<T: FloatDType, D: Dimension> Div for Tensor<T, D> {
+    type Output = Tensor<T, D>;
+    fn div(self, rhs: Self) -> Tensor<T, D> {
         &self / &rhs
     }
 }
 
-// Div: Tensor / f32
+// Div: Tensor / scalar (f32)
 impl<D: Dimension> Div<f32> for &Tensor<f32, D> {
     type Output = Tensor<f32, D>;
     fn div(self, rhs: f32) -> Tensor<f32, D> {
@@ -193,7 +158,7 @@ impl<D: Dimension> Div<f32> for Tensor<f32, D> {
     }
 }
 
-// Div: f32 / Tensor
+// Div: scalar / Tensor (f32)
 #[allow(clippy::suspicious_arithmetic_impl)]
 impl<D: Dimension> Div<&Tensor<f32, D>> for f32 {
     type Output = Tensor<f32, D>;
@@ -211,43 +176,7 @@ impl<D: Dimension> Div<Tensor<f32, D>> for f32 {
     }
 }
 
-// ============================================================================
-// Div: Tensor<f64> / Tensor<f64> = Mul(a, Recip(b))
-// ============================================================================
-
-#[allow(clippy::suspicious_arithmetic_impl)]
-impl<D: Dimension> Div for &Tensor<f64, D> {
-    type Output = Tensor<f64, D>;
-
-    fn div(self, rhs: Self) -> Tensor<f64, D> {
-        // Div(a, b) = Mul(a, Recip(b))
-        let recip_rhs = rhs.recip();
-        self * &recip_rhs
-    }
-}
-
-impl<D: Dimension> Div<Tensor<f64, D>> for &Tensor<f64, D> {
-    type Output = Tensor<f64, D>;
-    fn div(self, rhs: Tensor<f64, D>) -> Tensor<f64, D> {
-        self / &rhs
-    }
-}
-
-impl<D: Dimension> Div<&Tensor<f64, D>> for Tensor<f64, D> {
-    type Output = Tensor<f64, D>;
-    fn div(self, rhs: &Tensor<f64, D>) -> Tensor<f64, D> {
-        &self / rhs
-    }
-}
-
-impl<D: Dimension> Div for Tensor<f64, D> {
-    type Output = Tensor<f64, D>;
-    fn div(self, rhs: Self) -> Tensor<f64, D> {
-        &self / &rhs
-    }
-}
-
-// Div: Tensor<f64> / f64
+// Div: Tensor / scalar (f64)
 impl<D: Dimension> Div<f64> for &Tensor<f64, D> {
     type Output = Tensor<f64, D>;
     fn div(self, rhs: f64) -> Tensor<f64, D> {
@@ -263,7 +192,7 @@ impl<D: Dimension> Div<f64> for Tensor<f64, D> {
     }
 }
 
-// Div: f64 / Tensor<f64>
+// Div: scalar / Tensor (f64)
 #[allow(clippy::suspicious_arithmetic_impl)]
 impl<D: Dimension> Div<&Tensor<f64, D>> for f64 {
     type Output = Tensor<f64, D>;

@@ -2,11 +2,15 @@
 //!
 //! 学習時に使用する損失関数を提供します。
 
-use harp::tensor::{DimDyn, Tensor};
+use harp::tensor::{DimDyn, FloatDType, Tensor};
 
 /// 平均二乗誤差（Mean Squared Error）
 ///
 /// `MSE = mean((pred - target)^2)`
+///
+/// # Type Parameters
+///
+/// * `T` - テンソルのデータ型
 ///
 /// # Example
 ///
@@ -14,12 +18,15 @@ use harp::tensor::{DimDyn, Tensor};
 /// let loss = mse_loss(&predictions, &targets);
 /// loss.backward();
 /// ```
-pub fn mse_loss(pred: &Tensor<f32, DimDyn>, target: &Tensor<f32, DimDyn>) -> Tensor<f32, DimDyn> {
+pub fn mse_loss<T: FloatDType>(
+    pred: &Tensor<T, DimDyn>,
+    target: &Tensor<T, DimDyn>,
+) -> Tensor<T, DimDyn> {
     let diff = pred - target;
     let sq = &diff * &diff;
 
     // 全要素の平均を計算
-    let n_elements = sq.shape().iter().product::<usize>() as f32;
+    let n_elements = sq.shape().iter().product::<usize>();
 
     // 全軸でsum
     let mut result = sq;
@@ -27,9 +34,9 @@ pub fn mse_loss(pred: &Tensor<f32, DimDyn>, target: &Tensor<f32, DimDyn>) -> Ten
         result = result.sum(0);
     }
 
-    // 要素数で割る（勾配追跡のためテンソル演算を使用）
-    let inv_n = Tensor::<f32, DimDyn>::full_dyn(&[], 1.0 / n_elements);
-    &result * &inv_n
+    // 要素数で割る
+    let n_tensor = Tensor::<T, DimDyn>::full_dyn(&[], T::from_usize(n_elements));
+    &result / &n_tensor
 }
 
 // TODO: L1損失はabs演算を実装後に追加

@@ -2,25 +2,33 @@
 //!
 //! パラメータ更新のための最適化アルゴリズムを提供します。
 
-use harp::tensor::{DimDyn, Tensor};
+use harp::tensor::{DimDyn, FloatDType, Tensor};
 
 use crate::Module;
 
 /// オプティマイザの基底トレイト
-pub trait Optimizer {
+///
+/// # Type Parameters
+///
+/// * `T` - パラメータのデータ型
+pub trait Optimizer<T: FloatDType> {
     /// パラメータを更新（勾配降下ステップを実行）
-    fn step<M: Module>(&mut self, module: &mut M);
+    fn step<M: Module<T>>(&mut self, module: &mut M);
 }
 
 /// 確率的勾配降下法（SGD）
 ///
 /// `param = param - lr * grad`
 ///
+/// # Type Parameters
+///
+/// * `T` - パラメータのデータ型（デフォルト: f32）
+///
 /// # Example
 ///
 /// ```ignore
-/// let mut model = Linear::new(784, 128);
-/// let mut sgd = SGD::new(0.01);
+/// let mut model = Linear::<f32>::new(784, 128);
+/// let mut sgd = SGD::<f32>::new(0.01);
 ///
 /// // 学習ループ
 /// model.zero_grad();  // Module側のメソッド
@@ -29,30 +37,31 @@ pub trait Optimizer {
 /// loss.backward();
 /// sgd.step(&mut model);
 /// ```
-pub struct SGD {
+pub struct SGD<T: FloatDType = f32> {
     /// 学習率
-    lr: f32,
+    lr: T,
 }
 
-impl SGD {
+impl<T: FloatDType> SGD<T> {
     /// 新しいSGDオプティマイザを作成
-    pub fn new(lr: f32) -> Self {
+    pub fn new(lr: T) -> Self {
         Self { lr }
     }
 
     /// 学習率を取得
-    pub fn learning_rate(&self) -> f32 {
-        self.lr
+    pub fn learning_rate(&self) -> T {
+        self.lr.clone()
     }
 
     /// 学習率を設定
-    pub fn set_learning_rate(&mut self, lr: f32) {
+    pub fn set_learning_rate(&mut self, lr: T) {
         self.lr = lr;
     }
 }
 
-impl Optimizer for SGD {
-    fn step<M: Module>(&mut self, module: &mut M) {
+// f32専用の最適化実装
+impl Optimizer<f32> for SGD<f32> {
+    fn step<M: Module<f32>>(&mut self, module: &mut M) {
         for (_name, param) in module.parameters() {
             if let Some(grad) = param.grad() {
                 // 勾配を実体化
@@ -79,6 +88,35 @@ impl Optimizer for SGD {
     }
 }
 
+// f64専用の最適化実装
+impl Optimizer<f64> for SGD<f64> {
+    fn step<M: Module<f64>>(&mut self, module: &mut M) {
+        for (_name, param) in module.parameters() {
+            if let Some(grad) = param.grad() {
+                // 勾配を実体化
+                grad.realize().expect("Failed to realize gradient");
+                let grad_data = grad.data().expect("Failed to get gradient data");
+
+                // パラメータを実体化
+                param.realize().expect("Failed to realize parameter");
+                let param_data = param.data().expect("Failed to get parameter data");
+
+                // SGD更新: param = param - lr * grad
+                let new_data: Vec<f64> = param_data
+                    .iter()
+                    .zip(grad_data.iter())
+                    .map(|(p, g)| p - self.lr * g)
+                    .collect();
+
+                // 新しいテンソルを作成してパラメータを更新
+                let shape = param.shape().to_vec();
+                let new_tensor = Tensor::<f64, DimDyn>::from_data(new_data, shape);
+                param.set(new_tensor);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -86,24 +124,30 @@ mod tests {
 
     #[test]
     fn test_sgd_creation() {
-        let sgd = SGD::new(0.01);
+        let sgd = SGD::<f32>::new(0.01);
         assert!((sgd.learning_rate() - 0.01).abs() < 1e-6);
     }
 
     #[test]
     fn test_sgd_set_lr() {
-        let mut sgd = SGD::new(0.01);
+        let mut sgd = SGD::<f32>::new(0.01);
         sgd.set_learning_rate(0.001);
         assert!((sgd.learning_rate() - 0.001).abs() < 1e-6);
     }
 
     #[test]
     fn test_optimizer_trait() {
-        let mut linear = Linear::new(10, 5);
-        let mut sgd = SGD::new(0.01);
+        let mut linear = Linear::<f32>::new(10, 5);
+        let mut sgd = SGD::<f32>::new(0.01);
 
         // トレイトメソッドが呼べることを確認
         linear.zero_grad(); // Module側
         sgd.step(&mut linear); // Optimizer側
+    }
+
+    #[test]
+    fn test_sgd_f64() {
+        let sgd = SGD::<f64>::new(0.01);
+        assert!((sgd.learning_rate() - 0.01).abs() < 1e-10);
     }
 }

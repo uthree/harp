@@ -9,7 +9,7 @@
 //! - `SignedIntDType`: Signed integer types (i8, i16, i32, i64)
 //! - `UnsignedIntDType`: Unsigned integer types (u8, u16, u32, u64)
 
-use crate::ast::DType;
+use crate::ast::{DType, Literal};
 
 // ============================================================================
 // Macros for impl generation
@@ -18,12 +18,18 @@ use crate::ast::DType;
 /// Macro to implement integer type base traits (TensorDType, NumericDType)
 /// IntegerDType and its subtypes are implemented in mod.rs with extended functionality
 macro_rules! impl_integer_base {
-    ($($ty:ty => $dtype:expr);+ $(;)?) => {
+    ($($ty:ty => $dtype:expr, $literal:ident);+ $(;)?) => {
         $(
             impl TensorDType for $ty {
                 const DTYPE: DType = $dtype;
             }
-            impl NumericDType for $ty {}
+            impl NumericDType for $ty {
+                const ZERO: Self = 0;
+                const ONE: Self = 1;
+                fn to_literal(val: Self) -> Literal {
+                    Literal::$literal(val)
+                }
+            }
         )+
     };
 }
@@ -41,11 +47,18 @@ pub trait TensorDType: Clone + Send + Sync + 'static {
     const DTYPE: DType;
 }
 
-/// Marker trait for numeric types (integers and floats).
+/// Trait for numeric types (integers and floats).
 ///
 /// Types implementing this trait support basic arithmetic operations
-/// (Add, Sub, Mul, Div).
-pub trait NumericDType: TensorDType {}
+/// (Add, Sub, Mul, Div) and can be used for tensor initialization.
+pub trait NumericDType: TensorDType {
+    /// Zero value for this type
+    const ZERO: Self;
+    /// One value for this type
+    const ONE: Self;
+    /// Convert value to Literal for ConstFill operations
+    fn to_literal(val: Self) -> Literal;
+}
 
 // FloatDType is defined in mod.rs with autograd methods
 // IntegerDType, SignedIntDType, UnsignedIntDType are defined in mod.rs with extended functionality
@@ -61,20 +74,32 @@ impl TensorDType for f32 {
 impl TensorDType for f64 {
     const DTYPE: DType = DType::F64;
 }
-impl NumericDType for f32 {}
-impl NumericDType for f64 {}
+impl NumericDType for f32 {
+    const ZERO: Self = 0.0;
+    const ONE: Self = 1.0;
+    fn to_literal(val: Self) -> Literal {
+        Literal::F32(val)
+    }
+}
+impl NumericDType for f64 {
+    const ZERO: Self = 0.0;
+    const ONE: Self = 1.0;
+    fn to_literal(val: Self) -> Literal {
+        Literal::F64(val)
+    }
+}
 // FloatDType implementations are in mod.rs
 
 // Integer types (via macro) - IntegerDType impl is in mod.rs
 impl_integer_base!(
-    i8  => DType::I8;
-    i16 => DType::I16;
-    i32 => DType::I32;
-    i64 => DType::I64;
-    u8  => DType::U8;
-    u16 => DType::U16;
-    u32 => DType::U32;
-    u64 => DType::U64;
+    i8  => DType::I8,  I8;
+    i16 => DType::I16, I16;
+    i32 => DType::I32, I32;
+    i64 => DType::I64, I64;
+    u8  => DType::U8,  U8;
+    u16 => DType::U16, U16;
+    u32 => DType::U32, U32;
+    u64 => DType::U64, U64;
 );
 
 // Boolean type (not numeric)

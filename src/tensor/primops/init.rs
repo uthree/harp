@@ -12,8 +12,7 @@ use crate::backend::Buffer;
 use crate::tensor::forward::VecBuffer;
 use crate::tensor::shape::{Expr, View};
 use crate::tensor::{
-    Dim, DimDyn, Dimension, FloatDType, IntegerDType, NumericInitDType, Tensor, TensorInner,
-    TensorOp,
+    Dim, DimDyn, Dimension, FloatDType, NumericDType, Tensor, TensorInner, TensorOp,
 };
 
 /// Helper to create View from usize shape
@@ -97,32 +96,32 @@ fn generate_random_f64(count: usize) -> Vec<f64> {
 }
 
 // ============================================================================
-// Static dimension constructors (f32)
+// Static dimension constructors (NumericDType - all numeric types)
 // ============================================================================
 
-impl<const N: usize> Tensor<f32, Dim<N>>
+impl<T: NumericDType, const N: usize> Tensor<T, Dim<N>>
 where
     Dim<N>: Dimension,
 {
     /// Create a tensor filled with zeros (Const(0))
     pub fn zeros(shape: [usize; N]) -> Self {
-        Self::full(shape, 0.0)
+        Self::full(shape, T::ZERO)
     }
 
     /// Create a tensor filled with ones (Const(1))
     pub fn ones(shape: [usize; N]) -> Self {
-        Self::full(shape, 1.0)
+        Self::full(shape, T::ONE)
     }
 
     /// Create a tensor filled with a constant value
-    pub fn full(shape: [usize; N], value: f32) -> Self {
+    pub fn full(shape: [usize; N], value: T) -> Self {
         let shape_vec: Vec<usize> = shape.to_vec();
         let view = view_from_shape(&shape_vec);
         let inner = TensorInner::new(
-            TensorOp::ConstFill(crate::ast::Literal::F32(value)),
+            TensorOp::ConstFill(T::to_literal(value)),
             view,
             shape_vec,
-            DType::F32,
+            T::DTYPE,
         );
         Self {
             inner: Arc::new(inner),
@@ -141,35 +140,9 @@ where
             },
             view,
             shape_vec,
-            DType::F32,
+            T::DTYPE,
             name,
         );
-        Self {
-            inner: Arc::new(inner),
-            _dtype: PhantomData,
-            _dim: PhantomData,
-        }
-    }
-
-    /// Create a tensor with uniform random values [0, 1)
-    ///
-    /// Random values are generated on the CPU and stored in a buffer.
-    /// This ensures compatibility with all backends (OpenCL, Metal, etc.).
-    pub fn rand(shape: [usize; N]) -> Self {
-        let shape_vec: Vec<usize> = shape.to_vec();
-        let numel: usize = shape_vec.iter().product();
-        let data = generate_random_f32(numel);
-        let view = view_from_shape(&shape_vec);
-        let vec_buffer = VecBuffer::from_vec(&data, shape_vec.clone(), DType::F32);
-        let inner = TensorInner {
-            op: TensorOp::Executed,
-            view,
-            shape: shape_vec,
-            dtype: DType::F32,
-            name: None,
-            autograd: None,
-            buffer: RwLock::new(Some(Box::new(vec_buffer) as Box<dyn Buffer>)),
-        };
         Self {
             inner: Arc::new(inner),
             _dtype: PhantomData,
@@ -179,60 +152,13 @@ where
 }
 
 // ============================================================================
-// Static dimension constructors (f64)
+// rand - FloatDType only (f32, f64)
 // ============================================================================
 
-impl<const N: usize> Tensor<f64, Dim<N>>
+impl<T: FloatDType, const N: usize> Tensor<T, Dim<N>>
 where
     Dim<N>: Dimension,
 {
-    /// Create a tensor filled with zeros (Const(0))
-    pub fn zeros(shape: [usize; N]) -> Self {
-        Self::full(shape, 0.0)
-    }
-
-    /// Create a tensor filled with ones (Const(1))
-    pub fn ones(shape: [usize; N]) -> Self {
-        Self::full(shape, 1.0)
-    }
-
-    /// Create a tensor filled with a constant value
-    pub fn full(shape: [usize; N], value: f64) -> Self {
-        let shape_vec: Vec<usize> = shape.to_vec();
-        let view = view_from_shape(&shape_vec);
-        let inner = TensorInner::new(
-            TensorOp::ConstFill(crate::ast::Literal::F64(value)),
-            view,
-            shape_vec,
-            DType::F64,
-        );
-        Self {
-            inner: Arc::new(inner),
-            _dtype: PhantomData,
-            _dim: PhantomData,
-        }
-    }
-
-    /// Create an input tensor (placeholder for data)
-    pub fn input(name: &str, shape: [usize; N]) -> Self {
-        let shape_vec: Vec<usize> = shape.to_vec();
-        let view = view_from_shape(&shape_vec);
-        let inner = TensorInner::new_named(
-            TensorOp::Buffer {
-                name: name.to_string(),
-            },
-            view,
-            shape_vec,
-            DType::F64,
-            name,
-        );
-        Self {
-            inner: Arc::new(inner),
-            _dtype: PhantomData,
-            _dim: PhantomData,
-        }
-    }
-
     /// Create a tensor with uniform random values [0, 1)
     ///
     /// Random values are generated on the CPU and stored in a buffer.
@@ -240,17 +166,29 @@ where
     pub fn rand(shape: [usize; N]) -> Self {
         let shape_vec: Vec<usize> = shape.to_vec();
         let numel: usize = shape_vec.iter().product();
-        let data = generate_random_f64(numel);
         let view = view_from_shape(&shape_vec);
-        let vec_buffer = VecBuffer::from_vec(&data, shape_vec.clone(), DType::F64);
+
+        // Generate random data based on dtype
+        let vec_buffer: Box<dyn Buffer> = match T::DTYPE {
+            DType::F32 => {
+                let data = generate_random_f32(numel);
+                Box::new(VecBuffer::from_vec(&data, shape_vec.clone(), DType::F32))
+            }
+            DType::F64 => {
+                let data = generate_random_f64(numel);
+                Box::new(VecBuffer::from_vec(&data, shape_vec.clone(), DType::F64))
+            }
+            _ => unreachable!("FloatDType only supports F32 and F64"),
+        };
+
         let inner = TensorInner {
             op: TensorOp::Executed,
             view,
             shape: shape_vec,
-            dtype: DType::F64,
+            dtype: T::DTYPE,
             name: None,
             autograd: None,
-            buffer: RwLock::new(Some(Box::new(vec_buffer) as Box<dyn Buffer>)),
+            buffer: RwLock::new(Some(vec_buffer)),
         };
         Self {
             inner: Arc::new(inner),
@@ -261,10 +199,10 @@ where
 }
 
 // ============================================================================
-// Dynamic dimension constructors (generic over NumericInitDType)
+// Dynamic dimension constructors (generic over NumericDType)
 // ============================================================================
 
-impl<T: NumericInitDType> Tensor<T, DimDyn> {
+impl<T: NumericDType> Tensor<T, DimDyn> {
     /// Create a tensor filled with zeros (dynamic shape)
     pub fn zeros_dyn(shape: &[usize]) -> Self {
         Self::full_dyn(shape, T::ZERO)
@@ -346,62 +284,6 @@ impl<T: FloatDType> Tensor<T, DimDyn> {
             autograd: None,
             buffer: RwLock::new(Some(vec_buffer)),
         };
-        Self {
-            inner: Arc::new(inner),
-            _dtype: PhantomData,
-            _dim: PhantomData,
-        }
-    }
-}
-
-// ============================================================================
-// Static dimension constructors (generic over IntegerDType)
-// ============================================================================
-
-impl<T: IntegerDType, const N: usize> Tensor<T, Dim<N>>
-where
-    Dim<N>: Dimension,
-{
-    /// Create an integer tensor filled with zeros
-    pub fn zeros(shape: [usize; N]) -> Self {
-        Self::full(shape, T::ZERO)
-    }
-
-    /// Create an integer tensor filled with ones
-    pub fn ones(shape: [usize; N]) -> Self {
-        Self::full(shape, T::ONE)
-    }
-
-    /// Create an integer tensor filled with a constant value
-    pub fn full(shape: [usize; N], value: T) -> Self {
-        let shape_vec: Vec<usize> = shape.to_vec();
-        let view = view_from_shape(&shape_vec);
-        let inner = TensorInner::new(
-            TensorOp::ConstFill(T::to_literal(value)),
-            view,
-            shape_vec,
-            T::DTYPE,
-        );
-        Self {
-            inner: Arc::new(inner),
-            _dtype: PhantomData,
-            _dim: PhantomData,
-        }
-    }
-
-    /// Create an integer input tensor
-    pub fn input(name: &str, shape: [usize; N]) -> Self {
-        let shape_vec: Vec<usize> = shape.to_vec();
-        let view = view_from_shape(&shape_vec);
-        let inner = TensorInner::new_named(
-            TensorOp::Buffer {
-                name: name.to_string(),
-            },
-            view,
-            shape_vec,
-            T::DTYPE,
-            name,
-        );
         Self {
             inner: Arc::new(inner),
             _dtype: PhantomData,

@@ -6,19 +6,19 @@
 
 use std::marker::PhantomData;
 
-use crate::tensor::{Dim1, Dim2, DimDyn, Tensor};
+use crate::tensor::{Dim1, Dim2, DimDyn, FloatDType, Tensor};
 
 // ============================================================================
-// Type-safe operations for Dim1
+// Type-safe operations for Dim1 - Generic over FloatDType
 // ============================================================================
 
-impl Tensor<f32, Dim1> {
+impl<T: FloatDType> Tensor<T, Dim1> {
     /// Type-safe dot product for 1D tensors
     ///
     /// a[K] · b[K] -> scalar
     ///
     /// Returns a scalar tensor (0-dimensional).
-    pub fn dot1(&self, other: &Tensor<f32, Dim1>) -> Tensor<f32, DimDyn> {
+    pub fn dot1(&self, other: &Tensor<T, Dim1>) -> Tensor<T, DimDyn> {
         assert_eq!(
             self.shape()[0],
             other.shape()[0],
@@ -36,7 +36,7 @@ impl Tensor<f32, Dim1> {
     /// a[M] ⊗ b[N] -> C[M, N]
     ///
     /// Returns a 2D tensor.
-    pub fn outer1(&self, other: &Tensor<f32, Dim1>) -> Tensor<f32, Dim2> {
+    pub fn outer1(&self, other: &Tensor<T, Dim1>) -> Tensor<T, Dim2> {
         let m = self.shape()[0];
         let n = other.shape()[0];
 
@@ -58,16 +58,16 @@ impl Tensor<f32, Dim1> {
 }
 
 // ============================================================================
-// Type-safe matmul for Dim2
+// Type-safe matmul for Dim2 - Generic over FloatDType
 // ============================================================================
 
-impl Tensor<f32, Dim2> {
+impl<T: FloatDType> Tensor<T, Dim2> {
     /// Type-safe matrix multiplication for 2D tensors
     ///
     /// A[M, K] @ B[K, N] -> C[M, N]
     ///
     /// This is a type-safe version that preserves the Dim2 type.
-    pub fn matmul2(&self, other: &Tensor<f32, Dim2>) -> Tensor<f32, Dim2> {
+    pub fn matmul2(&self, other: &Tensor<T, Dim2>) -> Tensor<T, Dim2> {
         let a_shape = self.shape();
         let b_shape = other.shape();
 
