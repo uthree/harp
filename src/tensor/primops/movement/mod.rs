@@ -29,7 +29,7 @@ use std::sync::Arc;
 use crate::tensor::ops::{InputRef, PadValue};
 use crate::tensor::shape::{Expr, View};
 use crate::tensor::{
-    Dim, DimDyn, Dimension, FloatDType, GradFn, Tensor, TensorDType, TensorInner, TensorOp,
+    Dim, DimDyn, Dimension, FloatDType, Tensor, TensorDType, TensorInner, TensorOp,
 };
 
 use super::binary::with_grad_fn_generic;
@@ -72,6 +72,7 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         let inner = TensorInner::new(TensorOp::View { input }, view, new_shape, T::DTYPE);
         Tensor {
             inner: Arc::new(inner),
+            autograd_typed: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         }
@@ -94,6 +95,7 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         let inner = TensorInner::new(TensorOp::View { input }, view, new_shape, T::DTYPE);
         Tensor {
             inner: Arc::new(inner),
+            autograd_typed: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         }
@@ -119,6 +121,7 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         let inner = TensorInner::new(TensorOp::View { input }, view, new_shape.to_vec(), T::DTYPE);
         Tensor {
             inner: Arc::new(inner),
+            autograd_typed: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         }
@@ -141,6 +144,7 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         let inner = TensorInner::new(TensorOp::View { input }, view, new_shape.to_vec(), T::DTYPE);
         Tensor {
             inner: Arc::new(inner),
+            autograd_typed: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         }
@@ -160,6 +164,7 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         let inner = TensorInner::new(TensorOp::View { input }, new_view, new_shape, T::DTYPE);
         Tensor {
             inner: Arc::new(inner),
+            autograd_typed: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         }
@@ -200,6 +205,7 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         let inner = TensorInner::new(TensorOp::View { input }, view, new_shape, T::DTYPE);
         Tensor {
             inner: Arc::new(inner),
+            autograd_typed: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         }
@@ -219,6 +225,7 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         );
         Tensor {
             inner: Arc::new(inner),
+            autograd_typed: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         }
@@ -308,6 +315,7 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         let inner = TensorInner::new(TensorOp::View { input }, view, new_shape.to_vec(), T::DTYPE);
         Tensor {
             inner: Arc::new(inner),
+            autograd_typed: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         }
@@ -376,18 +384,21 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
 
         let result = Tensor {
             inner: Arc::new(inner),
+            autograd_typed: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         };
 
-        // Register gradient if input requires grad
-        let grad_fn = if self.requires_grad() {
-            Some(Arc::new(PadBackward::new(self.clone(), padding.to_vec())) as Arc<dyn GradFn<T>>)
+        // Use typed system if available
+        if self.requires_grad_typed() {
+            let grad_fn = PadBackwardTyped::new(self.clone(), padding.to_vec());
+            result.with_grad_fn_typed(Arc::new(grad_fn))
+        } else if self.requires_grad() {
+            let grad_fn = PadBackward::new(self.clone(), padding.to_vec());
+            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
-            None
-        };
-
-        with_grad_fn_generic(result, grad_fn)
+            result
+        }
     }
 
     /// Pad tensor with zeros (convenience method for sum reduction) - type-safe version
@@ -499,18 +510,21 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
 
         let result = Tensor {
             inner: Arc::new(inner),
+            autograd_typed: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         };
 
-        // Register gradient if input requires grad
-        let grad_fn = if self.requires_grad() {
-            Some(Arc::new(SliceBackward::new(self.clone(), ranges.to_vec())) as Arc<dyn GradFn<T>>)
+        // Use typed system if available
+        if self.requires_grad_typed() {
+            let grad_fn = SliceBackwardTyped::new(self.clone(), ranges.to_vec());
+            result.with_grad_fn_typed(Arc::new(grad_fn))
+        } else if self.requires_grad() {
+            let grad_fn = SliceBackward::new(self.clone(), ranges.to_vec());
+            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
-            None
-        };
-
-        with_grad_fn_generic(result, grad_fn)
+            result
+        }
     }
 
     /// Concatenate multiple tensors along a specified axis (primop)
@@ -583,20 +597,26 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
 
         let result = Tensor {
             inner: Arc::new(inner),
+            autograd_typed: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         };
 
-        // Register gradient if any input requires grad
+        // Check if any input uses typed autograd
+        let any_requires_grad_typed = tensors.iter().any(|t| t.requires_grad_typed());
         let any_requires_grad = tensors.iter().any(|t| t.requires_grad());
-        let grad_fn = if any_requires_grad {
-            let input_tensors: Vec<Tensor<T, D>> = tensors.iter().map(|&t| t.clone()).collect();
-            Some(Arc::new(ConcatBackward::new(input_tensors, axis)) as Arc<dyn GradFn<T>>)
-        } else {
-            None
-        };
 
-        with_grad_fn_generic(result, grad_fn)
+        if any_requires_grad_typed {
+            let input_tensors: Vec<Tensor<T, D>> = tensors.iter().map(|&t| t.clone()).collect();
+            let grad_fn = ConcatBackwardTyped::new(input_tensors, axis);
+            result.with_grad_fn_typed(Arc::new(grad_fn))
+        } else if any_requires_grad {
+            let input_tensors: Vec<Tensor<T, D>> = tensors.iter().map(|&t| t.clone()).collect();
+            let grad_fn = ConcatBackward::new(input_tensors, axis);
+            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
+        } else {
+            result
+        }
     }
 
     // ========================================================================
@@ -621,13 +641,16 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
     pub fn squeeze(&self, dim: usize) -> Tensor<T, D::Smaller> {
         let result = self.squeeze_impl(dim);
 
-        let grad_fn = if self.requires_grad() {
-            Some(Arc::new(SqueezeBackward::new(self.clone().into_dyn(), dim)) as Arc<dyn GradFn<T>>)
+        // Use typed system if available
+        if self.requires_grad_typed() {
+            let grad_fn = SqueezeBackwardTyped::<T, D>::new(self.clone(), dim);
+            result.with_grad_fn_typed(Arc::new(grad_fn))
+        } else if self.requires_grad() {
+            let grad_fn = SqueezeBackward::new(self.clone().into_dyn(), dim);
+            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
-            None
-        };
-
-        with_grad_fn_generic(result, grad_fn)
+            result
+        }
     }
 
     /// Unsqueeze: add a dimension of size 1 at the specified position (with gradient tracking)
@@ -648,16 +671,16 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
     pub fn unsqueeze(&self, dim: usize) -> Tensor<T, D::Larger> {
         let result = self.unsqueeze_impl(dim);
 
-        let grad_fn = if self.requires_grad() {
-            Some(
-                Arc::new(UnsqueezeBackward::new(self.clone().into_dyn(), dim))
-                    as Arc<dyn GradFn<T>>,
-            )
+        // Use typed system if available
+        if self.requires_grad_typed() {
+            let grad_fn = UnsqueezeBackwardTyped::<T, D>::new(self.clone(), dim);
+            result.with_grad_fn_typed(Arc::new(grad_fn))
+        } else if self.requires_grad() {
+            let grad_fn = UnsqueezeBackward::new(self.clone().into_dyn(), dim);
+            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
-            None
-        };
-
-        with_grad_fn_generic(result, grad_fn)
+            result
+        }
     }
 
     /// Reshape to a new static shape (with gradient tracking)
@@ -670,16 +693,16 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
         let original_shape = self.shape().to_vec();
         let result = self.reshape_impl(new_shape);
 
-        let grad_fn = if self.requires_grad() {
-            Some(Arc::new(ReshapeBackward::new(
-                self.clone().into_dyn(),
-                original_shape,
-            )) as Arc<dyn GradFn<T>>)
+        // Use typed system if available
+        if self.requires_grad_typed() {
+            let grad_fn = ReshapeBackwardTyped::<T, D, Dim<M>>::new(self.clone());
+            result.with_grad_fn_typed(Arc::new(grad_fn))
+        } else if self.requires_grad() {
+            let grad_fn = ReshapeBackward::new(self.clone().into_dyn(), original_shape);
+            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
-            None
-        };
-
-        with_grad_fn_generic(result, grad_fn)
+            result
+        }
     }
 
     /// Reshape to dynamic shape (with gradient tracking)
@@ -687,16 +710,16 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
         let original_shape = self.shape().to_vec();
         let result = self.reshape_dyn_impl(new_shape);
 
-        let grad_fn = if self.requires_grad() {
-            Some(Arc::new(ReshapeBackward::new(
-                self.clone().into_dyn(),
-                original_shape,
-            )) as Arc<dyn GradFn<T>>)
+        // Use typed system if available
+        if self.requires_grad_typed() {
+            let grad_fn = ReshapeDynBackwardTyped::<T, D>::new(self.clone(), original_shape);
+            result.with_grad_fn_typed(Arc::new(grad_fn))
+        } else if self.requires_grad() {
+            let grad_fn = ReshapeBackward::new(self.clone().into_dyn(), original_shape);
+            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
-            None
-        };
-
-        with_grad_fn_generic(result, grad_fn)
+            result
+        }
     }
 
     /// Expand tensor to a larger shape (broadcast) with gradient tracking
@@ -707,16 +730,16 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
         let original_shape = self.shape().to_vec();
         let result = self.expand_impl(new_shape);
 
-        let grad_fn = if self.requires_grad() {
-            Some(
-                Arc::new(ExpandBackward::new(self.clone().into_dyn(), original_shape))
-                    as Arc<dyn GradFn<T>>,
-            )
+        // Use typed system if available
+        if self.requires_grad_typed() {
+            let grad_fn = ExpandBackwardTyped::<T, D>::new(self.clone(), original_shape);
+            result.with_grad_fn_typed(Arc::new(grad_fn))
+        } else if self.requires_grad() {
+            let grad_fn = ExpandBackward::new(self.clone().into_dyn(), original_shape);
+            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
-            None
-        };
-
-        with_grad_fn_generic(result, grad_fn)
+            result
+        }
     }
 
     /// Permute tensor dimensions (with gradient tracking)
@@ -726,29 +749,33 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
     pub fn permute(&self, axes: &[usize]) -> Tensor<T, DimDyn> {
         let result = self.permute_impl(axes);
 
-        let grad_fn = if self.requires_grad() {
-            Some(
-                Arc::new(PermuteBackward::new(self.clone().into_dyn(), axes.to_vec()))
-                    as Arc<dyn GradFn<T>>,
-            )
+        // Use typed system if available
+        // Note: permute returns DimDyn, so we use PermuteBackwardTyped<T, D>
+        if self.requires_grad_typed() {
+            let grad_fn = PermuteBackwardTyped::<T, D>::new(self.clone(), axes.to_vec());
+            result.with_grad_fn_typed(Arc::new(grad_fn))
+        } else if self.requires_grad() {
+            let grad_fn = PermuteBackward::new(self.clone().into_dyn(), axes.to_vec());
+            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
-            None
-        };
-
-        with_grad_fn_generic(result, grad_fn)
+            result
+        }
     }
 
     /// Transpose the tensor (swap last two dimensions) with gradient tracking
     pub fn transpose(&self) -> Tensor<T, DimDyn> {
         let result = self.transpose_impl();
 
-        let grad_fn = if self.requires_grad() {
-            Some(Arc::new(TransposeBackward::new(self.clone().into_dyn())) as Arc<dyn GradFn<T>>)
+        // Use typed system if available
+        if self.requires_grad_typed() {
+            let grad_fn = TransposeBackwardTyped::<T, D>::new(self.clone());
+            result.with_grad_fn_typed(Arc::new(grad_fn))
+        } else if self.requires_grad() {
+            let grad_fn = TransposeBackward::new(self.clone().into_dyn());
+            with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
-            None
-        };
-
-        with_grad_fn_generic(result, grad_fn)
+            result
+        }
     }
 
     /// Interleave: insert zeros at stride intervals along specified axes

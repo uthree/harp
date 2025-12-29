@@ -16,7 +16,8 @@ use std::sync::Arc;
 
 use crate::tensor::shape::{Expr, View};
 use crate::tensor::{
-    DimDyn, Dimension, ElementwiseOp, FloatDType, GradFn, Tensor, TensorInner, TensorOp,
+    DimDyn, Dimension, ElementwiseOp, FloatDType, GradFn, GradFnTyped, Tensor, TensorInner,
+    TensorOp,
 };
 
 use super::binary::with_grad_fn_generic;
@@ -272,6 +273,7 @@ fn create_unary_elementwise<T: FloatDType, D: Dimension>(
 
     Tensor {
         inner: Arc::new(inner),
+        autograd_typed: None,
         _dtype: PhantomData,
         _dim: PhantomData,
     }
@@ -287,7 +289,12 @@ impl<T: FloatDType, D: Dimension> Neg for &Tensor<T, D> {
     fn neg(self) -> Tensor<T, D> {
         let result = create_unary_elementwise(ElementwiseOp::Neg, self);
 
-        if self.requires_grad() {
+        // Use new typed system if input has typed autograd
+        if self.requires_grad_typed() {
+            let grad_fn = NegBackwardTyped::new(self.clone());
+            result.with_grad_fn_typed(Arc::new(grad_fn))
+        } else if self.requires_grad() {
+            // Fallback to legacy system
             let grad_fn = NegBackward::new(self.clone().into_dyn());
             with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
@@ -313,7 +320,10 @@ impl<T: FloatDType, D: Dimension> Recip for &Tensor<T, D> {
     fn recip(self) -> Tensor<T, D> {
         let result = create_unary_elementwise(ElementwiseOp::Recip, self);
 
-        if self.requires_grad() {
+        if self.requires_grad_typed() {
+            let grad_fn = RecipBackwardTyped::new(self.clone(), result.clone());
+            result.with_grad_fn_typed(Arc::new(grad_fn))
+        } else if self.requires_grad() {
             let grad_fn = RecipBackward::new(self.clone().into_dyn(), result.clone().into_dyn());
             with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
@@ -339,7 +349,10 @@ impl<T: FloatDType, D: Dimension> Sqrt for &Tensor<T, D> {
     fn sqrt(self) -> Tensor<T, D> {
         let result = create_unary_elementwise(ElementwiseOp::Sqrt, self);
 
-        if self.requires_grad() {
+        if self.requires_grad_typed() {
+            let grad_fn = SqrtBackwardTyped::new(self.clone(), result.clone());
+            result.with_grad_fn_typed(Arc::new(grad_fn))
+        } else if self.requires_grad() {
             let grad_fn = SqrtBackward::new(self.clone().into_dyn(), result.clone().into_dyn());
             with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
@@ -365,7 +378,10 @@ impl<T: FloatDType, D: Dimension> Log2 for &Tensor<T, D> {
     fn log2(self) -> Tensor<T, D> {
         let result = create_unary_elementwise(ElementwiseOp::Log2, self);
 
-        if self.requires_grad() {
+        if self.requires_grad_typed() {
+            let grad_fn = Log2BackwardTyped::new(self.clone());
+            result.with_grad_fn_typed(Arc::new(grad_fn))
+        } else if self.requires_grad() {
             let grad_fn = Log2Backward::new(self.clone().into_dyn());
             with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
@@ -391,7 +407,10 @@ impl<T: FloatDType, D: Dimension> Exp2 for &Tensor<T, D> {
     fn exp2(self) -> Tensor<T, D> {
         let result = create_unary_elementwise(ElementwiseOp::Exp2, self);
 
-        if self.requires_grad() {
+        if self.requires_grad_typed() {
+            let grad_fn = Exp2BackwardTyped::new(self.clone(), result.clone());
+            result.with_grad_fn_typed(Arc::new(grad_fn))
+        } else if self.requires_grad() {
             let grad_fn = Exp2Backward::new(self.clone().into_dyn(), result.clone().into_dyn());
             with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
@@ -417,7 +436,10 @@ impl<T: FloatDType, D: Dimension> Sin for &Tensor<T, D> {
     fn sin(self) -> Tensor<T, D> {
         let result = create_unary_elementwise(ElementwiseOp::Sin, self);
 
-        if self.requires_grad() {
+        if self.requires_grad_typed() {
+            let grad_fn = SinBackwardTyped::new(self.clone());
+            result.with_grad_fn_typed(Arc::new(grad_fn))
+        } else if self.requires_grad() {
             let grad_fn = SinBackward::new(self.clone().into_dyn());
             with_grad_fn_generic(result, Some(Arc::new(grad_fn)))
         } else {
@@ -527,6 +549,7 @@ where
         };
         Tensor {
             inner: Arc::new(inner),
+            autograd_typed: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         }
@@ -576,6 +599,195 @@ impl<D: Dimension> Tensor<f64, D> {
     /// ```
     pub fn cast_f32(&self) -> Tensor<f32, D> {
         cast_with_grad(self, self.cast())
+    }
+}
+
+// ============================================================================
+// Typed Backward Structs (new system with static dimension typing)
+// ============================================================================
+
+/// Typed gradient for Neg: z = -a
+/// ∂L/∂a = -∂L/∂z
+pub struct NegBackwardTyped<T: FloatDType, D: Dimension> {
+    input: Tensor<T, D>,
+}
+
+impl<T: FloatDType, D: Dimension> NegBackwardTyped<T, D> {
+    pub fn new(input: Tensor<T, D>) -> Self {
+        Self { input }
+    }
+}
+
+impl<T: FloatDType, D: Dimension> GradFnTyped<T, D> for NegBackwardTyped<T, D> {
+    fn backward(&self, grad_output: &Tensor<T, D>) {
+        if self.input.requires_grad_typed() {
+            self.input.backward_with_typed(-grad_output);
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "NegBackwardTyped"
+    }
+}
+
+/// Typed gradient for Recip: z = 1/a
+/// ∂L/∂a = -∂L/∂z / a² = -∂L/∂z · z²
+pub struct RecipBackwardTyped<T: FloatDType, D: Dimension> {
+    input: Tensor<T, D>,
+    output: Tensor<T, D>,
+}
+
+impl<T: FloatDType, D: Dimension> RecipBackwardTyped<T, D> {
+    pub fn new(input: Tensor<T, D>, output: Tensor<T, D>) -> Self {
+        Self { input, output }
+    }
+}
+
+impl<T: FloatDType, D: Dimension> GradFnTyped<T, D> for RecipBackwardTyped<T, D> {
+    fn backward(&self, grad_output: &Tensor<T, D>) {
+        if self.input.requires_grad_typed() {
+            let z_squared = &self.output * &self.output;
+            self.input.backward_with_typed(-(grad_output * &z_squared));
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "RecipBackwardTyped"
+    }
+}
+
+/// Typed gradient for Sqrt: z = √a
+/// ∂L/∂a = ∂L/∂z / (2√a) = ∂L/∂z / (2z)
+pub struct SqrtBackwardTyped<T: FloatDType, D: Dimension> {
+    input: Tensor<T, D>,
+    output: Tensor<T, D>,
+}
+
+impl<T: FloatDType, D: Dimension> SqrtBackwardTyped<T, D> {
+    pub fn new(input: Tensor<T, D>, output: Tensor<T, D>) -> Self {
+        Self { input, output }
+    }
+}
+
+impl<T: FloatDType, D: Dimension> GradFnTyped<T, D> for SqrtBackwardTyped<T, D> {
+    fn backward(&self, grad_output: &Tensor<T, D>) {
+        if self.input.requires_grad_typed() {
+            // ∂L/∂a = ∂L/∂z / (2z)
+            let two = Tensor::<T, DimDyn>::full_dyn(&[], T::TWO);
+            let two_d = Tensor::<T, D> {
+                inner: two.inner,
+                autograd_typed: None,
+                _dtype: PhantomData,
+                _dim: PhantomData,
+            };
+            let two_z = &two_d * &self.output;
+            self.input.backward_with_typed(grad_output * &two_z.recip());
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "SqrtBackwardTyped"
+    }
+}
+
+/// Typed gradient for Log2: z = log₂(a)
+/// ∂L/∂a = ∂L/∂z / (a · ln(2))
+pub struct Log2BackwardTyped<T: FloatDType, D: Dimension> {
+    input: Tensor<T, D>,
+}
+
+impl<T: FloatDType, D: Dimension> Log2BackwardTyped<T, D> {
+    pub fn new(input: Tensor<T, D>) -> Self {
+        Self { input }
+    }
+}
+
+impl<T: FloatDType, D: Dimension> GradFnTyped<T, D> for Log2BackwardTyped<T, D> {
+    fn backward(&self, grad_output: &Tensor<T, D>) {
+        if self.input.requires_grad_typed() {
+            // ∂L/∂a = ∂L/∂z / (a · ln(2))
+            let ln2 = Tensor::<T, DimDyn>::full_dyn(&[], T::LN_2);
+            let ln2_d = Tensor::<T, D> {
+                inner: ln2.inner,
+                autograd_typed: None,
+                _dtype: PhantomData,
+                _dim: PhantomData,
+            };
+            let denom = &self.input * &ln2_d;
+            self.input.backward_with_typed(grad_output * &denom.recip());
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "Log2BackwardTyped"
+    }
+}
+
+/// Typed gradient for Exp2: z = 2^a
+/// ∂L/∂a = ∂L/∂z · z · ln(2)
+pub struct Exp2BackwardTyped<T: FloatDType, D: Dimension> {
+    input: Tensor<T, D>,
+    output: Tensor<T, D>,
+}
+
+impl<T: FloatDType, D: Dimension> Exp2BackwardTyped<T, D> {
+    pub fn new(input: Tensor<T, D>, output: Tensor<T, D>) -> Self {
+        Self { input, output }
+    }
+}
+
+impl<T: FloatDType, D: Dimension> GradFnTyped<T, D> for Exp2BackwardTyped<T, D> {
+    fn backward(&self, grad_output: &Tensor<T, D>) {
+        if self.input.requires_grad_typed() {
+            // ∂L/∂a = ∂L/∂z · z · ln(2)
+            let ln2 = Tensor::<T, DimDyn>::full_dyn(&[], T::LN_2);
+            let ln2_d = Tensor::<T, D> {
+                inner: ln2.inner,
+                autograd_typed: None,
+                _dtype: PhantomData,
+                _dim: PhantomData,
+            };
+            let grad = grad_output * &self.output;
+            self.input.backward_with_typed(&grad * &ln2_d);
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "Exp2BackwardTyped"
+    }
+}
+
+/// Typed gradient for Sin: z = sin(a)
+/// ∂L/∂a = ∂L/∂z · cos(a)
+pub struct SinBackwardTyped<T: FloatDType, D: Dimension> {
+    input: Tensor<T, D>,
+}
+
+impl<T: FloatDType, D: Dimension> SinBackwardTyped<T, D> {
+    pub fn new(input: Tensor<T, D>) -> Self {
+        Self { input }
+    }
+}
+
+impl<T: FloatDType, D: Dimension> GradFnTyped<T, D> for SinBackwardTyped<T, D> {
+    fn backward(&self, grad_output: &Tensor<T, D>) {
+        if self.input.requires_grad_typed() {
+            // ∂L/∂a = ∂L/∂z · cos(a)
+            // cos(a) = sin(a + π/2)
+            let pi_half = Tensor::<T, DimDyn>::full_dyn(&[], T::FRAC_PI_2);
+            let pi_half_d = Tensor::<T, D> {
+                inner: pi_half.inner,
+                autograd_typed: None,
+                _dtype: PhantomData,
+                _dim: PhantomData,
+            };
+            let cos_a = (&self.input + &pi_half_d).sin();
+            self.input.backward_with_typed(grad_output * &cos_a);
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "SinBackwardTyped"
     }
 }
 
@@ -643,6 +855,7 @@ mod tests {
         );
         let a: Tensor<f64, DimDyn> = Tensor {
             inner: Arc::new(inner),
+            autograd_typed: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         };
@@ -686,6 +899,7 @@ mod tests {
         );
         let a: Tensor<f64, DimDyn> = Tensor {
             inner: Arc::new(inner),
+            autograd_typed: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         };
@@ -735,6 +949,7 @@ mod tests {
         );
         let a_base: Tensor<f64, DimDyn> = Tensor {
             inner: Arc::new(inner),
+            autograd_typed: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         };

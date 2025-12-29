@@ -230,7 +230,7 @@ let c = a2 * 2.0;        // a2は別パス → OK
   - `Dim0` ~ `Dim6`: 0〜6次元テンソル用の型エイリアス
 - `DimDyn`: 動的次元（実行時に次元数が決定）
 
-### GradFn トレイト
+### GradFn トレイト（レガシー）
 
 勾配関数のインターフェース。FloatDType（f32, f64）に対してジェネリックです。
 
@@ -242,9 +242,55 @@ pub trait GradFn<T: FloatDType>: Send + Sync {
 }
 ```
 
-### 型安全なGradFn構造体
+### GradFnTyped トレイト（新システム）
 
-GradFn構造体は`Tensor<T, D>`（型安全な次元）で入力を保持し、トレイト実装時のみ`DimDyn`に変換します。
+静的次元付きの勾配関数インターフェース。次元情報をコンパイル時に保持します。
+
+```rust
+pub trait GradFnTyped<T: FloatDType, D: Dimension>: Send + Sync {
+    fn backward(&self, grad_output: &Tensor<T, D>);  // 戻り値なし、内部で伝播
+    fn name(&self) -> &'static str;
+}
+```
+
+**設計上の違い:**
+- レガシー `GradFn<T>`: `backward()` がグラデーションの `Vec` を返し、トラバーサル側で伝播を管理
+- 新 `GradFnTyped<T, D>`: 各実装が自身の入力テンソルを保持し、`backward()` 内で直接 `backward_with_typed()` を呼び出して勾配伝播
+
+### AutogradMetaTyped（新システム）
+
+静的次元付きの自動微分メタデータ。
+
+```rust
+pub struct AutogradMetaTyped<T: FloatDType, D: Dimension> {
+    grad: RwLock<Option<Arc<Tensor<T, D>>>>,
+    grad_fn: Option<Arc<dyn GradFnTyped<T, D>>>,
+}
+```
+
+### Tensor構造体のautograd
+
+`Tensor<T, D>` は両方のシステムをサポートします:
+
+```rust
+pub struct Tensor<T: TensorDType = f32, D: Dimension = DimDyn> {
+    inner: Arc<TensorInner>,
+    autograd_typed: Option<Arc<dyn Any + Send + Sync>>,  // AutogradMetaTyped<T, D>
+    _dtype: PhantomData<T>,
+    _dim: PhantomData<D>,
+}
+```
+
+**新システムのメソッド:**
+- `set_requires_grad_typed(bool)`: 型付き勾配追跡を有効化
+- `requires_grad_typed()`: 型付き勾配追跡が有効かチェック
+- `backward_typed()`: 型付き逆伝播開始
+- `backward_with_typed(grad)`: 型付き勾配で逆伝播
+- `grad_typed()`: 型付き勾配を取得
+
+### 型安全なGradFn構造体（レガシー）
+
+レガシーGradFn構造体は`Tensor<T, D>`で入力を保持し、トレイト実装時のみ`DimDyn`に変換します。
 
 ```rust
 // 例: PadBackward<T, D>
@@ -261,7 +307,66 @@ impl<T: FloatDType, D: Dimension> GradFn<T> for PadBackward<T, D> {
 }
 ```
 
+### 型安全なGradFnTyped構造体（新システム）
+
+新システムでは次元変換が静的に追跡されます:
+
+```rust
+// 同次元演算: AddBackwardTyped<T, D>
+pub struct AddBackwardTyped<T: FloatDType, D: Dimension> {
+    lhs: Tensor<T, D>,
+    rhs: Tensor<T, D>,
+}
+
+impl<T: FloatDType, D: Dimension> GradFnTyped<T, D> for AddBackwardTyped<T, D> {
+    fn backward(&self, grad_output: &Tensor<T, D>) {
+        if self.lhs.requires_grad_typed() {
+            self.lhs.backward_with_typed(grad_output.clone());
+        }
+        if self.rhs.requires_grad_typed() {
+            self.rhs.backward_with_typed(grad_output.clone());
+        }
+    }
+}
+
+// 次元減少演算: SumBackwardTyped<T, D>
+// 入力: D, 出力: D::Smaller
+pub struct SumBackwardTyped<T: FloatDType, D: Dimension> {
+    input: Tensor<T, D>,
+    axis: usize,
+}
+
+impl<T: FloatDType, D: Dimension> GradFnTyped<T, D::Smaller> for SumBackwardTyped<T, D> {
+    fn backward(&self, grad_output: &Tensor<T, D::Smaller>) {
+        // unsqueeze + expand で元の次元に戻す
+        // ...
+        self.input.backward_with_typed(grad_input);
+    }
+}
+```
+
 **注意**: pad/slice/concat演算はFloatDType（f32, f64）専用です。整数型テンソルでは利用できません。
+
+### Autograd移行状況
+
+新しい`GradFnTyped<T, D>`システムへの移行状況:
+
+**新システムに接続済み:**
+- Binary ops: Add, Mul（f32, f64）
+- Scalar ops: ScalarAdd, ScalarMul（f32, f64）  
+- Unary ops: Neg
+- Reduce ops: Sum, Mean, Max
+- Movement ops: pad, slice, squeeze, unsqueeze, reshape, reshape_dyn, permute, transpose, expand, concat
+
+**レガシーシステムのみ:**
+- unfold1d, unfold2d, unfold3d（+ dilated versions）
+- fold1d, fold2d, fold3d（+ dilated versions）
+- maximum
+
+**次元変換の取り扱い:**
+- `try_into_dim()`/`into_dimensioned()`: `autograd_typed`を保持
+- `into_dyn()`: `autograd_typed`を保持しない（レガシーシステムとの互換性のため）
+- `backward_with_typed()`: 次元型が一致しない場合、DimDynへのフォールバックを試行
 
 ## 演算の分類
 

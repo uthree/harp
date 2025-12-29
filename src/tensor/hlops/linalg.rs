@@ -4,7 +4,6 @@
 //! - BatchMatMul = MatMul with batch dimensions
 //! - Dot = Sum(a * b)
 
-use std::marker::PhantomData;
 
 use crate::tensor::{Dim1, Dim2, DimDyn, FloatDType, Tensor};
 
@@ -49,11 +48,7 @@ impl<T: FloatDType> Tensor<T, Dim1> {
         let result_dyn = a_col.expand(&[m, n]) * b_row.expand(&[m, n]);
 
         // Convert to Dim2 preserving autograd info
-        Tensor {
-            inner: result_dyn.inner.clone(),
-            _dtype: PhantomData,
-            _dim: PhantomData,
-        }
+        result_dyn.into_dim2()
     }
 }
 
@@ -96,11 +91,7 @@ impl<T: FloatDType> Tensor<T, Dim2> {
         let result_dyn = product.sum(1);
 
         // Convert back to Dim2 preserving autograd info
-        Tensor {
-            inner: result_dyn.inner.clone(),
-            _dtype: PhantomData,
-            _dim: PhantomData,
-        }
+        result_dyn.into_dim2()
     }
 }
 

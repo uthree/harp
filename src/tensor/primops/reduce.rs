@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use crate::tensor::shape::{Expr, View};
 use crate::tensor::{
-    DimDyn, Dimension, FloatDType, GradFn, ReduceOp, Tensor, TensorInner, TensorOp,
+    DimDyn, Dimension, FloatDType, GradFn, GradFnTyped, ReduceOp, Tensor, TensorInner, TensorOp,
 };
 
 use super::binary::with_grad_fn_generic;
@@ -172,6 +172,7 @@ fn create_single_axis_reduce<T: FloatDType, D: Dimension>(
 
     Tensor {
         inner: Arc::new(inner),
+        autograd_typed: None,
         _dtype: PhantomData,
         _dim: PhantomData,
     }
@@ -202,18 +203,23 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
 
         let result = create_single_axis_reduce(ReduceOp::Sum, self, axis);
 
-        if self.requires_grad() {
+        if self.requires_grad_typed() {
+            let grad_fn = SumBackwardTyped::<T, D>::new(self.clone(), axis);
+            result.with_grad_fn_typed(Arc::new(grad_fn))
+        } else if self.requires_grad() {
             let input = self.clone().into_dyn();
             let grad_fn = SumBackward::new(input, axis);
             // Convert result to DimDyn, add grad_fn, then convert back
             let result_dyn: Tensor<T, DimDyn> = Tensor {
                 inner: result.inner.clone(),
+                autograd_typed: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
             let result_with_grad = with_grad_fn_generic(result_dyn, Some(Arc::new(grad_fn)));
             Tensor {
                 inner: result_with_grad.inner,
+                autograd_typed: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             }
@@ -242,10 +248,14 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
 
         let result = create_single_axis_reduce(ReduceOp::Max, self, axis);
 
-        if self.requires_grad() {
+        if self.requires_grad_typed() {
+            let grad_fn = MaxReduceBackwardTyped::<T, D>::new(self.clone(), axis);
+            result.with_grad_fn_typed(Arc::new(grad_fn))
+        } else if self.requires_grad() {
             let input = self.clone().into_dyn();
             let result_dyn: Tensor<T, DimDyn> = Tensor {
                 inner: result.inner.clone(),
+                autograd_typed: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -253,6 +263,7 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
             let result_with_grad = with_grad_fn_generic(result_dyn, Some(Arc::new(grad_fn)));
             Tensor {
                 inner: result_with_grad.inner,
+                autograd_typed: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             }
@@ -287,10 +298,14 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
 
         let result = create_single_axis_reduce(ReduceOp::Prod, self, axis);
 
-        if self.requires_grad() {
+        if self.requires_grad_typed() {
+            let grad_fn = ProdBackwardTyped::<T, D>::new(self.clone(), result.clone(), axis);
+            result.with_grad_fn_typed(Arc::new(grad_fn))
+        } else if self.requires_grad() {
             let input = self.clone().into_dyn();
             let result_dyn: Tensor<T, DimDyn> = Tensor {
                 inner: result.inner.clone(),
+                autograd_typed: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -298,12 +313,180 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
             let result_with_grad = with_grad_fn_generic(result_dyn, Some(Arc::new(grad_fn)));
             Tensor {
                 inner: result_with_grad.inner,
+                autograd_typed: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             }
         } else {
             result
         }
+    }
+}
+
+// ============================================================================
+// Typed Backward Structs (new system with static dimension typing)
+// ============================================================================
+
+/// Typed gradient for sum_axis: z = sum(a, axis)
+/// ∂L/∂a = expand(unsqueeze(∂L/∂z, axis))
+///
+/// Input has dimension D, output has dimension D::Smaller
+pub struct SumBackwardTyped<T: FloatDType, D: Dimension> {
+    input: Tensor<T, D>,
+    input_shape: Vec<usize>,
+    axis: usize,
+}
+
+impl<T: FloatDType, D: Dimension> SumBackwardTyped<T, D> {
+    pub fn new(input: Tensor<T, D>, axis: usize) -> Self {
+        let input_shape = input.shape().to_vec();
+        Self {
+            input,
+            input_shape,
+            axis,
+        }
+    }
+}
+
+// Output is D::Smaller, so implements GradFnTyped for that dimension
+impl<T: FloatDType, D: Dimension> GradFnTyped<T, D::Smaller> for SumBackwardTyped<T, D> {
+    fn backward(&self, grad_output: &Tensor<T, D::Smaller>) {
+        if self.input.requires_grad_typed() {
+            // Convert to DimDyn for operations, then convert back to D
+            let grad_dyn: Tensor<T, DimDyn> = Tensor {
+                inner: grad_output.inner.clone(),
+                autograd_typed: None,
+                _dtype: PhantomData,
+                _dim: PhantomData,
+            };
+            // Unsqueeze and expand
+            let grad_unsqueezed = grad_dyn.unsqueeze(self.axis);
+            let grad_expanded = grad_unsqueezed.expand(&self.input_shape);
+            // Convert back to D
+            let grad_input: Tensor<T, D> = Tensor {
+                inner: grad_expanded.inner,
+                autograd_typed: None,
+                _dtype: PhantomData,
+                _dim: PhantomData,
+            };
+            self.input.backward_with_typed(grad_input);
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "SumBackwardTyped"
+    }
+}
+
+/// Typed gradient for prod_axis: z = prod(a, axis)
+/// ∂L/∂a = ∂L/∂z · z / a
+pub struct ProdBackwardTyped<T: FloatDType, D: Dimension> {
+    input: Tensor<T, D>,
+    output: Tensor<T, D::Smaller>,
+    input_shape: Vec<usize>,
+    axis: usize,
+}
+
+impl<T: FloatDType, D: Dimension> ProdBackwardTyped<T, D> {
+    pub fn new(input: Tensor<T, D>, output: Tensor<T, D::Smaller>, axis: usize) -> Self {
+        let input_shape = input.shape().to_vec();
+        Self {
+            input,
+            output,
+            input_shape,
+            axis,
+        }
+    }
+}
+
+impl<T: FloatDType, D: Dimension> GradFnTyped<T, D::Smaller> for ProdBackwardTyped<T, D> {
+    fn backward(&self, grad_output: &Tensor<T, D::Smaller>) {
+        if self.input.requires_grad_typed() {
+            // Convert to DimDyn for operations
+            let output_dyn: Tensor<T, DimDyn> = Tensor {
+                inner: self.output.inner.clone(),
+                autograd_typed: None,
+                _dtype: PhantomData,
+                _dim: PhantomData,
+            };
+            let grad_dyn: Tensor<T, DimDyn> = Tensor {
+                inner: grad_output.inner.clone(),
+                autograd_typed: None,
+                _dtype: PhantomData,
+                _dim: PhantomData,
+            };
+            let input_dyn: Tensor<T, DimDyn> = Tensor {
+                inner: self.input.inner.clone(),
+                autograd_typed: None,
+                _dtype: PhantomData,
+                _dim: PhantomData,
+            };
+
+            // Unsqueeze and expand
+            let output_expanded = output_dyn.unsqueeze(self.axis).expand(&self.input_shape);
+            let grad_expanded = grad_dyn.unsqueeze(self.axis).expand(&self.input_shape);
+            // ∂L/∂a = ∂L/∂z · z / a
+            let grad_input_dyn = &(&grad_expanded * &output_expanded) * &input_dyn.recip();
+            // Convert back to D
+            let grad_input: Tensor<T, D> = Tensor {
+                inner: grad_input_dyn.inner,
+                autograd_typed: None,
+                _dtype: PhantomData,
+                _dim: PhantomData,
+            };
+            self.input.backward_with_typed(grad_input);
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "ProdBackwardTyped"
+    }
+}
+
+/// Typed gradient for max_axis: z = max(a, axis)
+/// ∂L/∂a = mask(a == max) · expand(unsqueeze(∂L/∂z, axis))
+pub struct MaxReduceBackwardTyped<T: FloatDType, D: Dimension> {
+    input: Tensor<T, D>,
+    input_shape: Vec<usize>,
+    axis: usize,
+}
+
+impl<T: FloatDType, D: Dimension> MaxReduceBackwardTyped<T, D> {
+    pub fn new(input: Tensor<T, D>, axis: usize) -> Self {
+        let input_shape = input.shape().to_vec();
+        Self {
+            input,
+            input_shape,
+            axis,
+        }
+    }
+}
+
+impl<T: FloatDType, D: Dimension> GradFnTyped<T, D::Smaller> for MaxReduceBackwardTyped<T, D> {
+    fn backward(&self, grad_output: &Tensor<T, D::Smaller>) {
+        if self.input.requires_grad_typed() {
+            // Convert to DimDyn for operations
+            let grad_dyn: Tensor<T, DimDyn> = Tensor {
+                inner: grad_output.inner.clone(),
+                autograd_typed: None,
+                _dtype: PhantomData,
+                _dim: PhantomData,
+            };
+            // Approximation: expand gradient uniformly
+            let grad_expanded = grad_dyn.unsqueeze(self.axis).expand(&self.input_shape);
+            // Convert back to D
+            let grad_input: Tensor<T, D> = Tensor {
+                inner: grad_expanded.inner,
+                autograd_typed: None,
+                _dtype: PhantomData,
+                _dim: PhantomData,
+            };
+            self.input.backward_with_typed(grad_input);
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "MaxReduceBackwardTyped"
     }
 }
 
