@@ -84,7 +84,6 @@ fn create_binary_elementwise<T: NumericDType, D: Dimension>(
 
     Tensor {
         inner: Arc::new(inner),
-        autograd: None,
         _dtype: PhantomData,
         _dim: PhantomData,
     }
@@ -103,7 +102,6 @@ fn scalar_tensor_f32(value: f32) -> Tensor<f32, DimDyn> {
     );
     Tensor {
         inner: Arc::new(inner),
-        autograd: None,
         _dtype: PhantomData,
         _dim: PhantomData,
     }
@@ -120,7 +118,6 @@ fn scalar_tensor_f64(value: f64) -> Tensor<f64, DimDyn> {
     );
     Tensor {
         inner: Arc::new(inner),
-        autograd: None,
         _dtype: PhantomData,
         _dim: PhantomData,
     }
@@ -582,7 +579,6 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D> for ScalarMulBackward<T, D> {
             // Convert to same dimension type
             let scalar_d = Tensor::<T, D> {
                 inner: scalar_tensor.inner,
-                autograd: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };

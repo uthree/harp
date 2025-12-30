@@ -81,7 +81,6 @@ impl<T: FloatDType> Tensor<T, Dim3> {
 
         let result = Tensor {
             inner: Arc::new(inner),
-            autograd: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         };
@@ -191,7 +190,6 @@ impl<T: FloatDType> Tensor<T, Dim4> {
 
         let result = Tensor {
             inner: Arc::new(inner),
-            autograd: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         };
@@ -338,7 +336,6 @@ impl<T: FloatDType> Tensor<T, Dim5> {
 
         let result = Tensor {
             inner: Arc::new(inner),
-            autograd: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         };

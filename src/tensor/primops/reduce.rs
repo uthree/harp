@@ -53,7 +53,6 @@ fn create_single_axis_reduce<T: FloatDType, D: Dimension>(
 
     Tensor {
         inner: Arc::new(inner),
-        autograd: None,
         _dtype: PhantomData,
         _dim: PhantomData,
     }
@@ -187,7 +186,6 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D::Smaller> for SumBackward<T, D> {
             // Convert to DimDyn for operations, then convert back to D
             let grad_dyn: Tensor<T, DimDyn> = Tensor {
                 inner: grad_output.inner.clone(),
-                autograd: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -197,7 +195,6 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D::Smaller> for SumBackward<T, D> {
             // Convert back to D
             let grad_input: Tensor<T, D> = Tensor {
                 inner: grad_expanded.inner,
-                autograd: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -237,19 +234,16 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D::Smaller> for ProdBackward<T, D> {
             // Convert to DimDyn for operations
             let output_dyn: Tensor<T, DimDyn> = Tensor {
                 inner: self.output.inner.clone(),
-                autograd: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
             let grad_dyn: Tensor<T, DimDyn> = Tensor {
                 inner: grad_output.inner.clone(),
-                autograd: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
             let input_dyn: Tensor<T, DimDyn> = Tensor {
                 inner: self.input.inner.clone(),
-                autograd: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -262,7 +256,6 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D::Smaller> for ProdBackward<T, D> {
             // Convert back to D
             let grad_input: Tensor<T, D> = Tensor {
                 inner: grad_input_dyn.inner,
-                autograd: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -300,7 +293,6 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D::Smaller> for MaxReduceBackward<T,
             // Convert to DimDyn for operations
             let grad_dyn: Tensor<T, DimDyn> = Tensor {
                 inner: grad_output.inner.clone(),
-                autograd: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -309,7 +301,6 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D::Smaller> for MaxReduceBackward<T,
             // Convert back to D
             let grad_input: Tensor<T, D> = Tensor {
                 inner: grad_expanded.inner,
-                autograd: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };

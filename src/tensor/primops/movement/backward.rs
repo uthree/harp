@@ -29,14 +29,12 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D::Smaller> for SqueezeBackward<T, D
             // Use DimDyn intermediate for type flexibility
             let grad_dyn: Tensor<T, DimDyn> = Tensor {
                 inner: grad_output.inner.clone(),
-                autograd: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
             let grad_unsqueezed = grad_dyn.unsqueeze(self.dim);
             let grad_input: Tensor<T, D> = Tensor {
                 inner: grad_unsqueezed.inner,
-                autograd: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -69,14 +67,12 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D::Larger> for UnsqueezeBackward<T, 
             // Squeeze grad from D::Larger to D
             let grad_dyn: Tensor<T, DimDyn> = Tensor {
                 inner: grad_output.inner.clone(),
-                autograd: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
             let grad_squeezed = grad_dyn.squeeze(self.dim);
             let grad_input: Tensor<T, D> = Tensor {
                 inner: grad_squeezed.inner,
-                autograd: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -107,7 +103,6 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D> for PadBackward<T, D> {
         if self.input.requires_grad() {
             let grad_dyn: Tensor<T, DimDyn> = Tensor {
                 inner: grad_output.inner.clone(),
-                autograd: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -120,7 +115,6 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D> for PadBackward<T, D> {
             let grad_sliced = grad_dyn.slice(&ranges);
             let grad_input: Tensor<T, D> = Tensor {
                 inner: grad_sliced.inner,
-                autograd: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -151,7 +145,6 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D> for SliceBackward<T, D> {
         if self.input.requires_grad() {
             let grad_dyn: Tensor<T, DimDyn> = Tensor {
                 inner: grad_output.inner.clone(),
-                autograd: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -164,7 +157,6 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D> for SliceBackward<T, D> {
             let grad_padded = grad_dyn.pad_zero(&padding);
             let grad_input: Tensor<T, D> = Tensor {
                 inner: grad_padded.inner,
-                autograd: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -200,14 +192,12 @@ impl<T: FloatDType, DIn: Dimension, DOut: Dimension> GradFn<T, DOut>
         if self.input.requires_grad() {
             let grad_dyn: Tensor<T, DimDyn> = Tensor {
                 inner: grad_output.inner.clone(),
-                autograd: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
             let grad_reshaped = grad_dyn.reshape_dyn(self.input.shape());
             let grad_input: Tensor<T, DIn> = Tensor {
                 inner: grad_reshaped.inner,
-                autograd: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -244,7 +234,6 @@ impl<T: FloatDType, D: Dimension> GradFn<T, DimDyn> for PermuteBackward<T, D> {
             let grad_permuted = grad_output.permute(&inverse);
             let grad_input: Tensor<T, D> = Tensor {
                 inner: grad_permuted.inner,
-                autograd: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -342,7 +331,6 @@ impl<T: FloatDType, D: Dimension> GradFn<T, DimDyn> for ExpandBackward<T, D> {
 
             let grad_input: Tensor<T, D> = Tensor {
                 inner: result.inner,
-                autograd: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -378,7 +366,6 @@ impl<T: FloatDType, D: Dimension> GradFn<T, DimDyn> for ReshapeDynBackward<T, D>
             let grad_reshaped = grad_output.reshape_dyn(&self.original_shape);
             let grad_input: Tensor<T, D> = Tensor {
                 inner: grad_reshaped.inner,
-                autograd: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -403,7 +390,6 @@ impl<T: FloatDType, D: Dimension> GradFn<T, DimDyn> for TransposeBackward<T, D> 
             let grad_transposed = grad_output.transpose();
             let grad_input: Tensor<T, D> = Tensor {
                 inner: grad_transposed.inner,
-                autograd: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -670,7 +656,6 @@ impl<T: FloatDType, D: Dimension> GradFn<T, DimDyn> for IntoDynBackward<T, D> {
             // Convert gradient from DimDyn back to D
             let grad_input: Tensor<T, D> = Tensor {
                 inner: grad_output.inner.clone(),
-                autograd: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };

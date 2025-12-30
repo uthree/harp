@@ -16,8 +16,7 @@ use std::sync::Arc;
 
 use crate::tensor::shape::{Expr, View};
 use crate::tensor::{
-    AutogradMeta, DimDyn, Dimension, ElementwiseOp, FloatDType, GradFn, Tensor, TensorInner,
-    TensorOp,
+    DimDyn, Dimension, ElementwiseOp, FloatDType, GradFn, Tensor, TensorInner, TensorOp,
 };
 
 // ============================================================================
@@ -89,7 +88,6 @@ fn create_unary_elementwise<T: FloatDType, D: Dimension>(
 
     Tensor {
         inner: Arc::new(inner),
-        autograd: None,
         _dtype: PhantomData,
         _dim: PhantomData,
     }
@@ -290,12 +288,7 @@ where
     if input.requires_grad() {
         // Create output with autograd enabled (but no grad_fn since we can't
         // properly backprop through type casts in the current system)
-        Tensor {
-            inner: result.inner,
-            autograd: Some(Arc::new(AutogradMeta::<T, D>::new())),
-            _dtype: std::marker::PhantomData,
-            _dim: std::marker::PhantomData,
-        }
+        result.set_requires_grad(true)
     } else {
         result
     }
@@ -419,7 +412,6 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D> for SqrtBackward<T, D> {
             let two = Tensor::<T, DimDyn>::full_dyn(&[], T::TWO);
             let two_d = Tensor::<T, D> {
                 inner: two.inner,
-                autograd: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -452,7 +444,6 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D> for Log2Backward<T, D> {
             let ln2 = Tensor::<T, DimDyn>::full_dyn(&[], T::LN_2);
             let ln2_d = Tensor::<T, D> {
                 inner: ln2.inner,
-                autograd: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -486,7 +477,6 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D> for Exp2Backward<T, D> {
             let ln2 = Tensor::<T, DimDyn>::full_dyn(&[], T::LN_2);
             let ln2_d = Tensor::<T, D> {
                 inner: ln2.inner,
-                autograd: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -520,7 +510,6 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D> for SinBackward<T, D> {
             let pi_half = Tensor::<T, DimDyn>::full_dyn(&[], T::FRAC_PI_2);
             let pi_half_d = Tensor::<T, D> {
                 inner: pi_half.inner,
-                autograd: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -598,7 +587,6 @@ mod tests {
         );
         let a: Tensor<f64, DimDyn> = Tensor {
             inner: Arc::new(inner),
-            autograd: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         };
@@ -642,7 +630,6 @@ mod tests {
         );
         let a: Tensor<f64, DimDyn> = Tensor {
             inner: Arc::new(inner),
-            autograd: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         };
@@ -692,7 +679,6 @@ mod tests {
         );
         let a_base: Tensor<f64, DimDyn> = Tensor {
             inner: Arc::new(inner),
-            autograd: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         };
