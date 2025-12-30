@@ -22,6 +22,7 @@
 
 mod activation;
 mod arithmetic;
+mod init;
 mod linalg;
 mod transcendental;
 

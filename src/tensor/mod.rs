@@ -233,6 +233,9 @@ pub trait FloatDType: NumericDType + sealed::Sealed {
     /// Convert from usize to this type
     fn from_usize(val: usize) -> Self;
 
+    /// Convert from f64 to this type
+    fn from_f64(val: f64) -> Self;
+
     /// Square root of a scalar value
     fn sqrt(self) -> Self;
 
@@ -254,6 +257,10 @@ impl FloatDType for f32 {
         val as f32
     }
 
+    fn from_f64(val: f64) -> Self {
+        val as f32
+    }
+
     fn sqrt(self) -> Self {
         f32::sqrt(self)
     }
@@ -271,6 +278,10 @@ impl FloatDType for f64 {
 
     fn from_usize(val: usize) -> Self {
         val as f64
+    }
+
+    fn from_f64(val: f64) -> Self {
+        val
     }
 
     fn sqrt(self) -> Self {

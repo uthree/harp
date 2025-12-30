@@ -255,47 +255,6 @@ impl<T: NumericDType> Tensor<T, DimDyn> {
     }
 }
 
-// rand_dyn is only available for FloatDType
-impl<T: FloatDType> Tensor<T, DimDyn> {
-    /// Create a tensor with uniform random values [0, 1) (dynamic shape)
-    ///
-    /// Random values are generated on the CPU and stored in a buffer.
-    /// This ensures compatibility with all backends (OpenCL, Metal, etc.).
-    pub fn rand_dyn(shape: &[usize]) -> Self {
-        let shape_vec = shape.to_vec();
-        let numel: usize = shape_vec.iter().product();
-        let view = view_from_shape(&shape_vec);
-
-        // Generate random data based on dtype
-        let vec_buffer: Box<dyn Buffer> = match T::DTYPE {
-            DType::F32 => {
-                let data = generate_random_f32(numel);
-                Box::new(VecBuffer::from_vec(&data, shape_vec.clone(), DType::F32))
-            }
-            DType::F64 => {
-                let data = generate_random_f64(numel);
-                Box::new(VecBuffer::from_vec(&data, shape_vec.clone(), DType::F64))
-            }
-            _ => unreachable!("FloatDType only supports F32 and F64"),
-        };
-
-        let inner = TensorInner {
-            op: TensorOp::Executed,
-            view,
-            shape: shape_vec,
-            dtype: T::DTYPE,
-            name: None,
-            buffer: RwLock::new(Some(vec_buffer)),
-        };
-        Self {
-            inner: Arc::new(inner),
-            autograd_meta: None,
-            _dtype: PhantomData,
-            _dim: PhantomData,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -329,12 +288,6 @@ mod tests {
     fn test_zeros_dyn() {
         let t = Tensor::<f32, DimDyn>::zeros_dyn(&[3, 4, 5]);
         assert_eq!(t.shape(), &[3, 4, 5]);
-    }
-
-    #[test]
-    fn test_rand_dyn() {
-        let t = Tensor::<f32, DimDyn>::rand_dyn(&[3, 4]);
-        assert_eq!(t.shape(), &[3, 4]);
     }
 
     // f64 tests

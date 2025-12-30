@@ -229,9 +229,9 @@ impl<T: FloatDType> Conv1dBuilder<T> {
     pub fn build(self) -> Conv1d<T> {
         let c_in_per_group = self.in_channels / self.groups;
 
-        // 重みの初期化: He initialization
-        let weight =
-            Tensor::<T, DimDyn>::rand_dyn(&[self.out_channels, c_in_per_group, self.kernel_size]);
+        // 重みの初期化
+        let weight = Tensor::<T, Dim3>::rand([self.out_channels, c_in_per_group, self.kernel_size])
+            .into_dyn();
 
         let bias = if self.bias {
             Some(Parameter::new(Tensor::<T, DimDyn>::zeros_dyn(&[
@@ -510,12 +510,13 @@ impl<T: FloatDType> Conv2dBuilder<T> {
         let c_in_per_group = self.in_channels / self.groups;
 
         // 重みの初期化
-        let weight = Tensor::<T, DimDyn>::rand_dyn(&[
+        let weight = Tensor::<T, Dim4>::rand([
             self.out_channels,
             c_in_per_group,
             self.kernel_size.0,
             self.kernel_size.1,
-        ]);
+        ])
+        .into_dyn();
 
         let bias = if self.bias {
             Some(Parameter::new(Tensor::<T, DimDyn>::zeros_dyn(&[
@@ -816,13 +817,14 @@ impl<T: FloatDType> Conv3dBuilder<T> {
         let c_in_per_group = self.in_channels / self.groups;
 
         // 重みの初期化
-        let weight = Tensor::<T, DimDyn>::rand_dyn(&[
+        let weight = Tensor::<T, Dim5>::rand([
             self.out_channels,
             c_in_per_group,
             self.kernel_size.0,
             self.kernel_size.1,
             self.kernel_size.2,
-        ]);
+        ])
+        .into_dyn();
 
         let bias = if self.bias {
             Some(Parameter::new(Tensor::<T, DimDyn>::zeros_dyn(&[
@@ -1174,8 +1176,8 @@ impl<T: FloatDType> ConvTranspose1dBuilder<T> {
         let c_out_per_group = self.out_channels / self.groups;
 
         // 重みの初期化
-        let weight =
-            Tensor::<T, DimDyn>::rand_dyn(&[self.in_channels, c_out_per_group, self.kernel_size]);
+        let weight = Tensor::<T, Dim3>::rand([self.in_channels, c_out_per_group, self.kernel_size])
+            .into_dyn();
 
         let bias = if self.bias {
             Some(Parameter::new(Tensor::<T, DimDyn>::zeros_dyn(&[
@@ -1572,12 +1574,13 @@ impl<T: FloatDType> ConvTranspose2dBuilder<T> {
         let c_out_per_group = self.out_channels / self.groups;
 
         // 重みの初期化
-        let weight = Tensor::<T, DimDyn>::rand_dyn(&[
+        let weight = Tensor::<T, Dim4>::rand([
             self.in_channels,
             c_out_per_group,
             self.kernel_size.0,
             self.kernel_size.1,
-        ]);
+        ])
+        .into_dyn();
 
         let bias = if self.bias {
             Some(Parameter::new(Tensor::<T, DimDyn>::zeros_dyn(&[
@@ -2013,13 +2016,14 @@ impl<T: FloatDType> ConvTranspose3dBuilder<T> {
         let c_out_per_group = self.out_channels / self.groups;
 
         // 重みの初期化
-        let weight = Tensor::<T, DimDyn>::rand_dyn(&[
+        let weight = Tensor::<T, Dim5>::rand([
             self.in_channels,
             c_out_per_group,
             self.kernel_size.0,
             self.kernel_size.1,
             self.kernel_size.2,
-        ]);
+        ])
+        .into_dyn();
 
         let bias = if self.bias {
             Some(Parameter::new(Tensor::<T, DimDyn>::zeros_dyn(&[
