@@ -7,3 +7,4 @@ description = "Neural network layers and utilities for Harp"
 [dependencies]
 harp = { path = "../.." }
 harp-nn-derive = { path = "../nn-derive" }
+typed-builder = "0.20"

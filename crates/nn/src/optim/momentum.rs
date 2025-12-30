@@ -1,12 +1,49 @@
 //! モメンタム付き確率的勾配降下法（Momentum SGD）
 
 use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::ops::{Add, Div, Mul, Sub};
 
 use harp::tensor::{DimDyn, FloatDType, Tensor};
+use typed_builder::TypedBuilder;
 
 use super::Optimizer;
 use crate::Module;
+
+/// Momentumオプティマイザの設定
+///
+/// # Example
+///
+/// ```ignore
+/// let mut optimizer = Momentum::<f32>::builder()
+///     .lr(0.01)
+///     .momentum(0.95)
+///     .build();
+/// ```
+#[derive(TypedBuilder)]
+#[builder(build_method(into = Momentum<T>))]
+pub struct MomentumConfig<T: FloatDType = f32>
+where
+    T: Div<T, Output = T>,
+{
+    /// 学習率
+    lr: T,
+    /// モメンタム係数（デフォルト: 0.9）
+    #[builder(default_code = "T::from_usize(9) / T::from_usize(10)")]
+    momentum: T,
+    #[builder(default, setter(skip))]
+    _marker: PhantomData<T>,
+}
+
+impl<T: FloatDType + Div<T, Output = T>> From<MomentumConfig<T>> for Momentum<T> {
+    fn from(config: MomentumConfig<T>) -> Self {
+        Momentum {
+            lr: config.lr,
+            momentum: config.momentum,
+            velocities: HashMap::new(),
+        }
+    }
+}
 
 /// モメンタム付き確率的勾配降下法（Momentum SGD）
 ///
@@ -24,8 +61,11 @@ use crate::Module;
 /// # Example
 ///
 /// ```ignore
-/// let mut model = Linear::<f32>::new(784, 128);
-/// let mut optimizer = Momentum::<f32>::new(0.01, 0.9);
+/// let mut model = Linear::<f32>::new(784, 128).build();
+/// let mut optimizer = Momentum::<f32>::builder()
+///     .lr(0.01)
+///     .momentum(0.9)
+///     .build();
 ///
 /// // 学習ループ
 /// model.zero_grad();
@@ -44,21 +84,9 @@ pub struct Momentum<T: FloatDType = f32> {
 }
 
 impl<T: FloatDType + Div<T, Output = T>> Momentum<T> {
-    /// 新しいMomentumオプティマイザを作成
-    ///
-    /// デフォルト: momentum=0.9
-    pub fn new(lr: T) -> Self {
-        Self {
-            lr,
-            momentum: T::from_usize(9) / T::from_usize(10), // 0.9
-            velocities: HashMap::new(),
-        }
-    }
-
-    /// モメンタム係数を設定（ビルダーパターン）
-    pub fn with_momentum(mut self, momentum: T) -> Self {
-        self.momentum = momentum;
-        self
+    /// ビルダーを作成
+    pub fn builder() -> MomentumConfigBuilder<T, ((), ())> {
+        MomentumConfig::builder()
     }
 
     /// 学習率を取得
@@ -135,21 +163,21 @@ mod tests {
 
     #[test]
     fn test_momentum_creation() {
-        let optimizer = Momentum::<f32>::new(0.01);
+        let optimizer = Momentum::<f32>::builder().lr(0.01).build();
         assert!((optimizer.learning_rate() - 0.01).abs() < 1e-6);
         assert!((optimizer.momentum() - 0.9).abs() < 1e-6);
     }
 
     #[test]
     fn test_momentum_builder() {
-        let optimizer = Momentum::<f32>::new(0.01).with_momentum(0.95);
+        let optimizer = Momentum::<f32>::builder().lr(0.01).momentum(0.95).build();
         assert!((optimizer.learning_rate() - 0.01).abs() < 1e-6);
         assert!((optimizer.momentum() - 0.95).abs() < 1e-6);
     }
 
     #[test]
     fn test_momentum_set_params() {
-        let mut optimizer = Momentum::<f32>::new(0.01);
+        let mut optimizer = Momentum::<f32>::builder().lr(0.01).build();
         optimizer.set_learning_rate(0.001);
         optimizer.set_momentum(0.95);
         assert!((optimizer.learning_rate() - 0.001).abs() < 1e-6);
@@ -158,8 +186,8 @@ mod tests {
 
     #[test]
     fn test_momentum_optimizer_trait() {
-        let mut linear = Linear::<f32>::new(10, 5);
-        let mut optimizer = Momentum::<f32>::new(0.01);
+        let mut linear = Linear::<f32>::new(10, 5).build();
+        let mut optimizer = Momentum::<f32>::builder().lr(0.01).build();
 
         // トレイトメソッドが呼べることを確認
         linear.zero_grad();
@@ -168,15 +196,15 @@ mod tests {
 
     #[test]
     fn test_momentum_f64() {
-        let optimizer = Momentum::<f64>::new(0.01);
+        let optimizer = Momentum::<f64>::builder().lr(0.01).build();
         assert!((optimizer.learning_rate() - 0.01).abs() < 1e-10);
         assert!((optimizer.momentum() - 0.9).abs() < 1e-10);
     }
 
     #[test]
     fn test_momentum_velocity_initialization() {
-        let mut linear = Linear::<f32>::new(2, 1);
-        let mut optimizer = Momentum::<f32>::new(0.1);
+        let mut linear = Linear::<f32>::new(2, 1).build();
+        let mut optimizer = Momentum::<f32>::builder().lr(0.1).build();
 
         // 勾配がない状態でstepを呼んでも速度は保存されない
         linear.zero_grad();

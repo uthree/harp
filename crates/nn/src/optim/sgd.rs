@@ -1,11 +1,35 @@
 //! 確率的勾配降下法（SGD）
 
+use std::marker::PhantomData;
 use std::ops::{Mul, Sub};
 
 use harp::tensor::{DimDyn, FloatDType, Tensor};
+use typed_builder::TypedBuilder;
 
 use super::Optimizer;
 use crate::Module;
+
+/// SGDオプティマイザの設定
+///
+/// # Example
+///
+/// ```ignore
+/// let mut sgd = SGD::<f32>::builder().lr(0.01).build();
+/// ```
+#[derive(TypedBuilder)]
+#[builder(build_method(into = SGD<T>))]
+pub struct SGDConfig<T: FloatDType = f32> {
+    /// 学習率
+    lr: T,
+    #[builder(default, setter(skip))]
+    _marker: PhantomData<T>,
+}
+
+impl<T: FloatDType> From<SGDConfig<T>> for SGD<T> {
+    fn from(config: SGDConfig<T>) -> Self {
+        SGD { lr: config.lr }
+    }
+}
 
 /// 確率的勾配降下法（SGD）
 ///
@@ -18,11 +42,11 @@ use crate::Module;
 /// # Example
 ///
 /// ```ignore
-/// let mut model = Linear::<f32>::new(784, 128);
-/// let mut sgd = SGD::<f32>::new(0.01);
+/// let mut model = Linear::<f32>::new(784, 128).build();
+/// let mut sgd = SGD::<f32>::builder().lr(0.01).build();
 ///
 /// // 学習ループ
-/// model.zero_grad();  // Module側のメソッド
+/// model.zero_grad();
 /// let output = model.forward(&input);
 /// let loss = mse_loss(&output, &target);
 /// loss.backward();
@@ -34,9 +58,9 @@ pub struct SGD<T: FloatDType = f32> {
 }
 
 impl<T: FloatDType> SGD<T> {
-    /// 新しいSGDオプティマイザを作成
-    pub fn new(lr: T) -> Self {
-        Self { lr }
+    /// ビルダーを作成
+    pub fn builder() -> SGDConfigBuilder<T, ((),)> {
+        SGDConfig::builder()
     }
 
     /// 学習率を取得
@@ -90,21 +114,21 @@ mod tests {
 
     #[test]
     fn test_sgd_creation() {
-        let sgd = SGD::<f32>::new(0.01);
+        let sgd = SGD::<f32>::builder().lr(0.01).build();
         assert!((sgd.learning_rate() - 0.01).abs() < 1e-6);
     }
 
     #[test]
     fn test_sgd_set_lr() {
-        let mut sgd = SGD::<f32>::new(0.01);
+        let mut sgd = SGD::<f32>::builder().lr(0.01).build();
         sgd.set_learning_rate(0.001);
         assert!((sgd.learning_rate() - 0.001).abs() < 1e-6);
     }
 
     #[test]
     fn test_optimizer_trait() {
-        let mut linear = Linear::<f32>::new(10, 5);
-        let mut sgd = SGD::<f32>::new(0.01);
+        let mut linear = Linear::<f32>::new(10, 5).build();
+        let mut sgd = SGD::<f32>::builder().lr(0.01).build();
 
         // トレイトメソッドが呼べることを確認
         linear.zero_grad(); // Module側
@@ -113,7 +137,7 @@ mod tests {
 
     #[test]
     fn test_sgd_f64() {
-        let sgd = SGD::<f64>::new(0.01);
+        let sgd = SGD::<f64>::builder().lr(0.01).build();
         assert!((sgd.learning_rate() - 0.01).abs() < 1e-10);
     }
 }

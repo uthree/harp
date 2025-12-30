@@ -3,12 +3,53 @@
 //! Hinton, G. (2012) - Lecture 6a: Overview of mini-batch gradient descent
 
 use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::ops::{Add, Div, Mul, Sub};
 
 use harp::tensor::{DimDyn, FloatDType, Tensor};
+use typed_builder::TypedBuilder;
 
 use super::Optimizer;
 use crate::Module;
+
+/// RMSProp オプティマイザの設定
+///
+/// # Example
+///
+/// ```ignore
+/// let mut optimizer = RMSProp::<f32>::builder()
+///     .lr(0.001)
+///     .rho(0.99)
+///     .build();
+/// ```
+#[derive(TypedBuilder)]
+#[builder(build_method(into = RMSProp<T>))]
+pub struct RMSPropConfig<T: FloatDType = f32>
+where
+    T: Div<T, Output = T>,
+{
+    /// 学習率
+    lr: T,
+    /// 減衰率（デフォルト: 0.99）
+    #[builder(default_code = "T::from_usize(99) / T::from_usize(100)")]
+    rho: T,
+    /// 数値安定性のための小さな値（デフォルト: T::EPSILON）
+    #[builder(default_code = "T::EPSILON")]
+    epsilon: T,
+    #[builder(default, setter(skip))]
+    _marker: PhantomData<T>,
+}
+
+impl<T: FloatDType + Div<T, Output = T>> From<RMSPropConfig<T>> for RMSProp<T> {
+    fn from(config: RMSPropConfig<T>) -> Self {
+        RMSProp {
+            lr: config.lr,
+            rho: config.rho,
+            epsilon: config.epsilon,
+            square_avg: HashMap::new(),
+        }
+    }
+}
 
 /// RMSProp オプティマイザ
 ///
@@ -26,8 +67,8 @@ use crate::Module;
 /// # Example
 ///
 /// ```ignore
-/// let mut model = Linear::<f32>::new(784, 128);
-/// let mut optimizer = RMSProp::<f32>::new(0.001);
+/// let mut model = Linear::<f32>::new(784, 128).build();
+/// let mut optimizer = RMSProp::<f32>::builder().lr(0.001).build();
 ///
 /// // 学習ループ
 /// model.zero_grad();
@@ -48,28 +89,9 @@ pub struct RMSProp<T: FloatDType = f32> {
 }
 
 impl<T: FloatDType + Div<T, Output = T>> RMSProp<T> {
-    /// 新しい RMSProp オプティマイザを作成
-    ///
-    /// デフォルト: rho=0.99, epsilon=1e-8
-    pub fn new(lr: T) -> Self {
-        Self {
-            lr,
-            rho: T::from_usize(99) / T::from_usize(100), // 0.99
-            epsilon: T::EPSILON,
-            square_avg: HashMap::new(),
-        }
-    }
-
-    /// rho を設定（ビルダーパターン）
-    pub fn with_rho(mut self, rho: T) -> Self {
-        self.rho = rho;
-        self
-    }
-
-    /// epsilon を設定（ビルダーパターン）
-    pub fn with_eps(mut self, epsilon: T) -> Self {
-        self.epsilon = epsilon;
-        self
+    /// ビルダーを作成
+    pub fn builder() -> RMSPropConfigBuilder<T, ((), (), ())> {
+        RMSPropConfig::builder()
     }
 
     /// 学習率を取得
@@ -154,21 +176,25 @@ mod tests {
 
     #[test]
     fn test_rmsprop_creation() {
-        let optimizer = RMSProp::<f32>::new(0.001);
+        let optimizer = RMSProp::<f32>::builder().lr(0.001).build();
         assert!((optimizer.learning_rate() - 0.001).abs() < 1e-6);
         assert!((optimizer.rho() - 0.99).abs() < 1e-6);
     }
 
     #[test]
     fn test_rmsprop_builder() {
-        let optimizer = RMSProp::<f32>::new(0.01).with_rho(0.9).with_eps(1e-7);
+        let optimizer = RMSProp::<f32>::builder()
+            .lr(0.01)
+            .rho(0.9)
+            .epsilon(1e-7)
+            .build();
         assert!((optimizer.learning_rate() - 0.01).abs() < 1e-6);
         assert!((optimizer.rho() - 0.9).abs() < 1e-6);
     }
 
     #[test]
     fn test_rmsprop_set_params() {
-        let mut optimizer = RMSProp::<f32>::new(0.001);
+        let mut optimizer = RMSProp::<f32>::builder().lr(0.001).build();
         optimizer.set_learning_rate(0.01);
         optimizer.set_rho(0.95);
         assert!((optimizer.learning_rate() - 0.01).abs() < 1e-6);
@@ -177,8 +203,8 @@ mod tests {
 
     #[test]
     fn test_rmsprop_optimizer_trait() {
-        let mut linear = Linear::<f32>::new(10, 5);
-        let mut optimizer = RMSProp::<f32>::new(0.001);
+        let mut linear = Linear::<f32>::new(10, 5).build();
+        let mut optimizer = RMSProp::<f32>::builder().lr(0.001).build();
 
         // トレイトメソッドが呼べることを確認
         linear.zero_grad();
@@ -187,7 +213,7 @@ mod tests {
 
     #[test]
     fn test_rmsprop_f64() {
-        let optimizer = RMSProp::<f64>::new(0.001);
+        let optimizer = RMSProp::<f64>::builder().lr(0.001).build();
         assert!((optimizer.learning_rate() - 0.001).abs() < 1e-10);
         assert!((optimizer.rho() - 0.99).abs() < 1e-10);
     }

@@ -4,12 +4,60 @@
 //! arXiv:1412.6980
 
 use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::ops::{Add, Div, Mul, Sub};
 
 use harp::tensor::{DimDyn, FloatDType, Tensor};
+use typed_builder::TypedBuilder;
 
 use super::Optimizer;
 use crate::Module;
+
+/// Adam オプティマイザの設定
+///
+/// # Example
+///
+/// ```ignore
+/// let mut optimizer = Adam::<f32>::builder()
+///     .lr(0.001)
+///     .beta1(0.9)
+///     .beta2(0.999)
+///     .build();
+/// ```
+#[derive(TypedBuilder)]
+#[builder(build_method(into = Adam<T>))]
+pub struct AdamConfig<T: FloatDType = f32>
+where
+    T: Div<T, Output = T>,
+{
+    /// 学習率
+    lr: T,
+    /// 一次モーメントの減衰率（デフォルト: 0.9）
+    #[builder(default_code = "T::from_usize(9) / T::from_usize(10)")]
+    beta1: T,
+    /// 二次モーメントの減衰率（デフォルト: 0.999）
+    #[builder(default_code = "T::from_usize(999) / T::from_usize(1000)")]
+    beta2: T,
+    /// 数値安定性のための小さな値（デフォルト: T::EPSILON）
+    #[builder(default_code = "T::EPSILON")]
+    epsilon: T,
+    #[builder(default, setter(skip))]
+    _marker: PhantomData<T>,
+}
+
+impl<T: FloatDType + Div<T, Output = T>> From<AdamConfig<T>> for Adam<T> {
+    fn from(config: AdamConfig<T>) -> Self {
+        Adam {
+            lr: config.lr,
+            beta1: config.beta1,
+            beta2: config.beta2,
+            epsilon: config.epsilon,
+            m: HashMap::new(),
+            v: HashMap::new(),
+            t: 0,
+        }
+    }
+}
 
 /// Adam オプティマイザ
 ///
@@ -31,8 +79,8 @@ use crate::Module;
 /// # Example
 ///
 /// ```ignore
-/// let mut model = Linear::<f32>::new(784, 128);
-/// let mut optimizer = Adam::<f32>::new(0.001);
+/// let mut model = Linear::<f32>::new(784, 128).build();
+/// let mut optimizer = Adam::<f32>::builder().lr(0.001).build();
 ///
 /// // 学習ループ
 /// model.zero_grad();
@@ -59,32 +107,9 @@ pub struct Adam<T: FloatDType = f32> {
 }
 
 impl<T: FloatDType + Div<T, Output = T>> Adam<T> {
-    /// 新しい Adam オプティマイザを作成
-    ///
-    /// デフォルト: beta1=0.9, beta2=0.999, epsilon=1e-8
-    pub fn new(lr: T) -> Self {
-        Self {
-            lr,
-            beta1: T::from_usize(9) / T::from_usize(10), // 0.9
-            beta2: T::from_usize(999) / T::from_usize(1000), // 0.999
-            epsilon: T::EPSILON,
-            m: HashMap::new(),
-            v: HashMap::new(),
-            t: 0,
-        }
-    }
-
-    /// β1, β2 を設定（ビルダーパターン）
-    pub fn with_betas(mut self, beta1: T, beta2: T) -> Self {
-        self.beta1 = beta1;
-        self.beta2 = beta2;
-        self
-    }
-
-    /// epsilon を設定（ビルダーパターン）
-    pub fn with_eps(mut self, epsilon: T) -> Self {
-        self.epsilon = epsilon;
-        self
+    /// ビルダーを作成
+    pub fn builder() -> AdamConfigBuilder<T, ((), (), (), ())> {
+        AdamConfig::builder()
     }
 
     /// 学習率を取得
@@ -210,7 +235,7 @@ mod tests {
 
     #[test]
     fn test_adam_creation() {
-        let optimizer = Adam::<f32>::new(0.001);
+        let optimizer = Adam::<f32>::builder().lr(0.001).build();
         assert!((optimizer.learning_rate() - 0.001).abs() < 1e-6);
         assert!((optimizer.beta1() - 0.9).abs() < 1e-6);
         assert!((optimizer.beta2() - 0.999).abs() < 1e-6);
@@ -219,7 +244,12 @@ mod tests {
 
     #[test]
     fn test_adam_builder() {
-        let optimizer = Adam::<f32>::new(0.01).with_betas(0.85, 0.99).with_eps(1e-7);
+        let optimizer = Adam::<f32>::builder()
+            .lr(0.01)
+            .beta1(0.85)
+            .beta2(0.99)
+            .epsilon(1e-7)
+            .build();
         assert!((optimizer.learning_rate() - 0.01).abs() < 1e-6);
         assert!((optimizer.beta1() - 0.85).abs() < 1e-6);
         assert!((optimizer.beta2() - 0.99).abs() < 1e-6);
@@ -227,7 +257,7 @@ mod tests {
 
     #[test]
     fn test_adam_set_params() {
-        let mut optimizer = Adam::<f32>::new(0.001);
+        let mut optimizer = Adam::<f32>::builder().lr(0.001).build();
         optimizer.set_learning_rate(0.01);
         optimizer.set_beta1(0.85);
         optimizer.set_beta2(0.99);
@@ -238,8 +268,8 @@ mod tests {
 
     #[test]
     fn test_adam_optimizer_trait() {
-        let mut linear = Linear::<f32>::new(10, 5);
-        let mut optimizer = Adam::<f32>::new(0.001);
+        let mut linear = Linear::<f32>::new(10, 5).build();
+        let mut optimizer = Adam::<f32>::builder().lr(0.001).build();
 
         // トレイトメソッドが呼べることを確認
         linear.zero_grad();
@@ -251,7 +281,7 @@ mod tests {
 
     #[test]
     fn test_adam_f64() {
-        let optimizer = Adam::<f64>::new(0.001);
+        let optimizer = Adam::<f64>::builder().lr(0.001).build();
         assert!((optimizer.learning_rate() - 0.001).abs() < 1e-10);
         assert!((optimizer.beta1() - 0.9).abs() < 1e-10);
         assert!((optimizer.beta2() - 0.999).abs() < 1e-10);
@@ -259,8 +289,8 @@ mod tests {
 
     #[test]
     fn test_adam_step_count_increments() {
-        let mut linear = Linear::<f32>::new(2, 1);
-        let mut optimizer = Adam::<f32>::new(0.001);
+        let mut linear = Linear::<f32>::new(2, 1).build();
+        let mut optimizer = Adam::<f32>::builder().lr(0.001).build();
 
         for i in 1..=5 {
             linear.zero_grad();
