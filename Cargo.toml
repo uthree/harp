@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/core", "crates/backend-c", "crates/backend-opencl", "crates/backend-metal", "crates/data", "crates/nn", "crates/nn-derive"]
+members = ["crates/core", "crates/backend-c", "crates/backend-opencl", "crates/backend-metal", "crates/data", "crates/nn", "crates/nn-derive", "crates/train"]
 
 [package]
 name = "harp"
