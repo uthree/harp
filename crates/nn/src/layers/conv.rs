@@ -109,20 +109,28 @@ impl<T: FloatDType> Conv1d<T> {
                 .into_dyn()
                 .reshape_dyn(&[n, groups, c_in_per_group, l_out, k]);
 
-        // Add C_out/groups dimension for broadcast: [N, groups, 1, C_in/groups, L_out, k]
-        let unfolded_expanded = unfolded_grouped.unsqueeze(2);
+        // Add C_out/groups dimension and explicit expand: [N, groups, C_out/groups, C_in/groups, L_out, k]
+        let unfolded_expanded = unfolded_grouped.unsqueeze(2).expand(&[
+            n,
+            groups,
+            c_out_per_group,
+            c_in_per_group,
+            l_out,
+            k,
+        ]);
 
         // Weight: [C_out, C_in/groups, k] -> [groups, C_out/groups, C_in/groups, k]
-        // -> [1, groups, C_out/groups, C_in/groups, 1, k] for broadcast
-        let weight_grouped = self
+        // -> explicit expand to [N, groups, C_out/groups, C_in/groups, L_out, k]
+        let weight_expanded = self
             .weight
             .clone()
             .reshape_dyn(&[groups, c_out_per_group, c_in_per_group, k])
             .unsqueeze(0)
-            .unsqueeze(4);
+            .unsqueeze(4)
+            .expand(&[n, groups, c_out_per_group, c_in_per_group, l_out, k]);
 
-        // Broadcast multiply: [N, groups, C_out/groups, C_in/groups, L_out, k]
-        let product = &unfolded_expanded * &weight_grouped;
+        // Elementwise multiply (same shape, no implicit broadcast)
+        let product = &unfolded_expanded * &weight_expanded;
 
         // Sum over C_in/groups (axis 3) and k (axis 5): [N, groups, C_out/groups, L_out]
         let summed: harp::tensor::Tensor<T, DimDyn> = product.sum(5).sum(3);
@@ -359,21 +367,40 @@ impl<T: FloatDType> Conv2d<T> {
                 .into_dyn()
                 .reshape_dyn(&[n, groups, c_in_per_group, h_out, w_out, kh, kw]);
 
-        // Add C_out/groups dimension for broadcast: [N, groups, 1, C_in/groups, H_out, W_out, kH, kW]
-        let unfolded_expanded = unfolded_grouped.unsqueeze(2);
+        // Add C_out/groups dimension and explicit expand: [N, groups, C_out/groups, C_in/groups, H_out, W_out, kH, kW]
+        let unfolded_expanded = unfolded_grouped.unsqueeze(2).expand(&[
+            n,
+            groups,
+            c_out_per_group,
+            c_in_per_group,
+            h_out,
+            w_out,
+            kh,
+            kw,
+        ]);
 
         // Weight: [C_out, C_in/groups, kH, kW] -> [groups, C_out/groups, C_in/groups, kH, kW]
-        // -> [1, groups, C_out/groups, C_in/groups, 1, 1, kH, kW] for broadcast
-        let weight_grouped = self
+        // -> explicit expand to [N, groups, C_out/groups, C_in/groups, H_out, W_out, kH, kW]
+        let weight_expanded = self
             .weight
             .clone()
             .reshape_dyn(&[groups, c_out_per_group, c_in_per_group, kh, kw])
             .unsqueeze(0)
             .unsqueeze(4)
-            .unsqueeze(5);
+            .unsqueeze(5)
+            .expand(&[
+                n,
+                groups,
+                c_out_per_group,
+                c_in_per_group,
+                h_out,
+                w_out,
+                kh,
+                kw,
+            ]);
 
-        // Broadcast multiply: [N, groups, C_out/groups, C_in/groups, H_out, W_out, kH, kW]
-        let product = &unfolded_expanded * &weight_grouped;
+        // Elementwise multiply (same shape, no implicit broadcast)
+        let product = &unfolded_expanded * &weight_expanded;
 
         // Sum over C_in/groups (axis 3), kH (axis 6), kW (axis 7): [N, groups, C_out/groups, H_out, W_out]
         let summed: harp::tensor::Tensor<T, DimDyn> = product.sum(7).sum(6).sum(3);
@@ -639,22 +666,46 @@ impl<T: FloatDType> Conv3d<T> {
             kw,
         ]);
 
-        // Add C_out/groups dimension for broadcast: [N, groups, 1, C_in/groups, D_out, H_out, W_out, kD, kH, kW]
-        let unfolded_expanded = unfolded_grouped.unsqueeze(2);
+        // Add C_out/groups dimension and explicit expand:
+        // [N, groups, C_out/groups, C_in/groups, D_out, H_out, W_out, kD, kH, kW]
+        let unfolded_expanded = unfolded_grouped.unsqueeze(2).expand(&[
+            n,
+            groups,
+            c_out_per_group,
+            c_in_per_group,
+            d_out,
+            h_out,
+            w_out,
+            kd,
+            kh,
+            kw,
+        ]);
 
         // Weight: [C_out, C_in/groups, kD, kH, kW] -> [groups, C_out/groups, C_in/groups, kD, kH, kW]
-        // -> [1, groups, C_out/groups, C_in/groups, 1, 1, 1, kD, kH, kW] for broadcast
-        let weight_grouped = self
+        // -> explicit expand to [N, groups, C_out/groups, C_in/groups, D_out, H_out, W_out, kD, kH, kW]
+        let weight_expanded = self
             .weight
             .clone()
             .reshape_dyn(&[groups, c_out_per_group, c_in_per_group, kd, kh, kw])
             .unsqueeze(0)
             .unsqueeze(4)
             .unsqueeze(5)
-            .unsqueeze(6);
+            .unsqueeze(6)
+            .expand(&[
+                n,
+                groups,
+                c_out_per_group,
+                c_in_per_group,
+                d_out,
+                h_out,
+                w_out,
+                kd,
+                kh,
+                kw,
+            ]);
 
-        // Broadcast multiply: [N, groups, C_out/groups, C_in/groups, D_out, H_out, W_out, kD, kH, kW]
-        let product = &unfolded_expanded * &weight_grouped;
+        // Elementwise multiply (same shape, no implicit broadcast)
+        let product = &unfolded_expanded * &weight_expanded;
 
         // Sum over C_in/groups (axis 3), kD (axis 7), kH (axis 8), kW (axis 9)
         let summed: harp::tensor::Tensor<T, DimDyn> = product.sum(9).sum(8).sum(7).sum(3);
