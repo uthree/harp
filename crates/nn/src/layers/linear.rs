@@ -2,7 +2,7 @@
 
 use std::marker::PhantomData;
 
-use harp::tensor::{Dim2, DimDyn, FloatDType, Tensor};
+use harp::tensor::{Dim1, Dim2, DimDyn, FloatDType, Tensor};
 
 use crate::Parameter;
 
@@ -36,11 +36,11 @@ impl<T: FloatDType> Linear<T> {
     ///
     /// 重みはランダム初期化、バイアスはゼロ初期化されます。
     pub fn new(in_features: usize, out_features: usize) -> Self {
-        let weight = Tensor::<T, Dim2>::rand([in_features, out_features]);
-        let bias = Tensor::<T, DimDyn>::zeros_dyn(&[out_features]);
+        let weight = Tensor::<T, Dim2>::rand([in_features, out_features]).into_dyn();
+        let bias = Tensor::<T, Dim1>::zeros([out_features]).into_dyn();
 
         Self {
-            weight: Parameter::new(weight.into_dyn()),
+            weight: Parameter::new(weight),
             bias: Parameter::new(bias),
             _dtype: PhantomData,
         }

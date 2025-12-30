@@ -4,7 +4,7 @@
 
 use std::marker::PhantomData;
 
-use harp::tensor::{Dim3, Dim4, Dim5, DimDyn, FloatDType, Tensor};
+use harp::tensor::{Dim1, Dim3, Dim4, Dim5, DimDyn, FloatDType, Tensor};
 
 use crate::{Module, Parameter};
 
@@ -234,9 +234,9 @@ impl<T: FloatDType> Conv1dBuilder<T> {
             .into_dyn();
 
         let bias = if self.bias {
-            Some(Parameter::new(Tensor::<T, DimDyn>::zeros_dyn(&[
-                self.out_channels
-            ])))
+            Some(Parameter::new(
+                Tensor::<T, Dim1>::zeros([self.out_channels]).into_dyn(),
+            ))
         } else {
             None
         };
@@ -519,9 +519,9 @@ impl<T: FloatDType> Conv2dBuilder<T> {
         .into_dyn();
 
         let bias = if self.bias {
-            Some(Parameter::new(Tensor::<T, DimDyn>::zeros_dyn(&[
-                self.out_channels
-            ])))
+            Some(Parameter::new(
+                Tensor::<T, Dim1>::zeros([self.out_channels]).into_dyn(),
+            ))
         } else {
             None
         };
@@ -827,9 +827,9 @@ impl<T: FloatDType> Conv3dBuilder<T> {
         .into_dyn();
 
         let bias = if self.bias {
-            Some(Parameter::new(Tensor::<T, DimDyn>::zeros_dyn(&[
-                self.out_channels
-            ])))
+            Some(Parameter::new(
+                Tensor::<T, Dim1>::zeros([self.out_channels]).into_dyn(),
+            ))
         } else {
             None
         };
@@ -1180,9 +1180,9 @@ impl<T: FloatDType> ConvTranspose1dBuilder<T> {
             .into_dyn();
 
         let bias = if self.bias {
-            Some(Parameter::new(Tensor::<T, DimDyn>::zeros_dyn(&[
-                self.out_channels
-            ])))
+            Some(Parameter::new(
+                Tensor::<T, Dim1>::zeros([self.out_channels]).into_dyn(),
+            ))
         } else {
             None
         };
@@ -1583,9 +1583,9 @@ impl<T: FloatDType> ConvTranspose2dBuilder<T> {
         .into_dyn();
 
         let bias = if self.bias {
-            Some(Parameter::new(Tensor::<T, DimDyn>::zeros_dyn(&[
-                self.out_channels
-            ])))
+            Some(Parameter::new(
+                Tensor::<T, Dim1>::zeros([self.out_channels]).into_dyn(),
+            ))
         } else {
             None
         };
@@ -2026,9 +2026,9 @@ impl<T: FloatDType> ConvTranspose3dBuilder<T> {
         .into_dyn();
 
         let bias = if self.bias {
-            Some(Parameter::new(Tensor::<T, DimDyn>::zeros_dyn(&[
-                self.out_channels
-            ])))
+            Some(Parameter::new(
+                Tensor::<T, Dim1>::zeros([self.out_channels]).into_dyn(),
+            ))
         } else {
             None
         };
