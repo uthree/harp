@@ -702,7 +702,7 @@ impl<T: FloatDType> Tensor<T, DimDyn> {
 
         Tensor {
             inner: Arc::new(inner),
-            autograd_typed: None,
+            autograd: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         }
@@ -823,7 +823,7 @@ macro_rules! impl_from_ndarray {
 
                 Tensor {
                     inner: Arc::new(inner),
-                    autograd_typed: None,
+                    autograd: None,
                     _dtype: PhantomData,
                     _dim: PhantomData,
                 }

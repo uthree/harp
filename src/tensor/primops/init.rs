@@ -125,7 +125,7 @@ where
         );
         Self {
             inner: Arc::new(inner),
-            autograd_typed: None,
+            autograd: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         }
@@ -146,7 +146,7 @@ where
         );
         Self {
             inner: Arc::new(inner),
-            autograd_typed: None,
+            autograd: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         }
@@ -193,7 +193,7 @@ where
         };
         Self {
             inner: Arc::new(inner),
-            autograd_typed: None,
+            autograd: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         }
@@ -227,7 +227,7 @@ impl<T: NumericDType> Tensor<T, DimDyn> {
         );
         Self {
             inner: Arc::new(inner),
-            autograd_typed: None,
+            autograd: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         }
@@ -248,7 +248,7 @@ impl<T: NumericDType> Tensor<T, DimDyn> {
         );
         Self {
             inner: Arc::new(inner),
-            autograd_typed: None,
+            autograd: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         }
@@ -289,7 +289,7 @@ impl<T: FloatDType> Tensor<T, DimDyn> {
         };
         Self {
             inner: Arc::new(inner),
-            autograd_typed: None,
+            autograd: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         }

@@ -47,7 +47,7 @@ fn create_binary_bitwise<T: IntegerDType, D: Dimension>(
 
     Tensor {
         inner: Arc::new(inner),
-        autograd_typed: None,
+        autograd: None,
         _dtype: PhantomData,
         _dim: PhantomData,
     }
@@ -73,7 +73,7 @@ fn create_unary_bitwise<T: IntegerDType, D: Dimension>(
 
     Tensor {
         inner: Arc::new(inner),
-        autograd_typed: None,
+        autograd: None,
         _dtype: PhantomData,
         _dim: PhantomData,
     }
@@ -90,7 +90,7 @@ fn scalar_tensor<T: IntegerDType>(value: T) -> Tensor<T, crate::tensor::DimDyn> 
     );
     Tensor {
         inner: Arc::new(inner),
-        autograd_typed: None,
+        autograd: None,
         _dtype: PhantomData,
         _dim: PhantomData,
     }

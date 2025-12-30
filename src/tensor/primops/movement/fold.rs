@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use super::PadValue;
-use super::backward::{Fold1dBackwardTyped, Fold2dBackwardTyped, Fold3dBackwardTyped};
+use super::backward::{Fold1dBackward, Fold2dBackward, Fold3dBackward};
 use crate::tensor::{Dim3, Dim4, Dim5, Dim6, Dim8, DimDyn, FloatDType, Tensor};
 
 // ============================================================================
@@ -98,9 +98,9 @@ impl<T: FloatDType> Tensor<T, Dim6> {
         let result = self.fold2d_impl(output_size, strides, dilations);
 
         // Register gradient function - prefer typed system
-        if self.requires_grad_typed() {
-            let grad_fn = Fold2dBackwardTyped::new(self.clone(), (kh, kw), strides, dilations);
-            result.with_grad_fn_typed(Arc::new(grad_fn))
+        if self.requires_grad() {
+            let grad_fn = Fold2dBackward::new(self.clone(), (kh, kw), strides, dilations);
+            result.with_grad_fn(Arc::new(grad_fn))
         } else {
             result
         }
@@ -270,9 +270,9 @@ impl<T: FloatDType> Tensor<T, Dim4> {
         }
 
         // Register gradient function - prefer typed system
-        if self.requires_grad_typed() {
-            let grad_fn = Fold1dBackwardTyped::new(self.clone(), k, stride, dilation);
-            result.with_grad_fn_typed(Arc::new(grad_fn))
+        if self.requires_grad() {
+            let grad_fn = Fold1dBackward::new(self.clone(), k, stride, dilation);
+            result.with_grad_fn(Arc::new(grad_fn))
         } else {
             result
         }
@@ -420,9 +420,9 @@ impl<T: FloatDType> Tensor<T, Dim8> {
         }
 
         // Register gradient function - prefer typed system
-        if self.requires_grad_typed() {
-            let grad_fn = Fold3dBackwardTyped::new(self.clone(), (kh, kw, kd), strides, dilations);
-            result.with_grad_fn_typed(Arc::new(grad_fn))
+        if self.requires_grad() {
+            let grad_fn = Fold3dBackward::new(self.clone(), (kh, kw, kd), strides, dilations);
+            result.with_grad_fn(Arc::new(grad_fn))
         } else {
             result
         }

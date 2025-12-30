@@ -8,7 +8,7 @@
 //! - unary.rs: NegBackwardTyped, RecipBackwardTyped, SqrtBackwardTyped, etc.
 //! - reduce.rs: SumBackwardTyped, ProdBackwardTyped, MaxReduceBackwardTyped
 //!
-//! The GradFnTyped trait is generic over T (FloatDType) and D (Dimension) for
+//! The GradFn trait is generic over T (FloatDType) and D (Dimension) for
 //! statically-typed gradient computation.
 
 use crate::tensor::{DimDyn, FloatDType, Tensor};

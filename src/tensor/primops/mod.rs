@@ -36,4 +36,4 @@ pub use unary::{Exp2, Floor, Log2, Recip, Sin, Sqrt};
 pub use grad::reduce_grad_for_broadcast;
 
 // Re-export dimension conversion backward
-pub use movement::IntoDynBackwardTyped;
+pub use movement::IntoDynBackward;

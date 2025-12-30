@@ -15,7 +15,7 @@ use std::sync::Arc;
 use crate::ast::{DType, Literal};
 use crate::tensor::shape::{Expr, View};
 use crate::tensor::{
-    DimDyn, Dimension, ElementwiseOp, FloatDType, GradFnTyped, IntegerDType, NumericDType, Tensor,
+    DimDyn, Dimension, ElementwiseOp, FloatDType, GradFn, IntegerDType, NumericDType, Tensor,
     TensorInner, TensorOp,
 };
 
@@ -84,7 +84,7 @@ fn create_binary_elementwise<T: NumericDType, D: Dimension>(
 
     Tensor {
         inner: Arc::new(inner),
-        autograd_typed: None,
+        autograd: None,
         _dtype: PhantomData,
         _dim: PhantomData,
     }
@@ -103,7 +103,7 @@ fn scalar_tensor_f32(value: f32) -> Tensor<f32, DimDyn> {
     );
     Tensor {
         inner: Arc::new(inner),
-        autograd_typed: None,
+        autograd: None,
         _dtype: PhantomData,
         _dim: PhantomData,
     }
@@ -120,7 +120,7 @@ fn scalar_tensor_f64(value: f64) -> Tensor<f64, DimDyn> {
     );
     Tensor {
         inner: Arc::new(inner),
-        autograd_typed: None,
+        autograd: None,
         _dtype: PhantomData,
         _dim: PhantomData,
     }
@@ -135,9 +135,9 @@ impl<T: FloatDType, D: Dimension> Add for &Tensor<T, D> {
     fn add(self, rhs: Self) -> Tensor<T, D> {
         let result = create_binary_elementwise(ElementwiseOp::Add, self, rhs);
         // Use new typed system if any input has typed autograd
-        if any_requires_grad_typed(self, rhs) {
-            let grad_fn = AddBackwardTyped::new(self.clone(), rhs.clone());
-            result.with_grad_fn_typed(Arc::new(grad_fn))
+        if any_requires_grad(self, rhs) {
+            let grad_fn = AddBackward::new(self.clone(), rhs.clone());
+            result.with_grad_fn(Arc::new(grad_fn))
         } else {
             result
         }
@@ -174,9 +174,9 @@ impl<T: FloatDType, D: Dimension> Mul for &Tensor<T, D> {
     fn mul(self, rhs: Self) -> Tensor<T, D> {
         let result = create_binary_elementwise(ElementwiseOp::Mul, self, rhs);
         // Use new typed system if any input has typed autograd
-        if any_requires_grad_typed(self, rhs) {
-            let grad_fn = MulBackwardTyped::new(self.clone(), rhs.clone());
-            result.with_grad_fn_typed(Arc::new(grad_fn))
+        if any_requires_grad(self, rhs) {
+            let grad_fn = MulBackward::new(self.clone(), rhs.clone());
+            result.with_grad_fn(Arc::new(grad_fn))
         } else {
             result
         }
@@ -214,9 +214,9 @@ impl<D: Dimension> Add<f32> for &Tensor<f32, D> {
     fn add(self, rhs: f32) -> Tensor<f32, D> {
         let scalar = scalar_tensor_f32(rhs);
         let result = create_binary_elementwise(ElementwiseOp::Add, self, &scalar);
-        if self.requires_grad_typed() {
-            let grad_fn = ScalarAddBackwardTyped::new(self.clone());
-            result.with_grad_fn_typed(Arc::new(grad_fn))
+        if self.requires_grad() {
+            let grad_fn = ScalarAddBackward::new(self.clone());
+            result.with_grad_fn(Arc::new(grad_fn))
         } else {
             result
         }
@@ -251,9 +251,9 @@ impl<D: Dimension> Mul<f32> for &Tensor<f32, D> {
     fn mul(self, rhs: f32) -> Tensor<f32, D> {
         let scalar = scalar_tensor_f32(rhs);
         let result = create_binary_elementwise(ElementwiseOp::Mul, self, &scalar);
-        if self.requires_grad_typed() {
-            let grad_fn = ScalarMulBackwardTyped::new(self.clone(), rhs);
-            result.with_grad_fn_typed(Arc::new(grad_fn))
+        if self.requires_grad() {
+            let grad_fn = ScalarMulBackward::new(self.clone(), rhs);
+            result.with_grad_fn(Arc::new(grad_fn))
         } else {
             result
         }
@@ -292,9 +292,9 @@ impl<D: Dimension> Add<f64> for &Tensor<f64, D> {
     fn add(self, rhs: f64) -> Tensor<f64, D> {
         let scalar = scalar_tensor_f64(rhs);
         let result = create_binary_elementwise(ElementwiseOp::Add, self, &scalar);
-        if self.requires_grad_typed() {
-            let grad_fn = ScalarAddBackwardTyped::new(self.clone());
-            result.with_grad_fn_typed(Arc::new(grad_fn))
+        if self.requires_grad() {
+            let grad_fn = ScalarAddBackward::new(self.clone());
+            result.with_grad_fn(Arc::new(grad_fn))
         } else {
             result
         }
@@ -329,9 +329,9 @@ impl<D: Dimension> Mul<f64> for &Tensor<f64, D> {
     fn mul(self, rhs: f64) -> Tensor<f64, D> {
         let scalar = scalar_tensor_f64(rhs);
         let result = create_binary_elementwise(ElementwiseOp::Mul, self, &scalar);
-        if self.requires_grad_typed() {
-            let grad_fn = ScalarMulBackwardTyped::new(self.clone(), rhs);
-            result.with_grad_fn_typed(Arc::new(grad_fn))
+        if self.requires_grad() {
+            let grad_fn = ScalarMulBackward::new(self.clone(), rhs);
+            result.with_grad_fn(Arc::new(grad_fn))
         } else {
             result
         }
@@ -370,9 +370,9 @@ impl<D: Dimension> Tensor<f32, D> {
         let result = create_binary_elementwise(ElementwiseOp::Max, self, other);
 
         // Use typed system if available
-        if self.requires_grad_typed() || other.requires_grad_typed() {
-            let grad_fn = MaxBackwardTyped::new(self.clone(), other.clone());
-            result.with_grad_fn_typed(Arc::new(grad_fn))
+        if self.requires_grad() || other.requires_grad() {
+            let grad_fn = MaxBackward::new(self.clone(), other.clone());
+            result.with_grad_fn(Arc::new(grad_fn))
         } else {
             result
         }
@@ -395,9 +395,9 @@ impl<D: Dimension> Tensor<f64, D> {
         let result = create_binary_elementwise(ElementwiseOp::Max, self, other);
 
         // Use typed system if available
-        if self.requires_grad_typed() || other.requires_grad_typed() {
-            let grad_fn = MaxBackwardTyped::new(self.clone(), other.clone());
-            result.with_grad_fn_typed(Arc::new(grad_fn))
+        if self.requires_grad() || other.requires_grad() {
+            let grad_fn = MaxBackward::new(self.clone(), other.clone());
+            result.with_grad_fn(Arc::new(grad_fn))
         } else {
             result
         }
@@ -451,157 +451,157 @@ impl<T: IntegerDType, D: Dimension> Tensor<T, D> {
 
 /// Typed gradient for Add: z = a + b (same dimension)
 /// ∂L/∂a = ∂L/∂z, ∂L/∂b = ∂L/∂z
-pub struct AddBackwardTyped<T: FloatDType, D: Dimension> {
+pub struct AddBackward<T: FloatDType, D: Dimension> {
     lhs: Tensor<T, D>,
     rhs: Tensor<T, D>,
 }
 
-impl<T: FloatDType, D: Dimension> AddBackwardTyped<T, D> {
+impl<T: FloatDType, D: Dimension> AddBackward<T, D> {
     pub fn new(lhs: Tensor<T, D>, rhs: Tensor<T, D>) -> Self {
         Self { lhs, rhs }
     }
 }
 
-impl<T: FloatDType, D: Dimension> GradFnTyped<T, D> for AddBackwardTyped<T, D> {
+impl<T: FloatDType, D: Dimension> GradFn<T, D> for AddBackward<T, D> {
     fn backward(&self, grad_output: &Tensor<T, D>) {
         // Propagate gradient directly to inputs (no broadcasting in this framework)
-        if self.lhs.requires_grad_typed() {
-            self.lhs.backward_with_typed(grad_output.clone());
+        if self.lhs.requires_grad() {
+            self.lhs.backward_with(grad_output.clone());
         }
-        if self.rhs.requires_grad_typed() {
-            self.rhs.backward_with_typed(grad_output.clone());
+        if self.rhs.requires_grad() {
+            self.rhs.backward_with(grad_output.clone());
         }
     }
 
     fn name(&self) -> &'static str {
-        "AddBackwardTyped"
+        "AddBackward"
     }
 }
 
 /// Typed gradient for Mul: z = a * b (same dimension)
 /// ∂L/∂a = ∂L/∂z · b, ∂L/∂b = ∂L/∂z · a
-pub struct MulBackwardTyped<T: FloatDType, D: Dimension> {
+pub struct MulBackward<T: FloatDType, D: Dimension> {
     lhs: Tensor<T, D>,
     rhs: Tensor<T, D>,
 }
 
-impl<T: FloatDType, D: Dimension> MulBackwardTyped<T, D> {
+impl<T: FloatDType, D: Dimension> MulBackward<T, D> {
     pub fn new(lhs: Tensor<T, D>, rhs: Tensor<T, D>) -> Self {
         Self { lhs, rhs }
     }
 }
 
-impl<T: FloatDType, D: Dimension> GradFnTyped<T, D> for MulBackwardTyped<T, D> {
+impl<T: FloatDType, D: Dimension> GradFn<T, D> for MulBackward<T, D> {
     fn backward(&self, grad_output: &Tensor<T, D>) {
         // ∂L/∂a = ∂L/∂z · b
-        if self.lhs.requires_grad_typed() {
+        if self.lhs.requires_grad() {
             let grad_lhs = grad_output * &self.rhs;
-            self.lhs.backward_with_typed(grad_lhs);
+            self.lhs.backward_with(grad_lhs);
         }
         // ∂L/∂b = ∂L/∂z · a
-        if self.rhs.requires_grad_typed() {
+        if self.rhs.requires_grad() {
             let grad_rhs = grad_output * &self.lhs;
-            self.rhs.backward_with_typed(grad_rhs);
+            self.rhs.backward_with(grad_rhs);
         }
     }
 
     fn name(&self) -> &'static str {
-        "MulBackwardTyped"
+        "MulBackward"
     }
 }
 
 /// Typed gradient for Max: z = max(a, b) (same dimension)
-pub struct MaxBackwardTyped<T: FloatDType, D: Dimension> {
+pub struct MaxBackward<T: FloatDType, D: Dimension> {
     lhs: Tensor<T, D>,
     rhs: Tensor<T, D>,
 }
 
-impl<T: FloatDType, D: Dimension> MaxBackwardTyped<T, D> {
+impl<T: FloatDType, D: Dimension> MaxBackward<T, D> {
     pub fn new(lhs: Tensor<T, D>, rhs: Tensor<T, D>) -> Self {
         Self { lhs, rhs }
     }
 }
 
-impl<T: FloatDType, D: Dimension> GradFnTyped<T, D> for MaxBackwardTyped<T, D> {
+impl<T: FloatDType, D: Dimension> GradFn<T, D> for MaxBackward<T, D> {
     fn backward(&self, grad_output: &Tensor<T, D>) {
         // Approximation: gradient flows to the lhs (left input)
         // TODO: Proper comparison-based gradient routing
-        if self.lhs.requires_grad_typed() {
-            self.lhs.backward_with_typed(grad_output.clone());
+        if self.lhs.requires_grad() {
+            self.lhs.backward_with(grad_output.clone());
         }
         // rhs gets zero gradient (approximation)
     }
 
     fn name(&self) -> &'static str {
-        "MaxBackwardTyped"
+        "MaxBackward"
     }
 }
 
 /// Typed gradient for scalar addition: z = a + c (c is scalar)
 /// ∂L/∂a = ∂L/∂z
-pub struct ScalarAddBackwardTyped<T: FloatDType, D: Dimension> {
+pub struct ScalarAddBackward<T: FloatDType, D: Dimension> {
     input: Tensor<T, D>,
 }
 
-impl<T: FloatDType, D: Dimension> ScalarAddBackwardTyped<T, D> {
+impl<T: FloatDType, D: Dimension> ScalarAddBackward<T, D> {
     pub fn new(input: Tensor<T, D>) -> Self {
         Self { input }
     }
 }
 
-impl<T: FloatDType, D: Dimension> GradFnTyped<T, D> for ScalarAddBackwardTyped<T, D> {
+impl<T: FloatDType, D: Dimension> GradFn<T, D> for ScalarAddBackward<T, D> {
     fn backward(&self, grad_output: &Tensor<T, D>) {
-        if self.input.requires_grad_typed() {
-            self.input.backward_with_typed(grad_output.clone());
+        if self.input.requires_grad() {
+            self.input.backward_with(grad_output.clone());
         }
     }
 
     fn name(&self) -> &'static str {
-        "ScalarAddBackwardTyped"
+        "ScalarAddBackward"
     }
 }
 
 /// Typed gradient for scalar multiplication: z = a * c (c is scalar)
 /// ∂L/∂a = c · ∂L/∂z
-pub struct ScalarMulBackwardTyped<T: FloatDType, D: Dimension> {
+pub struct ScalarMulBackward<T: FloatDType, D: Dimension> {
     input: Tensor<T, D>,
     scalar: T,
 }
 
-impl<T: FloatDType, D: Dimension> ScalarMulBackwardTyped<T, D> {
+impl<T: FloatDType, D: Dimension> ScalarMulBackward<T, D> {
     pub fn new(input: Tensor<T, D>, scalar: T) -> Self {
         Self { input, scalar }
     }
 }
 
-impl<T: FloatDType, D: Dimension> GradFnTyped<T, D> for ScalarMulBackwardTyped<T, D> {
+impl<T: FloatDType, D: Dimension> GradFn<T, D> for ScalarMulBackward<T, D> {
     fn backward(&self, grad_output: &Tensor<T, D>) {
-        if self.input.requires_grad_typed() {
+        if self.input.requires_grad() {
             // Create scalar tensor and multiply
             let scalar_tensor = Tensor::<T, DimDyn>::full_dyn(&[], self.scalar.clone());
             // Convert to same dimension type
             let scalar_d = Tensor::<T, D> {
                 inner: scalar_tensor.inner,
-                autograd_typed: None,
+                autograd: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
             let grad_input = grad_output * &scalar_d;
-            self.input.backward_with_typed(grad_input);
+            self.input.backward_with(grad_input);
         }
     }
 
     fn name(&self) -> &'static str {
-        "ScalarMulBackwardTyped"
+        "ScalarMulBackward"
     }
 }
 
 /// Check if any input requires typed gradients
-pub(crate) fn any_requires_grad_typed<T: FloatDType, D: Dimension>(
+pub(crate) fn any_requires_grad<T: FloatDType, D: Dimension>(
     a: &Tensor<T, D>,
     b: &Tensor<T, D>,
 ) -> bool {
-    a.requires_grad_typed() || b.requires_grad_typed()
+    a.requires_grad() || b.requires_grad()
 }
 
 #[cfg(test)]

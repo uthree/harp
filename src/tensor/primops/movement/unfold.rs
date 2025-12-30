@@ -3,7 +3,7 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use super::backward::{Unfold1dBackwardTyped, Unfold2dBackwardTyped, Unfold3dBackwardTyped};
+use super::backward::{Unfold1dBackward, Unfold2dBackward, Unfold3dBackward};
 use crate::tensor::shape::Expr;
 use crate::tensor::{Dim3, Dim4, Dim5, Dim6, Dim8, FloatDType, Tensor, TensorInner, TensorOp};
 
@@ -81,15 +81,15 @@ impl<T: FloatDType> Tensor<T, Dim3> {
 
         let result = Tensor {
             inner: Arc::new(inner),
-            autograd_typed: None,
+            autograd: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         };
 
         // Use typed system if available
-        if self.requires_grad_typed() {
-            let grad_fn = Unfold1dBackwardTyped::new(self.clone(), l, stride, dilation);
-            result.with_grad_fn_typed(Arc::new(grad_fn))
+        if self.requires_grad() {
+            let grad_fn = Unfold1dBackward::new(self.clone(), l, stride, dilation);
+            result.with_grad_fn(Arc::new(grad_fn))
         } else {
             result
         }
@@ -191,15 +191,15 @@ impl<T: FloatDType> Tensor<T, Dim4> {
 
         let result = Tensor {
             inner: Arc::new(inner),
-            autograd_typed: None,
+            autograd: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         };
 
         // Use typed system if available
-        if self.requires_grad_typed() {
-            let grad_fn = Unfold2dBackwardTyped::new(self.clone(), (h, w), (sh, sw), (dh, dw));
-            result.with_grad_fn_typed(Arc::new(grad_fn))
+        if self.requires_grad() {
+            let grad_fn = Unfold2dBackward::new(self.clone(), (h, w), (sh, sw), (dh, dw));
+            result.with_grad_fn(Arc::new(grad_fn))
         } else {
             result
         }
@@ -338,20 +338,16 @@ impl<T: FloatDType> Tensor<T, Dim5> {
 
         let result = Tensor {
             inner: Arc::new(inner),
-            autograd_typed: None,
+            autograd: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         };
 
         // Use typed system if available
-        if self.requires_grad_typed() {
-            let grad_fn = Unfold3dBackwardTyped::new(
-                self.clone(),
-                (h, w, d),
-                (sh, sw, sd),
-                (dil_h, dil_w, dil_d),
-            );
-            result.with_grad_fn_typed(Arc::new(grad_fn))
+        if self.requires_grad() {
+            let grad_fn =
+                Unfold3dBackward::new(self.clone(), (h, w, d), (sh, sw, sd), (dil_h, dil_w, dil_d));
+            result.with_grad_fn(Arc::new(grad_fn))
         } else {
             result
         }
