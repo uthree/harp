@@ -17,10 +17,10 @@ jobs:
               uses: dtolnay/rust-toolchain@stable
 
             - name: Build workspace
-              run: cargo build --workspace
+              run: cargo build --workspace --exclude harp-backend-opencl --exclude harp-backend-metal
 
             - name: Run tests
-              run: cargo test --workspace
+              run: cargo test --workspace --exclude harp-backend-opencl --exclude harp-backend-metal
 
     opencl_integration_test:
         name: OpenCL Integration Test
