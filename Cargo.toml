@@ -45,11 +45,3 @@ env_logger = "0.11"
 serial_test = "3.2"
 rstest = "0.24"
 harp-nn = { path = "crates/nn" }
-
-[[example]]
-name = "viz_matmul_demo"
-required-features = ["viz", "opencl"]
-
-[[example]]
-name = "mlp_function_fitting"
-required-features = []
