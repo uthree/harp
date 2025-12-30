@@ -11,8 +11,8 @@
 #[cfg(test)]
 mod tests {
     use crate::tensor::Dim1;
-    use crate::tensor::primops::unary::Recip;
     use crate::tensor::Tensor;
+    use crate::tensor::primops::unary::Recip;
 
     // ========================================================================
     // f64 Autograd Integration Tests

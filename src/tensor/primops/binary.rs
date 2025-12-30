@@ -478,8 +478,48 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D> for AddBackward<T, D> {
     }
 }
 
+/// Reduce gradient to match the target shape by summing along broadcasted dimensions.
+/// This handles the reverse of broadcasting during backward pass.
+fn reduce_grad_for_broadcast<T: FloatDType, D: Dimension>(
+    grad: &Tensor<T, D>,
+    target_shape: &[usize],
+) -> Tensor<T, D> {
+    let grad_shape = grad.shape();
+
+    // If shapes are the same, no reduction needed
+    if grad_shape == target_shape {
+        return grad.clone();
+    }
+
+    // Work with dynamic tensors for flexibility
+    let mut result: Tensor<T, DimDyn> = Tensor {
+        inner: grad.inner.clone(),
+        autograd_meta: None,
+        _dtype: PhantomData,
+        _dim: PhantomData,
+    };
+
+    // Sum along axes where target has size 1 but grad has size > 1
+    // Process from highest axis to lowest to keep indices correct
+    for (axis, (&g_size, &t_size)) in grad_shape.iter().zip(target_shape.iter()).enumerate().rev() {
+        if t_size == 1 && g_size > 1 {
+            // Sum along this axis, keeping the dimension
+            result = result.sum(axis).unsqueeze(axis);
+        }
+    }
+
+    // Convert back to typed tensor
+    Tensor {
+        inner: result.inner,
+        autograd_meta: None,
+        _dtype: PhantomData,
+        _dim: PhantomData,
+    }
+}
+
 /// Gradient for Mul: z = a * b (same dimension)
 /// ∂L/∂a = ∂L/∂z · b, ∂L/∂b = ∂L/∂z · a
+/// Handles broadcasting by reducing gradients along broadcasted dimensions.
 pub struct MulBackward<T: FloatDType, D: Dimension> {
     lhs: Tensor<T, D>,
     rhs: Tensor<T, D>,
@@ -493,15 +533,17 @@ impl<T: FloatDType, D: Dimension> MulBackward<T, D> {
 
 impl<T: FloatDType, D: Dimension> GradFn<T, D> for MulBackward<T, D> {
     fn backward(&self, grad_output: &Tensor<T, D>) {
-        // ∂L/∂a = ∂L/∂z · b
+        // ∂L/∂a = ∂L/∂z · b, reduced to lhs shape
         if self.lhs.requires_grad() {
             let grad_lhs = grad_output * &self.rhs;
-            self.lhs.backward_with(grad_lhs);
+            let grad_lhs_reduced = reduce_grad_for_broadcast(&grad_lhs, self.lhs.shape());
+            self.lhs.backward_with(grad_lhs_reduced);
         }
-        // ∂L/∂b = ∂L/∂z · a
+        // ∂L/∂b = ∂L/∂z · a, reduced to rhs shape
         if self.rhs.requires_grad() {
             let grad_rhs = grad_output * &self.lhs;
-            self.rhs.backward_with(grad_rhs);
+            let grad_rhs_reduced = reduce_grad_for_broadcast(&grad_rhs, self.rhs.shape());
+            self.rhs.backward_with(grad_rhs_reduced);
         }
     }
 

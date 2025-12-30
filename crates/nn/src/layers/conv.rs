@@ -70,11 +70,16 @@ impl<T: FloatDType> Conv1d<T> {
     ///
     /// 入力: `[N, C_in, L]`
     /// 出力: `[N, C_out, L_out]`
+    ///
+    /// 実装: unfold + broadcast multiply + sum (groups統一)
     pub fn forward(&self, input: &Tensor<T, Dim3>) -> Tensor<T, Dim3> {
         let input_shape = input.shape();
-        let (n, c_in, l) = (input_shape[0], input_shape[1], input_shape[2]);
+        let (n, c_in, _l) = (input_shape[0], input_shape[1], input_shape[2]);
         let c_out = self.out_channels();
         let k = self.kernel_size();
+        let groups = self.groups;
+        let c_in_per_group = c_in / groups;
+        let c_out_per_group = c_out / groups;
 
         assert_eq!(
             c_in,
@@ -94,56 +99,36 @@ impl<T: FloatDType> Conv1d<T> {
             input.clone()
         };
 
-        // 出力サイズを計算
-        let l_padded = l + 2 * self.padding;
-        let eff_k = (k - 1) * self.dilation + 1;
-        let l_out = (l_padded - eff_k) / self.stride + 1;
+        // Unfold: [N, C_in, L_padded] -> [N, C_in, L_out, k]
+        let unfolded = padded.unfold1d_dilated(k, self.stride, self.dilation);
+        let l_out = unfolded.shape()[2];
 
-        if self.groups == 1 {
-            // グループなし: 通常の畳み込み
-            self.forward_no_groups(&padded, n, c_in, c_out, l_out, k)
-        } else {
-            // グループ畳み込み
-            self.forward_grouped(&padded, n, c_in, c_out, l_out, k)
-        }
-    }
+        // Reshape to introduce groups: [N, C_in, L_out, k] -> [N, groups, C_in/groups, L_out, k]
+        let unfolded_grouped =
+            unfolded
+                .into_dyn()
+                .reshape_dyn(&[n, groups, c_in_per_group, l_out, k]);
 
-    fn forward_no_groups(
-        &self,
-        input: &Tensor<T, Dim3>,
-        n: usize,
-        c_in: usize,
-        c_out: usize,
-        l_out: usize,
-        k: usize,
-    ) -> Tensor<T, Dim3> {
-        // Unfold: [N, C_in, L] -> [N, C_in, L_out, k]
-        let unfolded = input.unfold1d_dilated(k, self.stride, self.dilation);
+        // Add C_out/groups dimension for broadcast: [N, groups, 1, C_in/groups, L_out, k]
+        let unfolded_expanded = unfolded_grouped.unsqueeze(2);
 
-        // Reshape unfolded: [N, C_in, L_out, k] -> [N, L_out, C_in * k]
-        let unfolded_reshaped = unfolded
-            .permute(&[0, 2, 1, 3])
-            .reshape([n, l_out, c_in * k]);
-
-        // Reshape weight: [C_out, C_in, k] -> [C_in * k, C_out]
-        let weight_reshaped = self
+        // Weight: [C_out, C_in/groups, k] -> [groups, C_out/groups, C_in/groups, k]
+        // -> [1, groups, C_out/groups, C_in/groups, 1, k] for broadcast
+        let weight_grouped = self
             .weight
             .clone()
-            .permute(&[1, 2, 0])
-            .reshape_dyn(&[c_in * k, c_out])
-            .into_dim2();
+            .reshape_dyn(&[groups, c_out_per_group, c_in_per_group, k])
+            .unsqueeze(0)
+            .unsqueeze(4);
 
-        // Matmul: [N, L_out, C_in * k] @ [C_in * k, C_out] -> [N, L_out, C_out]
-        let mut output = unfolded_reshaped
-            .into_dyn()
-            .reshape_dyn(&[n * l_out, c_in * k])
-            .into_dim2()
-            .matmul2(&weight_reshaped)
-            .into_dyn()
-            .reshape_dyn(&[n, l_out, c_out]);
+        // Broadcast multiply: [N, groups, C_out/groups, C_in/groups, L_out, k]
+        let product = &unfolded_expanded * &weight_grouped;
 
-        // Permute to [N, C_out, L_out]
-        output = output.permute(&[0, 2, 1]);
+        // Sum over C_in/groups (axis 3) and k (axis 5): [N, groups, C_out/groups, L_out]
+        let summed: harp::tensor::Tensor<T, DimDyn> = product.sum(5).sum(3);
+
+        // Reshape to [N, C_out, L_out]
+        let mut output = summed.reshape_dyn(&[n, c_out, l_out]);
 
         // Add bias if present
         if let Some(ref bias) = self.bias {
@@ -154,84 +139,6 @@ impl<T: FloatDType> Conv1d<T> {
                 .expand(output.shape());
             output = &output + &bias_expanded;
         }
-
-        output.into_dim3()
-    }
-
-    fn forward_grouped(
-        &self,
-        input: &Tensor<T, Dim3>,
-        n: usize,
-        c_in: usize,
-        c_out: usize,
-        l_out: usize,
-        k: usize,
-    ) -> Tensor<T, Dim3> {
-        let c_in_per_group = c_in / self.groups;
-        let c_out_per_group = c_out / self.groups;
-
-        let mut outputs = Vec::with_capacity(self.groups);
-
-        for g in 0..self.groups {
-            // 入力チャンネルをスライス
-            let input_slice = input
-                .slice(&[
-                    (0, n),
-                    (g * c_in_per_group, (g + 1) * c_in_per_group),
-                    (0, input.shape()[2]),
-                ])
-                .contiguous();
-
-            // 重みをスライス
-            let weight_slice = self
-                .weight
-                .slice(&[
-                    (g * c_out_per_group, (g + 1) * c_out_per_group),
-                    (0, c_in_per_group),
-                    (0, k),
-                ])
-                .contiguous();
-
-            // Unfold
-            let unfolded = input_slice.unfold1d_dilated(k, self.stride, self.dilation);
-
-            // Reshape and matmul
-            let unfolded_reshaped =
-                unfolded
-                    .permute(&[0, 2, 1, 3])
-                    .reshape([n, l_out, c_in_per_group * k]);
-
-            let weight_reshaped = weight_slice
-                .permute(&[1, 2, 0])
-                .reshape_dyn(&[c_in_per_group * k, c_out_per_group])
-                .into_dim2();
-
-            let group_output = unfolded_reshaped
-                .into_dyn()
-                .reshape_dyn(&[n * l_out, c_in_per_group * k])
-                .into_dim2()
-                .matmul2(&weight_reshaped)
-                .into_dyn()
-                .reshape_dyn(&[n, l_out, c_out_per_group])
-                .permute(&[0, 2, 1]);
-
-            outputs.push(group_output);
-        }
-
-        // Concatenate along channel dimension
-        let output = Tensor::concat(&outputs.iter().collect::<Vec<_>>(), 1);
-
-        // Add bias if present
-        let output = if let Some(ref bias) = self.bias {
-            let bias_expanded = bias
-                .clone()
-                .unsqueeze(0)
-                .unsqueeze(2)
-                .expand(output.shape());
-            &output + &bias_expanded
-        } else {
-            output
-        };
 
         output.into_dim3()
     }
@@ -402,9 +309,11 @@ impl<T: FloatDType> Conv2d<T> {
     ///
     /// 入力: `[N, C_in, H, W]`
     /// 出力: `[N, C_out, H_out, W_out]`
+    ///
+    /// 実装: unfold + broadcast multiply + sum (groups統一)
     pub fn forward(&self, input: &Tensor<T, Dim4>) -> Tensor<T, Dim4> {
         let input_shape = input.shape();
-        let (n, c_in, h, w) = (
+        let (n, c_in, _h, _w) = (
             input_shape[0],
             input_shape[1],
             input_shape[2],
@@ -412,6 +321,9 @@ impl<T: FloatDType> Conv2d<T> {
         );
         let c_out = self.out_channels();
         let (kh, kw) = self.kernel_size();
+        let groups = self.groups;
+        let c_in_per_group = c_in / groups;
+        let c_out_per_group = c_out / groups;
 
         assert_eq!(
             c_in,
@@ -436,56 +348,38 @@ impl<T: FloatDType> Conv2d<T> {
             input.clone()
         };
 
-        // 出力サイズを計算
-        let h_padded = h + 2 * self.padding.0;
-        let w_padded = w + 2 * self.padding.1;
-        let eff_kh = (kh - 1) * self.dilation.0 + 1;
-        let eff_kw = (kw - 1) * self.dilation.1 + 1;
-        let h_out = (h_padded - eff_kh) / self.stride.0 + 1;
-        let w_out = (w_padded - eff_kw) / self.stride.1 + 1;
-
-        if self.groups == 1 {
-            self.forward_no_groups(&padded, n, c_in, c_out, h_out, w_out, kh, kw)
-        } else {
-            self.forward_grouped(&padded, n, c_in, c_out, h_out, w_out, kh, kw)
-        }
-    }
-
-    fn forward_no_groups(
-        &self,
-        input: &Tensor<T, Dim4>,
-        n: usize,
-        c_in: usize,
-        c_out: usize,
-        h_out: usize,
-        w_out: usize,
-        kh: usize,
-        kw: usize,
-    ) -> Tensor<T, Dim4> {
         // Unfold: [N, C_in, H, W] -> [N, C_in, H_out, W_out, kH, kW]
-        let unfolded = input.unfold2d_dilated((kh, kw), self.stride, self.dilation);
+        let unfolded = padded.unfold2d_dilated((kh, kw), self.stride, self.dilation);
+        let h_out = unfolded.shape()[2];
+        let w_out = unfolded.shape()[3];
 
-        // Reshape unfolded: [N, C_in, H_out, W_out, kH, kW] -> [N * H_out * W_out, C_in * kH * kW]
-        let unfolded_reshaped = unfolded
-            .permute(&[0, 2, 3, 1, 4, 5])
-            .reshape([n * h_out * w_out, c_in * kh * kw]);
+        // Reshape to introduce groups: [N, C_in, H_out, W_out, kH, kW] -> [N, groups, C_in/groups, H_out, W_out, kH, kW]
+        let unfolded_grouped =
+            unfolded
+                .into_dyn()
+                .reshape_dyn(&[n, groups, c_in_per_group, h_out, w_out, kh, kw]);
 
-        // Reshape weight: [C_out, C_in, kH, kW] -> [C_in * kH * kW, C_out]
-        let weight_reshaped = self
+        // Add C_out/groups dimension for broadcast: [N, groups, 1, C_in/groups, H_out, W_out, kH, kW]
+        let unfolded_expanded = unfolded_grouped.unsqueeze(2);
+
+        // Weight: [C_out, C_in/groups, kH, kW] -> [groups, C_out/groups, C_in/groups, kH, kW]
+        // -> [1, groups, C_out/groups, C_in/groups, 1, 1, kH, kW] for broadcast
+        let weight_grouped = self
             .weight
             .clone()
-            .permute(&[1, 2, 3, 0])
-            .reshape_dyn(&[c_in * kh * kw, c_out])
-            .into_dim2();
+            .reshape_dyn(&[groups, c_out_per_group, c_in_per_group, kh, kw])
+            .unsqueeze(0)
+            .unsqueeze(4)
+            .unsqueeze(5);
 
-        // Matmul: [N * H_out * W_out, C_in * kH * kW] @ [C_in * kH * kW, C_out]
-        //       -> [N * H_out * W_out, C_out]
-        let output = unfolded_reshaped.matmul2(&weight_reshaped).into_dyn();
+        // Broadcast multiply: [N, groups, C_out/groups, C_in/groups, H_out, W_out, kH, kW]
+        let product = &unfolded_expanded * &weight_grouped;
 
-        // Reshape to [N, H_out, W_out, C_out] then permute to [N, C_out, H_out, W_out]
-        let mut output = output
-            .reshape_dyn(&[n, h_out, w_out, c_out])
-            .permute(&[0, 3, 1, 2]);
+        // Sum over C_in/groups (axis 3), kH (axis 6), kW (axis 7): [N, groups, C_out/groups, H_out, W_out]
+        let summed: harp::tensor::Tensor<T, DimDyn> = product.sum(7).sum(6).sum(3);
+
+        // Reshape to [N, C_out, H_out, W_out]
+        let mut output = summed.reshape_dyn(&[n, c_out, h_out, w_out]);
 
         // Add bias if present
         if let Some(ref bias) = self.bias {
@@ -497,85 +391,6 @@ impl<T: FloatDType> Conv2d<T> {
                 .expand(output.shape());
             output = &output + &bias_expanded;
         }
-
-        output.into_dim4()
-    }
-
-    fn forward_grouped(
-        &self,
-        input: &Tensor<T, Dim4>,
-        n: usize,
-        c_in: usize,
-        c_out: usize,
-        h_out: usize,
-        w_out: usize,
-        kh: usize,
-        kw: usize,
-    ) -> Tensor<T, Dim4> {
-        let c_in_per_group = c_in / self.groups;
-        let c_out_per_group = c_out / self.groups;
-
-        let mut outputs = Vec::with_capacity(self.groups);
-
-        for g in 0..self.groups {
-            // 入力チャンネルをスライス
-            let input_slice = input
-                .slice(&[
-                    (0, n),
-                    (g * c_in_per_group, (g + 1) * c_in_per_group),
-                    (0, input.shape()[2]),
-                    (0, input.shape()[3]),
-                ])
-                .contiguous();
-
-            // 重みをスライス
-            let weight_slice = self
-                .weight
-                .slice(&[
-                    (g * c_out_per_group, (g + 1) * c_out_per_group),
-                    (0, c_in_per_group),
-                    (0, kh),
-                    (0, kw),
-                ])
-                .contiguous();
-
-            // Unfold
-            let unfolded = input_slice.unfold2d_dilated((kh, kw), self.stride, self.dilation);
-
-            // Reshape and matmul
-            let unfolded_reshaped = unfolded
-                .permute(&[0, 2, 3, 1, 4, 5])
-                .reshape([n * h_out * w_out, c_in_per_group * kh * kw]);
-
-            let weight_reshaped = weight_slice
-                .permute(&[1, 2, 3, 0])
-                .reshape_dyn(&[c_in_per_group * kh * kw, c_out_per_group])
-                .into_dim2();
-
-            let group_output = unfolded_reshaped
-                .matmul2(&weight_reshaped)
-                .into_dyn()
-                .reshape_dyn(&[n, h_out, w_out, c_out_per_group])
-                .permute(&[0, 3, 1, 2]);
-
-            outputs.push(group_output);
-        }
-
-        // Concatenate along channel dimension
-        let output = Tensor::concat(&outputs.iter().collect::<Vec<_>>(), 1);
-
-        // Add bias if present
-        let output = if let Some(ref bias) = self.bias {
-            let bias_expanded = bias
-                .clone()
-                .unsqueeze(0)
-                .unsqueeze(2)
-                .unsqueeze(3)
-                .expand(output.shape());
-            &output + &bias_expanded
-        } else {
-            output
-        };
 
         output.into_dim4()
     }
@@ -763,9 +578,11 @@ impl<T: FloatDType> Conv3d<T> {
     ///
     /// 入力: `[N, C_in, D, H, W]`
     /// 出力: `[N, C_out, D_out, H_out, W_out]`
+    ///
+    /// 実装: unfold + broadcast multiply + sum (groups統一)
     pub fn forward(&self, input: &Tensor<T, Dim5>) -> Tensor<T, Dim5> {
         let input_shape = input.shape();
-        let (n, c_in, d, h, w) = (
+        let (n, c_in, _d, _h, _w) = (
             input_shape[0],
             input_shape[1],
             input_shape[2],
@@ -774,6 +591,9 @@ impl<T: FloatDType> Conv3d<T> {
         );
         let c_out = self.out_channels();
         let (kd, kh, kw) = self.kernel_size();
+        let groups = self.groups;
+        let c_in_per_group = c_in / groups;
+        let c_out_per_group = c_out / groups;
 
         assert_eq!(
             c_in,
@@ -799,62 +619,48 @@ impl<T: FloatDType> Conv3d<T> {
             input.clone()
         };
 
-        // 出力サイズを計算
-        let d_padded = d + 2 * self.padding.0;
-        let h_padded = h + 2 * self.padding.1;
-        let w_padded = w + 2 * self.padding.2;
-        let eff_kd = (kd - 1) * self.dilation.0 + 1;
-        let eff_kh = (kh - 1) * self.dilation.1 + 1;
-        let eff_kw = (kw - 1) * self.dilation.2 + 1;
-        let d_out = (d_padded - eff_kd) / self.stride.0 + 1;
-        let h_out = (h_padded - eff_kh) / self.stride.1 + 1;
-        let w_out = (w_padded - eff_kw) / self.stride.2 + 1;
-
-        if self.groups == 1 {
-            self.forward_no_groups(&padded, n, c_in, c_out, d_out, h_out, w_out, kd, kh, kw)
-        } else {
-            self.forward_grouped(&padded, n, c_in, c_out, d_out, h_out, w_out, kd, kh, kw)
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn forward_no_groups(
-        &self,
-        input: &Tensor<T, Dim5>,
-        n: usize,
-        c_in: usize,
-        c_out: usize,
-        d_out: usize,
-        h_out: usize,
-        w_out: usize,
-        kd: usize,
-        kh: usize,
-        kw: usize,
-    ) -> Tensor<T, Dim5> {
         // Unfold: [N, C_in, D, H, W] -> [N, C_in, D_out, H_out, W_out, kD, kH, kW]
-        let unfolded = input.unfold3d_dilated((kd, kh, kw), self.stride, self.dilation);
+        let unfolded = padded.unfold3d_dilated((kd, kh, kw), self.stride, self.dilation);
+        let d_out = unfolded.shape()[2];
+        let h_out = unfolded.shape()[3];
+        let w_out = unfolded.shape()[4];
 
-        // Reshape unfolded: [N, C_in, D_out, H_out, W_out, kD, kH, kW]
-        //                -> [N * D_out * H_out * W_out, C_in * kD * kH * kW]
-        let unfolded_reshaped = unfolded
-            .permute(&[0, 2, 3, 4, 1, 5, 6, 7])
-            .reshape([n * d_out * h_out * w_out, c_in * kd * kh * kw]);
+        // Reshape to introduce groups: [N, C_in, D_out, H_out, W_out, kD, kH, kW]
+        //                           -> [N, groups, C_in/groups, D_out, H_out, W_out, kD, kH, kW]
+        let unfolded_grouped = unfolded.into_dyn().reshape_dyn(&[
+            n,
+            groups,
+            c_in_per_group,
+            d_out,
+            h_out,
+            w_out,
+            kd,
+            kh,
+            kw,
+        ]);
 
-        // Reshape weight: [C_out, C_in, kD, kH, kW] -> [C_in * kD * kH * kW, C_out]
-        let weight_reshaped = self
+        // Add C_out/groups dimension for broadcast: [N, groups, 1, C_in/groups, D_out, H_out, W_out, kD, kH, kW]
+        let unfolded_expanded = unfolded_grouped.unsqueeze(2);
+
+        // Weight: [C_out, C_in/groups, kD, kH, kW] -> [groups, C_out/groups, C_in/groups, kD, kH, kW]
+        // -> [1, groups, C_out/groups, C_in/groups, 1, 1, 1, kD, kH, kW] for broadcast
+        let weight_grouped = self
             .weight
             .clone()
-            .permute(&[1, 2, 3, 4, 0])
-            .reshape_dyn(&[c_in * kd * kh * kw, c_out])
-            .into_dim2();
+            .reshape_dyn(&[groups, c_out_per_group, c_in_per_group, kd, kh, kw])
+            .unsqueeze(0)
+            .unsqueeze(4)
+            .unsqueeze(5)
+            .unsqueeze(6);
 
-        // Matmul
-        let output = unfolded_reshaped.matmul2(&weight_reshaped).into_dyn();
+        // Broadcast multiply: [N, groups, C_out/groups, C_in/groups, D_out, H_out, W_out, kD, kH, kW]
+        let product = &unfolded_expanded * &weight_grouped;
 
-        // Reshape to [N, D_out, H_out, W_out, C_out] then permute to [N, C_out, D_out, H_out, W_out]
-        let mut output = output
-            .reshape_dyn(&[n, d_out, h_out, w_out, c_out])
-            .permute(&[0, 4, 1, 2, 3]);
+        // Sum over C_in/groups (axis 3), kD (axis 7), kH (axis 8), kW (axis 9)
+        let summed: harp::tensor::Tensor<T, DimDyn> = product.sum(9).sum(8).sum(7).sum(3);
+
+        // Reshape to [N, C_out, D_out, H_out, W_out]
+        let mut output = summed.reshape_dyn(&[n, c_out, d_out, h_out, w_out]);
 
         // Add bias if present
         if let Some(ref bias) = self.bias {
@@ -867,91 +673,6 @@ impl<T: FloatDType> Conv3d<T> {
                 .expand(output.shape());
             output = &output + &bias_expanded;
         }
-
-        output.into_dim5()
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn forward_grouped(
-        &self,
-        input: &Tensor<T, Dim5>,
-        n: usize,
-        c_in: usize,
-        c_out: usize,
-        d_out: usize,
-        h_out: usize,
-        w_out: usize,
-        kd: usize,
-        kh: usize,
-        kw: usize,
-    ) -> Tensor<T, Dim5> {
-        let c_in_per_group = c_in / self.groups;
-        let c_out_per_group = c_out / self.groups;
-
-        let mut outputs = Vec::with_capacity(self.groups);
-
-        for g in 0..self.groups {
-            // 入力チャンネルをスライス
-            let input_slice = input
-                .slice(&[
-                    (0, n),
-                    (g * c_in_per_group, (g + 1) * c_in_per_group),
-                    (0, input.shape()[2]),
-                    (0, input.shape()[3]),
-                    (0, input.shape()[4]),
-                ])
-                .contiguous();
-
-            // 重みをスライス
-            let weight_slice = self
-                .weight
-                .slice(&[
-                    (g * c_out_per_group, (g + 1) * c_out_per_group),
-                    (0, c_in_per_group),
-                    (0, kd),
-                    (0, kh),
-                    (0, kw),
-                ])
-                .contiguous();
-
-            // Unfold
-            let unfolded = input_slice.unfold3d_dilated((kd, kh, kw), self.stride, self.dilation);
-
-            // Reshape and matmul
-            let unfolded_reshaped = unfolded
-                .permute(&[0, 2, 3, 4, 1, 5, 6, 7])
-                .reshape([n * d_out * h_out * w_out, c_in_per_group * kd * kh * kw]);
-
-            let weight_reshaped = weight_slice
-                .permute(&[1, 2, 3, 4, 0])
-                .reshape_dyn(&[c_in_per_group * kd * kh * kw, c_out_per_group])
-                .into_dim2();
-
-            let group_output = unfolded_reshaped
-                .matmul2(&weight_reshaped)
-                .into_dyn()
-                .reshape_dyn(&[n, d_out, h_out, w_out, c_out_per_group])
-                .permute(&[0, 4, 1, 2, 3]);
-
-            outputs.push(group_output);
-        }
-
-        // Concatenate along channel dimension
-        let output = Tensor::concat(&outputs.iter().collect::<Vec<_>>(), 1);
-
-        // Add bias if present
-        let output = if let Some(ref bias) = self.bias {
-            let bias_expanded = bias
-                .clone()
-                .unsqueeze(0)
-                .unsqueeze(2)
-                .unsqueeze(3)
-                .unsqueeze(4)
-                .expand(output.shape());
-            &output + &bias_expanded
-        } else {
-            output
-        };
 
         output.into_dim5()
     }

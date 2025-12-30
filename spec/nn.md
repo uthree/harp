@@ -58,7 +58,8 @@ pub struct Parameter<T: FloatDType>(Tensor<T, DimDyn>);
 
 #### 畳み込み層
 
-`unfold + matmul` アプローチで実装。groups による分割畳み込み、depthwise 畳み込みに対応。
+`unfold + broadcast multiply + sum` アプローチで実装。groups による分割畳み込み、depthwise 畳み込みに対応。
+groups=1 と groups>1 は同一のロジックで処理され、groups=1 は groups>1 の特殊ケースとして扱われる。
 
 | 層 | 入力 | カーネル | 出力 |
 |----|------|----------|------|
