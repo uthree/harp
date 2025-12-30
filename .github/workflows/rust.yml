@@ -43,7 +43,7 @@ jobs:
               run: cargo build --workspace --verbose --features opencl
 
             - name: Run OpenCL integration tests
-              run: RUST_LOG=error cargo test --workspace --verbose --features opencl
+              run: RUST_LOG=error cargo test --workspace --verbose --features opencl -- --test-threads=1
 
     metal_build_test:
         name: Metal Build Test (macOS)
