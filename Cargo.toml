@@ -1,44 +1,37 @@
 [workspace]
 resolver = "2"
-members = ["crates/data","crates/nn", "crates/nn-derive"]
+members = ["crates/core", "crates/backend-c", "crates/backend-opencl", "crates/backend-metal", "crates/data", "crates/nn", "crates/nn-derive"]
 
 [package]
 name = "harp"
 version = "0.1.0"
 edition = "2024"
+description = "Harp: High-level Array Processor - A transpiler for AI accelerators"
 
 [dependencies]
-# Core dependencies
-directories = "5"
-indicatif = "0.18.1"
-indexmap = "2.0"
+# Core crate (always required)
+harp-core = { path = "crates/core" }
+
+# Backend crates (optional)
+harp-backend-c = { path = "crates/backend-c", optional = true }
+harp-backend-opencl = { path = "crates/backend-opencl", optional = true }
+
+# Automatic initialization
+ctor = "0.2"
+
+# Logging
 log = { version = "0.4", features = ["std"] }
-env_logger = "0.11"
-ndarray = "0.16"
-paste = "1.0"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-tempfile = "3.20"
-
-# OpenCL backend (optional)
-ocl = { version = "0.19", optional = true }
-
-# Visualization (optional)
-ratatui = { version = "0.29", optional = true }
-crossterm = { version = "0.28", optional = true }
-syntect = { version = "5.2", optional = true, default-features = false, features = ["default-syntaxes", "default-themes", "regex-fancy"] }
 
 # Metal backend (optional, macOS only)
 [target.'cfg(target_os = "macos")'.dependencies]
-metal = { version = "0.29", optional = true }
-objc = { version = "0.2", optional = true }
+harp-backend-metal = { path = "crates/backend-metal", optional = true }
 
 [features]
 default = []
-c = []
-opencl = ["dep:ocl"]
-metal = ["dep:metal", "dep:objc"]
-viz = ["dep:ratatui", "dep:crossterm", "dep:syntect"]
+c = ["dep:harp-backend-c"]
+opencl = ["dep:harp-backend-opencl"]
+metal = ["dep:harp-backend-metal"]
+viz = ["harp-core/viz"]
 
 [dev-dependencies]
 env_logger = "0.11"

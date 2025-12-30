@@ -1,90 +1,155 @@
 //! Harp: High-level Array Processor
 //!
-//! Harpは計算グラフを構築し、様々なバックエンド（OpenCL、Metal等）で実行するライブラリです。
+//! Harp is a transpiler that generates efficient kernels for AI accelerators,
+//! GPUs, and CPUs from high-level computation graphs.
 //!
-//! # 基本的な使い方
+//! # Architecture
 //!
-//! Tensorを使用した推奨される方法:
+//! Harp is organized into several crates:
+//!
+//! - **harp-core**: Core functionality (AST, optimization, Tensor API, backend traits)
+//! - **harp-backend-c**: C code generation backend
+//! - **harp-backend-metal**: Metal backend (macOS only)
+//! - **harp-backend-opencl**: OpenCL backend
+//! - **harp** (this crate): Facade that re-exports everything
+//!
+//! # Quick Start
 //!
 //! ```ignore
 //! use harp::prelude::*;
-//! use harp::backend::set_default_device;
 //!
-//! // デバイスの設定
-//! // set_default_device(device, DeviceKind::Metal);
+//! // Set up a device (auto-selects best available)
+//! let device = HarpDevice::auto()?;
+//! device.set_as_default();
 //!
-//! // テンソルの作成
-//! let a = Tensor::<Dim2>::full([10, 20], 1.0);
-//! let b = Tensor::<Dim2>::full([10, 20], 2.0);
+//! // Create tensors
+//! let a = Tensor::<f32, Dim2>::full([10, 20], 1.0);
+//! let b = Tensor::<f32, Dim2>::full([10, 20], 2.0);
 //!
-//! // 遅延評価される演算
+//! // Lazy operations
 //! let result = &a + &b;
 //!
-//! // 実行（realize()で計算を実行し、データを取得）
-//! result.realize().unwrap();
+//! // Execute computation
+//! result.realize()?;
 //! let data = result.data().unwrap();
 //! ```
 //!
-//! # バックエンド
+//! # Feature Flags
 //!
-//! バックエンドはfeature flagで有効化します:
-//! - `opencl`: OpenCLバックエンド（`harp::backend::opencl`）
-//! - `metal`: Metalバックエンド（`harp::backend::metal`、macOSのみ）
-//!
-//! ```toml
-//! [dependencies]
-//! harp = { version = "0.1", features = ["opencl"] }
-//! ```
+//! - `c`: Enable C code generation backend
+//! - `opencl`: Enable OpenCL GPU backend
+//! - `metal`: Enable Metal GPU backend (macOS only)
+//! - `viz`: Enable visualization tools
+
+// ============================================================================
+// Backend Initialization
+// ============================================================================
+
+// Automatically initialize backends when the crate is loaded
+
+#[cfg(feature = "c")]
+#[ctor::ctor]
+fn init_c() {
+    harp_backend_c::init();
+}
+
+#[cfg(feature = "opencl")]
+#[ctor::ctor]
+fn init_opencl() {
+    harp_backend_opencl::init();
+}
+
+#[cfg(all(feature = "metal", target_os = "macos"))]
+#[ctor::ctor]
+fn init_metal() {
+    harp_backend_metal::init();
+}
+
+// ============================================================================
+// Re-exports from harp-core
+// ============================================================================
 
 // Core modules
-pub mod ast;
-pub mod backend;
-pub mod opt;
-pub mod renderer;
-pub mod tensor;
+pub use harp_core::ast;
+pub use harp_core::backend;
+pub use harp_core::opt;
+pub use harp_core::tensor;
 
-// Optional visualization module
+// Visualization (optional)
 #[cfg(feature = "viz")]
-pub mod viz;
+pub use harp_core::viz;
 
-// Re-export types
-pub use ast::{DType, TensorDType};
+// Core types
+pub use harp_core::{Buffer, Compiler, Device, Kernel, KernelConfig, Pipeline, Renderer};
+pub use harp_core::{DType, TensorDType};
 
-// Re-export renderer traits
-pub use renderer::Renderer;
+// Prelude
+pub use harp_core::prelude;
 
-// Re-export backend traits
-pub use backend::{Buffer, Compiler, Device, Kernel, KernelConfig, Pipeline};
+// ============================================================================
+// Re-exports from backend crates
+// ============================================================================
 
-/// Prelude module with commonly used types and traits
-///
-/// このモジュールをインポートすることで、Harpを使う上で必要な
-/// 主要な型やトレイトを一括でインポートできます。
-///
-/// # 推奨: Tensor API
-///
-/// Tensorはharpの主要なAPIです。遅延評価、自動微分、演算融合をサポートします。
-///
-/// # Example
-///
-/// ```ignore
-/// use harp::prelude::*;
-/// ```
-pub mod prelude {
-    // Tensor types (recommended API)
-    pub use crate::tensor::{
-        Dim, Dim0, Dim1, Dim2, Dim3, Dim4, Dim5, Dim6, DimDyn, Dimension, Tensor, Tensor0, Tensor1,
-        Tensor2, Tensor3, Tensor4, Tensor5, Tensor6, TensorDyn,
+/// C backend types (when enabled)
+#[cfg(feature = "c")]
+pub mod c {
+    pub use harp_backend_c::*;
+}
+
+/// OpenCL backend types (when enabled)
+#[cfg(feature = "opencl")]
+pub mod opencl {
+    pub use harp_backend_opencl::*;
+}
+
+/// Metal backend types (when enabled)
+#[cfg(all(feature = "metal", target_os = "macos"))]
+pub mod metal {
+    pub use harp_backend_metal::*;
+}
+
+// ============================================================================
+// Renderer re-exports (for convenience)
+// ============================================================================
+
+/// Renderer types from enabled backends
+pub mod renderer {
+    // Core renderer types are always available
+    pub use harp_core::backend::renderer::{
+        CLikeRenderer, GenericRenderer, OptimizationLevel, Renderer, extract_buffer_placeholders,
     };
 
-    // Data types
-    pub use crate::ast::DType;
+    // C renderer
+    #[cfg(feature = "c")]
+    pub use harp_backend_c::renderer::{CCode, CRenderer};
 
-    // Backend traits
-    pub use crate::backend::{
-        Buffer, BufferSignature, Compiler, Device, Kernel, KernelSignature, Pipeline, Renderer,
-    };
+    // OpenCL renderer
+    #[cfg(feature = "opencl")]
+    pub use harp_backend_opencl::renderer::{OpenCLCode, OpenCLRenderer};
 
-    // Shape expressions (for advanced tensor operations)
-    pub use crate::tensor::shape::{Expr, View};
+    // Metal renderer
+    #[cfg(all(feature = "metal", target_os = "macos"))]
+    pub use harp_backend_metal::renderer::{MetalCode, MetalRenderer};
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_facade_compiles() {
+        // Verify that the facade compiles correctly
+        use super::prelude::*;
+        let _ = Tensor::<f32, Dim2>::zeros([2, 3]);
+    }
+
+    #[cfg(feature = "opencl")]
+    #[test]
+    fn test_opencl_backend_available() {
+        use super::backend::HarpDevice;
+        // Just check that the function doesn't panic
+        let _ = HarpDevice::list_all();
+    }
 }

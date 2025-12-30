@@ -308,6 +308,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ctor"
+version = "0.2.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32a2785755761f3ddc1492979ce1e48d2c00d09311c39e4466429188f3dd6501"
+dependencies = [
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "darling"
 version = "0.20.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -627,17 +637,56 @@ checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 name = "harp"
 version = "0.1.0"
 dependencies = [
+ "ctor",
+ "env_logger",
+ "harp-backend-c",
+ "harp-backend-metal",
+ "harp-backend-opencl",
+ "harp-core",
+ "harp-nn",
+ "log",
+ "rstest",
+ "serial_test",
+]
+
+[[package]]
+name = "harp-backend-c"
+version = "0.1.0"
+dependencies = [
+ "harp-core",
+ "log",
+]
+
+[[package]]
+name = "harp-backend-metal"
+version = "0.1.0"
+dependencies = [
+ "harp-core",
+ "log",
+ "metal",
+ "objc",
+]
+
+[[package]]
+name = "harp-backend-opencl"
+version = "0.1.0"
+dependencies = [
+ "harp-core",
+ "log",
+ "ocl",
+]
+
+[[package]]
+name = "harp-core"
+version = "0.1.0"
+dependencies = [
  "crossterm",
  "directories",
  "env_logger",
- "harp-nn",
  "indexmap",
  "indicatif",
  "log",
- "metal",
  "ndarray",
- "objc",
- "ocl",
  "paste",
  "ratatui",
  "rstest",

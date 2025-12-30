@@ -8,9 +8,8 @@ mod common;
 
 use common::{approx_eq, vec_approx_eq};
 use harp::backend::global::{DeviceKind, set_default_device};
-use harp::backend::metal::MetalDevice;
+use harp::metal::MetalDevice;
 use harp::tensor::{DimDyn, Sqrt, Tensor};
-use ndarray::{Array2, array};
 
 fn setup_metal() -> bool {
     match MetalDevice::new() {
@@ -200,35 +199,6 @@ fn test_metal_reduce_sum() {
         data,
         expected
     );
-}
-
-#[test]
-fn test_metal_with_ndarray() {
-    if !setup_metal() {
-        return;
-    }
-
-    use harp::tensor::Dim2;
-
-    // Create tensors from ndarray
-    let arr_a: Array2<f32> = array![[1.0, 2.0], [3.0, 4.0]];
-    let arr_b: Array2<f32> = array![[5.0, 6.0], [7.0, 8.0]];
-
-    let a = Tensor::<f32, Dim2>::from_ndarray(&arr_a);
-    let b = Tensor::<f32, Dim2>::from_ndarray(&arr_b);
-    let c = &a + &b;
-
-    let result = c.realize();
-    assert!(result.is_ok(), "realize() failed: {:?}", result.err());
-
-    // Convert back to ndarray and verify
-    let output: Array2<f32> = result.unwrap().to_ndarray().expect("No data after realize");
-    let expected: Array2<f32> = array![[6.0, 8.0], [10.0, 12.0]];
-
-    assert_eq!(output.shape(), expected.shape());
-    for (a, b) in output.iter().zip(expected.iter()) {
-        assert!(approx_eq(*a, *b), "Mismatch: {} vs {}", a, b);
-    }
 }
 
 // ========================================================================

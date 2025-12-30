@@ -1988,9 +1988,10 @@ impl<T: FloatDType> Module<T> for Conv1d<T> {
             ParameterMut::set_dyn(&mut self.weight, w.clone());
         }
         if let Some(b) = params.get("bias")
-            && let Some(ref mut bias) = self.bias {
-                ParameterMut::set_dyn(bias, b.clone());
-            }
+            && let Some(ref mut bias) = self.bias
+        {
+            ParameterMut::set_dyn(bias, b.clone());
+        }
     }
 }
 
@@ -2013,9 +2014,10 @@ impl<T: FloatDType> Module<T> for Conv2d<T> {
             ParameterMut::set_dyn(&mut self.weight, w.clone());
         }
         if let Some(b) = params.get("bias")
-            && let Some(ref mut bias) = self.bias {
-                ParameterMut::set_dyn(bias, b.clone());
-            }
+            && let Some(ref mut bias) = self.bias
+        {
+            ParameterMut::set_dyn(bias, b.clone());
+        }
     }
 }
 
@@ -2038,9 +2040,10 @@ impl<T: FloatDType> Module<T> for Conv3d<T> {
             ParameterMut::set_dyn(&mut self.weight, w.clone());
         }
         if let Some(b) = params.get("bias")
-            && let Some(ref mut bias) = self.bias {
-                ParameterMut::set_dyn(bias, b.clone());
-            }
+            && let Some(ref mut bias) = self.bias
+        {
+            ParameterMut::set_dyn(bias, b.clone());
+        }
     }
 }
 
@@ -2063,9 +2066,10 @@ impl<T: FloatDType> Module<T> for ConvTranspose1d<T> {
             ParameterMut::set_dyn(&mut self.weight, w.clone());
         }
         if let Some(b) = params.get("bias")
-            && let Some(ref mut bias) = self.bias {
-                ParameterMut::set_dyn(bias, b.clone());
-            }
+            && let Some(ref mut bias) = self.bias
+        {
+            ParameterMut::set_dyn(bias, b.clone());
+        }
     }
 }
 
@@ -2088,9 +2092,10 @@ impl<T: FloatDType> Module<T> for ConvTranspose2d<T> {
             ParameterMut::set_dyn(&mut self.weight, w.clone());
         }
         if let Some(b) = params.get("bias")
-            && let Some(ref mut bias) = self.bias {
-                ParameterMut::set_dyn(bias, b.clone());
-            }
+            && let Some(ref mut bias) = self.bias
+        {
+            ParameterMut::set_dyn(bias, b.clone());
+        }
     }
 }
 
@@ -2113,9 +2118,10 @@ impl<T: FloatDType> Module<T> for ConvTranspose3d<T> {
             ParameterMut::set_dyn(&mut self.weight, w.clone());
         }
         if let Some(b) = params.get("bias")
-            && let Some(ref mut bias) = self.bias {
-                ParameterMut::set_dyn(bias, b.clone());
-            }
+            && let Some(ref mut bias) = self.bias
+        {
+            ParameterMut::set_dyn(bias, b.clone());
+        }
     }
 }
 

@@ -134,9 +134,10 @@ impl<T: FloatDType> Module<T> for Linear<T> {
             ParameterMut::set_dyn(&mut self.weight, w.clone());
         }
         if let Some(b) = params.get("bias")
-            && let Some(ref mut bias) = self.bias {
-                ParameterMut::set_dyn(bias, b.clone());
-            }
+            && let Some(ref mut bias) = self.bias
+        {
+            ParameterMut::set_dyn(bias, b.clone());
+        }
     }
 }
 

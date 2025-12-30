@@ -9,8 +9,8 @@ mod common;
 
 use common::vec_approx_eq;
 use harp::backend::global::{DeviceKind, set_default_device};
-use harp::backend::metal::MetalDevice;
-use harp::backend::opencl::OpenCLDevice;
+use harp::metal::MetalDevice;
+use harp::opencl::OpenCLDevice;
 use harp::tensor::{DimDyn, Tensor};
 
 #[test]

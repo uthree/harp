@@ -1,0 +1,9 @@
+[package]
+name = "harp-backend-c"
+version = "0.1.0"
+edition = "2024"
+description = "C backend for Harp (code generation only)"
+
+[dependencies]
+harp-core = { path = "../core" }
+log = { version = "0.4", features = ["std"] }
