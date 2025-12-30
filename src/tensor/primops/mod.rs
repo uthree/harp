@@ -32,8 +32,7 @@ pub use unary::{Exp2, Floor, Log2, Recip, Sin, Sqrt};
 
 // Reduce gradient functions are pub(crate) - used internally only
 
-// Re-export general gradient utilities and fused operation gradients
-pub use grad::reduce_grad_for_broadcast;
+// Gradient utilities are pub(crate) - used internally only
 
 // Re-export dimension conversion backward
 pub use movement::IntoDynBackward;

@@ -84,6 +84,7 @@ fn create_binary_elementwise<T: NumericDType, D: Dimension>(
 
     Tensor {
         inner: Arc::new(inner),
+        autograd_meta: None,
         _dtype: PhantomData,
         _dim: PhantomData,
     }
@@ -102,6 +103,7 @@ fn scalar_tensor_f32(value: f32) -> Tensor<f32, DimDyn> {
     );
     Tensor {
         inner: Arc::new(inner),
+        autograd_meta: None,
         _dtype: PhantomData,
         _dim: PhantomData,
     }
@@ -118,6 +120,7 @@ fn scalar_tensor_f64(value: f64) -> Tensor<f64, DimDyn> {
     );
     Tensor {
         inner: Arc::new(inner),
+        autograd_meta: None,
         _dtype: PhantomData,
         _dim: PhantomData,
     }
@@ -443,10 +446,10 @@ impl<T: IntegerDType, D: Dimension> Tensor<T, D> {
 }
 
 // ============================================================================
-// Typed Backward Structs (new system with static dimension typing)
+// Backward Structs
 // ============================================================================
 
-/// Typed gradient for Add: z = a + b (same dimension)
+/// Gradient for Add: z = a + b (same dimension)
 /// ∂L/∂a = ∂L/∂z, ∂L/∂b = ∂L/∂z
 pub struct AddBackward<T: FloatDType, D: Dimension> {
     lhs: Tensor<T, D>,
@@ -475,7 +478,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D> for AddBackward<T, D> {
     }
 }
 
-/// Typed gradient for Mul: z = a * b (same dimension)
+/// Gradient for Mul: z = a * b (same dimension)
 /// ∂L/∂a = ∂L/∂z · b, ∂L/∂b = ∂L/∂z · a
 pub struct MulBackward<T: FloatDType, D: Dimension> {
     lhs: Tensor<T, D>,
@@ -507,15 +510,16 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D> for MulBackward<T, D> {
     }
 }
 
-/// Typed gradient for Max: z = max(a, b) (same dimension)
+/// Gradient for Max: z = max(a, b) (same dimension)
 pub struct MaxBackward<T: FloatDType, D: Dimension> {
     lhs: Tensor<T, D>,
-    rhs: Tensor<T, D>,
+    // TODO: Implement proper comparison-based gradient routing using rhs
+    _rhs: Tensor<T, D>,
 }
 
 impl<T: FloatDType, D: Dimension> MaxBackward<T, D> {
     pub fn new(lhs: Tensor<T, D>, rhs: Tensor<T, D>) -> Self {
-        Self { lhs, rhs }
+        Self { lhs, _rhs: rhs }
     }
 }
 
@@ -534,7 +538,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D> for MaxBackward<T, D> {
     }
 }
 
-/// Typed gradient for scalar addition: z = a + c (c is scalar)
+/// Gradient for scalar addition: z = a + c (c is scalar)
 /// ∂L/∂a = ∂L/∂z
 pub struct ScalarAddBackward<T: FloatDType, D: Dimension> {
     input: Tensor<T, D>,
@@ -558,7 +562,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D> for ScalarAddBackward<T, D> {
     }
 }
 
-/// Typed gradient for scalar multiplication: z = a * c (c is scalar)
+/// Gradient for scalar multiplication: z = a * c (c is scalar)
 /// ∂L/∂a = c · ∂L/∂z
 pub struct ScalarMulBackward<T: FloatDType, D: Dimension> {
     input: Tensor<T, D>,
@@ -579,6 +583,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D> for ScalarMulBackward<T, D> {
             // Convert to same dimension type
             let scalar_d = Tensor::<T, D> {
                 inner: scalar_tensor.inner,
+                autograd_meta: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };

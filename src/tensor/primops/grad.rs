@@ -1,83 +1,18 @@
 //! Gradient utility functions for primitive operations
 //!
-//! This module provides:
-//! - Helper functions for gradient computation
-//!
-//! Individual typed operation gradients are defined in their respective modules:
-//! - binary.rs: AddBackwardTyped, MulBackwardTyped, MaxBackwardTyped
-//! - unary.rs: NegBackwardTyped, RecipBackwardTyped, SqrtBackwardTyped, etc.
-//! - reduce.rs: SumBackwardTyped, ProdBackwardTyped, MaxReduceBackwardTyped
+//! Individual operation gradients are defined in their respective modules:
+//! - binary.rs: AddBackward, MulBackward, MaxBackward
+//! - unary.rs: NegBackward, RecipBackward, SqrtBackward, etc.
+//! - reduce.rs: SumBackward, ProdBackward, MaxReduceBackward
 //!
 //! The GradFn trait is generic over T (FloatDType) and D (Dimension) for
 //! statically-typed gradient computation.
 
-use crate::tensor::{DimDyn, FloatDType, Tensor};
-
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-/// Reduce gradient to match the original input shape (handle broadcasting)
-///
-/// Generic version for any FloatDType (f32, f64).
-pub fn reduce_grad_for_broadcast_generic<T: FloatDType>(
-    grad: &Tensor<T, DimDyn>,
-    target_shape: &[usize],
-) -> Tensor<T, DimDyn> {
-    if grad.shape() == target_shape {
-        return grad.clone();
-    }
-
-    let grad_shape = grad.shape();
-    let target_ndim = target_shape.len();
-    let grad_ndim = grad_shape.len();
-
-    // Pad target shape with 1s on the left to match grad_ndim
-    let mut padded_target = vec![1usize; grad_ndim.saturating_sub(target_ndim)];
-    padded_target.extend_from_slice(target_shape);
-
-    // Find axes to reduce
-    let mut reduce_axes = Vec::new();
-    for (i, (&grad_dim, &target_dim)) in grad_shape.iter().zip(padded_target.iter()).enumerate() {
-        if target_dim == 1 && grad_dim > 1 {
-            reduce_axes.push(i);
-        }
-    }
-
-    // Reduce along those axes using sum_axis (single axis at a time)
-    // Process axes in reverse order to preserve indices
-    let mut result = grad.clone();
-    for &axis in reduce_axes.iter().rev() {
-        // sum_axis reduces dimension, then unsqueeze restores it (keepdim=true effect)
-        result = result.sum(axis).unsqueeze(axis);
-    }
-
-    // Reshape to target shape
-    result.reshape_dyn(target_shape)
-}
-
-/// Reduce gradient to match the original input shape (handle broadcasting)
-///
-/// f32 specialized version for backwards compatibility.
-pub fn reduce_grad_for_broadcast(
-    grad: &Tensor<f32, DimDyn>,
-    target_shape: &[usize],
-) -> Tensor<f32, DimDyn> {
-    reduce_grad_for_broadcast_generic(grad, target_shape)
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::tensor::Dim1;
     use crate::tensor::primops::unary::Recip;
-
-    #[test]
-    fn test_reduce_grad_for_broadcast_same_shape() {
-        let grad = Tensor::<f32, DimDyn>::ones_dyn(&[2, 3]);
-        let result = reduce_grad_for_broadcast(&grad, &[2, 3]);
-        assert_eq!(result.shape(), &[2, 3]);
-    }
+    use crate::tensor::Tensor;
 
     // ========================================================================
     // f64 Autograd Integration Tests

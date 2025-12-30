@@ -5,10 +5,10 @@ use std::marker::PhantomData;
 use crate::tensor::{Dim3, Dim4, Dim5, Dim6, Dim8, DimDyn, Dimension, FloatDType, GradFn, Tensor};
 
 // ============================================================================
-// Typed Backward Structs (new system with static dimension typing)
+// Backward Structs
 // ============================================================================
 
-/// Typed gradient for Squeeze: y = squeeze(x, dim)
+/// Gradient for Squeeze: y = squeeze(x, dim)
 /// Input is D, output is D::Smaller
 pub struct SqueezeBackward<T: FloatDType, D: Dimension> {
     input: Tensor<T, D>,
@@ -29,12 +29,14 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D::Smaller> for SqueezeBackward<T, D
             // Use DimDyn intermediate for type flexibility
             let grad_dyn: Tensor<T, DimDyn> = Tensor {
                 inner: grad_output.inner.clone(),
+                autograd_meta: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
             let grad_unsqueezed = grad_dyn.unsqueeze(self.dim);
             let grad_input: Tensor<T, D> = Tensor {
                 inner: grad_unsqueezed.inner,
+                autograd_meta: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -47,7 +49,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D::Smaller> for SqueezeBackward<T, D
     }
 }
 
-/// Typed gradient for Unsqueeze: y = unsqueeze(x, dim)
+/// Gradient for Unsqueeze: y = unsqueeze(x, dim)
 /// Input is D, output is D::Larger
 pub struct UnsqueezeBackward<T: FloatDType, D: Dimension> {
     input: Tensor<T, D>,
@@ -67,12 +69,14 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D::Larger> for UnsqueezeBackward<T, 
             // Squeeze grad from D::Larger to D
             let grad_dyn: Tensor<T, DimDyn> = Tensor {
                 inner: grad_output.inner.clone(),
+                autograd_meta: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
             let grad_squeezed = grad_dyn.squeeze(self.dim);
             let grad_input: Tensor<T, D> = Tensor {
                 inner: grad_squeezed.inner,
+                autograd_meta: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -85,7 +89,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D::Larger> for UnsqueezeBackward<T, 
     }
 }
 
-/// Typed gradient for Pad: y = pad(x, padding)
+/// Gradient for Pad: y = pad(x, padding)
 /// Same dimension, D -> D
 pub struct PadBackward<T: FloatDType, D: Dimension> {
     input: Tensor<T, D>,
@@ -103,6 +107,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D> for PadBackward<T, D> {
         if self.input.requires_grad() {
             let grad_dyn: Tensor<T, DimDyn> = Tensor {
                 inner: grad_output.inner.clone(),
+                autograd_meta: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -115,6 +120,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D> for PadBackward<T, D> {
             let grad_sliced = grad_dyn.slice(&ranges);
             let grad_input: Tensor<T, D> = Tensor {
                 inner: grad_sliced.inner,
+                autograd_meta: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -127,7 +133,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D> for PadBackward<T, D> {
     }
 }
 
-/// Typed gradient for Slice: y = slice(x, ranges)
+/// Gradient for Slice: y = slice(x, ranges)
 /// Same dimension, D -> D
 pub struct SliceBackward<T: FloatDType, D: Dimension> {
     input: Tensor<T, D>,
@@ -145,6 +151,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D> for SliceBackward<T, D> {
         if self.input.requires_grad() {
             let grad_dyn: Tensor<T, DimDyn> = Tensor {
                 inner: grad_output.inner.clone(),
+                autograd_meta: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -157,6 +164,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D> for SliceBackward<T, D> {
             let grad_padded = grad_dyn.pad_zero(&padding);
             let grad_input: Tensor<T, D> = Tensor {
                 inner: grad_padded.inner,
+                autograd_meta: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -169,7 +177,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D> for SliceBackward<T, D> {
     }
 }
 
-/// Typed gradient for Reshape: y = reshape(x, new_shape)
+/// Gradient for Reshape: y = reshape(x, new_shape)
 /// Dimension can change, but we treat output as DIn, input as DOut
 pub struct ReshapeBackward<T: FloatDType, DIn: Dimension, DOut: Dimension> {
     input: Tensor<T, DIn>,
@@ -192,12 +200,14 @@ impl<T: FloatDType, DIn: Dimension, DOut: Dimension> GradFn<T, DOut>
         if self.input.requires_grad() {
             let grad_dyn: Tensor<T, DimDyn> = Tensor {
                 inner: grad_output.inner.clone(),
+                autograd_meta: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
             let grad_reshaped = grad_dyn.reshape_dyn(self.input.shape());
             let grad_input: Tensor<T, DIn> = Tensor {
                 inner: grad_reshaped.inner,
+                autograd_meta: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -210,7 +220,7 @@ impl<T: FloatDType, DIn: Dimension, DOut: Dimension> GradFn<T, DOut>
     }
 }
 
-/// Typed gradient for Permute: y = permute(x, axes)
+/// Gradient for Permute: y = permute(x, axes)
 /// Input D -> Output DimDyn
 pub struct PermuteBackward<T: FloatDType, D: Dimension> {
     input: Tensor<T, D>,
@@ -234,6 +244,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, DimDyn> for PermuteBackward<T, D> {
             let grad_permuted = grad_output.permute(&inverse);
             let grad_input: Tensor<T, D> = Tensor {
                 inner: grad_permuted.inner,
+                autograd_meta: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -246,13 +257,13 @@ impl<T: FloatDType, D: Dimension> GradFn<T, DimDyn> for PermuteBackward<T, D> {
     }
 }
 
-/// Typed gradient for Transpose: y = transpose(x)
+/// Gradient for Transpose: y = transpose(x)
 /// Same dimension, D -> D (swaps last two axes)
 pub struct TransposeBackward<T: FloatDType, D: Dimension> {
     input: Tensor<T, D>,
 }
 
-/// Typed gradient for Concat: z = concat([a, b, ...], axis)
+/// Gradient for Concat: z = concat([a, b, ...], axis)
 /// ∂L/∂a = slice(∂L/∂z, a's range), etc.
 pub struct ConcatBackward<T: FloatDType, D: Dimension> {
     inputs: Vec<Tensor<T, D>>,
@@ -295,7 +306,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D> for ConcatBackward<T, D> {
     }
 }
 
-/// Typed gradient for Expand: y = expand(x, new_shape)
+/// Gradient for Expand: y = expand(x, new_shape)
 /// ∂L/∂x = sum(∂L/∂y) over broadcast dimensions
 pub struct ExpandBackward<T: FloatDType, D: Dimension> {
     input: Tensor<T, D>,
@@ -331,6 +342,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, DimDyn> for ExpandBackward<T, D> {
 
             let grad_input: Tensor<T, D> = Tensor {
                 inner: result.inner,
+                autograd_meta: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -343,7 +355,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, DimDyn> for ExpandBackward<T, D> {
     }
 }
 
-/// Typed gradient for ReshapeDyn: y = reshape_dyn(x, new_shape)
+/// Gradient for ReshapeDyn: y = reshape_dyn(x, new_shape)
 /// ∂L/∂x = reshape(∂L/∂y, original_shape)
 pub struct ReshapeDynBackward<T: FloatDType, D: Dimension> {
     input: Tensor<T, D>,
@@ -366,6 +378,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, DimDyn> for ReshapeDynBackward<T, D>
             let grad_reshaped = grad_output.reshape_dyn(&self.original_shape);
             let grad_input: Tensor<T, D> = Tensor {
                 inner: grad_reshaped.inner,
+                autograd_meta: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -390,6 +403,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, DimDyn> for TransposeBackward<T, D> 
             let grad_transposed = grad_output.transpose();
             let grad_input: Tensor<T, D> = Tensor {
                 inner: grad_transposed.inner,
+                autograd_meta: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -403,10 +417,10 @@ impl<T: FloatDType, D: Dimension> GradFn<T, DimDyn> for TransposeBackward<T, D> 
 }
 
 // ============================================================================
-// Typed Unfold/Fold Backward Structs
+// Unfold/Fold Backward Structs
 // ============================================================================
 
-/// Typed gradient for Unfold1d: y = unfold1d(x, size, stride, dilation)
+/// Gradient for Unfold1d: y = unfold1d(x, size, stride, dilation)
 /// Input: Dim3, Output: Dim4
 /// ∂L/∂x = fold1d(∂L/∂y, output_size, stride, dilation)
 pub struct Unfold1dBackward<T: FloatDType> {
@@ -440,7 +454,7 @@ impl<T: FloatDType> GradFn<T, Dim4> for Unfold1dBackward<T> {
     }
 }
 
-/// Typed gradient for Unfold2d: y = unfold2d(x, sizes, strides, dilations)
+/// Gradient for Unfold2d: y = unfold2d(x, sizes, strides, dilations)
 /// Input: Dim4, Output: Dim6
 /// ∂L/∂x = fold2d(∂L/∂y, output_size, strides, dilations)
 pub struct Unfold2dBackward<T: FloatDType> {
@@ -479,7 +493,7 @@ impl<T: FloatDType> GradFn<T, Dim6> for Unfold2dBackward<T> {
     }
 }
 
-/// Typed gradient for Unfold3d: y = unfold3d(x, sizes, strides, dilations)
+/// Gradient for Unfold3d: y = unfold3d(x, sizes, strides, dilations)
 /// Input: Dim5, Output: Dim8
 /// ∂L/∂x = fold3d(∂L/∂y, output_size, strides, dilations)
 pub struct Unfold3dBackward<T: FloatDType> {
@@ -518,7 +532,7 @@ impl<T: FloatDType> GradFn<T, Dim8> for Unfold3dBackward<T> {
     }
 }
 
-/// Typed gradient for Fold1d: y = fold1d(x, output_size, stride, dilation)
+/// Gradient for Fold1d: y = fold1d(x, output_size, stride, dilation)
 /// Input: Dim4, Output: Dim3
 /// ∂L/∂x = unfold1d(∂L/∂y, kernel_size, stride, dilation)
 pub struct Fold1dBackward<T: FloatDType> {
@@ -553,7 +567,7 @@ impl<T: FloatDType> GradFn<T, Dim3> for Fold1dBackward<T> {
     }
 }
 
-/// Typed gradient for Fold2d: y = fold2d(x, output_size, strides, dilations)
+/// Gradient for Fold2d: y = fold2d(x, output_size, strides, dilations)
 /// Input: Dim6, Output: Dim4
 /// ∂L/∂x = unfold2d(∂L/∂y, kernel_size, strides, dilations)
 pub struct Fold2dBackward<T: FloatDType> {
@@ -593,7 +607,7 @@ impl<T: FloatDType> GradFn<T, Dim4> for Fold2dBackward<T> {
     }
 }
 
-/// Typed gradient for Fold3d: y = fold3d(x, output_size, strides, dilations)
+/// Gradient for Fold3d: y = fold3d(x, output_size, strides, dilations)
 /// Input: Dim8, Output: Dim5
 /// ∂L/∂x = unfold3d(∂L/∂y, kernel_size, strides, dilations)
 pub struct Fold3dBackward<T: FloatDType> {
@@ -637,7 +651,7 @@ impl<T: FloatDType> GradFn<T, Dim5> for Fold3dBackward<T> {
 // Dimension Conversion Backward Structs
 // ============================================================================
 
-/// Typed gradient for into_dyn: y = x.into_dyn()
+/// Gradient for into_dyn: y = x.into_dyn()
 /// Input D -> Output DimDyn
 /// This is a no-op that just changes the static dimension type.
 pub struct IntoDynBackward<T: FloatDType, D: Dimension> {
@@ -656,6 +670,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, DimDyn> for IntoDynBackward<T, D> {
             // Convert gradient from DimDyn back to D
             let grad_input: Tensor<T, D> = Tensor {
                 inner: grad_output.inner.clone(),
+                autograd_meta: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };

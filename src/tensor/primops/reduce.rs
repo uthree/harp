@@ -53,6 +53,7 @@ fn create_single_axis_reduce<T: FloatDType, D: Dimension>(
 
     Tensor {
         inner: Arc::new(inner),
+        autograd_meta: None,
         _dtype: PhantomData,
         _dim: PhantomData,
     }
@@ -155,10 +156,10 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
 }
 
 // ============================================================================
-// Typed Backward Structs (new system with static dimension typing)
+// Backward Structs
 // ============================================================================
 
-/// Typed gradient for sum_axis: z = sum(a, axis)
+/// Gradient for sum_axis: z = sum(a, axis)
 /// ∂L/∂a = expand(unsqueeze(∂L/∂z, axis))
 ///
 /// Input has dimension D, output has dimension D::Smaller
@@ -186,6 +187,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D::Smaller> for SumBackward<T, D> {
             // Convert to DimDyn for operations, then convert back to D
             let grad_dyn: Tensor<T, DimDyn> = Tensor {
                 inner: grad_output.inner.clone(),
+                autograd_meta: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -195,6 +197,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D::Smaller> for SumBackward<T, D> {
             // Convert back to D
             let grad_input: Tensor<T, D> = Tensor {
                 inner: grad_expanded.inner,
+                autograd_meta: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -207,7 +210,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D::Smaller> for SumBackward<T, D> {
     }
 }
 
-/// Typed gradient for prod_axis: z = prod(a, axis)
+/// Gradient for prod_axis: z = prod(a, axis)
 /// ∂L/∂a = ∂L/∂z · z / a
 pub struct ProdBackward<T: FloatDType, D: Dimension> {
     input: Tensor<T, D>,
@@ -234,16 +237,19 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D::Smaller> for ProdBackward<T, D> {
             // Convert to DimDyn for operations
             let output_dyn: Tensor<T, DimDyn> = Tensor {
                 inner: self.output.inner.clone(),
+                autograd_meta: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
             let grad_dyn: Tensor<T, DimDyn> = Tensor {
                 inner: grad_output.inner.clone(),
+                autograd_meta: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
             let input_dyn: Tensor<T, DimDyn> = Tensor {
                 inner: self.input.inner.clone(),
+                autograd_meta: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -256,6 +262,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D::Smaller> for ProdBackward<T, D> {
             // Convert back to D
             let grad_input: Tensor<T, D> = Tensor {
                 inner: grad_input_dyn.inner,
+                autograd_meta: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -268,7 +275,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D::Smaller> for ProdBackward<T, D> {
     }
 }
 
-/// Typed gradient for max_axis: z = max(a, axis)
+/// Gradient for max_axis: z = max(a, axis)
 /// ∂L/∂a = mask(a == max) · expand(unsqueeze(∂L/∂z, axis))
 pub struct MaxReduceBackward<T: FloatDType, D: Dimension> {
     input: Tensor<T, D>,
@@ -293,6 +300,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D::Smaller> for MaxReduceBackward<T,
             // Convert to DimDyn for operations
             let grad_dyn: Tensor<T, DimDyn> = Tensor {
                 inner: grad_output.inner.clone(),
+                autograd_meta: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -301,6 +309,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D::Smaller> for MaxReduceBackward<T,
             // Convert back to D
             let grad_input: Tensor<T, D> = Tensor {
                 inner: grad_expanded.inner,
+                autograd_meta: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };

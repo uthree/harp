@@ -70,6 +70,7 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         let inner = TensorInner::new(TensorOp::View { input }, view, new_shape, T::DTYPE);
         Tensor {
             inner: Arc::new(inner),
+            autograd_meta: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         }
@@ -92,6 +93,7 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         let inner = TensorInner::new(TensorOp::View { input }, view, new_shape, T::DTYPE);
         Tensor {
             inner: Arc::new(inner),
+            autograd_meta: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         }
@@ -117,6 +119,7 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         let inner = TensorInner::new(TensorOp::View { input }, view, new_shape.to_vec(), T::DTYPE);
         Tensor {
             inner: Arc::new(inner),
+            autograd_meta: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         }
@@ -139,6 +142,7 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         let inner = TensorInner::new(TensorOp::View { input }, view, new_shape.to_vec(), T::DTYPE);
         Tensor {
             inner: Arc::new(inner),
+            autograd_meta: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         }
@@ -158,6 +162,7 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         let inner = TensorInner::new(TensorOp::View { input }, new_view, new_shape, T::DTYPE);
         Tensor {
             inner: Arc::new(inner),
+            autograd_meta: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         }
@@ -198,6 +203,7 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         let inner = TensorInner::new(TensorOp::View { input }, view, new_shape, T::DTYPE);
         Tensor {
             inner: Arc::new(inner),
+            autograd_meta: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         }
@@ -217,6 +223,7 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         );
         Tensor {
             inner: Arc::new(inner),
+            autograd_meta: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         }
@@ -306,6 +313,7 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
         let inner = TensorInner::new(TensorOp::View { input }, view, new_shape.to_vec(), T::DTYPE);
         Tensor {
             inner: Arc::new(inner),
+            autograd_meta: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         }
@@ -374,6 +382,7 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
 
         let result = Tensor {
             inner: Arc::new(inner),
+            autograd_meta: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         };
@@ -496,6 +505,7 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
 
         let result = Tensor {
             inner: Arc::new(inner),
+            autograd_meta: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         };
@@ -579,6 +589,7 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
 
         let result = Tensor {
             inner: Arc::new(inner),
+            autograd_meta: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         };

@@ -88,6 +88,7 @@ fn create_unary_elementwise<T: FloatDType, D: Dimension>(
 
     Tensor {
         inner: Arc::new(inner),
+        autograd_meta: None,
         _dtype: PhantomData,
         _dim: PhantomData,
     }
@@ -339,10 +340,10 @@ impl<D: Dimension> Tensor<f64, D> {
 }
 
 // ============================================================================
-// Typed Backward Structs (new system with static dimension typing)
+// Backward Structs
 // ============================================================================
 
-/// Typed gradient for Neg: z = -a
+/// Gradient for Neg: z = -a
 /// ∂L/∂a = -∂L/∂z
 pub struct NegBackward<T: FloatDType, D: Dimension> {
     input: Tensor<T, D>,
@@ -366,7 +367,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D> for NegBackward<T, D> {
     }
 }
 
-/// Typed gradient for Recip: z = 1/a
+/// Gradient for Recip: z = 1/a
 /// ∂L/∂a = -∂L/∂z / a² = -∂L/∂z · z²
 pub struct RecipBackward<T: FloatDType, D: Dimension> {
     input: Tensor<T, D>,
@@ -392,7 +393,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D> for RecipBackward<T, D> {
     }
 }
 
-/// Typed gradient for Sqrt: z = √a
+/// Gradient for Sqrt: z = √a
 /// ∂L/∂a = ∂L/∂z / (2√a) = ∂L/∂z / (2z)
 pub struct SqrtBackward<T: FloatDType, D: Dimension> {
     input: Tensor<T, D>,
@@ -412,6 +413,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D> for SqrtBackward<T, D> {
             let two = Tensor::<T, DimDyn>::full_dyn(&[], T::TWO);
             let two_d = Tensor::<T, D> {
                 inner: two.inner,
+                autograd_meta: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -425,7 +427,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D> for SqrtBackward<T, D> {
     }
 }
 
-/// Typed gradient for Log2: z = log₂(a)
+/// Gradient for Log2: z = log₂(a)
 /// ∂L/∂a = ∂L/∂z / (a · ln(2))
 pub struct Log2Backward<T: FloatDType, D: Dimension> {
     input: Tensor<T, D>,
@@ -444,6 +446,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D> for Log2Backward<T, D> {
             let ln2 = Tensor::<T, DimDyn>::full_dyn(&[], T::LN_2);
             let ln2_d = Tensor::<T, D> {
                 inner: ln2.inner,
+                autograd_meta: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -457,7 +460,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D> for Log2Backward<T, D> {
     }
 }
 
-/// Typed gradient for Exp2: z = 2^a
+/// Gradient for Exp2: z = 2^a
 /// ∂L/∂a = ∂L/∂z · z · ln(2)
 pub struct Exp2Backward<T: FloatDType, D: Dimension> {
     input: Tensor<T, D>,
@@ -477,6 +480,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D> for Exp2Backward<T, D> {
             let ln2 = Tensor::<T, DimDyn>::full_dyn(&[], T::LN_2);
             let ln2_d = Tensor::<T, D> {
                 inner: ln2.inner,
+                autograd_meta: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -490,7 +494,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D> for Exp2Backward<T, D> {
     }
 }
 
-/// Typed gradient for Sin: z = sin(a)
+/// Gradient for Sin: z = sin(a)
 /// ∂L/∂a = ∂L/∂z · cos(a)
 pub struct SinBackward<T: FloatDType, D: Dimension> {
     input: Tensor<T, D>,
@@ -510,6 +514,7 @@ impl<T: FloatDType, D: Dimension> GradFn<T, D> for SinBackward<T, D> {
             let pi_half = Tensor::<T, DimDyn>::full_dyn(&[], T::FRAC_PI_2);
             let pi_half_d = Tensor::<T, D> {
                 inner: pi_half.inner,
+                autograd_meta: None,
                 _dtype: PhantomData,
                 _dim: PhantomData,
             };
@@ -587,6 +592,7 @@ mod tests {
         );
         let a: Tensor<f64, DimDyn> = Tensor {
             inner: Arc::new(inner),
+            autograd_meta: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         };
@@ -630,6 +636,7 @@ mod tests {
         );
         let a: Tensor<f64, DimDyn> = Tensor {
             inner: Arc::new(inner),
+            autograd_meta: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         };
@@ -679,6 +686,7 @@ mod tests {
         );
         let a_base: Tensor<f64, DimDyn> = Tensor {
             inner: Arc::new(inner),
+            autograd_meta: None,
             _dtype: PhantomData,
             _dim: PhantomData,
         };
