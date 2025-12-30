@@ -14,7 +14,7 @@ use std::fmt::Debug;
 /// # Example
 ///
 /// ```ignore
-/// use harp::TensorDType;
+/// use harp_core::TensorDType;
 ///
 /// assert_eq!(f32::DTYPE, DType::F32);
 /// assert_eq!(i32::DTYPE, DType::I32);

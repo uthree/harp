@@ -335,8 +335,9 @@ unsafe impl Sync for OpenCLDevice {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::buffer::OpenCLBuffer;
+    use crate::compiler::OpenCLCompiler;
     use harp_core::ast::DType;
-    use harp_core::backend::opencl::{OpenCLBuffer, OpenCLCompiler};
     use harp_core::backend::traits::{Compiler, Device, KernelConfig, TypedBuffer};
 
     #[test]

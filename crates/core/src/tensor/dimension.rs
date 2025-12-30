@@ -14,7 +14,7 @@ use std::fmt::Debug;
 /// # Examples
 ///
 /// ```ignore
-/// use harp::tensor::{Dim, DimDyn, Dimension};
+/// use harp_core::tensor::{Dim, DimDyn, Dimension};
 ///
 /// // Static 2D dimension
 /// let dim2 = Dim::<2>;
@@ -62,7 +62,7 @@ pub trait Dimension: Clone + Debug + Send + Sync + 'static {
 /// # Examples
 ///
 /// ```ignore
-/// use harp::tensor::Dim;
+/// use harp_core::tensor::Dim;
 ///
 /// // Create tensors with specific dimensions
 /// let tensor_1d: Tensor<f32, Dim<1>> = Tensor::zeros([10]);
@@ -180,7 +180,7 @@ impl Dimension for Dim<8> {
 /// # Examples
 ///
 /// ```ignore
-/// use harp::tensor::DimDyn;
+/// use harp_core::tensor::DimDyn;
 ///
 /// let dim = DimDyn::new(3);
 /// assert_eq!(dim.ndim(), 3);

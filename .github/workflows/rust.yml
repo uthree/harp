@@ -16,11 +16,11 @@ jobs:
             - name: Install Rust toolchain
               uses: dtolnay/rust-toolchain@stable
 
-            - name: Build
-              run: cargo build
+            - name: Build workspace
+              run: cargo build --workspace
 
             - name: Run tests
-              run: cargo test
+              run: cargo test --workspace
 
     opencl_integration_test:
         name: OpenCL Integration Test
@@ -40,7 +40,58 @@ jobs:
               uses: dtolnay/rust-toolchain@stable
 
             - name: Build with OpenCL feature
-              run: cargo build --verbose --features opencl
+              run: cargo build --workspace --verbose --features opencl
 
             - name: Run OpenCL integration tests
-              run: RUST_LOG=error cargo test --verbose --features opencl
+              run: RUST_LOG=error cargo test --workspace --verbose --features opencl
+
+    metal_build_test:
+        name: Metal Build Test (macOS)
+        runs-on: macos-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@stable
+
+            - name: Build with Metal feature
+              run: cargo build --workspace --verbose --features metal
+
+            - name: Run Metal integration tests
+              run: cargo test --workspace --verbose --features metal
+
+    clippy:
+        name: Clippy Check
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Install dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y ocl-icd-opencl-dev
+
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  components: clippy
+
+            - name: Run Clippy
+              run: cargo clippy --workspace --features opencl -- -D warnings
+
+    format:
+        name: Format Check
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  components: rustfmt
+
+            - name: Check formatting
+              run: cargo fmt --all -- --check

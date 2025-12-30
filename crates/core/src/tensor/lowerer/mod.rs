@@ -15,8 +15,8 @@
 //! # 使用例
 //!
 //! ```ignore
-//! use harp::tensor::{Tensor, Dim2};
-//! use harp::tensor::lowerer::TensorLowerer;
+//! use harp_core::tensor::{Tensor, Dim2};
+//! use harp_core::tensor::lowerer::TensorLowerer;
 //!
 //! let a = Tensor::<f32, Dim2>::input("a", [2, 3]);
 //! let b = Tensor::<f32, Dim2>::input("b", [2, 3]);

@@ -345,8 +345,8 @@ impl<T: TensorDType, D: Dimension> Tensor<T, D> {
     /// # Example
     ///
     /// ```ignore
-    /// use harp::tensor::{Tensor, Dim2};
-    /// use harp::backend::{set_default_device, DeviceKind};
+    /// use harp_core::tensor::{Tensor, Dim2};
+    /// use harp_core::backend::{set_default_device, DeviceKind};
     ///
     /// // Set up device
     /// let device = ...; // Get Metal or OpenCL device

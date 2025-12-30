@@ -58,7 +58,7 @@
 //! # Examples
 //!
 //! ```ignore
-//! use harp::tensor::{Tensor, Dim2};
+//! use harp_core::tensor::{Tensor, Dim2};
 //!
 //! // Create a 2D tensor with gradient tracking
 //! let x = Tensor::<f32, Dim2>::zeros([3, 4]).set_requires_grad(true);
@@ -578,7 +578,7 @@ impl TensorInner {
 /// # Examples
 ///
 /// ```ignore
-/// use harp::tensor::{Tensor, Dim2};
+/// use harp_core::tensor::{Tensor, Dim2};
 ///
 /// // Static 2D tensor
 /// let matrix = Tensor::<f32, Dim2>::zeros([3, 4]);

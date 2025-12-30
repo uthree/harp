@@ -76,7 +76,7 @@ impl FinishInfo {
 /// # Example
 ///
 /// ```ignore
-/// use harp::opt::progress::{SearchProgress, IndicatifProgress};
+/// use harp_core::opt::progress::{SearchProgress, IndicatifProgress};
 ///
 /// let mut progress = IndicatifProgress::new();
 /// progress.start(100, "Optimization");

@@ -485,7 +485,7 @@ impl harp_core::backend::pipeline::KernelSourceRenderer for OpenCLRenderer {
 mod tests {
     use super::*;
     use harp_core::ast::{Mutability, Scope, VarDecl, VarKind};
-    use harp_core::renderer::c_like::CLikeRenderer;
+    use harp_core::backend::renderer::CLikeRenderer;
 
     #[test]
     fn test_render_header() {

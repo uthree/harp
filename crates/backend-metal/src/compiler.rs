@@ -129,8 +129,8 @@ impl MetalCompiler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::buffer::MetalBuffer;
     use harp_core::ast::DType;
-    use harp_core::backend::metal::MetalBuffer;
     use harp_core::backend::traits::{Device, TypedBuffer};
 
     #[test]

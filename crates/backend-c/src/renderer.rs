@@ -224,7 +224,7 @@ mod tests {
     use super::*;
     use harp_core::ast::helper::*;
     use harp_core::ast::{AstNode, Literal};
-    use harp_core::renderer::c_like::CLikeRenderer;
+    use harp_core::backend::renderer::CLikeRenderer;
 
     #[test]
     fn test_render_header() {
