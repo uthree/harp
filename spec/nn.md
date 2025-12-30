@@ -58,7 +58,9 @@ pub struct Parameter<T: FloatDType>(Tensor<T, DimDyn>);
 
 #### 畳み込み層
 
-`unfold + broadcast multiply + sum` アプローチで実装。groups による分割畳み込み、depthwise 畳み込みに対応。
+`unfold + unsqueeze + explicit expand + elementwise multiply + sum` アプローチで実装。
+型安全な次元管理のため、暗黙的ブロードキャストではなく明示的な `expand` を使用。
+groups による分割畳み込み、depthwise 畳み込みに対応。
 groups=1 と groups>1 は同一のロジックで処理され、groups=1 は groups>1 の特殊ケースとして扱われる。
 
 | 層 | 入力 | カーネル | 出力 |
@@ -84,6 +86,7 @@ let output = conv.forward(&input);
 #### 転置畳み込み層
 
 `matmul + fold` アプローチで実装。アップサンプリングや生成モデルで使用。
+バイアス追加時は明示的な `unsqueeze + expand` で型安全な次元管理を行う。
 
 | 層 | 入力 | カーネル | 出力 |
 |----|------|----------|------|
