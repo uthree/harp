@@ -86,6 +86,7 @@ pub mod hlops;
 pub mod lowerer;
 pub mod ops;
 pub mod primops;
+pub mod serde;
 pub mod shape;
 pub mod stringify;
 

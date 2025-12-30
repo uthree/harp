@@ -1,5 +1,6 @@
 //! データ型とリテラルの定義
 
+use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
 // ============================================================================
@@ -181,7 +182,7 @@ impl TensorDType for f64 {
 // ============================================================================
 
 /// ASTノードの型を表す列挙型
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub enum DType {
     // Boolean
     Bool,
