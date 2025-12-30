@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 
 use harp::tensor::{Dim1, Dim3, Dim4, Dim5, DimDyn, FloatDType, Tensor};
 
-use crate::{Module, Parameter};
+use crate::{Module, Parameter, ParameterMut};
 
 // ============================================================================
 // Conv1d
@@ -30,9 +30,9 @@ use crate::{Module, Parameter};
 /// ```
 pub struct Conv1d<T: FloatDType = f32> {
     /// 重み [C_out, C_in/groups, kernel_size]
-    weight: Parameter<T>,
+    weight: Parameter<T, Dim3>,
     /// バイアス [C_out] (Noneの場合はバイアスなし)
-    bias: Option<Parameter<T>>,
+    bias: Option<Parameter<T, Dim1>>,
     /// ストライド
     stride: usize,
     /// パディング
@@ -70,16 +70,11 @@ impl<T: FloatDType> Conv1d<T> {
     ///
     /// 入力: `[N, C_in, L]`
     /// 出力: `[N, C_out, L_out]`
-    ///
-    /// 実装: unfold + broadcast multiply + sum (groups統一)
     pub fn forward(&self, input: &Tensor<T, Dim3>) -> Tensor<T, Dim3> {
         let input_shape = input.shape();
-        let (n, c_in, _l) = (input_shape[0], input_shape[1], input_shape[2]);
+        let (n, c_in, l) = (input_shape[0], input_shape[1], input_shape[2]);
         let c_out = self.out_channels();
         let k = self.kernel_size();
-        let groups = self.groups;
-        let c_in_per_group = c_in / groups;
-        let c_out_per_group = c_out / groups;
 
         assert_eq!(
             c_in,
@@ -99,54 +94,148 @@ impl<T: FloatDType> Conv1d<T> {
             input.clone()
         };
 
-        // Unfold: [N, C_in, L_padded] -> [N, C_in, L_out, k]
-        let unfolded = padded.unfold1d_dilated(k, self.stride, self.dilation);
-        let l_out = unfolded.shape()[2];
+        // 出力サイズを計算
+        let l_padded = l + 2 * self.padding;
+        let eff_k = (k - 1) * self.dilation + 1;
+        let l_out = (l_padded - eff_k) / self.stride + 1;
 
-        // Reshape to introduce groups: [N, C_in, L_out, k] -> [N, groups, C_in/groups, L_out, k]
-        let unfolded_grouped =
-            unfolded
-                .into_dyn()
-                .reshape_dyn(&[n, groups, c_in_per_group, l_out, k]);
+        if self.groups == 1 {
+            // グループなし: 通常の畳み込み
+            self.forward_no_groups(&padded, n, c_in, c_out, l_out, k)
+        } else {
+            // グループ畳み込み
+            self.forward_grouped(&padded, n, c_in, c_out, l_out, k)
+        }
+    }
 
-        // Add C_out/groups dimension and explicit expand: [N, groups, C_out/groups, C_in/groups, L_out, k]
-        let unfolded_expanded = unfolded_grouped.unsqueeze(2).expand(&[
-            n,
-            groups,
-            c_out_per_group,
-            c_in_per_group,
-            l_out,
-            k,
-        ]);
+    fn forward_no_groups(
+        &self,
+        input: &Tensor<T, Dim3>,
+        n: usize,
+        c_in: usize,
+        c_out: usize,
+        l_out: usize,
+        k: usize,
+    ) -> Tensor<T, Dim3> {
+        // Unfold: [N, C_in, L] -> [N, C_in, L_out, k]
+        let unfolded = input.unfold1d_dilated(k, self.stride, self.dilation);
 
-        // Weight: [C_out, C_in/groups, k] -> [groups, C_out/groups, C_in/groups, k]
-        // -> explicit expand to [N, groups, C_out/groups, C_in/groups, L_out, k]
-        let weight_expanded = self
+        // Reshape unfolded: [N, C_in, L_out, k] -> [N, L_out, C_in * k]
+        let unfolded_reshaped = unfolded
+            .permute(&[0, 2, 1, 3])
+            .reshape([n, l_out, c_in * k]);
+
+        // Reshape weight: [C_out, C_in, k] -> [C_in * k, C_out]
+        let weight_reshaped = self
             .weight
+            .tensor()
             .clone()
-            .reshape_dyn(&[groups, c_out_per_group, c_in_per_group, k])
-            .unsqueeze(0)
-            .unsqueeze(4)
-            .expand(&[n, groups, c_out_per_group, c_in_per_group, l_out, k]);
+            .permute(&[1, 2, 0])
+            .reshape_dyn(&[c_in * k, c_out])
+            .into_dim2();
 
-        // Elementwise multiply (same shape, no implicit broadcast)
-        let product = &unfolded_expanded * &weight_expanded;
+        // Matmul: [N, L_out, C_in * k] @ [C_in * k, C_out] -> [N, L_out, C_out]
+        let mut output = unfolded_reshaped
+            .into_dyn()
+            .reshape_dyn(&[n * l_out, c_in * k])
+            .into_dim2()
+            .matmul2(&weight_reshaped)
+            .into_dyn()
+            .reshape_dyn(&[n, l_out, c_out]);
 
-        // Sum over C_in/groups (axis 3) and k (axis 5): [N, groups, C_out/groups, L_out]
-        let summed: harp::tensor::Tensor<T, DimDyn> = product.sum(5).sum(3);
-
-        // Reshape to [N, C_out, L_out]
-        let mut output = summed.reshape_dyn(&[n, c_out, l_out]);
+        // Permute to [N, C_out, L_out]
+        output = output.permute(&[0, 2, 1]);
 
         // Add bias if present
         if let Some(ref bias) = self.bias {
             let bias_expanded = bias
+                .as_dyn()
                 .clone()
                 .unsqueeze(0)
                 .unsqueeze(2)
                 .expand(output.shape());
             output = &output + &bias_expanded;
         }
+
+        output.into_dim3()
+    }
+
+    fn forward_grouped(
+        &self,
+        input: &Tensor<T, Dim3>,
+        n: usize,
+        c_in: usize,
+        c_out: usize,
+        l_out: usize,
+        k: usize,
+    ) -> Tensor<T, Dim3> {
+        let c_in_per_group = c_in / self.groups;
+        let c_out_per_group = c_out / self.groups;
+
+        let mut outputs = Vec::with_capacity(self.groups);
+
+        for g in 0..self.groups {
+            // 入力チャンネルをスライス
+            let input_slice = input
+                .slice(&[
+                    (0, n),
+                    (g * c_in_per_group, (g + 1) * c_in_per_group),
+                    (0, input.shape()[2]),
+                ])
+                .contiguous();
+
+            // 重みをスライス
+            let weight_slice = self
+                .weight
+                .as_dyn()
+                .slice(&[
+                    (g * c_out_per_group, (g + 1) * c_out_per_group),
+                    (0, c_in_per_group),
+                    (0, k),
+                ])
+                .contiguous();
+
+            // Unfold
+            let unfolded = input_slice.unfold1d_dilated(k, self.stride, self.dilation);
+
+            // Reshape and matmul
+            let unfolded_reshaped =
+                unfolded
+                    .permute(&[0, 2, 1, 3])
+                    .reshape([n, l_out, c_in_per_group * k]);
+
+            let weight_reshaped = weight_slice
+                .permute(&[1, 2, 0])
+                .reshape_dyn(&[c_in_per_group * k, c_out_per_group])
+                .into_dim2();
+
+            let group_output = unfolded_reshaped
+                .into_dyn()
+                .reshape_dyn(&[n * l_out, c_in_per_group * k])
+                .into_dim2()
+                .matmul2(&weight_reshaped)
+                .into_dyn()
+                .reshape_dyn(&[n, l_out, c_out_per_group])
+                .permute(&[0, 2, 1]);
+
+            outputs.push(group_output);
+        }
+
+        // Concatenate along channel dimension
+        let output = Tensor::concat(&outputs.iter().collect::<Vec<_>>(), 1);
+
+        // Add bias if present
+        let output = if let Some(ref bias) = self.bias {
+            let bias_expanded = bias
+                .as_dyn()
+                .clone()
+                .unsqueeze(0)
+                .unsqueeze(2)
+                .expand(output.shape());
+            &output + &bias_expanded
+        } else {
+            output
+        };
 
         output.into_dim3()
     }
@@ -229,14 +318,13 @@ impl<T: FloatDType> Conv1dBuilder<T> {
     pub fn build(self) -> Conv1d<T> {
         let c_in_per_group = self.in_channels / self.groups;
 
-        // 重みの初期化
-        let weight = Tensor::<T, Dim3>::rand([self.out_channels, c_in_per_group, self.kernel_size])
-            .into_dyn();
+        // 重みの初期化: He initialization (static dimension)
+        let weight = Tensor::<T, Dim3>::rand([self.out_channels, c_in_per_group, self.kernel_size]);
 
         let bias = if self.bias {
-            Some(Parameter::new(
-                Tensor::<T, Dim1>::zeros([self.out_channels]).into_dyn(),
-            ))
+            Some(Parameter::new(Tensor::<T, Dim1>::zeros(
+                [self.out_channels],
+            )))
         } else {
             None
         };
@@ -273,9 +361,9 @@ impl<T: FloatDType> Conv1dBuilder<T> {
 /// ```
 pub struct Conv2d<T: FloatDType = f32> {
     /// 重み [C_out, C_in/groups, kH, kW]
-    weight: Parameter<T>,
+    weight: Parameter<T, Dim4>,
     /// バイアス [C_out]
-    bias: Option<Parameter<T>>,
+    bias: Option<Parameter<T, Dim1>>,
     /// ストライド (sH, sW)
     stride: (usize, usize),
     /// パディング (pH, pW)
@@ -317,11 +405,9 @@ impl<T: FloatDType> Conv2d<T> {
     ///
     /// 入力: `[N, C_in, H, W]`
     /// 出力: `[N, C_out, H_out, W_out]`
-    ///
-    /// 実装: unfold + broadcast multiply + sum (groups統一)
     pub fn forward(&self, input: &Tensor<T, Dim4>) -> Tensor<T, Dim4> {
         let input_shape = input.shape();
-        let (n, c_in, _h, _w) = (
+        let (n, c_in, h, w) = (
             input_shape[0],
             input_shape[1],
             input_shape[2],
@@ -329,9 +415,6 @@ impl<T: FloatDType> Conv2d<T> {
         );
         let c_out = self.out_channels();
         let (kh, kw) = self.kernel_size();
-        let groups = self.groups;
-        let c_in_per_group = c_in / groups;
-        let c_out_per_group = c_out / groups;
 
         assert_eq!(
             c_in,
@@ -356,61 +439,62 @@ impl<T: FloatDType> Conv2d<T> {
             input.clone()
         };
 
+        // 出力サイズを計算
+        let h_padded = h + 2 * self.padding.0;
+        let w_padded = w + 2 * self.padding.1;
+        let eff_kh = (kh - 1) * self.dilation.0 + 1;
+        let eff_kw = (kw - 1) * self.dilation.1 + 1;
+        let h_out = (h_padded - eff_kh) / self.stride.0 + 1;
+        let w_out = (w_padded - eff_kw) / self.stride.1 + 1;
+
+        if self.groups == 1 {
+            self.forward_no_groups(&padded, n, c_in, c_out, h_out, w_out, kh, kw)
+        } else {
+            self.forward_grouped(&padded, n, c_in, c_out, h_out, w_out, kh, kw)
+        }
+    }
+
+    fn forward_no_groups(
+        &self,
+        input: &Tensor<T, Dim4>,
+        n: usize,
+        c_in: usize,
+        c_out: usize,
+        h_out: usize,
+        w_out: usize,
+        kh: usize,
+        kw: usize,
+    ) -> Tensor<T, Dim4> {
         // Unfold: [N, C_in, H, W] -> [N, C_in, H_out, W_out, kH, kW]
-        let unfolded = padded.unfold2d_dilated((kh, kw), self.stride, self.dilation);
-        let h_out = unfolded.shape()[2];
-        let w_out = unfolded.shape()[3];
+        let unfolded = input.unfold2d_dilated((kh, kw), self.stride, self.dilation);
 
-        // Reshape to introduce groups: [N, C_in, H_out, W_out, kH, kW] -> [N, groups, C_in/groups, H_out, W_out, kH, kW]
-        let unfolded_grouped =
-            unfolded
-                .into_dyn()
-                .reshape_dyn(&[n, groups, c_in_per_group, h_out, w_out, kh, kw]);
+        // Reshape unfolded: [N, C_in, H_out, W_out, kH, kW] -> [N * H_out * W_out, C_in * kH * kW]
+        let unfolded_reshaped = unfolded
+            .permute(&[0, 2, 3, 1, 4, 5])
+            .reshape([n * h_out * w_out, c_in * kh * kw]);
 
-        // Add C_out/groups dimension and explicit expand: [N, groups, C_out/groups, C_in/groups, H_out, W_out, kH, kW]
-        let unfolded_expanded = unfolded_grouped.unsqueeze(2).expand(&[
-            n,
-            groups,
-            c_out_per_group,
-            c_in_per_group,
-            h_out,
-            w_out,
-            kh,
-            kw,
-        ]);
-
-        // Weight: [C_out, C_in/groups, kH, kW] -> [groups, C_out/groups, C_in/groups, kH, kW]
-        // -> explicit expand to [N, groups, C_out/groups, C_in/groups, H_out, W_out, kH, kW]
-        let weight_expanded = self
+        // Reshape weight: [C_out, C_in, kH, kW] -> [C_in * kH * kW, C_out]
+        let weight_reshaped = self
             .weight
+            .tensor()
             .clone()
-            .reshape_dyn(&[groups, c_out_per_group, c_in_per_group, kh, kw])
-            .unsqueeze(0)
-            .unsqueeze(4)
-            .unsqueeze(5)
-            .expand(&[
-                n,
-                groups,
-                c_out_per_group,
-                c_in_per_group,
-                h_out,
-                w_out,
-                kh,
-                kw,
-            ]);
+            .permute(&[1, 2, 3, 0])
+            .reshape_dyn(&[c_in * kh * kw, c_out])
+            .into_dim2();
 
-        // Elementwise multiply (same shape, no implicit broadcast)
-        let product = &unfolded_expanded * &weight_expanded;
+        // Matmul: [N * H_out * W_out, C_in * kH * kW] @ [C_in * kH * kW, C_out]
+        //       -> [N * H_out * W_out, C_out]
+        let output = unfolded_reshaped.matmul2(&weight_reshaped).into_dyn();
 
-        // Sum over C_in/groups (axis 3), kH (axis 6), kW (axis 7): [N, groups, C_out/groups, H_out, W_out]
-        let summed: harp::tensor::Tensor<T, DimDyn> = product.sum(7).sum(6).sum(3);
-
-        // Reshape to [N, C_out, H_out, W_out]
-        let mut output = summed.reshape_dyn(&[n, c_out, h_out, w_out]);
+        // Reshape to [N, H_out, W_out, C_out] then permute to [N, C_out, H_out, W_out]
+        let mut output = output
+            .reshape_dyn(&[n, h_out, w_out, c_out])
+            .permute(&[0, 3, 1, 2]);
 
         // Add bias if present
         if let Some(ref bias) = self.bias {
             let bias_expanded = bias
+                .as_dyn()
                 .clone()
                 .unsqueeze(0)
                 .unsqueeze(2)
@@ -418,6 +502,87 @@ impl<T: FloatDType> Conv2d<T> {
                 .expand(output.shape());
             output = &output + &bias_expanded;
         }
+
+        output.into_dim4()
+    }
+
+    fn forward_grouped(
+        &self,
+        input: &Tensor<T, Dim4>,
+        n: usize,
+        c_in: usize,
+        c_out: usize,
+        h_out: usize,
+        w_out: usize,
+        kh: usize,
+        kw: usize,
+    ) -> Tensor<T, Dim4> {
+        let c_in_per_group = c_in / self.groups;
+        let c_out_per_group = c_out / self.groups;
+
+        let mut outputs = Vec::with_capacity(self.groups);
+
+        for g in 0..self.groups {
+            // 入力チャンネルをスライス
+            let input_slice = input
+                .slice(&[
+                    (0, n),
+                    (g * c_in_per_group, (g + 1) * c_in_per_group),
+                    (0, input.shape()[2]),
+                    (0, input.shape()[3]),
+                ])
+                .contiguous();
+
+            // 重みをスライス
+            let weight_slice = self
+                .weight
+                .as_dyn()
+                .slice(&[
+                    (g * c_out_per_group, (g + 1) * c_out_per_group),
+                    (0, c_in_per_group),
+                    (0, kh),
+                    (0, kw),
+                ])
+                .contiguous();
+
+            // Unfold
+            let unfolded = input_slice.unfold2d_dilated((kh, kw), self.stride, self.dilation);
+
+            // Reshape and matmul
+            let unfolded_reshaped = unfolded
+                .permute(&[0, 2, 3, 1, 4, 5])
+                .reshape([n * h_out * w_out, c_in_per_group * kh * kw]);
+
+            let weight_reshaped = weight_slice
+                .permute(&[1, 2, 3, 0])
+                .reshape_dyn(&[c_in_per_group * kh * kw, c_out_per_group])
+                .into_dim2();
+
+            let group_output = unfolded_reshaped
+                .matmul2(&weight_reshaped)
+                .into_dyn()
+                .reshape_dyn(&[n, h_out, w_out, c_out_per_group])
+                .permute(&[0, 3, 1, 2]);
+
+            outputs.push(group_output);
+        }
+
+        // Concatenate along channel dimension
+        let output = Tensor::concat(&outputs.iter().collect::<Vec<_>>(), 1);
+
+        // Add bias if present
+        let output = if let Some(ref bias) = self.bias {
+            let bias_expanded = bias
+                .as_dyn()
+                .clone()
+                .unsqueeze(0)
+                .unsqueeze(2)
+                .unsqueeze(3)
+                .expand(output.shape());
+            &output + &bias_expanded
+        } else {
+            output
+        };
 
         output.into_dim4()
     }
@@ -509,19 +674,18 @@ impl<T: FloatDType> Conv2dBuilder<T> {
     pub fn build(self) -> Conv2d<T> {
         let c_in_per_group = self.in_channels / self.groups;
 
-        // 重みの初期化
+        // 重みの初期化 (static dimension)
         let weight = Tensor::<T, Dim4>::rand([
             self.out_channels,
             c_in_per_group,
             self.kernel_size.0,
             self.kernel_size.1,
-        ])
-        .into_dyn();
+        ]);
 
         let bias = if self.bias {
-            Some(Parameter::new(
-                Tensor::<T, Dim1>::zeros([self.out_channels]).into_dyn(),
-            ))
+            Some(Parameter::new(Tensor::<T, Dim1>::zeros(
+                [self.out_channels],
+            )))
         } else {
             None
         };
@@ -558,9 +722,9 @@ impl<T: FloatDType> Conv2dBuilder<T> {
 /// ```
 pub struct Conv3d<T: FloatDType = f32> {
     /// 重み [C_out, C_in/groups, kD, kH, kW]
-    weight: Parameter<T>,
+    weight: Parameter<T, Dim5>,
     /// バイアス [C_out]
-    bias: Option<Parameter<T>>,
+    bias: Option<Parameter<T, Dim1>>,
     /// ストライド (sD, sH, sW)
     stride: (usize, usize, usize),
     /// パディング (pD, pH, pW)
@@ -606,11 +770,9 @@ impl<T: FloatDType> Conv3d<T> {
     ///
     /// 入力: `[N, C_in, D, H, W]`
     /// 出力: `[N, C_out, D_out, H_out, W_out]`
-    ///
-    /// 実装: unfold + broadcast multiply + sum (groups統一)
     pub fn forward(&self, input: &Tensor<T, Dim5>) -> Tensor<T, Dim5> {
         let input_shape = input.shape();
-        let (n, c_in, _d, _h, _w) = (
+        let (n, c_in, d, h, w) = (
             input_shape[0],
             input_shape[1],
             input_shape[2],
@@ -619,9 +781,6 @@ impl<T: FloatDType> Conv3d<T> {
         );
         let c_out = self.out_channels();
         let (kd, kh, kw) = self.kernel_size();
-        let groups = self.groups;
-        let c_in_per_group = c_in / groups;
-        let c_out_per_group = c_out / groups;
 
         assert_eq!(
             c_in,
@@ -647,76 +806,68 @@ impl<T: FloatDType> Conv3d<T> {
             input.clone()
         };
 
+        // 出力サイズを計算
+        let d_padded = d + 2 * self.padding.0;
+        let h_padded = h + 2 * self.padding.1;
+        let w_padded = w + 2 * self.padding.2;
+        let eff_kd = (kd - 1) * self.dilation.0 + 1;
+        let eff_kh = (kh - 1) * self.dilation.1 + 1;
+        let eff_kw = (kw - 1) * self.dilation.2 + 1;
+        let d_out = (d_padded - eff_kd) / self.stride.0 + 1;
+        let h_out = (h_padded - eff_kh) / self.stride.1 + 1;
+        let w_out = (w_padded - eff_kw) / self.stride.2 + 1;
+
+        if self.groups == 1 {
+            self.forward_no_groups(&padded, n, c_in, c_out, d_out, h_out, w_out, kd, kh, kw)
+        } else {
+            self.forward_grouped(&padded, n, c_in, c_out, d_out, h_out, w_out, kd, kh, kw)
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn forward_no_groups(
+        &self,
+        input: &Tensor<T, Dim5>,
+        n: usize,
+        c_in: usize,
+        c_out: usize,
+        d_out: usize,
+        h_out: usize,
+        w_out: usize,
+        kd: usize,
+        kh: usize,
+        kw: usize,
+    ) -> Tensor<T, Dim5> {
         // Unfold: [N, C_in, D, H, W] -> [N, C_in, D_out, H_out, W_out, kD, kH, kW]
-        let unfolded = padded.unfold3d_dilated((kd, kh, kw), self.stride, self.dilation);
-        let d_out = unfolded.shape()[2];
-        let h_out = unfolded.shape()[3];
-        let w_out = unfolded.shape()[4];
+        let unfolded = input.unfold3d_dilated((kd, kh, kw), self.stride, self.dilation);
 
-        // Reshape to introduce groups: [N, C_in, D_out, H_out, W_out, kD, kH, kW]
-        //                           -> [N, groups, C_in/groups, D_out, H_out, W_out, kD, kH, kW]
-        let unfolded_grouped = unfolded.into_dyn().reshape_dyn(&[
-            n,
-            groups,
-            c_in_per_group,
-            d_out,
-            h_out,
-            w_out,
-            kd,
-            kh,
-            kw,
-        ]);
+        // Reshape unfolded: [N, C_in, D_out, H_out, W_out, kD, kH, kW]
+        //                -> [N * D_out * H_out * W_out, C_in * kD * kH * kW]
+        let unfolded_reshaped = unfolded
+            .permute(&[0, 2, 3, 4, 1, 5, 6, 7])
+            .reshape([n * d_out * h_out * w_out, c_in * kd * kh * kw]);
 
-        // Add C_out/groups dimension and explicit expand:
-        // [N, groups, C_out/groups, C_in/groups, D_out, H_out, W_out, kD, kH, kW]
-        let unfolded_expanded = unfolded_grouped.unsqueeze(2).expand(&[
-            n,
-            groups,
-            c_out_per_group,
-            c_in_per_group,
-            d_out,
-            h_out,
-            w_out,
-            kd,
-            kh,
-            kw,
-        ]);
-
-        // Weight: [C_out, C_in/groups, kD, kH, kW] -> [groups, C_out/groups, C_in/groups, kD, kH, kW]
-        // -> explicit expand to [N, groups, C_out/groups, C_in/groups, D_out, H_out, W_out, kD, kH, kW]
-        let weight_expanded = self
+        // Reshape weight: [C_out, C_in, kD, kH, kW] -> [C_in * kD * kH * kW, C_out]
+        let weight_reshaped = self
             .weight
+            .tensor()
             .clone()
-            .reshape_dyn(&[groups, c_out_per_group, c_in_per_group, kd, kh, kw])
-            .unsqueeze(0)
-            .unsqueeze(4)
-            .unsqueeze(5)
-            .unsqueeze(6)
-            .expand(&[
-                n,
-                groups,
-                c_out_per_group,
-                c_in_per_group,
-                d_out,
-                h_out,
-                w_out,
-                kd,
-                kh,
-                kw,
-            ]);
+            .permute(&[1, 2, 3, 4, 0])
+            .reshape_dyn(&[c_in * kd * kh * kw, c_out])
+            .into_dim2();
 
-        // Elementwise multiply (same shape, no implicit broadcast)
-        let product = &unfolded_expanded * &weight_expanded;
+        // Matmul
+        let output = unfolded_reshaped.matmul2(&weight_reshaped).into_dyn();
 
-        // Sum over C_in/groups (axis 3), kD (axis 7), kH (axis 8), kW (axis 9)
-        let summed: harp::tensor::Tensor<T, DimDyn> = product.sum(9).sum(8).sum(7).sum(3);
-
-        // Reshape to [N, C_out, D_out, H_out, W_out]
-        let mut output = summed.reshape_dyn(&[n, c_out, d_out, h_out, w_out]);
+        // Reshape to [N, D_out, H_out, W_out, C_out] then permute to [N, C_out, D_out, H_out, W_out]
+        let mut output = output
+            .reshape_dyn(&[n, d_out, h_out, w_out, c_out])
+            .permute(&[0, 4, 1, 2, 3]);
 
         // Add bias if present
         if let Some(ref bias) = self.bias {
             let bias_expanded = bias
+                .as_dyn()
                 .clone()
                 .unsqueeze(0)
                 .unsqueeze(2)
@@ -725,6 +876,93 @@ impl<T: FloatDType> Conv3d<T> {
                 .expand(output.shape());
             output = &output + &bias_expanded;
         }
+
+        output.into_dim5()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn forward_grouped(
+        &self,
+        input: &Tensor<T, Dim5>,
+        n: usize,
+        c_in: usize,
+        c_out: usize,
+        d_out: usize,
+        h_out: usize,
+        w_out: usize,
+        kd: usize,
+        kh: usize,
+        kw: usize,
+    ) -> Tensor<T, Dim5> {
+        let c_in_per_group = c_in / self.groups;
+        let c_out_per_group = c_out / self.groups;
+
+        let mut outputs = Vec::with_capacity(self.groups);
+
+        for g in 0..self.groups {
+            // 入力チャンネルをスライス
+            let input_slice = input
+                .slice(&[
+                    (0, n),
+                    (g * c_in_per_group, (g + 1) * c_in_per_group),
+                    (0, input.shape()[2]),
+                    (0, input.shape()[3]),
+                    (0, input.shape()[4]),
+                ])
+                .contiguous();
+
+            // 重みをスライス
+            let weight_slice = self
+                .weight
+                .as_dyn()
+                .slice(&[
+                    (g * c_out_per_group, (g + 1) * c_out_per_group),
+                    (0, c_in_per_group),
+                    (0, kd),
+                    (0, kh),
+                    (0, kw),
+                ])
+                .contiguous();
+
+            // Unfold
+            let unfolded = input_slice.unfold3d_dilated((kd, kh, kw), self.stride, self.dilation);
+
+            // Reshape and matmul
+            let unfolded_reshaped = unfolded
+                .permute(&[0, 2, 3, 4, 1, 5, 6, 7])
+                .reshape([n * d_out * h_out * w_out, c_in_per_group * kd * kh * kw]);
+
+            let weight_reshaped = weight_slice
+                .permute(&[1, 2, 3, 4, 0])
+                .reshape_dyn(&[c_in_per_group * kd * kh * kw, c_out_per_group])
+                .into_dim2();
+
+            let group_output = unfolded_reshaped
+                .matmul2(&weight_reshaped)
+                .into_dyn()
+                .reshape_dyn(&[n, d_out, h_out, w_out, c_out_per_group])
+                .permute(&[0, 4, 1, 2, 3]);
+
+            outputs.push(group_output);
+        }
+
+        // Concatenate along channel dimension
+        let output = Tensor::concat(&outputs.iter().collect::<Vec<_>>(), 1);
+
+        // Add bias if present
+        let output = if let Some(ref bias) = self.bias {
+            let bias_expanded = bias
+                .as_dyn()
+                .clone()
+                .unsqueeze(0)
+                .unsqueeze(2)
+                .unsqueeze(3)
+                .unsqueeze(4)
+                .expand(output.shape());
+            &output + &bias_expanded
+        } else {
+            output
+        };
 
         output.into_dim5()
     }
@@ -816,20 +1054,19 @@ impl<T: FloatDType> Conv3dBuilder<T> {
     pub fn build(self) -> Conv3d<T> {
         let c_in_per_group = self.in_channels / self.groups;
 
-        // 重みの初期化
+        // 重みの初期化 (static dimension)
         let weight = Tensor::<T, Dim5>::rand([
             self.out_channels,
             c_in_per_group,
             self.kernel_size.0,
             self.kernel_size.1,
             self.kernel_size.2,
-        ])
-        .into_dyn();
+        ]);
 
         let bias = if self.bias {
-            Some(Parameter::new(
-                Tensor::<T, Dim1>::zeros([self.out_channels]).into_dyn(),
-            ))
+            Some(Parameter::new(Tensor::<T, Dim1>::zeros(
+                [self.out_channels],
+            )))
         } else {
             None
         };
@@ -868,9 +1105,9 @@ impl<T: FloatDType> Conv3dBuilder<T> {
 /// ```
 pub struct ConvTranspose1d<T: FloatDType = f32> {
     /// 重み [C_in, C_out/groups, kernel_size]
-    weight: Parameter<T>,
+    weight: Parameter<T, Dim3>,
     /// バイアス [C_out]
-    bias: Option<Parameter<T>>,
+    bias: Option<Parameter<T, Dim1>>,
     /// ストライド
     stride: usize,
     /// パディング
@@ -929,18 +1166,15 @@ impl<T: FloatDType> ConvTranspose1d<T> {
         );
 
         // 出力サイズを計算
-        // raw: fold操作の直接出力サイズ（パディング除去前）
-        let l_out_raw = (l - 1) * self.stride + self.dilation * (k - 1) + 1;
-        // final: 最終出力サイズ（パディング除去後）
         let l_out = (l - 1) * self.stride - 2 * self.padding
             + self.dilation * (k - 1)
             + self.output_padding
             + 1;
 
         if self.groups == 1 {
-            self.forward_no_groups(input, n, c_in, c_out, l, l_out_raw, l_out, k)
+            self.forward_no_groups(input, n, c_in, c_out, l, l_out, k)
         } else {
-            self.forward_grouped(input, n, c_in, c_out, l, l_out_raw, l_out, k)
+            self.forward_grouped(input, n, c_in, c_out, l, l_out, k)
         }
     }
 
@@ -952,7 +1186,6 @@ impl<T: FloatDType> ConvTranspose1d<T> {
         c_in: usize,
         c_out: usize,
         l: usize,
-        l_out_raw: usize,
         l_out: usize,
         k: usize,
     ) -> Tensor<T, Dim3> {
@@ -962,6 +1195,7 @@ impl<T: FloatDType> ConvTranspose1d<T> {
         // Weight: [C_in, C_out, k] -> [C_in, C_out * k]
         let weight_reshaped = self
             .weight
+            .as_dyn()
             .clone()
             .reshape_dyn(&[c_in, c_out * k])
             .into_dim2();
@@ -976,19 +1210,26 @@ impl<T: FloatDType> ConvTranspose1d<T> {
             .permute(&[0, 2, 1, 3])
             .into_dim4();
 
-        // Fold: [N, C_out, L, k] -> [N, C_out, L_out_raw]
+        // Fold: [N, C_out, L, k] -> [N, C_out, L_out]
         let mut output = output
-            .fold1d_dilated(l_out_raw, self.stride, self.dilation)
+            .fold1d_dilated(l_out, self.stride, self.dilation)
             .into_dyn();
 
-        // パディングを除去し、最終出力サイズに調整
-        if self.padding > 0 || self.output_padding > 0 {
-            output = output.slice(&[(0, n), (0, c_out), (self.padding, self.padding + l_out)]);
+        // パディングを除去
+        if self.padding > 0 {
+            output = output.slice(&[(0, n), (0, c_out), (self.padding, l_out + self.padding)]);
+            // 実際のl_outに調整
+            let actual_l_out = (l - 1) * self.stride - 2 * self.padding
+                + self.dilation * (k - 1)
+                + self.output_padding
+                + 1;
+            output = output.slice(&[(0, n), (0, c_out), (0, actual_l_out)]);
         }
 
         // Add bias if present
         if let Some(ref bias) = self.bias {
             let bias_expanded = bias
+                .as_dyn()
                 .clone()
                 .unsqueeze(0)
                 .unsqueeze(2)
@@ -1007,7 +1248,6 @@ impl<T: FloatDType> ConvTranspose1d<T> {
         c_in: usize,
         c_out: usize,
         l: usize,
-        l_out_raw: usize,
         l_out: usize,
         k: usize,
     ) -> Tensor<T, Dim3> {
@@ -1029,6 +1269,7 @@ impl<T: FloatDType> ConvTranspose1d<T> {
             // 重みをスライス
             let weight_slice = self
                 .weight
+                .as_dyn()
                 .slice(&[
                     (g * c_in_per_group, (g + 1) * c_in_per_group),
                     (0, c_out_per_group),
@@ -1055,7 +1296,7 @@ impl<T: FloatDType> ConvTranspose1d<T> {
                 .reshape_dyn(&[n, l, c_out_per_group, k])
                 .permute(&[0, 2, 1, 3])
                 .into_dim4()
-                .fold1d_dilated(l_out_raw, self.stride, self.dilation);
+                .fold1d_dilated(l_out, self.stride, self.dilation);
 
             outputs.push(group_output.into_dyn());
         }
@@ -1063,9 +1304,13 @@ impl<T: FloatDType> ConvTranspose1d<T> {
         // Concatenate along channel dimension
         let output = Tensor::concat(&outputs.iter().collect::<Vec<_>>(), 1);
 
-        // パディングを除去し、最終出力サイズに調整
-        let output = if self.padding > 0 || self.output_padding > 0 {
-            output.slice(&[(0, n), (0, c_out), (self.padding, self.padding + l_out)])
+        // パディングを除去
+        let output = if self.padding > 0 {
+            let actual_l_out = (l - 1) * self.stride - 2 * self.padding
+                + self.dilation * (k - 1)
+                + self.output_padding
+                + 1;
+            output.slice(&[(0, n), (0, c_out), (0, actual_l_out)])
         } else {
             output
         };
@@ -1073,6 +1318,7 @@ impl<T: FloatDType> ConvTranspose1d<T> {
         // Add bias if present
         let output = if let Some(ref bias) = self.bias {
             let bias_expanded = bias
+                .as_dyn()
                 .clone()
                 .unsqueeze(0)
                 .unsqueeze(2)
@@ -1175,14 +1421,13 @@ impl<T: FloatDType> ConvTranspose1dBuilder<T> {
     pub fn build(self) -> ConvTranspose1d<T> {
         let c_out_per_group = self.out_channels / self.groups;
 
-        // 重みの初期化
-        let weight = Tensor::<T, Dim3>::rand([self.in_channels, c_out_per_group, self.kernel_size])
-            .into_dyn();
+        // 重みの初期化 (static dimension)
+        let weight = Tensor::<T, Dim3>::rand([self.in_channels, c_out_per_group, self.kernel_size]);
 
         let bias = if self.bias {
-            Some(Parameter::new(
-                Tensor::<T, Dim1>::zeros([self.out_channels]).into_dyn(),
-            ))
+            Some(Parameter::new(Tensor::<T, Dim1>::zeros(
+                [self.out_channels],
+            )))
         } else {
             None
         };
@@ -1220,9 +1465,9 @@ impl<T: FloatDType> ConvTranspose1dBuilder<T> {
 /// ```
 pub struct ConvTranspose2d<T: FloatDType = f32> {
     /// 重み [C_in, C_out/groups, kH, kW]
-    weight: Parameter<T>,
+    weight: Parameter<T, Dim4>,
     /// バイアス [C_out]
-    bias: Option<Parameter<T>>,
+    bias: Option<Parameter<T, Dim1>>,
     /// ストライド (sH, sW)
     stride: (usize, usize),
     /// パディング (pH, pW)
@@ -1326,6 +1571,7 @@ impl<T: FloatDType> ConvTranspose2d<T> {
         // Weight: [C_in, C_out, kH, kW] -> [C_in, C_out * kH * kW]
         let weight_reshaped = self
             .weight
+            .as_dyn()
             .clone()
             .reshape_dyn(&[c_in, c_out * kh * kw])
             .into_dim2();
@@ -1361,6 +1607,7 @@ impl<T: FloatDType> ConvTranspose2d<T> {
         // Add bias if present
         if let Some(ref bias) = self.bias {
             let bias_expanded = bias
+                .as_dyn()
                 .clone()
                 .unsqueeze(0)
                 .unsqueeze(2)
@@ -1407,6 +1654,7 @@ impl<T: FloatDType> ConvTranspose2d<T> {
             // 重みをスライス
             let weight_slice = self
                 .weight
+                .as_dyn()
                 .slice(&[
                     (g * c_in_per_group, (g + 1) * c_in_per_group),
                     (0, c_out_per_group),
@@ -1461,6 +1709,7 @@ impl<T: FloatDType> ConvTranspose2d<T> {
         // Add bias if present
         let output = if let Some(ref bias) = self.bias {
             let bias_expanded = bias
+                .as_dyn()
                 .clone()
                 .unsqueeze(0)
                 .unsqueeze(2)
@@ -1573,19 +1822,18 @@ impl<T: FloatDType> ConvTranspose2dBuilder<T> {
     pub fn build(self) -> ConvTranspose2d<T> {
         let c_out_per_group = self.out_channels / self.groups;
 
-        // 重みの初期化
+        // 重みの初期化 (static dimension)
         let weight = Tensor::<T, Dim4>::rand([
             self.in_channels,
             c_out_per_group,
             self.kernel_size.0,
             self.kernel_size.1,
-        ])
-        .into_dyn();
+        ]);
 
         let bias = if self.bias {
-            Some(Parameter::new(
-                Tensor::<T, Dim1>::zeros([self.out_channels]).into_dyn(),
-            ))
+            Some(Parameter::new(Tensor::<T, Dim1>::zeros(
+                [self.out_channels],
+            )))
         } else {
             None
         };
@@ -1623,9 +1871,9 @@ impl<T: FloatDType> ConvTranspose2dBuilder<T> {
 /// ```
 pub struct ConvTranspose3d<T: FloatDType = f32> {
     /// 重み [C_in, C_out/groups, kD, kH, kW]
-    weight: Parameter<T>,
+    weight: Parameter<T, Dim5>,
     /// バイアス [C_out]
-    bias: Option<Parameter<T>>,
+    bias: Option<Parameter<T, Dim1>>,
     /// ストライド (sD, sH, sW)
     stride: (usize, usize, usize),
     /// パディング (pD, pH, pW)
@@ -1744,6 +1992,7 @@ impl<T: FloatDType> ConvTranspose3d<T> {
         // Weight: [C_in, C_out, kD, kH, kW] -> [C_in, C_out * kD * kH * kW]
         let weight_reshaped = self
             .weight
+            .as_dyn()
             .clone()
             .reshape_dyn(&[c_in, c_out * kd * kh * kw])
             .into_dim2();
@@ -1786,6 +2035,7 @@ impl<T: FloatDType> ConvTranspose3d<T> {
         // Add bias if present
         if let Some(ref bias) = self.bias {
             let bias_expanded = bias
+                .as_dyn()
                 .clone()
                 .unsqueeze(0)
                 .unsqueeze(2)
@@ -1838,6 +2088,7 @@ impl<T: FloatDType> ConvTranspose3d<T> {
             // 重みをスライス
             let weight_slice = self
                 .weight
+                .as_dyn()
                 .slice(&[
                     (g * c_in_per_group, (g + 1) * c_in_per_group),
                     (0, c_out_per_group),
@@ -1900,6 +2151,7 @@ impl<T: FloatDType> ConvTranspose3d<T> {
         // Add bias if present
         let output = if let Some(ref bias) = self.bias {
             let bias_expanded = bias
+                .as_dyn()
                 .clone()
                 .unsqueeze(0)
                 .unsqueeze(2)
@@ -2015,20 +2267,19 @@ impl<T: FloatDType> ConvTranspose3dBuilder<T> {
     pub fn build(self) -> ConvTranspose3d<T> {
         let c_out_per_group = self.out_channels / self.groups;
 
-        // 重みの初期化
+        // 重みの初期化 (static dimension)
         let weight = Tensor::<T, Dim5>::rand([
             self.in_channels,
             c_out_per_group,
             self.kernel_size.0,
             self.kernel_size.1,
             self.kernel_size.2,
-        ])
-        .into_dyn();
+        ]);
 
         let bias = if self.bias {
-            Some(Parameter::new(
-                Tensor::<T, Dim1>::zeros([self.out_channels]).into_dyn(),
-            ))
+            Some(Parameter::new(Tensor::<T, Dim1>::zeros(
+                [self.out_channels],
+            )))
         } else {
             None
         };
@@ -2051,121 +2302,157 @@ impl<T: FloatDType> ConvTranspose3dBuilder<T> {
 // ============================================================================
 
 impl<T: FloatDType> Module<T> for Conv1d<T> {
-    fn parameters(&mut self) -> std::collections::HashMap<String, &mut Parameter<T>> {
-        let mut params = std::collections::HashMap::new();
-        params.insert("weight".to_string(), &mut self.weight);
+    fn parameters(&mut self) -> std::collections::HashMap<String, &mut dyn ParameterMut<T>> {
+        let mut params: std::collections::HashMap<String, &mut dyn ParameterMut<T>> =
+            std::collections::HashMap::new();
+        params.insert(
+            "weight".to_string(),
+            &mut self.weight as &mut dyn ParameterMut<T>,
+        );
         if let Some(ref mut bias) = self.bias {
-            params.insert("bias".to_string(), bias);
+            params.insert("bias".to_string(), bias as &mut dyn ParameterMut<T>);
         }
         params
     }
 
-    fn load_parameters(&mut self, params: std::collections::HashMap<String, Parameter<T>>) {
+    fn load_parameters(&mut self, params: std::collections::HashMap<String, Tensor<T, DimDyn>>) {
         if let Some(w) = params.get("weight") {
-            self.weight = w.clone();
+            ParameterMut::set_dyn(&mut self.weight, w.clone());
         }
         if let Some(b) = params.get("bias") {
-            self.bias = Some(b.clone());
+            if let Some(ref mut bias) = self.bias {
+                ParameterMut::set_dyn(bias, b.clone());
+            }
         }
     }
 }
 
 impl<T: FloatDType> Module<T> for Conv2d<T> {
-    fn parameters(&mut self) -> std::collections::HashMap<String, &mut Parameter<T>> {
-        let mut params = std::collections::HashMap::new();
-        params.insert("weight".to_string(), &mut self.weight);
+    fn parameters(&mut self) -> std::collections::HashMap<String, &mut dyn ParameterMut<T>> {
+        let mut params: std::collections::HashMap<String, &mut dyn ParameterMut<T>> =
+            std::collections::HashMap::new();
+        params.insert(
+            "weight".to_string(),
+            &mut self.weight as &mut dyn ParameterMut<T>,
+        );
         if let Some(ref mut bias) = self.bias {
-            params.insert("bias".to_string(), bias);
+            params.insert("bias".to_string(), bias as &mut dyn ParameterMut<T>);
         }
         params
     }
 
-    fn load_parameters(&mut self, params: std::collections::HashMap<String, Parameter<T>>) {
+    fn load_parameters(&mut self, params: std::collections::HashMap<String, Tensor<T, DimDyn>>) {
         if let Some(w) = params.get("weight") {
-            self.weight = w.clone();
+            ParameterMut::set_dyn(&mut self.weight, w.clone());
         }
         if let Some(b) = params.get("bias") {
-            self.bias = Some(b.clone());
+            if let Some(ref mut bias) = self.bias {
+                ParameterMut::set_dyn(bias, b.clone());
+            }
         }
     }
 }
 
 impl<T: FloatDType> Module<T> for Conv3d<T> {
-    fn parameters(&mut self) -> std::collections::HashMap<String, &mut Parameter<T>> {
-        let mut params = std::collections::HashMap::new();
-        params.insert("weight".to_string(), &mut self.weight);
+    fn parameters(&mut self) -> std::collections::HashMap<String, &mut dyn ParameterMut<T>> {
+        let mut params: std::collections::HashMap<String, &mut dyn ParameterMut<T>> =
+            std::collections::HashMap::new();
+        params.insert(
+            "weight".to_string(),
+            &mut self.weight as &mut dyn ParameterMut<T>,
+        );
         if let Some(ref mut bias) = self.bias {
-            params.insert("bias".to_string(), bias);
+            params.insert("bias".to_string(), bias as &mut dyn ParameterMut<T>);
         }
         params
     }
 
-    fn load_parameters(&mut self, params: std::collections::HashMap<String, Parameter<T>>) {
+    fn load_parameters(&mut self, params: std::collections::HashMap<String, Tensor<T, DimDyn>>) {
         if let Some(w) = params.get("weight") {
-            self.weight = w.clone();
+            ParameterMut::set_dyn(&mut self.weight, w.clone());
         }
         if let Some(b) = params.get("bias") {
-            self.bias = Some(b.clone());
+            if let Some(ref mut bias) = self.bias {
+                ParameterMut::set_dyn(bias, b.clone());
+            }
         }
     }
 }
 
 impl<T: FloatDType> Module<T> for ConvTranspose1d<T> {
-    fn parameters(&mut self) -> std::collections::HashMap<String, &mut Parameter<T>> {
-        let mut params = std::collections::HashMap::new();
-        params.insert("weight".to_string(), &mut self.weight);
+    fn parameters(&mut self) -> std::collections::HashMap<String, &mut dyn ParameterMut<T>> {
+        let mut params: std::collections::HashMap<String, &mut dyn ParameterMut<T>> =
+            std::collections::HashMap::new();
+        params.insert(
+            "weight".to_string(),
+            &mut self.weight as &mut dyn ParameterMut<T>,
+        );
         if let Some(ref mut bias) = self.bias {
-            params.insert("bias".to_string(), bias);
+            params.insert("bias".to_string(), bias as &mut dyn ParameterMut<T>);
         }
         params
     }
 
-    fn load_parameters(&mut self, params: std::collections::HashMap<String, Parameter<T>>) {
+    fn load_parameters(&mut self, params: std::collections::HashMap<String, Tensor<T, DimDyn>>) {
         if let Some(w) = params.get("weight") {
-            self.weight = w.clone();
+            ParameterMut::set_dyn(&mut self.weight, w.clone());
         }
         if let Some(b) = params.get("bias") {
-            self.bias = Some(b.clone());
+            if let Some(ref mut bias) = self.bias {
+                ParameterMut::set_dyn(bias, b.clone());
+            }
         }
     }
 }
 
 impl<T: FloatDType> Module<T> for ConvTranspose2d<T> {
-    fn parameters(&mut self) -> std::collections::HashMap<String, &mut Parameter<T>> {
-        let mut params = std::collections::HashMap::new();
-        params.insert("weight".to_string(), &mut self.weight);
+    fn parameters(&mut self) -> std::collections::HashMap<String, &mut dyn ParameterMut<T>> {
+        let mut params: std::collections::HashMap<String, &mut dyn ParameterMut<T>> =
+            std::collections::HashMap::new();
+        params.insert(
+            "weight".to_string(),
+            &mut self.weight as &mut dyn ParameterMut<T>,
+        );
         if let Some(ref mut bias) = self.bias {
-            params.insert("bias".to_string(), bias);
+            params.insert("bias".to_string(), bias as &mut dyn ParameterMut<T>);
         }
         params
     }
 
-    fn load_parameters(&mut self, params: std::collections::HashMap<String, Parameter<T>>) {
+    fn load_parameters(&mut self, params: std::collections::HashMap<String, Tensor<T, DimDyn>>) {
         if let Some(w) = params.get("weight") {
-            self.weight = w.clone();
+            ParameterMut::set_dyn(&mut self.weight, w.clone());
         }
         if let Some(b) = params.get("bias") {
-            self.bias = Some(b.clone());
+            if let Some(ref mut bias) = self.bias {
+                ParameterMut::set_dyn(bias, b.clone());
+            }
         }
     }
 }
 
 impl<T: FloatDType> Module<T> for ConvTranspose3d<T> {
-    fn parameters(&mut self) -> std::collections::HashMap<String, &mut Parameter<T>> {
-        let mut params = std::collections::HashMap::new();
-        params.insert("weight".to_string(), &mut self.weight);
+    fn parameters(&mut self) -> std::collections::HashMap<String, &mut dyn ParameterMut<T>> {
+        let mut params: std::collections::HashMap<String, &mut dyn ParameterMut<T>> =
+            std::collections::HashMap::new();
+        params.insert(
+            "weight".to_string(),
+            &mut self.weight as &mut dyn ParameterMut<T>,
+        );
         if let Some(ref mut bias) = self.bias {
-            params.insert("bias".to_string(), bias);
+            params.insert("bias".to_string(), bias as &mut dyn ParameterMut<T>);
         }
         params
     }
 
-    fn load_parameters(&mut self, params: std::collections::HashMap<String, Parameter<T>>) {
+    fn load_parameters(&mut self, params: std::collections::HashMap<String, Tensor<T, DimDyn>>) {
         if let Some(w) = params.get("weight") {
-            self.weight = w.clone();
+            ParameterMut::set_dyn(&mut self.weight, w.clone());
         }
         if let Some(b) = params.get("bias") {
-            self.bias = Some(b.clone());
+            if let Some(ref mut bias) = self.bias {
+                ParameterMut::set_dyn(bias, b.clone());
+            }
         }
     }
 }
@@ -2328,184 +2615,5 @@ mod tests {
         let input = Tensor::<f32, Dim5>::rand([2, 8, 16, 16, 16]);
         let output = conv.forward(&input);
         assert_eq!(output.shape(), &[2, 16, 16, 16, 16]);
-    }
-
-    // ConvTranspose1d tests
-    #[test]
-    fn test_conv_transpose1d_creation() {
-        let conv = ConvTranspose1d::<f32>::new(3, 64, 3).build();
-        assert_eq!(conv.in_channels(), 3);
-        assert_eq!(conv.out_channels(), 64);
-        assert_eq!(conv.kernel_size(), 3);
-    }
-
-    #[test]
-    fn test_conv_transpose1d_forward_shape() {
-        let conv = ConvTranspose1d::<f32>::new(3, 64, 3)
-            .stride(2)
-            .padding(1)
-            .build();
-        // Input: [batch, channels, length]
-        // output_length = (input_length - 1) * stride - 2 * padding + kernel_size + output_padding
-        // = (8 - 1) * 2 - 2 * 1 + 3 + 0 = 7 * 2 - 2 + 3 = 14 - 2 + 3 = 15
-        let input = Tensor::<f32, Dim3>::rand([2, 3, 8]);
-        let output = conv.forward(&input);
-        assert_eq!(output.shape(), &[2, 64, 15]);
-    }
-
-    #[test]
-    fn test_conv_transpose1d_parameters() {
-        let mut conv = ConvTranspose1d::<f32>::new(3, 64, 3).build();
-        let params = conv.parameters();
-        // weight + bias
-        assert_eq!(params.len(), 2);
-    }
-
-    #[test]
-    fn test_conv_transpose1d_no_bias() {
-        let mut conv = ConvTranspose1d::<f32>::new(3, 64, 3).bias(false).build();
-        let params = conv.parameters();
-        // weight only
-        assert_eq!(params.len(), 1);
-    }
-
-    #[test]
-    fn test_conv_transpose1d_grouped() {
-        let conv = ConvTranspose1d::<f32>::new(8, 16, 3)
-            .groups(4)
-            .stride(2)
-            .padding(1)
-            .build();
-        let input = Tensor::<f32, Dim3>::rand([2, 8, 8]);
-        let output = conv.forward(&input);
-        // output_length = (8 - 1) * 2 - 2 * 1 + 3 + 0 = 15
-        assert_eq!(output.shape(), &[2, 16, 15]);
-    }
-
-    // ConvTranspose2d tests
-    #[test]
-    fn test_conv_transpose2d_creation() {
-        let conv = ConvTranspose2d::<f32>::new(3, 64, (3, 3)).build();
-        assert_eq!(conv.in_channels(), 3);
-        assert_eq!(conv.out_channels(), 64);
-        assert_eq!(conv.kernel_size(), (3, 3));
-    }
-
-    #[test]
-    fn test_conv_transpose2d_forward_shape() {
-        let conv = ConvTranspose2d::<f32>::new(3, 64, (3, 3))
-            .stride((2, 2))
-            .padding((1, 1))
-            .build();
-        // Input: [batch, channels, height, width]
-        // output_size = (input_size - 1) * stride - 2 * padding + kernel_size + output_padding
-        // = (8 - 1) * 2 - 2 * 1 + 3 + 0 = 15
-        let input = Tensor::<f32, Dim4>::rand([2, 3, 8, 8]);
-        let output = conv.forward(&input);
-        assert_eq!(output.shape(), &[2, 64, 15, 15]);
-    }
-
-    #[test]
-    fn test_conv_transpose2d_parameters() {
-        let mut conv = ConvTranspose2d::<f32>::new(3, 64, (3, 3)).build();
-        let params = conv.parameters();
-        // weight + bias
-        assert_eq!(params.len(), 2);
-    }
-
-    #[test]
-    fn test_conv_transpose2d_no_bias() {
-        let mut conv = ConvTranspose2d::<f32>::new(3, 64, (3, 3))
-            .bias(false)
-            .build();
-        let params = conv.parameters();
-        // weight only
-        assert_eq!(params.len(), 1);
-    }
-
-    #[test]
-    fn test_conv_transpose2d_grouped() {
-        let conv = ConvTranspose2d::<f32>::new(8, 16, (3, 3))
-            .groups(4)
-            .stride((2, 2))
-            .padding((1, 1))
-            .build();
-        let input = Tensor::<f32, Dim4>::rand([2, 8, 8, 8]);
-        let output = conv.forward(&input);
-        // output_size = (8 - 1) * 2 - 2 * 1 + 3 + 0 = 15
-        assert_eq!(output.shape(), &[2, 16, 15, 15]);
-    }
-
-    #[test]
-    fn test_conv_transpose2d_output_padding() {
-        let conv = ConvTranspose2d::<f32>::new(3, 64, (3, 3))
-            .stride((2, 2))
-            .padding((1, 1))
-            .output_padding((1, 1))
-            .build();
-        // output_size = (8 - 1) * 2 - 2 * 1 + 3 + 1 = 16
-        let input = Tensor::<f32, Dim4>::rand([2, 3, 8, 8]);
-        let output = conv.forward(&input);
-        assert_eq!(output.shape(), &[2, 64, 16, 16]);
-    }
-
-    // ConvTranspose3d tests
-    #[test]
-    fn test_conv_transpose3d_creation() {
-        let conv = ConvTranspose3d::<f32>::new(3, 64, (3, 3, 3)).build();
-        assert_eq!(conv.in_channels(), 3);
-        assert_eq!(conv.out_channels(), 64);
-        assert_eq!(conv.kernel_size(), (3, 3, 3));
-    }
-
-    #[test]
-    fn test_conv_transpose3d_forward_shape() {
-        let conv = ConvTranspose3d::<f32>::new(3, 64, (3, 3, 3))
-            .stride((2, 2, 2))
-            .padding((1, 1, 1))
-            .build();
-        // output_size = (8 - 1) * 2 - 2 * 1 + 3 + 0 = 15
-        let input = Tensor::<f32, Dim5>::rand([2, 3, 8, 8, 8]);
-        let output = conv.forward(&input);
-        assert_eq!(output.shape(), &[2, 64, 15, 15, 15]);
-    }
-
-    #[test]
-    fn test_conv_transpose3d_grouped() {
-        let conv = ConvTranspose3d::<f32>::new(8, 16, (3, 3, 3))
-            .groups(4)
-            .stride((2, 2, 2))
-            .padding((1, 1, 1))
-            .build();
-        let input = Tensor::<f32, Dim5>::rand([2, 8, 8, 8, 8]);
-        let output = conv.forward(&input);
-        // output_size = (8 - 1) * 2 - 2 * 1 + 3 + 0 = 15
-        assert_eq!(output.shape(), &[2, 16, 15, 15, 15]);
-    }
-
-    // Gradient propagation tests
-    #[test]
-    fn test_conv2d_gradient() {
-        let conv = Conv2d::<f32>::new(3, 8, (3, 3)).padding((1, 1)).build();
-        let input = Tensor::<f32, Dim4>::rand([1, 3, 8, 8]).set_requires_grad(true);
-        let output = conv.forward(&input);
-        output.backward();
-
-        // Input should have gradients
-        assert!(input.grad().is_some());
-    }
-
-    #[test]
-    fn test_conv_transpose2d_gradient() {
-        let conv = ConvTranspose2d::<f32>::new(3, 8, (3, 3))
-            .stride((2, 2))
-            .padding((1, 1))
-            .build();
-        let input = Tensor::<f32, Dim4>::rand([1, 3, 4, 4]).set_requires_grad(true);
-        let output = conv.forward(&input);
-        output.backward();
-
-        // Input should have gradients
-        assert!(input.grad().is_some());
     }
 }

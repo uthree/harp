@@ -6,9 +6,9 @@
 use std::collections::HashMap;
 use std::marker::PhantomData;
 
-use harp::tensor::{Dimension, FloatDType, Tensor};
+use harp::tensor::{DimDyn, Dimension, FloatDType, Tensor};
 
-use crate::{Module, Parameter};
+use crate::{Module, ParameterMut};
 
 // ============================================================================
 // 活性化操作トレイト（sealed）
@@ -173,11 +173,11 @@ impl<T: FloatDType> ReLU<T> {
 }
 
 impl<T: FloatDType> Module<T> for ReLU<T> {
-    fn parameters(&mut self) -> HashMap<String, &mut Parameter<T>> {
+    fn parameters(&mut self) -> HashMap<String, &mut dyn ParameterMut<T>> {
         HashMap::new()
     }
 
-    fn load_parameters(&mut self, _params: HashMap<String, Parameter<T>>) {}
+    fn load_parameters(&mut self, _params: HashMap<String, Tensor<T, DimDyn>>) {}
 }
 
 /// Leaky ReLU 活性化層
@@ -227,11 +227,11 @@ impl Default for LeakyReLU<f64> {
 }
 
 impl<T: FloatDType> Module<T> for LeakyReLU<T> {
-    fn parameters(&mut self) -> HashMap<String, &mut Parameter<T>> {
+    fn parameters(&mut self) -> HashMap<String, &mut dyn ParameterMut<T>> {
         HashMap::new()
     }
 
-    fn load_parameters(&mut self, _params: HashMap<String, Parameter<T>>) {}
+    fn load_parameters(&mut self, _params: HashMap<String, Tensor<T, DimDyn>>) {}
 }
 
 /// Sigmoid 活性化層
@@ -266,11 +266,11 @@ impl<T: FloatDType> Sigmoid<T> {
 }
 
 impl<T: FloatDType> Module<T> for Sigmoid<T> {
-    fn parameters(&mut self) -> HashMap<String, &mut Parameter<T>> {
+    fn parameters(&mut self) -> HashMap<String, &mut dyn ParameterMut<T>> {
         HashMap::new()
     }
 
-    fn load_parameters(&mut self, _params: HashMap<String, Parameter<T>>) {}
+    fn load_parameters(&mut self, _params: HashMap<String, Tensor<T, DimDyn>>) {}
 }
 
 /// Tanh 活性化層
@@ -305,11 +305,11 @@ impl<T: FloatDType> Tanh<T> {
 }
 
 impl<T: FloatDType> Module<T> for Tanh<T> {
-    fn parameters(&mut self) -> HashMap<String, &mut Parameter<T>> {
+    fn parameters(&mut self) -> HashMap<String, &mut dyn ParameterMut<T>> {
         HashMap::new()
     }
 
-    fn load_parameters(&mut self, _params: HashMap<String, Parameter<T>>) {}
+    fn load_parameters(&mut self, _params: HashMap<String, Tensor<T, DimDyn>>) {}
 }
 
 /// GELU 活性化層（高速近似）
@@ -344,11 +344,11 @@ impl<T: FloatDType> GELU<T> {
 }
 
 impl<T: FloatDType> Module<T> for GELU<T> {
-    fn parameters(&mut self) -> HashMap<String, &mut Parameter<T>> {
+    fn parameters(&mut self) -> HashMap<String, &mut dyn ParameterMut<T>> {
         HashMap::new()
     }
 
-    fn load_parameters(&mut self, _params: HashMap<String, Parameter<T>>) {}
+    fn load_parameters(&mut self, _params: HashMap<String, Tensor<T, DimDyn>>) {}
 }
 
 /// SiLU (Swish) 活性化層
@@ -383,11 +383,11 @@ impl<T: FloatDType> SiLU<T> {
 }
 
 impl<T: FloatDType> Module<T> for SiLU<T> {
-    fn parameters(&mut self) -> HashMap<String, &mut Parameter<T>> {
+    fn parameters(&mut self) -> HashMap<String, &mut dyn ParameterMut<T>> {
         HashMap::new()
     }
 
-    fn load_parameters(&mut self, _params: HashMap<String, Parameter<T>>) {}
+    fn load_parameters(&mut self, _params: HashMap<String, Tensor<T, DimDyn>>) {}
 }
 
 /// Softplus 活性化層
@@ -422,11 +422,11 @@ impl<T: FloatDType> Softplus<T> {
 }
 
 impl<T: FloatDType> Module<T> for Softplus<T> {
-    fn parameters(&mut self) -> HashMap<String, &mut Parameter<T>> {
+    fn parameters(&mut self) -> HashMap<String, &mut dyn ParameterMut<T>> {
         HashMap::new()
     }
 
-    fn load_parameters(&mut self, _params: HashMap<String, Parameter<T>>) {}
+    fn load_parameters(&mut self, _params: HashMap<String, Tensor<T, DimDyn>>) {}
 }
 
 /// Mish 活性化層
@@ -461,11 +461,11 @@ impl<T: FloatDType> Mish<T> {
 }
 
 impl<T: FloatDType> Module<T> for Mish<T> {
-    fn parameters(&mut self) -> HashMap<String, &mut Parameter<T>> {
+    fn parameters(&mut self) -> HashMap<String, &mut dyn ParameterMut<T>> {
         HashMap::new()
     }
 
-    fn load_parameters(&mut self, _params: HashMap<String, Parameter<T>>) {}
+    fn load_parameters(&mut self, _params: HashMap<String, Tensor<T, DimDyn>>) {}
 }
 
 /// ELU 活性化層
@@ -515,11 +515,11 @@ impl Default for ELU<f64> {
 }
 
 impl<T: FloatDType> Module<T> for ELU<T> {
-    fn parameters(&mut self) -> HashMap<String, &mut Parameter<T>> {
+    fn parameters(&mut self) -> HashMap<String, &mut dyn ParameterMut<T>> {
         HashMap::new()
     }
 
-    fn load_parameters(&mut self, _params: HashMap<String, Parameter<T>>) {}
+    fn load_parameters(&mut self, _params: HashMap<String, Tensor<T, DimDyn>>) {}
 }
 
 // ============================================================================

@@ -122,7 +122,7 @@ where
                 // 新しいテンソルを作成してパラメータを更新
                 let shape = param.shape().to_vec();
                 let new_tensor = Tensor::<T, DimDyn>::from_data(new_data, shape);
-                param.set(new_tensor);
+                param.set_dyn(new_tensor);
             }
         }
     }

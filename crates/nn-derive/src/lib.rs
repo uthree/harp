@@ -10,7 +10,7 @@ use syn::{parse_macro_input, Data, DeriveInput, Fields, Ident, Meta, Type};
 
 /// フィールドの種類
 enum FieldKind {
-    /// Parameter<T> 型 - パラメータとして直接追加
+    /// Parameter<T, D> 型 - パラメータとして直接追加
     Parameter,
     /// Module を実装する型 - 再帰的に探索
     Module,
@@ -28,7 +28,7 @@ struct FieldInfo {
 fn classify_type(ty: &Type) -> FieldKind {
     let type_str = quote!(#ty).to_string();
 
-    // Parameter<T> パターン
+    // Parameter<T> or Parameter<T, D> パターン
     if type_str.starts_with("Parameter") || type_str.contains("Parameter <") {
         return FieldKind::Parameter;
     }
@@ -69,7 +69,7 @@ fn classify_fields(fields: &Fields) -> Vec<FieldInfo> {
 }
 
 /// parameters() メソッドのボディを生成
-fn generate_parameters(fields: &[FieldInfo]) -> TokenStream2 {
+fn generate_parameters(fields: &[FieldInfo], crate_path: &TokenStream2) -> TokenStream2 {
     let mut param_inserts = Vec::new();
     let mut module_inserts = Vec::new();
 
@@ -79,8 +79,12 @@ fn generate_parameters(fields: &[FieldInfo]) -> TokenStream2 {
 
         match field.kind {
             FieldKind::Parameter => {
+                // Parameter<T, D> を &mut dyn ParameterMut<T> にキャスト
                 param_inserts.push(quote! {
-                    params.insert(#name_str.to_string(), &mut self.#name);
+                    params.insert(
+                        #name_str.to_string(),
+                        &mut self.#name as &mut dyn #crate_path::ParameterMut<T>
+                    );
                 });
             }
             FieldKind::Module => {
@@ -111,16 +115,17 @@ fn generate_load_parameters(fields: &[FieldInfo], crate_path: &TokenStream2) -> 
 
         match field.kind {
             FieldKind::Parameter => {
+                // Tensor<T, DimDyn> を受け取り、set_dyn で設定
                 param_loads.push(quote! {
-                    if let Some(p) = params.get(#name_str) {
-                        self.#name = p.clone();
+                    if let Some(tensor) = params.get(#name_str) {
+                        #crate_path::ParameterMut::set_dyn(&mut self.#name, tensor.clone());
                     }
                 });
             }
             FieldKind::Module => {
                 module_loads.push(quote! {
                     let prefix = concat!(#name_str, ".");
-                    let sub_params: std::collections::HashMap<String, #crate_path::Parameter<T>> = params
+                    let sub_params: std::collections::HashMap<String, harp::tensor::Tensor<T, harp::tensor::DimDyn>> = params
                         .iter()
                         .filter_map(|(k, v)| {
                             k.strip_prefix(prefix).map(|sub_key| (sub_key.to_string(), v.clone()))
@@ -177,7 +182,7 @@ fn get_crate_path(attrs: &[syn::Attribute]) -> TokenStream2 {
 ///
 /// # フィールドの分類
 ///
-/// - `Parameter<T>` 型: パラメータとして直接追加
+/// - `Parameter<T, D>` 型: パラメータとして直接追加
 /// - `_` で始まるフィールド: スキップ
 /// - `PhantomData`: スキップ
 /// - その他: `Module<T>` を実装していると仮定し、再帰的に探索
@@ -196,7 +201,7 @@ fn get_crate_path(attrs: &[syn::Attribute]) -> TokenStream2 {
 /// struct MyModel<T: FloatDType> {
 ///     linear1: Linear<T>,
 ///     linear2: Linear<T>,
-///     scale: Parameter<T>,
+///     scale: Parameter<T, Dim1>,
 ///     _marker: PhantomData<T>,
 /// }
 ///
@@ -227,18 +232,18 @@ pub fn derive_module(input: TokenStream) -> TokenStream {
     };
 
     // メソッドボディを生成
-    let parameters_body = generate_parameters(&fields);
+    let parameters_body = generate_parameters(&fields, &crate_path);
     let load_parameters_body = generate_load_parameters(&fields, &crate_path);
 
     let expanded = quote! {
         impl #impl_generics #crate_path::Module<T> for #name #ty_generics #where_clause {
-            fn parameters(&mut self) -> std::collections::HashMap<String, &mut #crate_path::Parameter<T>> {
+            fn parameters(&mut self) -> std::collections::HashMap<String, &mut dyn #crate_path::ParameterMut<T>> {
                 let mut params = std::collections::HashMap::new();
                 #parameters_body
                 params
             }
 
-            fn load_parameters(&mut self, params: std::collections::HashMap<String, #crate_path::Parameter<T>>) {
+            fn load_parameters(&mut self, params: std::collections::HashMap<String, harp::tensor::Tensor<T, harp::tensor::DimDyn>>) {
                 #load_parameters_body
             }
         }
