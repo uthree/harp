@@ -4,8 +4,44 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 
 use harp::tensor::{Dim1, Dim2, DimDyn, FloatDType, Tensor};
+use typed_builder::TypedBuilder;
 
 use crate::{Module, Parameter, ParameterMut};
+
+/// Linear層の設定
+#[derive(TypedBuilder)]
+#[builder(build_method(into = Linear<T>))]
+pub struct LinearConfig<T: FloatDType = f32> {
+    /// 入力特徴数
+    in_features: usize,
+    /// 出力特徴数
+    out_features: usize,
+    /// バイアスの有無（デフォルト: true）
+    #[builder(default = true)]
+    bias: bool,
+    #[builder(default, setter(skip))]
+    _dtype: PhantomData<T>,
+}
+
+impl<T: FloatDType> From<LinearConfig<T>> for Linear<T> {
+    fn from(config: LinearConfig<T>) -> Self {
+        let weight = Tensor::<T, Dim2>::rand([config.in_features, config.out_features]);
+
+        let bias = if config.bias {
+            Some(Parameter::new(Tensor::<T, Dim1>::zeros([
+                config.out_features
+            ])))
+        } else {
+            None
+        };
+
+        Linear {
+            weight: Parameter::new(weight),
+            bias,
+            _dtype: PhantomData,
+        }
+    }
+}
 
 /// 全結合層（Linear Layer）
 ///
@@ -33,26 +69,18 @@ pub struct Linear<T: FloatDType = f32> {
     _dtype: PhantomData<T>,
 }
 
-/// Linear層のビルダー
-pub struct LinearBuilder<T: FloatDType = f32> {
-    in_features: usize,
-    out_features: usize,
-    bias: bool,
-    _dtype: PhantomData<T>,
-}
-
 impl<T: FloatDType> Linear<T> {
     /// 新しいLinear層のビルダーを作成
     ///
     /// デフォルトではbiasが有効です。
     #[allow(clippy::new_ret_no_self)]
-    pub fn new(in_features: usize, out_features: usize) -> LinearBuilder<T> {
-        LinearBuilder {
-            in_features,
-            out_features,
-            bias: true,
-            _dtype: PhantomData,
-        }
+    pub fn new(
+        in_features: usize,
+        out_features: usize,
+    ) -> LinearConfigBuilder<T, ((usize,), (usize,), ())> {
+        LinearConfig::builder()
+            .in_features(in_features)
+            .out_features(out_features)
     }
 
     /// 入力特徴数
@@ -88,33 +116,6 @@ impl<T: FloatDType> Linear<T> {
     }
 }
 
-impl<T: FloatDType> LinearBuilder<T> {
-    /// biasの有無を設定
-    pub fn bias(mut self, bias: bool) -> Self {
-        self.bias = bias;
-        self
-    }
-
-    /// Linear層を構築
-    pub fn build(self) -> Linear<T> {
-        let weight = Tensor::<T, Dim2>::rand([self.in_features, self.out_features]);
-
-        let bias = if self.bias {
-            Some(Parameter::new(Tensor::<T, Dim1>::zeros(
-                [self.out_features],
-            )))
-        } else {
-            None
-        };
-
-        Linear {
-            weight: Parameter::new(weight),
-            bias,
-            _dtype: PhantomData,
-        }
-    }
-}
-
 impl<T: FloatDType> Module<T> for Linear<T> {
     fn parameters(&mut self) -> HashMap<String, &mut dyn ParameterMut<T>> {
         let mut params: HashMap<String, &mut dyn ParameterMut<T>> = HashMap::new();
@@ -132,11 +133,10 @@ impl<T: FloatDType> Module<T> for Linear<T> {
         if let Some(w) = params.get("weight") {
             ParameterMut::set_dyn(&mut self.weight, w.clone());
         }
-        if let Some(b) = params.get("bias") {
-            if let Some(ref mut bias) = self.bias {
+        if let Some(b) = params.get("bias")
+            && let Some(ref mut bias) = self.bias {
                 ParameterMut::set_dyn(bias, b.clone());
             }
-        }
     }
 }
 

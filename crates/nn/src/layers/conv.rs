@@ -5,12 +5,83 @@
 use std::marker::PhantomData;
 
 use harp::tensor::{Dim1, Dim3, Dim4, Dim5, DimDyn, FloatDType, Tensor};
+use typed_builder::TypedBuilder;
 
 use crate::{Module, Parameter, ParameterMut};
 
 // ============================================================================
 // Conv1d
 // ============================================================================
+
+/// Conv1d層の設定
+#[derive(TypedBuilder)]
+#[builder(build_method(into = Conv1d<T>))]
+pub struct Conv1dConfig<T: FloatDType = f32> {
+    /// 入力チャンネル数
+    in_channels: usize,
+    /// 出力チャンネル数
+    out_channels: usize,
+    /// カーネルサイズ
+    kernel_size: usize,
+    /// ストライド（デフォルト: 1）
+    #[builder(default = 1)]
+    stride: usize,
+    /// パディング（デフォルト: 0）
+    #[builder(default = 0)]
+    padding: usize,
+    /// ダイレーション（デフォルト: 1）
+    #[builder(default = 1)]
+    dilation: usize,
+    /// グループ数（デフォルト: 1）
+    #[builder(default = 1)]
+    groups: usize,
+    /// バイアスの有無（デフォルト: true）
+    #[builder(default = true)]
+    bias: bool,
+    #[builder(default, setter(skip))]
+    _dtype: PhantomData<T>,
+}
+
+impl<T: FloatDType> From<Conv1dConfig<T>> for Conv1d<T> {
+    fn from(config: Conv1dConfig<T>) -> Self {
+        assert!(config.in_channels > 0, "in_channels must be positive");
+        assert!(config.out_channels > 0, "out_channels must be positive");
+        assert!(config.kernel_size > 0, "kernel_size must be positive");
+        assert!(config.stride > 0, "stride must be positive");
+        assert!(config.dilation > 0, "dilation must be positive");
+        assert!(config.groups > 0, "groups must be positive");
+        assert!(
+            config.in_channels.is_multiple_of(config.groups),
+            "in_channels must be divisible by groups"
+        );
+        assert!(
+            config.out_channels.is_multiple_of(config.groups),
+            "out_channels must be divisible by groups"
+        );
+
+        let c_in_per_group = config.in_channels / config.groups;
+        let weight =
+            Tensor::<T, Dim3>::rand([config.out_channels, c_in_per_group, config.kernel_size]);
+
+        let bias = if config.bias {
+            Some(Parameter::new(Tensor::<T, Dim1>::zeros([
+                config.out_channels
+            ])))
+        } else {
+            None
+        };
+
+        Conv1d {
+            weight: Parameter::new(weight),
+            bias,
+            stride: config.stride,
+            padding: config.padding,
+            dilation: config.dilation,
+            groups: config.groups,
+            _dtype: PhantomData,
+        }
+    }
+}
 
 /// 1D畳み込み層
 ///
@@ -46,9 +117,18 @@ pub struct Conv1d<T: FloatDType = f32> {
 }
 
 impl<T: FloatDType> Conv1d<T> {
-    /// Conv1dBuilder を作成
-    pub fn new(in_channels: usize, out_channels: usize, kernel_size: usize) -> Conv1dBuilder<T> {
-        Conv1dBuilder::new(in_channels, out_channels, kernel_size)
+    /// Conv1d ビルダーを作成
+    #[allow(clippy::new_ret_no_self)]
+    #[allow(clippy::type_complexity)]
+    pub fn new(
+        in_channels: usize,
+        out_channels: usize,
+        kernel_size: usize,
+    ) -> Conv1dConfigBuilder<T, ((usize,), (usize,), (usize,), (), (), (), (), ())> {
+        Conv1dConfig::builder()
+            .in_channels(in_channels)
+            .out_channels(out_channels)
+            .kernel_size(kernel_size)
     }
 
     /// 入力チャンネル数
@@ -153,106 +233,6 @@ impl<T: FloatDType> Conv1d<T> {
     }
 }
 
-/// Conv1dのビルダー
-pub struct Conv1dBuilder<T: FloatDType = f32> {
-    in_channels: usize,
-    out_channels: usize,
-    kernel_size: usize,
-    stride: usize,
-    padding: usize,
-    dilation: usize,
-    groups: usize,
-    bias: bool,
-    _dtype: PhantomData<T>,
-}
-
-impl<T: FloatDType> Conv1dBuilder<T> {
-    fn new(in_channels: usize, out_channels: usize, kernel_size: usize) -> Self {
-        assert!(in_channels > 0, "in_channels must be positive");
-        assert!(out_channels > 0, "out_channels must be positive");
-        assert!(kernel_size > 0, "kernel_size must be positive");
-
-        Self {
-            in_channels,
-            out_channels,
-            kernel_size,
-            stride: 1,
-            padding: 0,
-            dilation: 1,
-            groups: 1,
-            bias: true,
-            _dtype: PhantomData,
-        }
-    }
-
-    /// ストライドを設定
-    pub fn stride(mut self, stride: usize) -> Self {
-        assert!(stride > 0, "stride must be positive");
-        self.stride = stride;
-        self
-    }
-
-    /// パディングを設定
-    pub fn padding(mut self, padding: usize) -> Self {
-        self.padding = padding;
-        self
-    }
-
-    /// ダイレーションを設定
-    pub fn dilation(mut self, dilation: usize) -> Self {
-        assert!(dilation > 0, "dilation must be positive");
-        self.dilation = dilation;
-        self
-    }
-
-    /// グループ数を設定
-    pub fn groups(mut self, groups: usize) -> Self {
-        assert!(groups > 0, "groups must be positive");
-        assert!(
-            self.in_channels.is_multiple_of(groups),
-            "in_channels must be divisible by groups"
-        );
-        assert!(
-            self.out_channels.is_multiple_of(groups),
-            "out_channels must be divisible by groups"
-        );
-        self.groups = groups;
-        self
-    }
-
-    /// バイアスの有無を設定
-    pub fn bias(mut self, bias: bool) -> Self {
-        self.bias = bias;
-        self
-    }
-
-    /// Conv1dを構築
-    pub fn build(self) -> Conv1d<T> {
-        let c_in_per_group = self.in_channels / self.groups;
-
-        // 重みの初期化: He initialization (static dimension)
-        let weight = Tensor::<T, Dim3>::rand([self.out_channels, c_in_per_group, self.kernel_size]);
-
-        let bias = if self.bias {
-            Some(Parameter::new(Tensor::<T, Dim1>::zeros(
-                [self.out_channels],
-            )))
-        } else {
-            None
-        };
-
-        Conv1d {
-            weight: Parameter::new(weight),
-            bias,
-            stride: self.stride,
-            padding: self.padding,
-            dilation: self.dilation,
-            groups: self.groups,
-            _dtype: PhantomData,
-        }
-    }
-}
-
 // ============================================================================
 // Conv2d
 // ============================================================================
@@ -289,13 +269,25 @@ pub struct Conv2d<T: FloatDType = f32> {
 }
 
 impl<T: FloatDType> Conv2d<T> {
-    /// Conv2dBuilder を作成
+    /// 新しいConv2d層のビルダーを作成
+    ///
+    /// デフォルト値:
+    /// - stride: (1, 1)
+    /// - padding: (0, 0)
+    /// - dilation: (1, 1)
+    /// - groups: 1
+    /// - bias: true
+    #[allow(clippy::new_ret_no_self)]
+    #[allow(clippy::type_complexity)]
     pub fn new(
         in_channels: usize,
         out_channels: usize,
         kernel_size: (usize, usize),
-    ) -> Conv2dBuilder<T> {
-        Conv2dBuilder::new(in_channels, out_channels, kernel_size)
+    ) -> Conv2dConfigBuilder<T, ((usize,), (usize,), ((usize, usize),), (), (), (), (), ())> {
+        Conv2dConfig::builder()
+            .in_channels(in_channels)
+            .out_channels(out_channels)
+            .kernel_size(kernel_size)
     }
 
     /// 入力チャンネル数
@@ -415,104 +407,75 @@ impl<T: FloatDType> Conv2d<T> {
     }
 }
 
-/// Conv2dのビルダー
-pub struct Conv2dBuilder<T: FloatDType = f32> {
+/// Conv2d層の設定
+#[derive(TypedBuilder)]
+#[builder(build_method(into = Conv2d<T>))]
+pub struct Conv2dConfig<T: FloatDType = f32> {
+    /// 入力チャンネル数
     in_channels: usize,
+    /// 出力チャンネル数
     out_channels: usize,
+    /// カーネルサイズ (kH, kW)
     kernel_size: (usize, usize),
+    /// ストライド (sH, sW)（デフォルト: (1, 1)）
+    #[builder(default = (1, 1))]
     stride: (usize, usize),
+    /// パディング (pH, pW)（デフォルト: (0, 0)）
+    #[builder(default = (0, 0))]
     padding: (usize, usize),
+    /// ダイレーション (dH, dW)（デフォルト: (1, 1)）
+    #[builder(default = (1, 1))]
     dilation: (usize, usize),
+    /// グループ数（デフォルト: 1）
+    #[builder(default = 1)]
     groups: usize,
+    /// バイアスの有無（デフォルト: true）
+    #[builder(default = true)]
     bias: bool,
+    #[builder(default, setter(skip))]
     _dtype: PhantomData<T>,
 }
 
-impl<T: FloatDType> Conv2dBuilder<T> {
-    fn new(in_channels: usize, out_channels: usize, kernel_size: (usize, usize)) -> Self {
-        assert!(in_channels > 0, "in_channels must be positive");
-        assert!(out_channels > 0, "out_channels must be positive");
+impl<T: FloatDType> From<Conv2dConfig<T>> for Conv2d<T> {
+    fn from(config: Conv2dConfig<T>) -> Self {
+        assert!(config.in_channels > 0, "in_channels must be positive");
+        assert!(config.out_channels > 0, "out_channels must be positive");
         assert!(
-            kernel_size.0 > 0 && kernel_size.1 > 0,
+            config.kernel_size.0 > 0 && config.kernel_size.1 > 0,
             "kernel_size must be positive"
         );
-
-        Self {
-            in_channels,
-            out_channels,
-            kernel_size,
-            stride: (1, 1),
-            padding: (0, 0),
-            dilation: (1, 1),
-            groups: 1,
-            bias: true,
-            _dtype: PhantomData,
-        }
-    }
-
-    /// ストライドを設定
-    pub fn stride(mut self, stride: (usize, usize)) -> Self {
         assert!(
-            stride.0 > 0 && stride.1 > 0,
-            "stride must be positive in both dimensions"
+            config.stride.0 > 0 && config.stride.1 > 0,
+            "stride must be positive"
         );
-        self.stride = stride;
-        self
-    }
-
-    /// パディングを設定
-    pub fn padding(mut self, padding: (usize, usize)) -> Self {
-        self.padding = padding;
-        self
-    }
-
-    /// ダイレーションを設定
-    pub fn dilation(mut self, dilation: (usize, usize)) -> Self {
         assert!(
-            dilation.0 > 0 && dilation.1 > 0,
-            "dilation must be positive in both dimensions"
+            config.dilation.0 > 0 && config.dilation.1 > 0,
+            "dilation must be positive"
         );
-        self.dilation = dilation;
-        self
-    }
-
-    /// グループ数を設定
-    pub fn groups(mut self, groups: usize) -> Self {
-        assert!(groups > 0, "groups must be positive");
+        assert!(config.groups > 0, "groups must be positive");
         assert!(
-            self.in_channels.is_multiple_of(groups),
+            config.in_channels.is_multiple_of(config.groups),
             "in_channels must be divisible by groups"
         );
         assert!(
-            self.out_channels.is_multiple_of(groups),
+            config.out_channels.is_multiple_of(config.groups),
             "out_channels must be divisible by groups"
         );
-        self.groups = groups;
-        self
-    }
 
-    /// バイアスの有無を設定
-    pub fn bias(mut self, bias: bool) -> Self {
-        self.bias = bias;
-        self
-    }
-
-    /// Conv2dを構築
-    pub fn build(self) -> Conv2d<T> {
-        let c_in_per_group = self.in_channels / self.groups;
+        let c_in_per_group = config.in_channels / config.groups;
 
         // 重みの初期化 (static dimension)
         let weight = Tensor::<T, Dim4>::rand([
-            self.out_channels,
+            config.out_channels,
             c_in_per_group,
-            self.kernel_size.0,
-            self.kernel_size.1,
+            config.kernel_size.0,
+            config.kernel_size.1,
         ]);
 
-        let bias = if self.bias {
-            Some(Parameter::new(Tensor::<T, Dim1>::zeros(
-                [self.out_channels],
-            )))
+        let bias = if config.bias {
+            Some(Parameter::new(Tensor::<T, Dim1>::zeros([
+                config.out_channels
+            ])))
         } else {
             None
         };
@@ -520,10 +483,10 @@ impl<T: FloatDType> Conv2dBuilder<T> {
         Conv2d {
             weight: Parameter::new(weight),
             bias,
-            stride: self.stride,
-            padding: self.padding,
-            dilation: self.dilation,
-            groups: self.groups,
+            stride: config.stride,
+            padding: config.padding,
+            dilation: config.dilation,
+            groups: config.groups,
             _dtype: PhantomData,
         }
     }
@@ -565,13 +528,37 @@ pub struct Conv3d<T: FloatDType = f32> {
 }
 
 impl<T: FloatDType> Conv3d<T> {
-    /// Conv3dBuilder を作成
+    /// 新しいConv3d層のビルダーを作成
+    ///
+    /// デフォルト値:
+    /// - stride: (1, 1, 1)
+    /// - padding: (0, 0, 0)
+    /// - dilation: (1, 1, 1)
+    /// - groups: 1
+    /// - bias: true
+    #[allow(clippy::new_ret_no_self)]
+    #[allow(clippy::type_complexity)]
     pub fn new(
         in_channels: usize,
         out_channels: usize,
         kernel_size: (usize, usize, usize),
-    ) -> Conv3dBuilder<T> {
-        Conv3dBuilder::new(in_channels, out_channels, kernel_size)
+    ) -> Conv3dConfigBuilder<
+        T,
+        (
+            (usize,),
+            (usize,),
+            ((usize, usize, usize),),
+            (),
+            (),
+            (),
+            (),
+            (),
+        ),
+    > {
+        Conv3dConfig::builder()
+            .in_channels(in_channels)
+            .out_channels(out_channels)
+            .kernel_size(kernel_size)
     }
 
     /// 入力チャンネル数
@@ -713,105 +700,76 @@ impl<T: FloatDType> Conv3d<T> {
     }
 }
 
-/// Conv3dのビルダー
-pub struct Conv3dBuilder<T: FloatDType = f32> {
+/// Conv3d層の設定
+#[derive(TypedBuilder)]
+#[builder(build_method(into = Conv3d<T>))]
+pub struct Conv3dConfig<T: FloatDType = f32> {
+    /// 入力チャンネル数
     in_channels: usize,
+    /// 出力チャンネル数
     out_channels: usize,
+    /// カーネルサイズ (kD, kH, kW)
     kernel_size: (usize, usize, usize),
+    /// ストライド (sD, sH, sW)（デフォルト: (1, 1, 1)）
+    #[builder(default = (1, 1, 1))]
     stride: (usize, usize, usize),
+    /// パディング (pD, pH, pW)（デフォルト: (0, 0, 0)）
+    #[builder(default = (0, 0, 0))]
     padding: (usize, usize, usize),
+    /// ダイレーション (dD, dH, dW)（デフォルト: (1, 1, 1)）
+    #[builder(default = (1, 1, 1))]
     dilation: (usize, usize, usize),
+    /// グループ数（デフォルト: 1）
+    #[builder(default = 1)]
     groups: usize,
+    /// バイアスの有無（デフォルト: true）
+    #[builder(default = true)]
     bias: bool,
+    #[builder(default, setter(skip))]
     _dtype: PhantomData<T>,
 }
 
-impl<T: FloatDType> Conv3dBuilder<T> {
-    fn new(in_channels: usize, out_channels: usize, kernel_size: (usize, usize, usize)) -> Self {
-        assert!(in_channels > 0, "in_channels must be positive");
-        assert!(out_channels > 0, "out_channels must be positive");
+impl<T: FloatDType> From<Conv3dConfig<T>> for Conv3d<T> {
+    fn from(config: Conv3dConfig<T>) -> Self {
+        assert!(config.in_channels > 0, "in_channels must be positive");
+        assert!(config.out_channels > 0, "out_channels must be positive");
         assert!(
-            kernel_size.0 > 0 && kernel_size.1 > 0 && kernel_size.2 > 0,
+            config.kernel_size.0 > 0 && config.kernel_size.1 > 0 && config.kernel_size.2 > 0,
             "kernel_size must be positive in all dimensions"
         );
-
-        Self {
-            in_channels,
-            out_channels,
-            kernel_size,
-            stride: (1, 1, 1),
-            padding: (0, 0, 0),
-            dilation: (1, 1, 1),
-            groups: 1,
-            bias: true,
-            _dtype: PhantomData,
-        }
-    }
-
-    /// ストライドを設定
-    pub fn stride(mut self, stride: (usize, usize, usize)) -> Self {
         assert!(
-            stride.0 > 0 && stride.1 > 0 && stride.2 > 0,
+            config.stride.0 > 0 && config.stride.1 > 0 && config.stride.2 > 0,
             "stride must be positive in all dimensions"
         );
-        self.stride = stride;
-        self
-    }
-
-    /// パディングを設定
-    pub fn padding(mut self, padding: (usize, usize, usize)) -> Self {
-        self.padding = padding;
-        self
-    }
-
-    /// ダイレーションを設定
-    pub fn dilation(mut self, dilation: (usize, usize, usize)) -> Self {
         assert!(
-            dilation.0 > 0 && dilation.1 > 0 && dilation.2 > 0,
+            config.dilation.0 > 0 && config.dilation.1 > 0 && config.dilation.2 > 0,
             "dilation must be positive in all dimensions"
         );
-        self.dilation = dilation;
-        self
-    }
-
-    /// グループ数を設定
-    pub fn groups(mut self, groups: usize) -> Self {
-        assert!(groups > 0, "groups must be positive");
+        assert!(config.groups > 0, "groups must be positive");
         assert!(
-            self.in_channels.is_multiple_of(groups),
+            config.in_channels.is_multiple_of(config.groups),
             "in_channels must be divisible by groups"
         );
         assert!(
-            self.out_channels.is_multiple_of(groups),
+            config.out_channels.is_multiple_of(config.groups),
             "out_channels must be divisible by groups"
         );
-        self.groups = groups;
-        self
-    }
 
-    /// バイアスの有無を設定
-    pub fn bias(mut self, bias: bool) -> Self {
-        self.bias = bias;
-        self
-    }
-
-    /// Conv3dを構築
-    pub fn build(self) -> Conv3d<T> {
-        let c_in_per_group = self.in_channels / self.groups;
+        let c_in_per_group = config.in_channels / config.groups;
 
         // 重みの初期化 (static dimension)
         let weight = Tensor::<T, Dim5>::rand([
-            self.out_channels,
+            config.out_channels,
             c_in_per_group,
-            self.kernel_size.0,
-            self.kernel_size.1,
-            self.kernel_size.2,
+            config.kernel_size.0,
+            config.kernel_size.1,
+            config.kernel_size.2,
         ]);
 
-        let bias = if self.bias {
-            Some(Parameter::new(Tensor::<T, Dim1>::zeros(
-                [self.out_channels],
-            )))
+        let bias = if config.bias {
+            Some(Parameter::new(Tensor::<T, Dim1>::zeros([
+                config.out_channels
+            ])))
         } else {
             None
         };
@@ -819,10 +777,10 @@ impl<T: FloatDType> Conv3dBuilder<T> {
         Conv3d {
             weight: Parameter::new(weight),
             bias,
-            stride: self.stride,
-            padding: self.padding,
-            dilation: self.dilation,
-            groups: self.groups,
+            stride: config.stride,
+            padding: config.padding,
+            dilation: config.dilation,
+            groups: config.groups,
             _dtype: PhantomData,
         }
     }
@@ -868,13 +826,27 @@ pub struct ConvTranspose1d<T: FloatDType = f32> {
 }
 
 impl<T: FloatDType> ConvTranspose1d<T> {
-    /// ConvTranspose1dBuilder を作成
+    /// 新しいConvTranspose1d層のビルダーを作成
+    ///
+    /// デフォルト値:
+    /// - stride: 1
+    /// - padding: 0
+    /// - output_padding: 0
+    /// - dilation: 1
+    /// - groups: 1
+    /// - bias: true
+    #[allow(clippy::new_ret_no_self)]
+    #[allow(clippy::type_complexity)]
     pub fn new(
         in_channels: usize,
         out_channels: usize,
         kernel_size: usize,
-    ) -> ConvTranspose1dBuilder<T> {
-        ConvTranspose1dBuilder::new(in_channels, out_channels, kernel_size)
+    ) -> ConvTranspose1dConfigBuilder<T, ((usize,), (usize,), (usize,), (), (), (), (), (), ())>
+    {
+        ConvTranspose1dConfig::builder()
+            .in_channels(in_channels)
+            .out_channels(out_channels)
+            .kernel_size(kernel_size)
     }
 
     /// 入力チャンネル数
@@ -1077,102 +1049,69 @@ impl<T: FloatDType> ConvTranspose1d<T> {
     }
 }
 
-/// ConvTranspose1dのビルダー
-pub struct ConvTranspose1dBuilder<T: FloatDType = f32> {
+/// ConvTranspose1d層の設定
+#[derive(TypedBuilder)]
+#[builder(build_method(into = ConvTranspose1d<T>))]
+pub struct ConvTranspose1dConfig<T: FloatDType = f32> {
+    /// 入力チャンネル数
     in_channels: usize,
+    /// 出力チャンネル数
     out_channels: usize,
+    /// カーネルサイズ
     kernel_size: usize,
+    /// ストライド（デフォルト: 1）
+    #[builder(default = 1)]
     stride: usize,
+    /// パディング（デフォルト: 0）
+    #[builder(default = 0)]
     padding: usize,
+    /// 出力パディング（デフォルト: 0）
+    #[builder(default = 0)]
     output_padding: usize,
+    /// ダイレーション（デフォルト: 1）
+    #[builder(default = 1)]
     dilation: usize,
+    /// グループ数（デフォルト: 1）
+    #[builder(default = 1)]
     groups: usize,
+    /// バイアスの有無（デフォルト: true）
+    #[builder(default = true)]
     bias: bool,
+    #[builder(default, setter(skip))]
     _dtype: PhantomData<T>,
 }
 
-impl<T: FloatDType> ConvTranspose1dBuilder<T> {
-    fn new(in_channels: usize, out_channels: usize, kernel_size: usize) -> Self {
-        assert!(in_channels > 0, "in_channels must be positive");
-        assert!(out_channels > 0, "out_channels must be positive");
-        assert!(kernel_size > 0, "kernel_size must be positive");
-
-        Self {
-            in_channels,
-            out_channels,
-            kernel_size,
-            stride: 1,
-            padding: 0,
-            output_padding: 0,
-            dilation: 1,
-            groups: 1,
-            bias: true,
-            _dtype: PhantomData,
-        }
-    }
-
-    /// ストライドを設定
-    pub fn stride(mut self, stride: usize) -> Self {
-        assert!(stride > 0, "stride must be positive");
-        self.stride = stride;
-        self
-    }
-
-    /// パディングを設定
-    pub fn padding(mut self, padding: usize) -> Self {
-        self.padding = padding;
-        self
-    }
-
-    /// 出力パディングを設定
-    pub fn output_padding(mut self, output_padding: usize) -> Self {
+impl<T: FloatDType> From<ConvTranspose1dConfig<T>> for ConvTranspose1d<T> {
+    fn from(config: ConvTranspose1dConfig<T>) -> Self {
+        assert!(config.in_channels > 0, "in_channels must be positive");
+        assert!(config.out_channels > 0, "out_channels must be positive");
+        assert!(config.kernel_size > 0, "kernel_size must be positive");
+        assert!(config.stride > 0, "stride must be positive");
+        assert!(config.dilation > 0, "dilation must be positive");
+        assert!(config.groups > 0, "groups must be positive");
         assert!(
-            output_padding < self.stride,
-            "output_padding must be smaller than stride"
-        );
-        self.output_padding = output_padding;
-        self
-    }
-
-    /// ダイレーションを設定
-    pub fn dilation(mut self, dilation: usize) -> Self {
-        assert!(dilation > 0, "dilation must be positive");
-        self.dilation = dilation;
-        self
-    }
-
-    /// グループ数を設定
-    pub fn groups(mut self, groups: usize) -> Self {
-        assert!(groups > 0, "groups must be positive");
-        assert!(
-            self.in_channels.is_multiple_of(groups),
+            config.in_channels.is_multiple_of(config.groups),
             "in_channels must be divisible by groups"
         );
         assert!(
-            self.out_channels.is_multiple_of(groups),
+            config.out_channels.is_multiple_of(config.groups),
             "out_channels must be divisible by groups"
         );
-        self.groups = groups;
-        self
-    }
+        assert!(
+            config.output_padding < config.stride,
+            "output_padding must be smaller than stride"
+        );
 
-    /// バイアスの有無を設定
-    pub fn bias(mut self, bias: bool) -> Self {
-        self.bias = bias;
-        self
-    }
-
-    /// ConvTranspose1dを構築
-    pub fn build(self) -> ConvTranspose1d<T> {
-        let c_out_per_group = self.out_channels / self.groups;
+        let c_out_per_group = config.out_channels / config.groups;
 
         // 重みの初期化 (static dimension)
-        let weight = Tensor::<T, Dim3>::rand([self.in_channels, c_out_per_group, self.kernel_size]);
+        let weight =
+            Tensor::<T, Dim3>::rand([config.in_channels, c_out_per_group, config.kernel_size]);
 
-        let bias = if self.bias {
-            Some(Parameter::new(Tensor::<T, Dim1>::zeros(
-                [self.out_channels],
-            )))
+        let bias = if config.bias {
+            Some(Parameter::new(Tensor::<T, Dim1>::zeros([
+                config.out_channels
+            ])))
         } else {
             None
         };
@@ -1180,11 +1119,11 @@ impl<T: FloatDType> ConvTranspose1dBuilder<T> {
         ConvTranspose1d {
             weight: Parameter::new(weight),
             bias,
-            stride: self.stride,
-            padding: self.padding,
-            output_padding: self.output_padding,
-            dilation: self.dilation,
-            groups: self.groups,
+            stride: config.stride,
+            padding: config.padding,
+            output_padding: config.output_padding,
+            dilation: config.dilation,
+            groups: config.groups,
             _dtype: PhantomData,
         }
     }
@@ -1228,13 +1167,39 @@ pub struct ConvTranspose2d<T: FloatDType = f32> {
 }
 
 impl<T: FloatDType> ConvTranspose2d<T> {
-    /// ConvTranspose2dBuilder を作成
+    /// 新しいConvTranspose2d層のビルダーを作成
+    ///
+    /// デフォルト値:
+    /// - stride: (1, 1)
+    /// - padding: (0, 0)
+    /// - output_padding: (0, 0)
+    /// - dilation: (1, 1)
+    /// - groups: 1
+    /// - bias: true
+    #[allow(clippy::new_ret_no_self)]
+    #[allow(clippy::type_complexity)]
     pub fn new(
         in_channels: usize,
         out_channels: usize,
         kernel_size: (usize, usize),
-    ) -> ConvTranspose2dBuilder<T> {
-        ConvTranspose2dBuilder::new(in_channels, out_channels, kernel_size)
+    ) -> ConvTranspose2dConfigBuilder<
+        T,
+        (
+            (usize,),
+            (usize,),
+            ((usize, usize),),
+            (),
+            (),
+            (),
+            (),
+            (),
+            (),
+        ),
+    > {
+        ConvTranspose2dConfig::builder()
+            .in_channels(in_channels)
+            .out_channels(out_channels)
+            .kernel_size(kernel_size)
     }
 
     /// 入力チャンネル数
@@ -1469,116 +1434,82 @@ impl<T: FloatDType> ConvTranspose2d<T> {
     }
 }
 
-/// ConvTranspose2dのビルダー
-pub struct ConvTranspose2dBuilder<T: FloatDType = f32> {
+/// ConvTranspose2d層の設定
+#[derive(TypedBuilder)]
+#[builder(build_method(into = ConvTranspose2d<T>))]
+pub struct ConvTranspose2dConfig<T: FloatDType = f32> {
+    /// 入力チャンネル数
     in_channels: usize,
+    /// 出力チャンネル数
     out_channels: usize,
+    /// カーネルサイズ (kH, kW)
     kernel_size: (usize, usize),
+    /// ストライド (sH, sW)（デフォルト: (1, 1)）
+    #[builder(default = (1, 1))]
     stride: (usize, usize),
+    /// パディング (pH, pW)（デフォルト: (0, 0)）
+    #[builder(default = (0, 0))]
     padding: (usize, usize),
+    /// 出力パディング (opH, opW)（デフォルト: (0, 0)）
+    #[builder(default = (0, 0))]
     output_padding: (usize, usize),
+    /// ダイレーション (dH, dW)（デフォルト: (1, 1)）
+    #[builder(default = (1, 1))]
     dilation: (usize, usize),
+    /// グループ数（デフォルト: 1）
+    #[builder(default = 1)]
     groups: usize,
+    /// バイアスの有無（デフォルト: true）
+    #[builder(default = true)]
     bias: bool,
+    #[builder(default, setter(skip))]
     _dtype: PhantomData<T>,
 }
 
-impl<T: FloatDType> ConvTranspose2dBuilder<T> {
-    fn new(in_channels: usize, out_channels: usize, kernel_size: (usize, usize)) -> Self {
-        assert!(in_channels > 0, "in_channels must be positive");
-        assert!(out_channels > 0, "out_channels must be positive");
+impl<T: FloatDType> From<ConvTranspose2dConfig<T>> for ConvTranspose2d<T> {
+    fn from(config: ConvTranspose2dConfig<T>) -> Self {
+        assert!(config.in_channels > 0, "in_channels must be positive");
+        assert!(config.out_channels > 0, "out_channels must be positive");
         assert!(
-            kernel_size.0 > 0 && kernel_size.1 > 0,
+            config.kernel_size.0 > 0 && config.kernel_size.1 > 0,
             "kernel_size must be positive"
         );
-
-        Self {
-            in_channels,
-            out_channels,
-            kernel_size,
-            stride: (1, 1),
-            padding: (0, 0),
-            output_padding: (0, 0),
-            dilation: (1, 1),
-            groups: 1,
-            bias: true,
-            _dtype: PhantomData,
-        }
-    }
-
-    /// ストライドを設定
-    pub fn stride(mut self, stride: (usize, usize)) -> Self {
         assert!(
-            stride.0 > 0 && stride.1 > 0,
-            "stride must be positive in both dimensions"
+            config.stride.0 > 0 && config.stride.1 > 0,
+            "stride must be positive"
         );
-        self.stride = stride;
-        self
-    }
-
-    /// パディングを設定
-    pub fn padding(mut self, padding: (usize, usize)) -> Self {
-        self.padding = padding;
-        self
-    }
-
-    /// 出力パディングを設定
-    pub fn output_padding(mut self, output_padding: (usize, usize)) -> Self {
         assert!(
-            output_padding.0 < self.stride.0 && output_padding.1 < self.stride.1,
-            "output_padding must be smaller than stride"
+            config.dilation.0 > 0 && config.dilation.1 > 0,
+            "dilation must be positive"
         );
-        self.output_padding = output_padding;
-        self
-    }
-
-    /// ダイレーションを設定
-    pub fn dilation(mut self, dilation: (usize, usize)) -> Self {
+        assert!(config.groups > 0, "groups must be positive");
         assert!(
-            dilation.0 > 0 && dilation.1 > 0,
-            "dilation must be positive in both dimensions"
-        );
-        self.dilation = dilation;
-        self
-    }
-
-    /// グループ数を設定
-    pub fn groups(mut self, groups: usize) -> Self {
-        assert!(groups > 0, "groups must be positive");
-        assert!(
-            self.in_channels.is_multiple_of(groups),
+            config.in_channels.is_multiple_of(config.groups),
             "in_channels must be divisible by groups"
         );
         assert!(
-            self.out_channels.is_multiple_of(groups),
+            config.out_channels.is_multiple_of(config.groups),
             "out_channels must be divisible by groups"
         );
-        self.groups = groups;
-        self
-    }
+        assert!(
+            config.output_padding.0 < config.stride.0 && config.output_padding.1 < config.stride.1,
+            "output_padding must be smaller than stride"
+        );
 
-    /// バイアスの有無を設定
-    pub fn bias(mut self, bias: bool) -> Self {
-        self.bias = bias;
-        self
-    }
-
-    /// ConvTranspose2dを構築
-    pub fn build(self) -> ConvTranspose2d<T> {
-        let c_out_per_group = self.out_channels / self.groups;
+        let c_out_per_group = config.out_channels / config.groups;
 
         // 重みの初期化 (static dimension)
         let weight = Tensor::<T, Dim4>::rand([
-            self.in_channels,
+            config.in_channels,
             c_out_per_group,
-            self.kernel_size.0,
-            self.kernel_size.1,
+            config.kernel_size.0,
+            config.kernel_size.1,
         ]);
 
-        let bias = if self.bias {
-            Some(Parameter::new(Tensor::<T, Dim1>::zeros(
-                [self.out_channels],
-            )))
+        let bias = if config.bias {
+            Some(Parameter::new(Tensor::<T, Dim1>::zeros([
+                config.out_channels
+            ])))
         } else {
             None
         };
@@ -1586,11 +1517,11 @@ impl<T: FloatDType> ConvTranspose2dBuilder<T> {
         ConvTranspose2d {
             weight: Parameter::new(weight),
             bias,
-            stride: self.stride,
-            padding: self.padding,
-            output_padding: self.output_padding,
-            dilation: self.dilation,
-            groups: self.groups,
+            stride: config.stride,
+            padding: config.padding,
+            output_padding: config.output_padding,
+            dilation: config.dilation,
+            groups: config.groups,
             _dtype: PhantomData,
         }
     }
@@ -1634,13 +1565,39 @@ pub struct ConvTranspose3d<T: FloatDType = f32> {
 }
 
 impl<T: FloatDType> ConvTranspose3d<T> {
-    /// ConvTranspose3dBuilder を作成
+    /// 新しいConvTranspose3d層のビルダーを作成
+    ///
+    /// デフォルト値:
+    /// - stride: (1, 1, 1)
+    /// - padding: (0, 0, 0)
+    /// - output_padding: (0, 0, 0)
+    /// - dilation: (1, 1, 1)
+    /// - groups: 1
+    /// - bias: true
+    #[allow(clippy::new_ret_no_self)]
+    #[allow(clippy::type_complexity)]
     pub fn new(
         in_channels: usize,
         out_channels: usize,
         kernel_size: (usize, usize, usize),
-    ) -> ConvTranspose3dBuilder<T> {
-        ConvTranspose3dBuilder::new(in_channels, out_channels, kernel_size)
+    ) -> ConvTranspose3dConfigBuilder<
+        T,
+        (
+            (usize,),
+            (usize,),
+            ((usize, usize, usize),),
+            (),
+            (),
+            (),
+            (),
+            (),
+            (),
+        ),
+    > {
+        ConvTranspose3dConfig::builder()
+            .in_channels(in_channels)
+            .out_channels(out_channels)
+            .kernel_size(kernel_size)
     }
 
     /// 入力チャンネル数
@@ -1912,119 +1869,85 @@ impl<T: FloatDType> ConvTranspose3d<T> {
     }
 }
 
-/// ConvTranspose3dのビルダー
-pub struct ConvTranspose3dBuilder<T: FloatDType = f32> {
+/// ConvTranspose3d層の設定
+#[derive(TypedBuilder)]
+#[builder(build_method(into = ConvTranspose3d<T>))]
+pub struct ConvTranspose3dConfig<T: FloatDType = f32> {
+    /// 入力チャンネル数
     in_channels: usize,
+    /// 出力チャンネル数
     out_channels: usize,
+    /// カーネルサイズ (kD, kH, kW)
     kernel_size: (usize, usize, usize),
+    /// ストライド (sD, sH, sW)（デフォルト: (1, 1, 1)）
+    #[builder(default = (1, 1, 1))]
     stride: (usize, usize, usize),
+    /// パディング (pD, pH, pW)（デフォルト: (0, 0, 0)）
+    #[builder(default = (0, 0, 0))]
     padding: (usize, usize, usize),
+    /// 出力パディング (opD, opH, opW)（デフォルト: (0, 0, 0)）
+    #[builder(default = (0, 0, 0))]
     output_padding: (usize, usize, usize),
+    /// ダイレーション (dD, dH, dW)（デフォルト: (1, 1, 1)）
+    #[builder(default = (1, 1, 1))]
     dilation: (usize, usize, usize),
+    /// グループ数（デフォルト: 1）
+    #[builder(default = 1)]
     groups: usize,
+    /// バイアスの有無（デフォルト: true）
+    #[builder(default = true)]
     bias: bool,
+    #[builder(default, setter(skip))]
     _dtype: PhantomData<T>,
 }
 
-impl<T: FloatDType> ConvTranspose3dBuilder<T> {
-    fn new(in_channels: usize, out_channels: usize, kernel_size: (usize, usize, usize)) -> Self {
-        assert!(in_channels > 0, "in_channels must be positive");
-        assert!(out_channels > 0, "out_channels must be positive");
+impl<T: FloatDType> From<ConvTranspose3dConfig<T>> for ConvTranspose3d<T> {
+    fn from(config: ConvTranspose3dConfig<T>) -> Self {
+        assert!(config.in_channels > 0, "in_channels must be positive");
+        assert!(config.out_channels > 0, "out_channels must be positive");
         assert!(
-            kernel_size.0 > 0 && kernel_size.1 > 0 && kernel_size.2 > 0,
+            config.kernel_size.0 > 0 && config.kernel_size.1 > 0 && config.kernel_size.2 > 0,
             "kernel_size must be positive in all dimensions"
         );
-
-        Self {
-            in_channels,
-            out_channels,
-            kernel_size,
-            stride: (1, 1, 1),
-            padding: (0, 0, 0),
-            output_padding: (0, 0, 0),
-            dilation: (1, 1, 1),
-            groups: 1,
-            bias: true,
-            _dtype: PhantomData,
-        }
-    }
-
-    /// ストライドを設定
-    pub fn stride(mut self, stride: (usize, usize, usize)) -> Self {
         assert!(
-            stride.0 > 0 && stride.1 > 0 && stride.2 > 0,
+            config.stride.0 > 0 && config.stride.1 > 0 && config.stride.2 > 0,
             "stride must be positive in all dimensions"
         );
-        self.stride = stride;
-        self
-    }
-
-    /// パディングを設定
-    pub fn padding(mut self, padding: (usize, usize, usize)) -> Self {
-        self.padding = padding;
-        self
-    }
-
-    /// 出力パディングを設定
-    pub fn output_padding(mut self, output_padding: (usize, usize, usize)) -> Self {
         assert!(
-            output_padding.0 < self.stride.0
-                && output_padding.1 < self.stride.1
-                && output_padding.2 < self.stride.2,
-            "output_padding must be smaller than stride"
-        );
-        self.output_padding = output_padding;
-        self
-    }
-
-    /// ダイレーションを設定
-    pub fn dilation(mut self, dilation: (usize, usize, usize)) -> Self {
-        assert!(
-            dilation.0 > 0 && dilation.1 > 0 && dilation.2 > 0,
+            config.dilation.0 > 0 && config.dilation.1 > 0 && config.dilation.2 > 0,
             "dilation must be positive in all dimensions"
         );
-        self.dilation = dilation;
-        self
-    }
-
-    /// グループ数を設定
-    pub fn groups(mut self, groups: usize) -> Self {
-        assert!(groups > 0, "groups must be positive");
+        assert!(config.groups > 0, "groups must be positive");
         assert!(
-            self.in_channels.is_multiple_of(groups),
+            config.in_channels.is_multiple_of(config.groups),
             "in_channels must be divisible by groups"
         );
         assert!(
-            self.out_channels.is_multiple_of(groups),
+            config.out_channels.is_multiple_of(config.groups),
             "out_channels must be divisible by groups"
         );
-        self.groups = groups;
-        self
-    }
+        assert!(
+            config.output_padding.0 < config.stride.0
+                && config.output_padding.1 < config.stride.1
+                && config.output_padding.2 < config.stride.2,
+            "output_padding must be smaller than stride"
+        );
 
-    /// バイアスの有無を設定
-    pub fn bias(mut self, bias: bool) -> Self {
-        self.bias = bias;
-        self
-    }
-
-    /// ConvTranspose3dを構築
-    pub fn build(self) -> ConvTranspose3d<T> {
-        let c_out_per_group = self.out_channels / self.groups;
+        let c_out_per_group = config.out_channels / config.groups;
 
         // 重みの初期化 (static dimension)
         let weight = Tensor::<T, Dim5>::rand([
-            self.in_channels,
+            config.in_channels,
             c_out_per_group,
-            self.kernel_size.0,
-            self.kernel_size.1,
-            self.kernel_size.2,
+            config.kernel_size.0,
+            config.kernel_size.1,
+            config.kernel_size.2,
         ]);
 
-        let bias = if self.bias {
-            Some(Parameter::new(Tensor::<T, Dim1>::zeros(
-                [self.out_channels],
-            )))
+        let bias = if config.bias {
+            Some(Parameter::new(Tensor::<T, Dim1>::zeros([
+                config.out_channels
+            ])))
         } else {
             None
         };
@@ -2032,11 +1955,11 @@ impl<T: FloatDType> ConvTranspose3dBuilder<T> {
         ConvTranspose3d {
             weight: Parameter::new(weight),
             bias,
-            stride: self.stride,
-            padding: self.padding,
-            output_padding: self.output_padding,
-            dilation: self.dilation,
-            groups: self.groups,
+            stride: config.stride,
+            padding: config.padding,
+            output_padding: config.output_padding,
+            dilation: config.dilation,
+            groups: config.groups,
             _dtype: PhantomData,
         }
     }
@@ -2064,11 +1987,10 @@ impl<T: FloatDType> Module<T> for Conv1d<T> {
         if let Some(w) = params.get("weight") {
             ParameterMut::set_dyn(&mut self.weight, w.clone());
         }
-        if let Some(b) = params.get("bias") {
-            if let Some(ref mut bias) = self.bias {
+        if let Some(b) = params.get("bias")
+            && let Some(ref mut bias) = self.bias {
                 ParameterMut::set_dyn(bias, b.clone());
             }
-        }
     }
 }
 
@@ -2090,11 +2012,10 @@ impl<T: FloatDType> Module<T> for Conv2d<T> {
         if let Some(w) = params.get("weight") {
             ParameterMut::set_dyn(&mut self.weight, w.clone());
         }
-        if let Some(b) = params.get("bias") {
-            if let Some(ref mut bias) = self.bias {
+        if let Some(b) = params.get("bias")
+            && let Some(ref mut bias) = self.bias {
                 ParameterMut::set_dyn(bias, b.clone());
             }
-        }
     }
 }
 
@@ -2116,11 +2037,10 @@ impl<T: FloatDType> Module<T> for Conv3d<T> {
         if let Some(w) = params.get("weight") {
             ParameterMut::set_dyn(&mut self.weight, w.clone());
         }
-        if let Some(b) = params.get("bias") {
-            if let Some(ref mut bias) = self.bias {
+        if let Some(b) = params.get("bias")
+            && let Some(ref mut bias) = self.bias {
                 ParameterMut::set_dyn(bias, b.clone());
             }
-        }
     }
 }
 
@@ -2142,11 +2062,10 @@ impl<T: FloatDType> Module<T> for ConvTranspose1d<T> {
         if let Some(w) = params.get("weight") {
             ParameterMut::set_dyn(&mut self.weight, w.clone());
         }
-        if let Some(b) = params.get("bias") {
-            if let Some(ref mut bias) = self.bias {
+        if let Some(b) = params.get("bias")
+            && let Some(ref mut bias) = self.bias {
                 ParameterMut::set_dyn(bias, b.clone());
             }
-        }
     }
 }
 
@@ -2168,11 +2087,10 @@ impl<T: FloatDType> Module<T> for ConvTranspose2d<T> {
         if let Some(w) = params.get("weight") {
             ParameterMut::set_dyn(&mut self.weight, w.clone());
         }
-        if let Some(b) = params.get("bias") {
-            if let Some(ref mut bias) = self.bias {
+        if let Some(b) = params.get("bias")
+            && let Some(ref mut bias) = self.bias {
                 ParameterMut::set_dyn(bias, b.clone());
             }
-        }
     }
 }
 
@@ -2194,11 +2112,10 @@ impl<T: FloatDType> Module<T> for ConvTranspose3d<T> {
         if let Some(w) = params.get("weight") {
             ParameterMut::set_dyn(&mut self.weight, w.clone());
         }
-        if let Some(b) = params.get("bias") {
-            if let Some(ref mut bias) = self.bias {
+        if let Some(b) = params.get("bias")
+            && let Some(ref mut bias) = self.bias {
                 ParameterMut::set_dyn(bias, b.clone());
             }
-        }
     }
 }
 

@@ -31,8 +31,8 @@ mod linear;
 
 pub use activation::{ELU, GELU, LeakyReLU, Mish, ReLU, SiLU, Sigmoid, Softplus, Swish, Tanh};
 pub use conv::{
-    Conv1d, Conv1dBuilder, Conv2d, Conv2dBuilder, Conv3d, Conv3dBuilder, ConvTranspose1d,
-    ConvTranspose1dBuilder, ConvTranspose2d, ConvTranspose2dBuilder, ConvTranspose3d,
-    ConvTranspose3dBuilder,
+    Conv1d, Conv1dConfig, Conv2d, Conv2dConfig, Conv3d, Conv3dConfig, ConvTranspose1d,
+    ConvTranspose1dConfig, ConvTranspose2d, ConvTranspose2dConfig, ConvTranspose3d,
+    ConvTranspose3dConfig,
 };
 pub use linear::Linear;
