@@ -255,6 +255,39 @@ impl<T: NumericDType> Tensor<T, DimDyn> {
     }
 }
 
+// ============================================================================
+// arange - 1D only (all NumericDType)
+// ============================================================================
+
+use crate::tensor::Dim1;
+
+impl<T: NumericDType> Tensor<T, Dim1> {
+    /// Create a 1D tensor with values [0, 1, 2, ..., n-1]
+    ///
+    /// # Arguments
+    /// * `n` - The number of elements
+    ///
+    /// # Returns
+    /// A 1D tensor of length `n` with values `[0, 1, 2, ..., n-1]`
+    ///
+    /// # Example
+    /// ```ignore
+    /// let t = Tensor::<f32, Dim1>::arange(5);
+    /// // t = [0.0, 1.0, 2.0, 3.0, 4.0]
+    /// ```
+    pub fn arange(n: usize) -> Self {
+        let shape_vec = vec![n];
+        let view = view_from_shape(&shape_vec);
+        let inner = TensorInner::new(TensorOp::Arange, view, shape_vec, T::DTYPE);
+        Self {
+            inner: Arc::new(inner),
+            autograd_meta: None,
+            _dtype: PhantomData,
+            _dim: PhantomData,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -344,5 +377,30 @@ mod tests {
     fn test_full_dyn_i8() {
         let t = Tensor::<i8, DimDyn>::full_dyn(&[2, 3], 5);
         assert_eq!(t.shape(), &[2, 3]);
+    }
+
+    // arange tests
+    #[test]
+    fn test_arange_f32() {
+        let t = Tensor::<f32, Dim1>::arange(5);
+        assert_eq!(t.shape(), &[5]);
+    }
+
+    #[test]
+    fn test_arange_f64() {
+        let t = Tensor::<f64, Dim1>::arange(4);
+        assert_eq!(t.shape(), &[4]);
+    }
+
+    #[test]
+    fn test_arange_i64() {
+        let t = Tensor::<i64, Dim1>::arange(3);
+        assert_eq!(t.shape(), &[3]);
+    }
+
+    #[test]
+    fn test_arange_zero() {
+        let t = Tensor::<f32, Dim1>::arange(0);
+        assert_eq!(t.shape(), &[0]);
     }
 }

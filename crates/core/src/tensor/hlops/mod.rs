@@ -25,6 +25,7 @@ mod arithmetic;
 mod complex_arithmetic;
 mod complex_transcendental;
 mod init;
+mod interpolate;
 mod linalg;
 mod transcendental;
 

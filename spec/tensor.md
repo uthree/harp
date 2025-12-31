@@ -502,6 +502,9 @@ primopsの組み合わせで表現される演算。f32, f64両方でサポー�
 | `Softmax(x)` | `Div(Exp(x - max), Reduce(Sum, Exp(x - max)))` |
 | `MatMul(a, b)` | `Reduce(Sum, Mul(Unsqueeze(a), Unsqueeze(b)))` |
 | `Conv2d` | Unfold + MatMul (im2col方式) |
+| `nearest1d(size)` | arange + floor + gather（NCW形式、Dim3） |
+| `nearest2d(size)` | arange + floor + gather（NCHW形式、Dim4） |
+| `nearest3d(size)` | arange + floor + gather（NCDHW形式、Dim5） |
 
 ### 複素数演算（hlops/complex）
 
@@ -625,6 +628,9 @@ let zeros = Tensor::<f32, Dim2>::zeros([3, 4]);
 let ones = Tensor::<f32, Dim2>::ones([3, 4]);
 let full = Tensor::<f32, Dim2>::full([3, 4], 2.5);
 let input = Tensor::<f32, Dim2>::input("x", [3, 4]);
+
+// 連番（1D専用）
+let seq = Tensor::<f32, Dim1>::arange(5);  // [0.0, 1.0, 2.0, 3.0, 4.0]
 
 // 動的次元
 let zeros = Tensor::<f32, DimDyn>::zeros_dyn(&[3, 4, 5]);
@@ -821,6 +827,9 @@ src/tensor/
 │   ├── arithmetic.rs
 │   ├── complex_arithmetic.rs    # 複素数四則演算
 │   ├── complex_transcendental.rs # 複素数超越関数
+│   ├── interpolate/             # 補間
+│   │   ├── mod.rs
+│   │   └── nearest.rs           # 最近傍補間（interpolate_nearest1d/2d/3d）
 │   ├── linalg.rs
 │   ├── reduction.rs
 │   └── transcendental.rs
@@ -829,7 +838,7 @@ src/tensor/
     ├── bitwise.rs  # ビット演算（IntegerDType専用）
     ├── complex.rs  # 複素数演算（real, imag, conj, complex_from_parts）
     ├── grad.rs     # 勾配関数
-    ├── init.rs     # 初期化（zeros, ones, full）
+    ├── init.rs     # 初期化（zeros, ones, full, arange）
     ├── movement/   # 形状変更演算
     │   ├── mod.rs
     │   ├── core.rs     # pad, slice, squeeze, unsqueeze, reshape等
