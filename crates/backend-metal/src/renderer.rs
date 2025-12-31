@@ -100,6 +100,15 @@ fn render_dtype_metal(dtype: &DType) -> String {
         DType::Unknown => {
             panic!("Type inference failed: DType::Unknown should not appear in code generation")
         }
+        DType::Complex32 => {
+            // Metal does not have native complex type, use float2 as (real, imag) pair
+            "float2".to_string()
+        }
+        DType::Complex64 => {
+            // Metal does not have native complex type, use double2 as (real, imag) pair
+            // Note: double support in Metal is limited
+            "double2".to_string()
+        }
     }
 }
 
