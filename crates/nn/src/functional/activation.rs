@@ -28,13 +28,9 @@
 //! - `mish()` - Mish: `x * tanh(softplus(x))`
 //! - `elu(alpha)` - ELU: `x if x > 0, else alpha * (exp(x) - 1)`
 
-use harp::tensor::{Dimension, FloatDType, Tensor};
-
 #[cfg(test)]
 mod tests {
-    use harp::tensor::Dim2;
-
-    use super::*;
+    use harp::tensor::{Dim2, FloatDType, Tensor};
 
     #[test]
     fn test_relu_f32() {

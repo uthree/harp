@@ -92,14 +92,15 @@ impl<T: FloatDType> ConvTranspose1d<T> {
     /// 入力: `[N, C_in, L]`
     /// 出力: `[N, C_out, L_out]`
     ///
-    /// groups=1もgroups>1も同じロジックで処理
+    /// 要素積とsumを使用した統一実装（groups=1も groups>1 も同じロジック）
     pub fn forward(&self, input: &Tensor<T, Dim3>) -> Tensor<T, Dim3> {
         let input_shape = input.shape();
         let (n, c_in, l) = (input_shape[0], input_shape[1], input_shape[2]);
         let c_out = self.out_channels();
         let k = self.kernel_size();
-        let c_in_per_group = c_in / self.groups;
-        let c_out_per_group = c_out / self.groups;
+        let groups = self.groups;
+        let c_in_per_group = c_in / groups;
+        let c_out_per_group = c_out / groups;
 
         assert_eq!(
             c_in,
@@ -115,75 +116,53 @@ impl<T: FloatDType> ConvTranspose1d<T> {
         // 最終出力サイズ
         let l_out = l_out_raw - 2 * self.padding + self.output_padding;
 
-        let mut outputs = Vec::with_capacity(self.groups);
+        // 入力をreshape: [N, C_in, L] -> [N, groups, C_in/groups, L]
+        let input_reshaped = input
+            .clone()
+            .into_dyn()
+            .reshape_dyn(&[n, groups, c_in_per_group, l]);
 
-        for g in 0..self.groups {
-            // 入力チャンネルをスライス
-            let input_slice = input
-                .slice(&[
-                    (0, n),
-                    (g * c_in_per_group, (g + 1) * c_in_per_group),
-                    (0, l),
-                ])
-                .contiguous();
-
-            // 重みをスライス
-            let weight_slice = self
-                .weight
+        // 重みをreshape: [C_in, C_out/groups, k] -> [groups, C_in/groups, C_out/groups, k]
+        let weight =
+            self.weight
                 .as_dyn()
-                .slice(&[
-                    (g * c_in_per_group, (g + 1) * c_in_per_group),
-                    (0, c_out_per_group),
-                    (0, k),
-                ])
-                .contiguous();
+                .reshape_dyn(&[groups, c_in_per_group, c_out_per_group, k]);
 
-            // Reshape input: [N, C_in/G, L] -> [N * L, C_in/G]
-            let input_reshaped = input_slice
-                .permute(&[0, 2, 1])
-                .reshape([n * l, c_in_per_group]);
+        // ブロードキャスト用にunsqueeze
+        // input: [N, groups, C_in/groups, L] -> [N, groups, C_in/groups, 1, L, 1]
+        let input_expanded = input_reshaped.unsqueeze(3).unsqueeze(5);
 
-            // Reshape weight: [C_in/G, C_out/G, k] -> [C_in/G, C_out/G * k]
-            let weight_reshaped = weight_slice
-                .reshape_dyn(&[c_in_per_group, c_out_per_group * k])
-                .into_dim2();
+        // weight: [groups, C_in/groups, C_out/groups, k] -> [1, groups, C_in/groups, C_out/groups, 1, k]
+        let weight_expanded = weight.unsqueeze(0).unsqueeze(4);
 
-            // Matmul
-            let group_output = input_reshaped.matmul2(&weight_reshaped);
+        // 要素積: [N, groups, C_in/groups, C_out/groups, L, k]
+        let product = &input_expanded * &weight_expanded;
 
-            // Reshape and fold
-            let group_output = group_output
-                .into_dyn()
-                .reshape_dyn(&[n, l, c_out_per_group, k])
-                .permute(&[0, 2, 1, 3])
-                .into_dim4()
-                .fold1d_dilated(l_out_raw, self.stride, self.dilation);
+        // C_in/groups方向にsum (axis=2): [N, groups, C_out/groups, L, k]
+        let output = product.sum(2);
 
-            outputs.push(group_output.into_dyn());
-        }
+        // reshape: [N, groups, C_out/groups, L, k] -> [N, C_out, L, k]
+        let output = output.reshape_dyn(&[n, c_out, l, k]).into_dim4();
 
-        // Concatenate along channel dimension
-        let output = Tensor::concat(&outputs.iter().collect::<Vec<_>>(), 1);
+        // fold: [N, C_out, L, k] -> [N, C_out, L_out_raw]
+        let output = output.fold1d_dilated(l_out_raw, self.stride, self.dilation);
 
         // パディングを除去して最終サイズに調整
-        let output = if self.padding > 0 || self.output_padding > 0 {
-            output.slice(&[(0, n), (0, c_out), (self.padding, self.padding + l_out)])
-        } else {
-            output
-        };
+        let mut output = output.into_dyn();
+        if self.padding > 0 || self.output_padding > 0 {
+            output = output.slice(&[(0, n), (0, c_out), (self.padding, self.padding + l_out)]);
+        }
 
         // Add bias if present
-        let output = if let Some(ref bias) = self.bias {
+        if let Some(ref bias) = self.bias {
             let bias_expanded = bias
                 .as_dyn()
                 .clone()
                 .unsqueeze(0)
                 .unsqueeze(2)
                 .expand(output.shape());
-            &output + &bias_expanded
-        } else {
-            output
-        };
+            output = &output + &bias_expanded;
+        }
 
         output.into_dim3()
     }
@@ -362,7 +341,7 @@ impl<T: FloatDType> ConvTranspose2d<T> {
     /// 入力: `[N, C_in, H, W]`
     /// 出力: `[N, C_out, H_out, W_out]`
     ///
-    /// groups=1もgroups>1も同じロジックで処理
+    /// 要素積とsumを使用した統一実装（groups=1も groups>1 も同じロジック）
     pub fn forward(&self, input: &Tensor<T, Dim4>) -> Tensor<T, Dim4> {
         let input_shape = input.shape();
         let (n, c_in, h, w) = (
@@ -373,8 +352,9 @@ impl<T: FloatDType> ConvTranspose2d<T> {
         );
         let c_out = self.out_channels();
         let (kh, kw) = self.kernel_size();
-        let c_in_per_group = c_in / self.groups;
-        let c_out_per_group = c_out / self.groups;
+        let groups = self.groups;
+        let c_in_per_group = c_in / groups;
+        let c_out_per_group = c_out / groups;
 
         assert_eq!(
             c_in,
@@ -392,76 +372,55 @@ impl<T: FloatDType> ConvTranspose2d<T> {
         let h_out = h_out_raw - 2 * self.padding.0 + self.output_padding.0;
         let w_out = w_out_raw - 2 * self.padding.1 + self.output_padding.1;
 
-        let mut outputs = Vec::with_capacity(self.groups);
-
-        for g in 0..self.groups {
-            // 入力チャンネルをスライス
-            let input_slice = input
-                .slice(&[
-                    (0, n),
-                    (g * c_in_per_group, (g + 1) * c_in_per_group),
-                    (0, h),
-                    (0, w),
-                ])
-                .contiguous();
-
-            // 重みをスライス
-            let weight_slice = self
-                .weight
-                .as_dyn()
-                .slice(&[
-                    (g * c_in_per_group, (g + 1) * c_in_per_group),
-                    (0, c_out_per_group),
-                    (0, kh),
-                    (0, kw),
-                ])
-                .contiguous();
-
-            // Reshape input: [N, C_in/G, H, W] -> [N * H * W, C_in/G]
-            let input_reshaped = input_slice
-                .permute(&[0, 2, 3, 1])
-                .reshape([n * h * w, c_in_per_group]);
-
-            // Reshape weight: [C_in/G, C_out/G, kH, kW] -> [C_in/G, C_out/G * kH * kW]
-            let weight_reshaped = weight_slice
-                .reshape_dyn(&[c_in_per_group, c_out_per_group * kh * kw])
-                .into_dim2();
-
-            // Matmul
-            let group_output = input_reshaped.matmul2(&weight_reshaped);
-
-            // Reshape and fold
-            let group_output = group_output
+        // 入力をreshape: [N, C_in, H, W] -> [N, groups, C_in/groups, H, W]
+        let input_reshaped =
+            input
+                .clone()
                 .into_dyn()
-                .reshape_dyn(&[n, h, w, c_out_per_group, kh, kw])
-                .permute(&[0, 3, 1, 2, 4, 5])
-                .into_dim6()
-                .fold2d_dilated((h_out_raw, w_out_raw), self.stride, self.dilation);
+                .reshape_dyn(&[n, groups, c_in_per_group, h, w]);
 
-            outputs.push(group_output.into_dyn());
-        }
+        // 重みをreshape: [C_in, C_out/groups, kH, kW] -> [groups, C_in/groups, C_out/groups, kH, kW]
+        let weight =
+            self.weight
+                .as_dyn()
+                .reshape_dyn(&[groups, c_in_per_group, c_out_per_group, kh, kw]);
 
-        // Concatenate along channel dimension
-        let output = Tensor::concat(&outputs.iter().collect::<Vec<_>>(), 1);
+        // ブロードキャスト用にunsqueeze
+        // input: [N, groups, C_in/groups, H, W] -> [N, groups, C_in/groups, 1, H, W, 1, 1]
+        let input_expanded = input_reshaped.unsqueeze(3).unsqueeze(6).unsqueeze(7);
 
-        // パディングを除去
-        let output = if self.padding.0 > 0
+        // weight: [groups, C_in/groups, C_out/groups, kH, kW] -> [1, groups, C_in/groups, C_out/groups, 1, 1, kH, kW]
+        let weight_expanded = weight.unsqueeze(0).unsqueeze(4).unsqueeze(5);
+
+        // 要素積: [N, groups, C_in/groups, C_out/groups, H, W, kH, kW]
+        let product = &input_expanded * &weight_expanded;
+
+        // C_in/groups方向にsum (axis=2): [N, groups, C_out/groups, H, W, kH, kW]
+        let output = product.sum(2);
+
+        // reshape: [N, groups, C_out/groups, H, W, kH, kW] -> [N, C_out, H, W, kH, kW]
+        let output = output.reshape_dyn(&[n, c_out, h, w, kh, kw]).into_dim6();
+
+        // fold: [N, C_out, H, W, kH, kW] -> [N, C_out, H_out_raw, W_out_raw]
+        let output = output.fold2d_dilated((h_out_raw, w_out_raw), self.stride, self.dilation);
+
+        // パディングを除去して最終サイズに調整
+        let mut output = output.into_dyn();
+        if self.padding.0 > 0
             || self.padding.1 > 0
             || self.output_padding.0 > 0
             || self.output_padding.1 > 0
         {
-            output.slice(&[
+            output = output.slice(&[
                 (0, n),
                 (0, c_out),
                 (self.padding.0, self.padding.0 + h_out),
                 (self.padding.1, self.padding.1 + w_out),
-            ])
-        } else {
-            output
-        };
+            ]);
+        }
 
         // Add bias if present
-        let output = if let Some(ref bias) = self.bias {
+        if let Some(ref bias) = self.bias {
             let bias_expanded = bias
                 .as_dyn()
                 .clone()
@@ -469,10 +428,8 @@ impl<T: FloatDType> ConvTranspose2d<T> {
                 .unsqueeze(2)
                 .unsqueeze(3)
                 .expand(output.shape());
-            &output + &bias_expanded
-        } else {
-            output
-        };
+            output = &output + &bias_expanded;
+        }
 
         output.into_dim4()
     }
@@ -668,7 +625,7 @@ impl<T: FloatDType> ConvTranspose3d<T> {
     /// 入力: `[N, C_in, D, H, W]`
     /// 出力: `[N, C_out, D_out, H_out, W_out]`
     ///
-    /// groups=1もgroups>1も同じロジックで処理
+    /// 要素積とsumを使用した統一実装（groups=1も groups>1 も同じロジック）
     pub fn forward(&self, input: &Tensor<T, Dim5>) -> Tensor<T, Dim5> {
         let input_shape = input.shape();
         let (n, c_in, d, h, w) = (
@@ -680,8 +637,9 @@ impl<T: FloatDType> ConvTranspose3d<T> {
         );
         let c_out = self.out_channels();
         let (kd, kh, kw) = self.kernel_size();
-        let c_in_per_group = c_in / self.groups;
-        let c_out_per_group = c_out / self.groups;
+        let groups = self.groups;
+        let c_in_per_group = c_in / groups;
+        let c_out_per_group = c_out / groups;
 
         assert_eq!(
             c_in,
@@ -701,85 +659,72 @@ impl<T: FloatDType> ConvTranspose3d<T> {
         let h_out = h_out_raw - 2 * self.padding.1 + self.output_padding.1;
         let w_out = w_out_raw - 2 * self.padding.2 + self.output_padding.2;
 
-        let mut outputs = Vec::with_capacity(self.groups);
-
-        for g in 0..self.groups {
-            // 入力チャンネルをスライス
-            let input_slice = input
-                .slice(&[
-                    (0, n),
-                    (g * c_in_per_group, (g + 1) * c_in_per_group),
-                    (0, d),
-                    (0, h),
-                    (0, w),
-                ])
-                .contiguous();
-
-            // 重みをスライス
-            let weight_slice = self
-                .weight
-                .as_dyn()
-                .slice(&[
-                    (g * c_in_per_group, (g + 1) * c_in_per_group),
-                    (0, c_out_per_group),
-                    (0, kd),
-                    (0, kh),
-                    (0, kw),
-                ])
-                .contiguous();
-
-            // Reshape input: [N, C_in/G, D, H, W] -> [N * D * H * W, C_in/G]
-            let input_reshaped = input_slice
-                .permute(&[0, 2, 3, 4, 1])
-                .reshape([n * d * h * w, c_in_per_group]);
-
-            // Reshape weight: [C_in/G, C_out/G, kD, kH, kW] -> [C_in/G, C_out/G * kD * kH * kW]
-            let weight_reshaped = weight_slice
-                .reshape_dyn(&[c_in_per_group, c_out_per_group * kd * kh * kw])
-                .into_dim2();
-
-            // Matmul
-            let group_output = input_reshaped.matmul2(&weight_reshaped);
-
-            // Reshape and fold
-            let group_output = group_output
+        // 入力をreshape: [N, C_in, D, H, W] -> [N, groups, C_in/groups, D, H, W]
+        let input_reshaped =
+            input
+                .clone()
                 .into_dyn()
-                .reshape_dyn(&[n, d, h, w, c_out_per_group, kd, kh, kw])
-                .permute(&[0, 4, 1, 2, 3, 5, 6, 7])
-                .into_dim8()
-                .fold3d_dilated(
-                    (d_out_raw, h_out_raw, w_out_raw),
-                    self.stride,
-                    self.dilation,
-                );
+                .reshape_dyn(&[n, groups, c_in_per_group, d, h, w]);
 
-            outputs.push(group_output.into_dyn());
-        }
+        // 重みをreshape: [C_in, C_out/groups, kD, kH, kW] -> [groups, C_in/groups, C_out/groups, kD, kH, kW]
+        let weight = self.weight.as_dyn().reshape_dyn(&[
+            groups,
+            c_in_per_group,
+            c_out_per_group,
+            kd,
+            kh,
+            kw,
+        ]);
 
-        // Concatenate along channel dimension
-        let output = Tensor::concat(&outputs.iter().collect::<Vec<_>>(), 1);
+        // ブロードキャスト用にunsqueeze
+        // input: [N, groups, C_in/groups, D, H, W] -> [N, groups, C_in/groups, 1, D, H, W, 1, 1, 1]
+        let input_expanded = input_reshaped
+            .unsqueeze(3)
+            .unsqueeze(7)
+            .unsqueeze(8)
+            .unsqueeze(9);
 
-        // パディングを除去
-        let output = if self.padding.0 > 0
+        // weight: [groups, C_in/groups, C_out/groups, kD, kH, kW] -> [1, groups, C_in/groups, C_out/groups, 1, 1, 1, kD, kH, kW]
+        let weight_expanded = weight.unsqueeze(0).unsqueeze(4).unsqueeze(5).unsqueeze(6);
+
+        // 要素積: [N, groups, C_in/groups, C_out/groups, D, H, W, kD, kH, kW]
+        let product = &input_expanded * &weight_expanded;
+
+        // C_in/groups方向にsum (axis=2): [N, groups, C_out/groups, D, H, W, kD, kH, kW]
+        let output = product.sum(2);
+
+        // reshape: [N, groups, C_out/groups, D, H, W, kD, kH, kW] -> [N, C_out, D, H, W, kD, kH, kW]
+        let output = output
+            .reshape_dyn(&[n, c_out, d, h, w, kd, kh, kw])
+            .into_dim8();
+
+        // fold: [N, C_out, D, H, W, kD, kH, kW] -> [N, C_out, D_out_raw, H_out_raw, W_out_raw]
+        let output = output.fold3d_dilated(
+            (d_out_raw, h_out_raw, w_out_raw),
+            self.stride,
+            self.dilation,
+        );
+
+        // パディングを除去して最終サイズに調整
+        let mut output = output.into_dyn();
+        if self.padding.0 > 0
             || self.padding.1 > 0
             || self.padding.2 > 0
             || self.output_padding.0 > 0
             || self.output_padding.1 > 0
             || self.output_padding.2 > 0
         {
-            output.slice(&[
+            output = output.slice(&[
                 (0, n),
                 (0, c_out),
                 (self.padding.0, self.padding.0 + d_out),
                 (self.padding.1, self.padding.1 + h_out),
                 (self.padding.2, self.padding.2 + w_out),
-            ])
-        } else {
-            output
-        };
+            ]);
+        }
 
         // Add bias if present
-        let output = if let Some(ref bias) = self.bias {
+        if let Some(ref bias) = self.bias {
             let bias_expanded = bias
                 .as_dyn()
                 .clone()
@@ -788,10 +733,8 @@ impl<T: FloatDType> ConvTranspose3d<T> {
                 .unsqueeze(3)
                 .unsqueeze(4)
                 .expand(output.shape());
-            &output + &bias_expanded
-        } else {
-            output
-        };
+            output = &output + &bias_expanded;
+        }
 
         output.into_dim5()
     }
