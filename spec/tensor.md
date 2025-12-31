@@ -505,6 +505,9 @@ primopsの組み合わせで表現される演算。f32, f64両方でサポー�
 | `nearest1d(size)` | arange + floor + gather（NCW形式、Dim3） |
 | `nearest2d(size)` | arange + floor + gather（NCHW形式、Dim4） |
 | `nearest3d(size)` | arange + floor + gather（NCDHW形式、Dim5） |
+| `linear1d(size)` | arange + floor + gather×2 + 線形補間（NCW形式、Dim3） |
+| `bilinear2d(size)` | arange + floor + gather×4 + 双線形補間（NCHW形式、Dim4） |
+| `trilinear3d(size)` | arange + floor + gather×8 + 三線形補間（NCDHW形式、Dim5） |
 
 ### 複素数演算（hlops/complex）
 
@@ -829,7 +832,8 @@ src/tensor/
 │   ├── complex_transcendental.rs # 複素数超越関数
 │   ├── interpolate/             # 補間
 │   │   ├── mod.rs
-│   │   └── nearest.rs           # 最近傍補間（interpolate_nearest1d/2d/3d）
+│   │   ├── nearest.rs           # 最近傍補間（nearest1d/2d/3d）
+│   │   └── linear.rs            # 線形補間（linear1d, bilinear2d, trilinear3d）
 │   ├── linalg.rs
 │   ├── reduction.rs
 │   └── transcendental.rs
