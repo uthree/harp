@@ -472,6 +472,7 @@ impl<T: FloatDType, D: Dimension> GradFnTyped<T, D::Smaller> for SumBackwardType
 | `Concat` | テンソル結合（複数入力を条件分岐で処理） |
 | `Unfold` | スライディングウィンドウ（im2col用、View::IndexExpr経由、dilation対応） |
 | `Fold` | Unfoldの逆操作（col2im、勾配計算用、slice+pad+sumで実装、dilation対応） |
+| `Gather` | インデックステンソルに基づく要素収集（View::IndexExpr + Expr::LoadIndex経由） |
 
 #### 特殊
 | 演算 | 説明 |
@@ -684,6 +685,11 @@ let sliced = a.slice(&[(1, 3), (0, 2)]);     // 範囲指定で部分テンソ�
 
 // 結合
 let combined = Tensor::concat(&[&a, &b], 0); // axis=0で結合
+
+// Gather（インデックスに基づく要素収集）
+let data = Tensor::<f32, Dim2>::ones([4, 5]);
+let index = Tensor::<i64, Dim2>::zeros([3, 5]);
+let gathered = data.gather(0, &index); // output[i][j] = input[index[i][j]][j]
 ```
 
 ### 型安全な形状操作
@@ -697,6 +703,7 @@ let combined = Tensor::concat(&[&a, &b], 0); // axis=0で結合
 | `pad(padding, value)` | `D` | `D` | パディング（次元数保持） |
 | `slice(ranges)` | `D` | `D` | スライス（次元数保持、ゼロコピー） |
 | `concat(tensors, axis)` | `&[&Tensor<T, D>]` | `D` | 静的メソッド、テンソル結合 |
+| `gather(dim, index)` | `D` | `D` | インデックステンソルに基づく要素収集 |
 | `contiguous()` | `D` | `D` | メモリレイアウト正規化 |
 | `flatten()` | `D` | `Dim<1>` | 1次元に展開 |
 | `reshape([...])` | `D` | `Dim<M>` | 静的形状への変換 |
@@ -819,6 +826,7 @@ src/tensor/
     ├── movement/   # 形状変更演算
     │   ├── mod.rs
     │   ├── core.rs     # pad, slice, squeeze, unsqueeze, reshape等
+    │   ├── gather.rs   # gather演算（インデックステンソルに基づく要素収集）
     │   ├── unfold.rs   # unfold1d/2d/3d_dilated（stride, dilation対応）
     │   ├── fold.rs     # fold1d/2d/3d_dilated（unfoldの逆操作、stride, dilation対応）
     │   ├── backward.rs # 勾配関数

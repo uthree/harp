@@ -1043,3 +1043,98 @@ fn test_unfold_fold_stride2_backward() {
     let grad = input.grad().expect("input should have gradient");
     assert_eq!(grad.shape(), &[1, 1, 6, 6]);
 }
+
+// ============================================================================
+// Gather tests
+// ============================================================================
+
+#[test]
+fn test_gather_1d_shape() {
+    use crate::tensor::Dim1;
+    let input = Tensor::<f32, Dim1>::ones([4]);
+    let index = Tensor::<i64, Dim1>::zeros([3]);
+    let output = input.gather(0, &index);
+    assert_eq!(output.shape(), &[3]);
+}
+
+#[test]
+fn test_gather_2d_dim0_shape() {
+    let input = Tensor::<f32, Dim2>::ones([4, 5]);
+    let index = Tensor::<i64, Dim2>::zeros([3, 5]);
+    let output = input.gather(0, &index);
+    assert_eq!(output.shape(), &[3, 5]);
+}
+
+#[test]
+fn test_gather_2d_dim1_shape() {
+    let input = Tensor::<f32, Dim2>::ones([4, 5]);
+    let index = Tensor::<i64, Dim2>::zeros([4, 3]);
+    let output = input.gather(1, &index);
+    assert_eq!(output.shape(), &[4, 3]);
+}
+
+#[test]
+fn test_gather_3d_dim0_shape() {
+    let input = Tensor::<f32, Dim3>::ones([2, 3, 4]);
+    let index = Tensor::<i64, Dim3>::zeros([5, 3, 4]);
+    let output = input.gather(0, &index);
+    assert_eq!(output.shape(), &[5, 3, 4]);
+}
+
+#[test]
+fn test_gather_3d_dim1_shape() {
+    let input = Tensor::<f32, Dim3>::ones([2, 3, 4]);
+    let index = Tensor::<i64, Dim3>::zeros([2, 5, 4]);
+    let output = input.gather(1, &index);
+    assert_eq!(output.shape(), &[2, 5, 4]);
+}
+
+#[test]
+fn test_gather_3d_dim2_shape() {
+    let input = Tensor::<f32, Dim3>::ones([2, 3, 4]);
+    let index = Tensor::<i64, Dim3>::zeros([2, 3, 5]);
+    let output = input.gather(2, &index);
+    assert_eq!(output.shape(), &[2, 3, 5]);
+}
+
+#[test]
+fn test_gather_type_safe() {
+    // Gather preserves dimension type
+    let input = Tensor::<f32, Dim2>::ones([4, 5]);
+    let index = Tensor::<i64, Dim2>::zeros([3, 5]);
+    let output: Tensor<f32, Dim2> = input.gather(0, &index);
+    assert_eq!(output.shape(), &[3, 5]);
+}
+
+#[test]
+fn test_gather_f64() {
+    let input = Tensor::<f64, Dim2>::ones([4, 5]);
+    let index = Tensor::<i64, Dim2>::zeros([3, 5]);
+    let output = input.gather(0, &index);
+    assert_eq!(output.shape(), &[3, 5]);
+}
+
+#[test]
+#[should_panic(expected = "out of bounds")]
+fn test_gather_invalid_dim() {
+    let input = Tensor::<f32, Dim2>::ones([4, 5]);
+    let index = Tensor::<i64, Dim2>::zeros([3, 5]);
+    let _ = input.gather(2, &index); // dim 2 out of bounds for 2D tensor
+}
+
+#[test]
+#[should_panic(expected = "must match")]
+fn test_gather_shape_mismatch() {
+    let input = Tensor::<f32, Dim2>::ones([4, 5]);
+    let index = Tensor::<i64, Dim2>::zeros([3, 6]); // dim 1 mismatch: 5 vs 6
+    let _ = input.gather(0, &index);
+}
+
+#[test]
+fn test_gather_no_grad_propagation() {
+    // Gather does not support gradient tracking
+    let input = Tensor::<f32, Dim2>::ones([4, 5]); // No requires_grad
+    let index = Tensor::<i64, Dim2>::zeros([3, 5]);
+    let output = input.gather(0, &index);
+    assert!(!output.requires_grad());
+}

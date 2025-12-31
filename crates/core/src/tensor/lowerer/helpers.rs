@@ -184,11 +184,89 @@ pub fn build_strided_offset(view: &View, ndim: usize) -> AstNode {
 
             result
         }
-        View::IndexExpr { index_expr, .. } => index_expr.clone().into(),
+        View::IndexExpr { index_expr, .. } => {
+            // NOTE: LoadIndexを含む場合はpanicする
+            // LoadIndex対応版は expr_to_ast_with_load_index を使用
+            index_expr.clone().into()
+        }
         View::Masked { inner, .. } => {
             // Maskedの場合は内側のViewのオフセット計算を使用
             // 注意: 条件チェックはLowerer側で別途処理される
             build_strided_offset(inner, ndim)
+        }
+    }
+}
+
+// ============================================================================
+// LoadIndex対応のExpr→AstNode変換
+// ============================================================================
+
+use std::collections::HashMap;
+
+/// LoadIndexを含むExprをAstNodeに変換
+///
+/// LoadIndexはバッファからの動的読み込みを表現する。
+/// buffer_varsマップで各src_indexに対応するバッファ変数名を指定する。
+///
+/// # Arguments
+/// * `expr` - 変換するExpr（LoadIndexを含む可能性あり）
+/// * `buffer_vars` - src_index -> バッファ変数名のマップ
+///
+/// # Returns
+/// AstNode表現
+pub fn expr_to_ast_with_load_index(expr: &Expr, buffer_vars: &HashMap<usize, String>) -> AstNode {
+    match expr {
+        Expr::Const(c) => const_int(*c),
+        Expr::Idx(i) => var(ph::ridx(*i)),
+        Expr::Add(l, r) => {
+            let left = expr_to_ast_with_load_index(l, buffer_vars);
+            let right = expr_to_ast_with_load_index(r, buffer_vars);
+            left + right
+        }
+        Expr::Sub(l, r) => {
+            let left = expr_to_ast_with_load_index(l, buffer_vars);
+            let right = expr_to_ast_with_load_index(r, buffer_vars);
+            left + (-right)
+        }
+        Expr::Mul(l, r) => {
+            let left = expr_to_ast_with_load_index(l, buffer_vars);
+            let right = expr_to_ast_with_load_index(r, buffer_vars);
+            left * right
+        }
+        Expr::Div(l, r) => {
+            let left = expr_to_ast_with_load_index(l, buffer_vars);
+            let right = expr_to_ast_with_load_index(r, buffer_vars);
+            left * crate::ast::helper::recip(right)
+        }
+        Expr::Rem(l, r) => {
+            let left = expr_to_ast_with_load_index(l, buffer_vars);
+            let right = expr_to_ast_with_load_index(r, buffer_vars);
+            AstNode::Rem(Box::new(left), Box::new(right))
+        }
+        Expr::Lt(l, r) => {
+            let left = expr_to_ast_with_load_index(l, buffer_vars);
+            let right = expr_to_ast_with_load_index(r, buffer_vars);
+            AstNode::Lt(Box::new(left), Box::new(right))
+        }
+        Expr::And(l, r) => {
+            let left = expr_to_ast_with_load_index(l, buffer_vars);
+            let right = expr_to_ast_with_load_index(r, buffer_vars);
+            AstNode::And(Box::new(left), Box::new(right))
+        }
+        Expr::Not(a) => {
+            let inner = expr_to_ast_with_load_index(a, buffer_vars);
+            AstNode::Not(Box::new(inner))
+        }
+        Expr::LoadIndex {
+            src_index,
+            offset_expr,
+        } => {
+            // LoadIndex: 指定バッファからi64値を読み込む
+            let buf_var = buffer_vars
+                .get(src_index)
+                .unwrap_or_else(|| panic!("Unknown src_index {} in buffer_vars", src_index));
+            let offset = expr_to_ast_with_load_index(offset_expr, buffer_vars);
+            load(var(buf_var), offset, AstDType::I64)
         }
     }
 }

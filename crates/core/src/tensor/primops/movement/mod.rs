@@ -16,6 +16,7 @@
 
 mod backward;
 mod fold;
+pub mod gather;
 mod unfold;
 
 #[cfg(test)]
@@ -838,5 +839,101 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
         }
 
         result
+    }
+
+    /// Gather: select elements from input tensor using indices from index tensor
+    ///
+    /// PyTorch-style gather operation. For a 3D input tensor and dim=1:
+    /// ```text
+    /// output[i][j][k] = input[i][index[i][j][k]][k]
+    /// ```
+    ///
+    /// # Arguments
+    /// * `dim` - The dimension along which to gather
+    /// * `index` - Index tensor with the same number of dimensions as input.
+    ///   All dimensions except `dim` must match the input shape.
+    ///
+    /// # Output Shape
+    /// Same as the index tensor's shape.
+    ///
+    /// # Example
+    /// ```ignore
+    /// // 1D gather: output[i] = input[index[i]]
+    /// let input = Tensor::<f32, Dim1>::from_data(vec![1.0, 2.0, 3.0, 4.0], [4]);
+    /// let index = Tensor::<i64, Dim1>::from_data(vec![2, 0, 3, 1], [4]);
+    /// let output = input.gather(0, &index);
+    /// // output = [3.0, 1.0, 4.0, 2.0]
+    ///
+    /// // 2D gather dim=1: output[i][j] = input[i][index[i][j]]
+    /// let input = Tensor::<f32, Dim2>::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], [2, 3]);
+    /// let index = Tensor::<i64, Dim2>::from_data(vec![2, 0, 1, 2], [2, 2]);
+    /// let output = input.gather(1, &index);
+    /// // output = [[3.0, 1.0], [5.0, 6.0]]
+    /// ```
+    ///
+    /// # Panics
+    /// * If `dim >= input.ndim()`
+    /// * If index tensor has different number of dimensions
+    /// * If shapes don't match on non-dim axes
+    ///
+    /// # Note
+    /// No bounds checking is performed on index values (matches PyTorch behavior).
+    /// Gradient tracking is not supported for this operation.
+    pub fn gather(&self, dim: usize, index: &Tensor<i64, D>) -> Tensor<T, D> {
+        let ndim = self.ndim();
+        assert!(
+            dim < ndim,
+            "dim {} is out of bounds for tensor with {} dimensions",
+            dim,
+            ndim
+        );
+        assert_eq!(
+            index.ndim(),
+            ndim,
+            "index tensor must have same number of dimensions as input ({} vs {})",
+            index.ndim(),
+            ndim
+        );
+
+        // Validate shapes match on non-dim axes
+        for (axis, (&s_in, &s_idx)) in self.shape().iter().zip(index.shape()).enumerate() {
+            if axis != dim {
+                assert_eq!(
+                    s_in, s_idx,
+                    "input and index shapes must match on non-dim axes. \
+                     Axis {}: input={}, index={}",
+                    axis, s_in, s_idx
+                );
+            }
+        }
+
+        let output_shape = index.shape().to_vec();
+        let input_shape: Vec<usize> = self.shape().to_vec();
+        let index_shape: Vec<usize> = index.shape().to_vec();
+
+        // Build the index expression for gather
+        let index_expr = gather::build_gather_index_expr(dim, ndim, &input_shape, &index_shape);
+
+        // Create View::IndexExpr
+        let shape_exprs: Vec<Expr> = output_shape.iter().map(|&s| Expr::from(s as i64)).collect();
+        let view = View::IndexExpr {
+            shape: shape_exprs,
+            index_expr,
+        };
+
+        // Create TensorOp::MapReduce with both inputs
+        use crate::ast::helper::wildcard;
+        let inputs = vec![self.as_input_ref(), index.as_input_ref()];
+        let expr = wildcard("0"); // Just pass through the data value
+        let op = TensorOp::elementwise(inputs, expr);
+
+        let inner = TensorInner::new(op, view, output_shape, T::DTYPE);
+
+        Tensor {
+            inner: Arc::new(inner),
+            autograd_meta: None,
+            _dtype: PhantomData,
+            _dim: PhantomData,
+        }
     }
 }

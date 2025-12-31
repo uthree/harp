@@ -165,6 +165,11 @@ impl TensorLowerer {
 
     /// TensorInnerをASTにlower（内部用）
     fn lower_node_erased(&mut self, inner: &TensorInner, name: &str) -> AstNode {
+        // Gather演算（ViewにLoadIndexを含む）は特別処理
+        if inner.view().contains_load_index() {
+            return self.lower_gather_erased(inner, name);
+        }
+
         // View::Maskedは特別処理（Expr条件分岐が必要）
         // Note: View::padded()もMasked Viewを返すようになったため、ここで処理される
         if let TensorOp::View { input } = inner.op()
@@ -856,6 +861,59 @@ impl TensorLowerer {
 
         // Store文を作成
         let store_stmt = store(var(ph::OUTPUT), output_offset, value_expr);
+
+        // ループでラップ
+        let body = wrap_with_loops_with_shape(ndim, vec![store_stmt], Some(&output_shape));
+
+        function(
+            Some(name.to_string()),
+            vec![],
+            AstDType::Tuple(vec![]),
+            body,
+        )
+    }
+
+    /// Gather演算をlower
+    ///
+    /// View::IndexExprにLoadIndexを含む場合の特別処理
+    /// index tensorから動的にインデックスを読み込み、data tensorからデータを取得
+    fn lower_gather_erased(&self, inner: &TensorInner, name: &str) -> AstNode {
+        let output_shape = inner.view().shape();
+        let ndim = output_shape.len();
+        let load_dtype = dtype_to_ast(&inner.dtype());
+
+        // View::IndexExprからindex_exprを取得
+        let index_expr = match inner.view() {
+            View::IndexExpr { index_expr, .. } => index_expr.clone(),
+            _ => panic!("lower_gather_erased expects View::IndexExpr"),
+        };
+
+        // TensorOp::MapReduceからinputsを取得
+        let inputs = match inner.op() {
+            TensorOp::MapReduce { inputs, .. } => inputs,
+            _ => panic!("lower_gather_erased expects TensorOp::MapReduce"),
+        };
+
+        // バッファ変数マッピングを構築
+        // inputs[0] = data tensor → "input0"
+        // inputs[1] = index tensor → "input1"
+        let mut buffer_vars = std::collections::HashMap::new();
+        for (i, _) in inputs.iter().enumerate() {
+            buffer_vars.insert(i, ph::input(i));
+        }
+
+        // 出力オフセット（contiguous）
+        let output_offset = build_contiguous_offset_with_shape(ndim, Some(&output_shape));
+
+        // index_exprをAstNodeに変換（LoadIndex対応）
+        let input_offset = expr_to_ast_with_load_index(&index_expr, &buffer_vars);
+
+        // データバッファからLoad
+        let data_buf = buffer_vars.get(&0).expect("data buffer not found");
+        let load_expr = load(var(data_buf), input_offset, load_dtype);
+
+        // Store文を作成
+        let store_stmt = store(var(ph::OUTPUT), output_offset, load_expr);
 
         // ループでラップ
         let body = wrap_with_loops_with_shape(ndim, vec![store_stmt], Some(&output_shape));

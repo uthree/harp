@@ -23,7 +23,9 @@
 use std::sync::Arc;
 
 use crate::tensor::primops::complex::{Conjugate, ImagPart, RealPart};
-use crate::tensor::{Complex32, Complex64, ComplexGradFn, Dimension, FloatDType, Sin, Sqrt, Tensor};
+use crate::tensor::{
+    Complex32, Complex64, ComplexGradFn, Dimension, FloatDType, Sin, Sqrt, Tensor,
+};
 
 // ============================================================================
 // Trait for complex transcendental operations

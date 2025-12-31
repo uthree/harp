@@ -1488,7 +1488,8 @@ macro_rules! impl_complex_autograd {
             /// Reset the gradient to None
             pub fn zero_grad(&self) {
                 if let Some(ref autograd_arc) = self.autograd_meta
-                    && let Some(autograd) = autograd_arc.downcast_ref::<ComplexAutogradMeta<$real_type, D>>()
+                    && let Some(autograd) =
+                        autograd_arc.downcast_ref::<ComplexAutogradMeta<$real_type, D>>()
                 {
                     *autograd.grad.write().unwrap() = None;
                 }
@@ -1534,7 +1535,9 @@ macro_rules! impl_complex_autograd {
             pub fn backward_with(&self, grad_output: Tensor<$complex_type, D>) {
                 if let Some(ref autograd_arc) = self.autograd_meta {
                     // Try to downcast to ComplexAutogradMeta
-                    if let Some(autograd) = autograd_arc.downcast_ref::<ComplexAutogradMeta<$real_type, D>>() {
+                    if let Some(autograd) =
+                        autograd_arc.downcast_ref::<ComplexAutogradMeta<$real_type, D>>()
+                    {
                         // Accumulate gradient
                         {
                             let mut grad = autograd.grad.write().unwrap();
