@@ -13,6 +13,18 @@
 //! - [`ConvTranspose2d`] - 2D転置畳み込み層
 //! - [`ConvTranspose3d`] - 3D転置畳み込み層
 //!
+//! ## プーリング層（パラメータなし）
+//! - [`MaxPool1d`] - 1D最大プーリング
+//! - [`MaxPool2d`] - 2D最大プーリング
+//! - [`MaxPool3d`] - 3D最大プーリング
+//! - [`AvgPool1d`] - 1D平均プーリング
+//! - [`AvgPool2d`] - 2D平均プーリング
+//! - [`AvgPool3d`] - 3D平均プーリング
+//! - [`AdaptiveAvgPool2d`] - 2D適応的平均プーリング
+//! - [`AdaptiveMaxPool2d`] - 2D適応的最大プーリング
+//! - [`GlobalAvgPool2d`] - 2Dグローバル平均プーリング
+//! - [`GlobalMaxPool2d`] - 2Dグローバル最大プーリング
+//!
 //! ## 活性化関数層（パラメータなし）
 //! - [`ReLU`] - ReLU 活性化関数
 //! - [`LeakyReLU`] - Leaky ReLU 活性化関数
@@ -28,6 +40,7 @@
 mod activation;
 mod conv;
 mod linear;
+mod pooling;
 
 pub use activation::{ELU, GELU, LeakyReLU, Mish, ReLU, SiLU, Sigmoid, Softplus, Swish, Tanh};
 pub use conv::{
@@ -36,3 +49,7 @@ pub use conv::{
     ConvTranspose3dConfig,
 };
 pub use linear::Linear;
+pub use pooling::{
+    AdaptiveAvgPool2d, AdaptiveMaxPool2d, AvgPool1d, AvgPool2d, AvgPool3d, GlobalAvgPool2d,
+    GlobalMaxPool2d, MaxPool1d, MaxPool2d, MaxPool3d,
+};
