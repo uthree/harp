@@ -841,10 +841,14 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
 
         result
     }
+}
 
+// Gather with autograd support (FloatDType only)
+impl<T: FloatDType, D: Dimension> Tensor<T, D> {
     /// Gather: select elements from input tensor using indices from index tensor
     ///
-    /// PyTorch-style gather operation. For a 3D input tensor and dim=1:
+    /// PyTorch-style gather operation with automatic gradient tracking.
+    /// For a 3D input tensor and dim=1:
     /// ```text
     /// output[i][j][k] = input[i][index[i][j][k]][k]
     /// ```
@@ -879,6 +883,7 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
     ///
     /// # Note
     /// No bounds checking is performed on index values (matches PyTorch behavior).
+    /// Gradient is propagated via scatter_add when requires_grad is true.
     pub fn gather(&self, dim: usize, index: &Tensor<i64, D>) -> Tensor<T, D> {
         let ndim = self.ndim();
         assert!(
@@ -929,25 +934,14 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
 
         let inner = TensorInner::new(op, view, output_shape, T::DTYPE);
 
-        Tensor {
+        let result = Tensor {
             inner: Arc::new(inner),
             autograd_meta: None,
             _dtype: PhantomData,
             _dim: PhantomData,
-        }
-    }
-}
+        };
 
-// Gather with autograd support (FloatDType only)
-impl<T: FloatDType, D: Dimension> Tensor<T, D> {
-    /// Gather with gradient tracking support
-    ///
-    /// This is the autograd-enabled version of gather that tracks gradients
-    /// for backpropagation. The backward pass uses scatter_add.
-    pub fn gather_with_grad(&self, dim: usize, index: &Tensor<i64, D>) -> Tensor<T, D> {
-        let input_shape = self.shape().to_vec();
-        let result = self.gather(dim, index);
-
+        // Add autograd support
         if self.requires_grad() {
             let grad_fn = GatherBackward::new(self.clone(), index.clone(), dim, input_shape);
             result.with_grad_fn(Arc::new(grad_fn))

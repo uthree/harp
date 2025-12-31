@@ -1178,34 +1178,34 @@ fn test_scatter_add_2d_dim1_shape() {
 // ============================================================================
 
 #[test]
-fn test_gather_with_grad_shape() {
+fn test_gather_autograd_shape() {
     use crate::tensor::Dim1;
 
     let input = Tensor::<f32, Dim1>::ones([4]).set_requires_grad(true);
     let index = Tensor::<i64, Dim1>::zeros([4]);
-    let output = input.gather_with_grad(0, &index);
+    let output = input.gather(0, &index);
 
     assert_eq!(output.shape(), &[4]);
     assert!(output.requires_grad());
 }
 
 #[test]
-fn test_gather_with_grad_2d() {
+fn test_gather_autograd_2d() {
     let input = Tensor::<f32, Dim2>::ones([4, 5]).set_requires_grad(true);
     let index = Tensor::<i64, Dim2>::zeros([3, 5]);
-    let output = input.gather_with_grad(0, &index);
+    let output = input.gather(0, &index);
 
     assert_eq!(output.shape(), &[3, 5]);
     assert!(output.requires_grad());
 }
 
 #[test]
-fn test_gather_with_grad_no_requires_grad() {
+fn test_gather_no_requires_grad() {
     use crate::tensor::Dim1;
 
     let input = Tensor::<f32, Dim1>::ones([4]); // No requires_grad
     let index = Tensor::<i64, Dim1>::zeros([4]);
-    let output = input.gather_with_grad(0, &index);
+    let output = input.gather(0, &index);
 
     assert_eq!(output.shape(), &[4]);
     assert!(!output.requires_grad());
