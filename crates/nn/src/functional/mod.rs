@@ -5,10 +5,10 @@
 //!
 //! # 活性化関数
 //!
-//! `activation`モジュールをインポートすると、テンソルに活性化関数メソッドが追加されます。
+//! 活性化関数は `harp::tensor::Tensor` に直接実装されています。
 //!
 //! ```ignore
-//! use harp_nn::functional::activation::ActivationExt;
+//! use harp::tensor::{Tensor, Dim2};
 //!
 //! let input = Tensor::<f32, Dim2>::ones([2, 3]);
 //! let output = input.relu();

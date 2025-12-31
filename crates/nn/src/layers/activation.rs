@@ -8,7 +8,6 @@ use std::marker::PhantomData;
 
 use harp::tensor::{DimDyn, Dimension, FloatDType, Tensor};
 
-use crate::functional::activation::ActivationExt;
 use crate::{Module, ParameterMut};
 
 // マクロで活性化層を生成 (FloatDType でジェネリック)
@@ -101,7 +100,7 @@ define_activation_layer!(
     /// Tanh 活性化層
     ///
     /// `f(x) = (exp(2x) - 1) / (exp(2x) + 1)`
-    Tanh, tanh_activation
+    Tanh, tanh
 );
 
 define_activation_layer!(

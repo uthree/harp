@@ -2,117 +2,39 @@
 //!
 //! ニューラルネットワークで使用される活性化関数を提供します。
 //!
+//! 活性化関数は `harp::tensor::Tensor` に直接実装されています。
+//! このモジュールは互換性のためにエイリアス（`tanh_activation`）を提供します。
+//!
 //! # 使い方
 //!
-//! `ActivationExt`トレイトをインポートすると、テンソルに活性化関数メソッドが追加されます。
-//!
 //! ```ignore
-//! use harp_nn::functional::activation::ActivationExt;
+//! use harp::tensor::{Tensor, Dim2};
 //!
 //! let input = Tensor::<f32, Dim2>::ones([2, 3]);
-//! let output = input.relu();
+//! let output = input.relu();      // harp-core の Tensor メソッド
+//! let output = input.sigmoid();   // harp-core の Tensor メソッド
+//! let output = input.tanh();      // harp-core の Tensor メソッド
 //! ```
 //!
-//! # 関数一覧
+//! # 関数一覧 (harp-core で提供)
 //!
-//! - [`relu`](ActivationExt::relu) - ReLU: `max(0, x)`
-//! - [`leaky_relu`](ActivationExt::leaky_relu) - Leaky ReLU: `max(alpha * x, x)`
-//! - [`sigmoid`](ActivationExt::sigmoid) - Sigmoid: `1 / (1 + exp(-x))`
-//! - [`tanh_activation`](ActivationExt::tanh_activation) - Tanh: `(exp(2x) - 1) / (exp(2x) + 1)`
-//! - [`gelu`](ActivationExt::gelu) - GELU (高速近似): `x * sigmoid(1.702 * x)`
-//! - [`silu`](ActivationExt::silu) - SiLU (Swish): `x * sigmoid(x)`
-//! - [`softplus`](ActivationExt::softplus) - Softplus: `ln(1 + exp(x))`
-//! - [`mish`](ActivationExt::mish) - Mish: `x * tanh(softplus(x))`
-//! - [`elu`](ActivationExt::elu) - ELU: `x if x > 0, else alpha * (exp(x) - 1)`
+//! - `relu()` - ReLU: `max(0, x)`
+//! - `leaky_relu(alpha)` - Leaky ReLU: `max(alpha * x, x)`
+//! - `sigmoid()` - Sigmoid: `1 / (1 + exp(-x))`
+//! - `tanh()` - Tanh: `(exp(2x) - 1) / (exp(2x) + 1)`
+//! - `gelu()` - GELU (高速近似): `x * sigmoid(1.702 * x)`
+//! - `silu()` - SiLU (Swish): `x * sigmoid(x)`
+//! - `softplus()` - Softplus: `ln(1 + exp(x))`
+//! - `mish()` - Mish: `x * tanh(softplus(x))`
+//! - `elu(alpha)` - ELU: `x if x > 0, else alpha * (exp(x) - 1)`
 
 use harp::tensor::{Dimension, FloatDType, Tensor};
 
-/// 活性化関数の拡張トレイト
+/// `tanh()` のエイリアス（後方互換性のため）
 ///
-/// このトレイトをインポートすると、テンソルに活性化関数メソッドが追加されます。
-/// 実装はharp-coreのTensorメソッドに委譲されます。
-pub trait ActivationExt<D: Dimension>: Sized {
-    /// スカラー型
-    type Scalar: FloatDType;
-
-    /// ReLU: `max(0, x)`
-    fn relu(&self) -> Self;
-
-    /// Leaky ReLU: `max(alpha * x, x)`
-    fn leaky_relu(&self, alpha: Self::Scalar) -> Self;
-
-    /// Sigmoid: `1 / (1 + exp(-x))`
-    fn sigmoid(&self) -> Self;
-
-    /// Tanh: `(exp(2x) - 1) / (exp(2x) + 1)`
-    fn tanh_activation(&self) -> Self;
-
-    /// GELU (高速近似): `x * sigmoid(1.702 * x)`
-    fn gelu(&self) -> Self;
-
-    /// SiLU (Swish): `x * sigmoid(x)`
-    fn silu(&self) -> Self;
-
-    /// Softplus: `ln(1 + exp(x))`
-    fn softplus(&self) -> Self;
-
-    /// Mish: `x * tanh(softplus(x))`
-    fn mish(&self) -> Self;
-
-    /// ELU: `x if x > 0, else alpha * (exp(x) - 1)`
-    fn elu(&self, alpha: Self::Scalar) -> Self;
-}
-
-// FloatDType でジェネリックな単一実装
-// harp-coreのTensorメソッドに委譲
-impl<T: FloatDType, D: Dimension> ActivationExt<D> for Tensor<T, D> {
-    type Scalar = T;
-
-    fn relu(&self) -> Self {
-        // harp-core: Tensor::relu()
-        Tensor::relu(self)
-    }
-
-    fn leaky_relu(&self, alpha: T) -> Self {
-        // harp-core: Tensor::leaky_relu()
-        Tensor::leaky_relu(self, alpha)
-    }
-
-    fn sigmoid(&self) -> Self {
-        // harp-core: Tensor::sigmoid()
-        Tensor::sigmoid(self)
-    }
-
-    fn tanh_activation(&self) -> Self {
-        // harp-core: Tensor::tanh()
-        // 名前の衝突を避けるため tanh_activation として公開
-        Tensor::tanh(self)
-    }
-
-    fn gelu(&self) -> Self {
-        // harp-core: Tensor::gelu()
-        Tensor::gelu(self)
-    }
-
-    fn silu(&self) -> Self {
-        // harp-core: Tensor::silu()
-        Tensor::silu(self)
-    }
-
-    fn softplus(&self) -> Self {
-        // harp-core: Tensor::softplus()
-        Tensor::softplus(self)
-    }
-
-    fn mish(&self) -> Self {
-        // harp-core: Tensor::mish()
-        Tensor::mish(self)
-    }
-
-    fn elu(&self, alpha: T) -> Self {
-        // harp-core: Tensor::elu()
-        Tensor::elu(self, alpha)
-    }
+/// harp-core では `tanh()` として提供されています。
+pub fn tanh_activation<T: FloatDType, D: Dimension>(input: &Tensor<T, D>) -> Tensor<T, D> {
+    input.tanh()
 }
 
 #[cfg(test)]
@@ -159,7 +81,14 @@ mod tests {
     #[test]
     fn test_tanh() {
         let input = Tensor::<f32, Dim2>::zeros([2, 3]);
-        let output = input.tanh_activation();
+        let output = input.tanh();
+        assert_eq!(output.shape(), &[2, 3]);
+    }
+
+    #[test]
+    fn test_tanh_activation_alias() {
+        let input = Tensor::<f32, Dim2>::zeros([2, 3]);
+        let output = tanh_activation(&input);
         assert_eq!(output.shape(), &[2, 3]);
     }
 
