@@ -687,6 +687,8 @@ dependencies = [
  "indicatif",
  "log",
  "ndarray",
+ "num-complex",
+ "num-traits 0.2.19",
  "paste",
  "ratatui",
  "rstest",

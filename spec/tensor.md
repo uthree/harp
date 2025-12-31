@@ -63,12 +63,44 @@ pub trait SignedIntDType: IntegerDType {}
 pub trait UnsignedIntDType: IntegerDType {}
 ```
 
-| 型 | TensorDType | NumericDType | FloatDType | IntegerDType |
-|----|-------------|--------------|------------|--------------|
-| f32, f64 | ○ | ○ | ○ | × |
-| i8, i16, i32, i64 | ○ | ○ | × | ○ (Signed) |
-| u8, u16, u32, u64 | ○ | ○ | × | ○ (Unsigned) |
-| bool | ○ | × | × | × |
+| 型 | TensorDType | NumericDType | FloatDType | IntegerDType | ComplexDType |
+|----|-------------|--------------|------------|--------------|--------------|
+| f32, f64 | ○ | ○ | ○ | × | × |
+| i8, i16, i32, i64 | ○ | ○ | × | ○ (Signed) | × |
+| u8, u16, u32, u64 | ○ | ○ | × | ○ (Unsigned) | × |
+| bool | ○ | × | × | × | × |
+| Complex32, Complex64 | ○ | ○ | × | × | ○ |
+
+### ComplexDType トレイト
+
+複素数型のためのトレイトです。
+
+```rust
+pub trait ComplexDType: NumericDType {
+    type Real: FloatDType;
+    const I: Self;  // 虚数単位
+    fn new(re: Self::Real, im: Self::Real) -> Self;
+    fn re(&self) -> Self::Real;
+    fn im(&self) -> Self::Real;
+    fn conj(&self) -> Self;
+    fn abs(&self) -> Self::Real;
+    fn arg(&self) -> Self::Real;
+    fn norm_sqr(&self) -> Self::Real;
+}
+```
+
+複素数は独自の `Complex<T>` 構造体として実装されています（orphan rules回避のため）:
+
+```rust
+#[repr(C)]  // Interleaved layout: [re, im, re, im, ...]
+pub struct Complex<T> {
+    pub re: T,
+    pub im: T,
+}
+
+pub type Complex32 = Complex<f32>;
+pub type Complex64 = Complex<f64>;
+```
 
 **NumericDType**: 数値型の基底トレイト（初期化定数を含む）
 
@@ -463,6 +495,51 @@ primopsの組み合わせで表現される演算。f32, f64両方でサポー�
 | `MatMul(a, b)` | `Reduce(Sum, Mul(Unsqueeze(a), Unsqueeze(b)))` |
 | `Conv2d` | Unfold + MatMul (im2col方式) |
 
+### 複素数演算（hlops/complex）
+
+複素数テンソル（Complex32, Complex64）用の演算です。
+
+#### 複素数プリミティブ演算
+
+| 演算 | 説明 | 戻り値型 |
+|------|------|----------|
+| `z.real()` | 実部抽出 | `Tensor<T::Real>` |
+| `z.imag()` | 虚部抽出 | `Tensor<T::Real>` |
+| `z.conj()` | 複素共役 | `Tensor<T>` |
+| `complex(re, im)` | 実部と虚部から構成 | `Tensor<Complex<T>>` |
+
+#### 複素数四則演算
+
+| 演算 | 数学的表現 |
+|------|-----------|
+| `(a+bi) + (c+di)` | `(a+c) + (b+d)i` |
+| `(a+bi) - (c+di)` | `(a-c) + (b-d)i` |
+| `(a+bi) * (c+di)` | `(ac-bd) + (ad+bc)i` |
+| `(a+bi) / (c+di)` | `((ac+bd) + (bc-ad)i) / (c²+d²)` |
+| `-(a+bi)` | `(-a) + (-b)i` |
+| `1/(a+bi)` | `(a - bi) / (a²+b²)` |
+
+#### 複素数超越関数
+
+| 演算 | 数学的表現 |
+|------|-----------|
+| `exp(a+bi)` | `exp(a) * (cos(b) + i*sin(b))` |
+| `ln(z)` | `ln|z| + i*arg(z)` |
+| `sqrt(z)` | `sqrt(|z|) * exp(i*arg(z)/2)` |
+| `sin(a+bi)` | `sin(a)*cosh(b) + i*cos(a)*sinh(b)` |
+| `cos(a+bi)` | `cos(a)*cosh(b) - i*sin(a)*sinh(b)` |
+
+**注意**: 複素数の自動微分（Wirtinger微分）は未実装です。順伝播のみサポートされています。
+
+#### メモリレイアウト
+
+複素数は **Interleaved layout** を使用します:
+```
+[re0, im0, re1, im1, re2, im2, ...]
+```
+
+Lowering時に複素数は実数2つに分解されます。
+
 ## API
 
 ### テンソル作成
@@ -476,6 +553,10 @@ let input = Tensor::<f32, Dim2>::input("x", [3, 4]);
 
 // 動的次元
 let zeros = Tensor::<f32, DimDyn>::zeros_dyn(&[3, 4, 5]);
+
+// 複素数テンソル
+let z = Tensor::<Complex32, Dim2>::full([2, 3], Complex::new(1.0f32, 2.0f32));
+let w = Tensor::<Complex64, Dim2>::zeros([2, 3]);
 ```
 
 ### 演算
@@ -509,6 +590,17 @@ let a2 = a.fork();  // Clone演算を追加
 // 型変換（MapReduceとして実装、融合可能）
 let f: Tensor<f32, Dim2> = i.cast();
 let i: Tensor<i32, Dim2> = f.cast();
+
+// 複素数演算
+use harp::tensor::hlops::{ComplexExp, ComplexSin};
+let z = Tensor::<Complex32, Dim2>::full([2, 3], Complex::new(1.0f32, 2.0f32));
+let w = Tensor::<Complex32, Dim2>::full([2, 3], Complex::new(0.5f32, 1.0f32));
+let sum = &z + &w;           // 複素数加算
+let prod = &z * &w;          // 複素数乗算
+let re = z.real();           // 実部抽出
+let im = z.imag();           // 虚部抽出
+let conj = z.conj();         // 複素共役
+let exp_z = z.exp();         // 複素指数関数
 
 // 形状変更（型安全）
 let b: Tensor<f32, Dim3> = a.unsqueeze(0);   // Dim2 → Dim3
@@ -623,6 +715,7 @@ MapReduce演算の勾配はシンボリック微分により勾配を計算。
 ```
 src/tensor/
 ├── mod.rs          # Tensor構造体、TensorInner、GradFn
+├── complex.rs      # Complex<T>構造体、ComplexDTypeトレイト
 ├── dtype.rs        # TensorDType、NumericDType、FloatDType等のトレイト
 ├── dimension.rs    # Dimension トレイト
 ├── ops.rs          # TensorOp、ElementwiseOp、ReduceOp、TensorRef
@@ -634,17 +727,21 @@ src/tensor/
 │   └── view.rs     # View（メモリレイアウト）
 ├── lowerer/        # TensorLowerer（Tensor → AST変換）
 │   ├── mod.rs
+│   ├── complex.rs      # 複素数分解ヘルパー
 │   ├── expr_builder.rs
 │   └── helpers.rs
 ├── hlops/          # 高級演算
 │   ├── activation.rs
 │   ├── arithmetic.rs
+│   ├── complex_arithmetic.rs    # 複素数四則演算
+│   ├── complex_transcendental.rs # 複素数超越関数
 │   ├── linalg.rs
 │   ├── reduction.rs
 │   └── transcendental.rs
 └── primops/        # プリミティブ演算
     ├── binary.rs   # 二項演算（Add, Mul, Max, Idiv, Rem）
     ├── bitwise.rs  # ビット演算（IntegerDType専用）
+    ├── complex.rs  # 複素数演算（real, imag, conj, complex_from_parts）
     ├── grad.rs     # 勾配関数
     ├── init.rs     # 初期化（zeros, ones, full）
     ├── movement/   # 形状変更演算

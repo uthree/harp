@@ -378,6 +378,13 @@ impl FunctionInliningSuggester {
             AstNode::Floor(_) => AstNode::Floor(Box::new(children[0].clone())),
             AstNode::BitwiseNot(_) => AstNode::BitwiseNot(Box::new(children[0].clone())),
             AstNode::Cast(_, dtype) => AstNode::Cast(Box::new(children[0].clone()), dtype.clone()),
+            AstNode::Real(_) => AstNode::Real(Box::new(children[0].clone())),
+            AstNode::Imag(_) => AstNode::Imag(Box::new(children[0].clone())),
+            AstNode::Conj(_) => AstNode::Conj(Box::new(children[0].clone())),
+            AstNode::MakeComplex { .. } => AstNode::MakeComplex {
+                re: Box::new(children[0].clone()),
+                im: Box::new(children[1].clone()),
+            },
 
             // Fused Multiply-Add
             AstNode::Fma { .. } => AstNode::Fma {

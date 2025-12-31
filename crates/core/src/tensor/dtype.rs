@@ -107,6 +107,35 @@ impl TensorDType for bool {
     const DTYPE: DType = DType::Bool;
 }
 
+// Complex types
+use super::complex::Complex;
+
+impl TensorDType for Complex<f32> {
+    const DTYPE: DType = DType::Complex32;
+}
+
+impl TensorDType for Complex<f64> {
+    const DTYPE: DType = DType::Complex64;
+}
+
+impl NumericDType for Complex<f32> {
+    const ZERO: Self = Complex { re: 0.0, im: 0.0 };
+    const ONE: Self = Complex { re: 1.0, im: 0.0 };
+
+    fn to_literal(val: Self) -> Literal {
+        Literal::Complex32(val.re, val.im)
+    }
+}
+
+impl NumericDType for Complex<f64> {
+    const ZERO: Self = Complex { re: 0.0, im: 0.0 };
+    const ONE: Self = Complex { re: 1.0, im: 0.0 };
+
+    fn to_literal(val: Self) -> Literal {
+        Literal::Complex64(val.re, val.im)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -156,5 +185,34 @@ mod tests {
         requires_numeric::<u16>();
         requires_numeric::<u32>();
         requires_numeric::<u64>();
+
+        // Complex types satisfy NumericDType
+        requires_numeric::<Complex<f32>>();
+        requires_numeric::<Complex<f64>>();
+    }
+
+    #[test]
+    fn test_tensor_dtype_complex() {
+        assert_eq!(Complex::<f32>::DTYPE, DType::Complex32);
+        assert_eq!(Complex::<f64>::DTYPE, DType::Complex64);
+    }
+
+    #[test]
+    fn test_numeric_dtype_complex() {
+        // Test ZERO and ONE
+        let zero_c32 = Complex::<f32>::ZERO;
+        assert_eq!(zero_c32.re, 0.0);
+        assert_eq!(zero_c32.im, 0.0);
+
+        let one_c32 = Complex::<f32>::ONE;
+        assert_eq!(one_c32.re, 1.0);
+        assert_eq!(one_c32.im, 0.0);
+
+        // Test to_literal
+        let lit = NumericDType::to_literal(Complex::new(3.0f32, 4.0f32));
+        assert!(matches!(lit, Literal::Complex32(3.0, 4.0)));
+
+        let lit64 = NumericDType::to_literal(Complex::new(1.5f64, 2.5f64));
+        assert!(matches!(lit64, Literal::Complex64(1.5, 2.5)));
     }
 }

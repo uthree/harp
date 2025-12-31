@@ -209,6 +209,14 @@ pub trait CLikeRenderer {
                     }
                 }
             }
+            Literal::Complex32(re, im) => {
+                // Complex32は構造体リテラルとしてレンダリング
+                format!("(complex32){{{}f, {}f}}", re, im)
+            }
+            Literal::Complex64(re, im) => {
+                // Complex64は構造体リテラルとしてレンダリング
+                format!("(complex64){{{}, {}}}", re, im)
+            }
         }
     }
 
@@ -379,6 +387,31 @@ pub trait CLikeRenderer {
                 &self.render_expr(value),
                 dtype,
             ),
+            // Complex number operations
+            AstNode::Real(operand) => {
+                // Extract real part: z.re
+                format!("({}).re", self.render_expr(operand))
+            }
+            AstNode::Imag(operand) => {
+                // Extract imaginary part: z.im
+                format!("({}).im", self.render_expr(operand))
+            }
+            AstNode::Conj(operand) => {
+                // Complex conjugate: conj(z) = z.re - z.im*i
+                // Render as struct literal with negated imaginary part
+                let z = self.render_expr(operand);
+                format!("((typeof({0})){{({0}).re, -({0}).im}})", z)
+            }
+            AstNode::MakeComplex { re, im } => {
+                // Construct complex from real and imaginary parts
+                // We don't know the type here, so use a generic approach
+                // The caller should cast if needed
+                format!(
+                    "(complex32){{(float)({}), (float)({})}}",
+                    self.render_expr(re),
+                    self.render_expr(im)
+                )
+            }
             _ => format!("/* unsupported expression: {:?} */", node),
         }
     }
@@ -915,6 +948,8 @@ impl CLikeRenderer for GenericRenderer {
             DType::U64 => "unsigned long long".to_string(),
             DType::F32 => "float".to_string(),
             DType::F64 => "double".to_string(),
+            DType::Complex32 => "complex32".to_string(),
+            DType::Complex64 => "complex64".to_string(),
             DType::Int => "long long".to_string(), // Index type: 64-bit for CPU
             DType::Ptr(inner) => format!("{}*", self.render_dtype_backend(inner)),
             DType::Vec(inner, size) => format!("{}[{}]", self.render_dtype_backend(inner), size),
@@ -928,8 +963,16 @@ impl CLikeRenderer for GenericRenderer {
     }
 
     fn render_header(&self) -> String {
-        "// Generated C-like code (generic backend)\n#include <math.h>\n#include <stdlib.h>\n\n"
-            .to_string()
+        r#"// Generated C-like code (generic backend)
+#include <math.h>
+#include <stdlib.h>
+
+// Complex number types (interleaved layout)
+typedef struct { float re; float im; } complex32;
+typedef struct { double re; double im; } complex64;
+
+"#
+        .to_string()
     }
 
     fn render_function_qualifier(&self, _is_kernel: bool) -> String {

@@ -26,6 +26,7 @@
 //! let ast = lowerer.lower(&c.clone().into_dyn());
 //! ```
 
+pub mod complex;
 pub mod expr_builder;
 pub mod helpers;
 

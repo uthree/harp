@@ -116,8 +116,16 @@ impl LoopAnalyzer {
             | AstNode::Floor(a)
             | AstNode::BitwiseNot(a)
             | AstNode::Not(a)
-            | AstNode::Cast(a, _) => {
+            | AstNode::Cast(a, _)
+            | AstNode::Real(a)
+            | AstNode::Imag(a)
+            | AstNode::Conj(a) => {
                 self.analyze_recursive(a);
+            }
+            // MakeComplex (binary)
+            AstNode::MakeComplex { re, im } => {
+                self.analyze_recursive(re);
+                self.analyze_recursive(im);
             }
             // Select (ternary)
             AstNode::Select {
@@ -380,6 +388,13 @@ pub fn substitute_var(ast: &AstNode, var_name: &str, replacement: &AstNode) -> A
             Box::new(substitute_var(a, var_name, replacement)),
             dtype.clone(),
         ),
+        AstNode::Real(a) => AstNode::Real(Box::new(substitute_var(a, var_name, replacement))),
+        AstNode::Imag(a) => AstNode::Imag(Box::new(substitute_var(a, var_name, replacement))),
+        AstNode::Conj(a) => AstNode::Conj(Box::new(substitute_var(a, var_name, replacement))),
+        AstNode::MakeComplex { re, im } => AstNode::MakeComplex {
+            re: Box::new(substitute_var(re, var_name, replacement)),
+            im: Box::new(substitute_var(im, var_name, replacement)),
+        },
 
         // Fused Multiply-Add
         AstNode::Fma { a, b, c } => AstNode::Fma {
@@ -766,8 +781,17 @@ impl FreeVariableCollector {
             | AstNode::Floor(a)
             | AstNode::BitwiseNot(a)
             | AstNode::Not(a)
-            | AstNode::Cast(a, _) => {
+            | AstNode::Cast(a, _)
+            | AstNode::Real(a)
+            | AstNode::Imag(a)
+            | AstNode::Conj(a) => {
                 self.collect_recursive(a);
+            }
+
+            // MakeComplex
+            AstNode::MakeComplex { re, im } => {
+                self.collect_recursive(re);
+                self.collect_recursive(im);
             }
 
             // Select (ternary)

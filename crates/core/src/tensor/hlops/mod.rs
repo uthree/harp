@@ -22,9 +22,14 @@
 
 mod activation;
 mod arithmetic;
+mod complex_arithmetic;
+mod complex_transcendental;
 mod init;
 mod linalg;
 mod transcendental;
+
+// Re-export complex transcendental traits
+pub use complex_transcendental::{ComplexCos, ComplexExp, ComplexLn, ComplexSin, ComplexSqrt};
 
 // hlops modules implement methods on Tensor directly,
 // no re-exports needed

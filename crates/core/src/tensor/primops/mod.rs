@@ -19,6 +19,7 @@
 
 mod binary;
 mod bitwise;
+pub mod complex;
 mod grad;
 mod init;
 mod movement;
@@ -27,6 +28,9 @@ mod unary;
 
 // Re-export unary operation traits
 pub use unary::{Exp2, Floor, Log2, Recip, Sin, Sqrt};
+
+// Re-export complex operations
+pub use complex::{Conjugate, ImagPart, RealPart, complex};
 
 // Unary gradient functions are now typed - used internally only
 

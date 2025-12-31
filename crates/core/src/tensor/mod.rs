@@ -78,6 +78,7 @@
 //! let grad = x.grad();
 //! ```
 
+pub mod complex;
 pub mod dimension;
 pub mod dtype;
 pub mod forward;
@@ -96,8 +97,10 @@ use std::sync::{Arc, RwLock};
 
 use crate::backend::Buffer;
 
+pub use complex::{Complex, Complex32, Complex64};
 pub use dimension::{Dim, Dim0, Dim1, Dim2, Dim3, Dim4, Dim5, Dim6, Dim7, Dim8, DimDyn, Dimension};
 pub use dtype::{NumericDType, TensorDType};
+// ComplexDType is defined below after trait definitions
 // IntegerDType, SignedIntDType, UnsignedIntDType are defined below
 pub use forward::ForwardError;
 pub use ops::{ElementwiseOp, InputRef, ReduceOp, TensorOp};
@@ -216,6 +219,8 @@ pub trait FloatDType:
     + std::ops::Sub<Output = Self>
     + std::ops::Div<Output = Self>
     + std::ops::Neg<Output = Self>
+    + std::ops::Add<Output = Self>
+    + std::ops::Mul<Output = Self>
 {
     /// Negative infinity value for this type
     const NEG_INF: Self;
@@ -232,6 +237,9 @@ pub trait FloatDType:
     /// Two value
     const TWO: Self;
 
+    /// Small epsilon for numerical stability
+    const EPSILON: Self;
+
     /// Convert from usize to this type
     fn from_usize(val: usize) -> Self;
 
@@ -241,8 +249,29 @@ pub trait FloatDType:
     /// Square root of a scalar value
     fn sqrt(self) -> Self;
 
-    /// Small epsilon for numerical stability
-    const EPSILON: Self;
+    /// Exponential function: e^x
+    fn exp(self) -> Self;
+
+    /// Natural logarithm: ln(x)
+    fn ln(self) -> Self;
+
+    /// Sine function
+    fn sin(self) -> Self;
+
+    /// Cosine function
+    fn cos(self) -> Self;
+
+    /// Hyperbolic sine function
+    fn sinh(self) -> Self;
+
+    /// Hyperbolic cosine function
+    fn cosh(self) -> Self;
+
+    /// Two-argument arctangent: atan2(y, x)
+    fn atan2(self, other: Self) -> Self;
+
+    /// Power function: x^n
+    fn powf(self, n: Self) -> Self;
 }
 
 impl FloatDType for f32 {
@@ -264,6 +293,38 @@ impl FloatDType for f32 {
     fn sqrt(self) -> Self {
         f32::sqrt(self)
     }
+
+    fn exp(self) -> Self {
+        f32::exp(self)
+    }
+
+    fn ln(self) -> Self {
+        f32::ln(self)
+    }
+
+    fn sin(self) -> Self {
+        f32::sin(self)
+    }
+
+    fn cos(self) -> Self {
+        f32::cos(self)
+    }
+
+    fn sinh(self) -> Self {
+        f32::sinh(self)
+    }
+
+    fn cosh(self) -> Self {
+        f32::cosh(self)
+    }
+
+    fn atan2(self, other: Self) -> Self {
+        f32::atan2(self, other)
+    }
+
+    fn powf(self, n: Self) -> Self {
+        f32::powf(self, n)
+    }
 }
 
 impl FloatDType for f64 {
@@ -284,6 +345,38 @@ impl FloatDType for f64 {
 
     fn sqrt(self) -> Self {
         f64::sqrt(self)
+    }
+
+    fn exp(self) -> Self {
+        f64::exp(self)
+    }
+
+    fn ln(self) -> Self {
+        f64::ln(self)
+    }
+
+    fn sin(self) -> Self {
+        f64::sin(self)
+    }
+
+    fn cos(self) -> Self {
+        f64::cos(self)
+    }
+
+    fn sinh(self) -> Self {
+        f64::sinh(self)
+    }
+
+    fn cosh(self) -> Self {
+        f64::cosh(self)
+    }
+
+    fn atan2(self, other: Self) -> Self {
+        f64::atan2(self, other)
+    }
+
+    fn powf(self, n: Self) -> Self {
+        f64::powf(self, n)
     }
 }
 
@@ -339,6 +432,131 @@ macro_rules! impl_unsigned_int_dtype {
 impl_signed_int_dtype!(i8; i16; i32; i64);
 
 impl_unsigned_int_dtype!(u8; u16; u32; u64);
+
+// ============================================================================
+// ComplexDType - Sealed trait for complex number types
+// ============================================================================
+
+mod sealed_complex {
+    use super::FloatDType;
+    pub trait Sealed {}
+    impl<T: FloatDType> Sealed for crate::tensor::Complex<T> {}
+}
+
+/// Trait for complex number types (Complex<f32>, Complex<f64>)
+///
+/// This is a sealed trait - only implemented for Complex<f32> and Complex<f64>.
+/// Provides complex-specific operations like conjugate, absolute value, and argument.
+///
+/// Note: Complex types also implement `NumericDType` for basic arithmetic.
+pub trait ComplexDType: NumericDType + sealed_complex::Sealed {
+    /// The underlying real type (f32 or f64)
+    type Real: FloatDType;
+
+    /// Imaginary unit constant: i
+    const I: Self;
+
+    /// Create a complex number from real and imaginary parts
+    fn new(re: Self::Real, im: Self::Real) -> Self;
+
+    /// Get the real part
+    fn re(&self) -> Self::Real;
+
+    /// Get the imaginary part
+    fn im(&self) -> Self::Real;
+
+    /// Complex conjugate: conj(a + bi) = a - bi
+    fn conj(&self) -> Self;
+
+    /// Absolute value (modulus): |z| = sqrt(re² + im²)
+    fn abs(&self) -> Self::Real;
+
+    /// Argument (phase angle): arg(z) = atan2(im, re)
+    fn arg(&self) -> Self::Real;
+
+    /// Squared norm: |z|² = re² + im²
+    fn norm_sqr(&self) -> Self::Real;
+}
+
+impl ComplexDType for Complex<f32> {
+    type Real = f32;
+    const I: Self = Complex { re: 0.0, im: 1.0 };
+
+    #[inline]
+    fn new(re: f32, im: f32) -> Self {
+        Complex::new(re, im)
+    }
+
+    #[inline]
+    fn re(&self) -> f32 {
+        self.re
+    }
+
+    #[inline]
+    fn im(&self) -> f32 {
+        self.im
+    }
+
+    #[inline]
+    fn conj(&self) -> Self {
+        Complex::conj(self)
+    }
+
+    #[inline]
+    fn abs(&self) -> f32 {
+        Complex::abs(self)
+    }
+
+    #[inline]
+    fn arg(&self) -> f32 {
+        Complex::arg(self)
+    }
+
+    #[inline]
+    fn norm_sqr(&self) -> f32 {
+        Complex::norm_sqr(self)
+    }
+}
+
+impl ComplexDType for Complex<f64> {
+    type Real = f64;
+    const I: Self = Complex { re: 0.0, im: 1.0 };
+
+    #[inline]
+    fn new(re: f64, im: f64) -> Self {
+        Complex::new(re, im)
+    }
+
+    #[inline]
+    fn re(&self) -> f64 {
+        self.re
+    }
+
+    #[inline]
+    fn im(&self) -> f64 {
+        self.im
+    }
+
+    #[inline]
+    fn conj(&self) -> Self {
+        Complex::conj(self)
+    }
+
+    #[inline]
+    fn abs(&self) -> f64 {
+        Complex::abs(self)
+    }
+
+    #[inline]
+    fn arg(&self) -> f64 {
+        Complex::arg(self)
+    }
+
+    #[inline]
+    fn norm_sqr(&self) -> f64 {
+        Complex::norm_sqr(self)
+    }
+}
 
 // ============================================================================
 // TensorInner: Internal tensor data

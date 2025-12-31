@@ -85,6 +85,19 @@ pub enum AstNode {
     Floor(Box<AstNode>),
     Cast(Box<AstNode>, DType),
 
+    // Complex number operations - 複素数演算
+    /// 複素数から実部を抽出
+    Real(Box<AstNode>),
+    /// 複素数から虚部を抽出
+    Imag(Box<AstNode>),
+    /// 複素共役: conj(a + bi) = a - bi
+    Conj(Box<AstNode>),
+    /// 実部と虚部から複素数を構成
+    MakeComplex {
+        re: Box<AstNode>,
+        im: Box<AstNode>,
+    },
+
     /// Fused Multiply-Add: fma(a, b, c) = a * b + c
     /// 1命令で実行されるため、精度が向上し高速
     Fma {
@@ -291,7 +304,11 @@ impl AstNode {
             | AstNode::Floor(operand)
             | AstNode::BitwiseNot(operand)
             | AstNode::Not(operand)
-            | AstNode::Cast(operand, _) => vec![operand.as_ref()],
+            | AstNode::Cast(operand, _)
+            | AstNode::Real(operand)
+            | AstNode::Imag(operand)
+            | AstNode::Conj(operand) => vec![operand.as_ref()],
+            AstNode::MakeComplex { re, im } => vec![re.as_ref(), im.as_ref()],
             AstNode::Fma { a, b, c }
             | AstNode::Select {
                 cond: a,
@@ -426,6 +443,13 @@ impl AstNode {
             AstNode::Floor(operand) => AstNode::Floor(Box::new(f(operand))),
             AstNode::BitwiseNot(operand) => AstNode::BitwiseNot(Box::new(f(operand))),
             AstNode::Cast(operand, dtype) => AstNode::Cast(Box::new(f(operand)), dtype.clone()),
+            AstNode::Real(operand) => AstNode::Real(Box::new(f(operand))),
+            AstNode::Imag(operand) => AstNode::Imag(Box::new(f(operand))),
+            AstNode::Conj(operand) => AstNode::Conj(Box::new(f(operand))),
+            AstNode::MakeComplex { re, im } => AstNode::MakeComplex {
+                re: Box::new(f(re)),
+                im: Box::new(f(im)),
+            },
             AstNode::Fma { a, b, c } => AstNode::Fma {
                 a: Box::new(f(a)),
                 b: Box::new(f(b)),
@@ -626,13 +650,34 @@ impl AstNode {
             | AstNode::Log2(operand)
             | AstNode::Exp2(operand)
             | AstNode::Sin(operand)
-            | AstNode::Floor(operand) => {
+            | AstNode::Floor(operand)
+            | AstNode::Conj(operand) => {
                 // 数学的演算は入力の型を保持する（スカラーならF32、ベクトルならベクトル）
                 let input_type = operand.infer_type();
                 if input_type == DType::Unknown {
                     DType::F32 // 入力が不明の場合はF32を仮定
                 } else {
                     input_type
+                }
+            }
+
+            // Complex component extraction - returns real element type
+            AstNode::Real(operand) | AstNode::Imag(operand) => {
+                let input_type = operand.infer_type();
+                match input_type {
+                    DType::Complex32 => DType::F32,
+                    DType::Complex64 => DType::F64,
+                    _ => DType::Unknown,
+                }
+            }
+
+            // Complex construction - returns complex type
+            AstNode::MakeComplex { re, .. } => {
+                let real_type = re.infer_type();
+                match real_type {
+                    DType::F32 => DType::Complex32,
+                    DType::F64 => DType::Complex64,
+                    _ => DType::Unknown,
                 }
             }
 
@@ -752,8 +797,17 @@ impl AstNode {
             | AstNode::Floor(operand)
             | AstNode::BitwiseNot(operand)
             | AstNode::Not(operand)
-            | AstNode::Cast(operand, _) => {
+            | AstNode::Cast(operand, _)
+            | AstNode::Real(operand)
+            | AstNode::Imag(operand)
+            | AstNode::Conj(operand) => {
                 operand.check_scope(scope)?;
+                Ok(())
+            }
+            // MakeComplex
+            AstNode::MakeComplex { re, im } => {
+                re.check_scope(scope)?;
+                im.check_scope(scope)?;
                 Ok(())
             }
             // Select (ternary)

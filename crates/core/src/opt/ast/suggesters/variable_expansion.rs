@@ -353,6 +353,19 @@ impl VariableExpansionSuggester {
                 Box::new(Self::substitute_var(a, var_name, replacement)),
                 dtype.clone(),
             ),
+            AstNode::Real(a) => {
+                AstNode::Real(Box::new(Self::substitute_var(a, var_name, replacement)))
+            }
+            AstNode::Imag(a) => {
+                AstNode::Imag(Box::new(Self::substitute_var(a, var_name, replacement)))
+            }
+            AstNode::Conj(a) => {
+                AstNode::Conj(Box::new(Self::substitute_var(a, var_name, replacement)))
+            }
+            AstNode::MakeComplex { re, im } => AstNode::MakeComplex {
+                re: Box::new(Self::substitute_var(re, var_name, replacement)),
+                im: Box::new(Self::substitute_var(im, var_name, replacement)),
+            },
             // Fused Multiply-Add
             AstNode::Fma { a, b, c } => AstNode::Fma {
                 a: Box::new(Self::substitute_var(a, var_name, replacement)),

@@ -53,6 +53,8 @@ pub fn dtype_to_ast(dtype: &DType) -> AstDType {
         DType::U64 => AstDType::U64,
         DType::F32 => AstDType::F32,
         DType::F64 => AstDType::F64,
+        DType::Complex32 => AstDType::Complex32,
+        DType::Complex64 => AstDType::Complex64,
         DType::Int => AstDType::Int,
         DType::Unknown => AstDType::F32, // デフォルトでF32
         // Tensor領域では通常使用しないが、そのまま通す
