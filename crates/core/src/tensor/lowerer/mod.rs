@@ -33,7 +33,7 @@ pub mod helpers;
 use std::collections::HashMap;
 
 use crate::ast::{AstKernelCallInfo, AstNode, DType as AstDType, Mutability, Scope, helper::*};
-use crate::tensor::ops::{ReduceOp, TensorOp};
+use crate::tensor::ops::{InputRef, ReduceOp, TensorOp};
 use crate::tensor::shape::Expr;
 use crate::tensor::shape::View;
 use crate::tensor::{DimDyn, Tensor, TensorInner};
@@ -191,6 +191,17 @@ impl TensorLowerer {
         // Concatは特別処理（複数入力から条件分岐で選択）
         if let TensorOp::Concat { inputs, axis } = inner.op() {
             return self.lower_concat_erased(inner, inputs, *axis, name);
+        }
+
+        // ScatterAddは特別処理（AtomicAddを使用）
+        if let TensorOp::ScatterAdd {
+            target,
+            index,
+            src,
+            dim,
+        } = inner.op()
+        {
+            return self.lower_scatter_add_erased(inner, target, index, src, *dim, name);
         }
 
         // 最終的な出力形状はルートノードの形状を使用
@@ -1166,6 +1177,123 @@ impl TensorLowerer {
                 build_strided_offset(inner.view(), ndim)
             }
         }
+    }
+
+    /// ScatterAdd演算をASTにlower
+    ///
+    /// target[...][index[...]][...] += src[...]
+    /// AtomicAddを使用して並列安全に累積
+    fn lower_scatter_add_erased(
+        &mut self,
+        outer: &TensorInner,
+        target: &InputRef,
+        index: &InputRef,
+        src: &InputRef,
+        dim: usize,
+        name: &str,
+    ) -> AstNode {
+        let output_shape = outer.view().shape();
+        let src_shape = src.view().shape();
+        let ndim = src_shape.len();
+        let load_dtype = dtype_to_ast(&outer.dtype());
+
+        // バッファインデックスを割り当て
+        let mut buffer_index = 0usize;
+
+        // targetバッファ（出力でもあるが、初期値として入力）
+        let _target_buf_idx = {
+            let ptr = target.as_ref() as *const TensorInner;
+            if let Some(&existing_idx) = self.buffer_index_map.get(&ptr) {
+                existing_idx
+            } else {
+                let idx = buffer_index;
+                buffer_index += 1;
+                self.buffer_index_map.insert(ptr, idx);
+                idx
+            }
+        };
+
+        // indexバッファ
+        let index_buf_idx = {
+            let ptr = index.as_ref() as *const TensorInner;
+            if let Some(&existing_idx) = self.buffer_index_map.get(&ptr) {
+                existing_idx
+            } else {
+                let idx = buffer_index;
+                buffer_index += 1;
+                self.buffer_index_map.insert(ptr, idx);
+                idx
+            }
+        };
+
+        // srcバッファ
+        let src_buf_idx = {
+            let ptr = src.as_ref() as *const TensorInner;
+            if let Some(&existing_idx) = self.buffer_index_map.get(&ptr) {
+                existing_idx
+            } else {
+                let idx = buffer_index;
+                // buffer_index is not used after this, no increment needed
+                self.buffer_index_map.insert(ptr, idx);
+                idx
+            }
+        };
+
+        // ソースからの読み込みオフセット（contiguous）
+        let src_offset = build_contiguous_offset_with_shape(ndim, Some(&src_shape));
+
+        // インデックスからの読み込みオフセット（contiguous、srcと同じ形状）
+        let index_offset = build_contiguous_offset_with_shape(ndim, Some(&src_shape));
+
+        // インデックス値を読み込み（i64型）
+        let index_val = load(var(ph::input(index_buf_idx)), index_offset, AstDType::I64);
+
+        // ソース値を読み込み
+        let src_val = load(var(ph::input(src_buf_idx)), src_offset, load_dtype.clone());
+
+        // 出力オフセットを計算
+        // output_offset = sum(axis_index * output_stride[axis])
+        // where axis_index = ridx[axis] if axis != dim, else index_val
+        let output_strides = self.compute_strides_from_shape(&output_shape);
+        let mut output_offset: AstNode = const_int(0);
+
+        for (axis, &stride_val) in output_strides.iter().enumerate().take(ndim) {
+            let axis_idx: AstNode = if axis == dim {
+                index_val.clone()
+            } else {
+                var(ph::ridx(axis))
+            };
+
+            let stride = const_int(stride_val as i64);
+            output_offset = output_offset + axis_idx * stride;
+        }
+
+        // AtomicAddで累積
+        let atomic_stmt = atomic_add(var(ph::OUTPUT), output_offset, src_val, load_dtype.clone());
+
+        // ソース形状でループ
+        let body = wrap_with_loops_with_shape(ndim, vec![atomic_stmt], Some(&src_shape));
+
+        function(
+            Some(name.to_string()),
+            vec![],
+            AstDType::Tuple(vec![]),
+            body,
+        )
+    }
+
+    /// 形状からストライドを計算
+    fn compute_strides_from_shape(&self, shape: &[Expr]) -> Vec<usize> {
+        if shape.is_empty() {
+            return vec![];
+        }
+
+        let mut strides = vec![1usize; shape.len()];
+        for i in (0..shape.len() - 1).rev() {
+            let next_dim = shape[i + 1].as_const().unwrap_or(1) as usize;
+            strides[i] = strides[i + 1] * next_dim;
+        }
+        strides
     }
 
     /// Programとしてラップ

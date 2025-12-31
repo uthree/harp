@@ -1138,3 +1138,75 @@ fn test_gather_no_grad_propagation() {
     let output = input.gather(0, &index);
     assert!(!output.requires_grad());
 }
+
+// ============================================================================
+// Scatter-Add Tests
+// ============================================================================
+
+#[test]
+fn test_scatter_add_1d_shape() {
+    let target = Tensor::<f32, DimDyn>::zeros_dyn(&[4]);
+    let index = Tensor::<i64, DimDyn>::zeros_dyn(&[3]);
+    let src = Tensor::<f32, DimDyn>::ones_dyn(&[3]);
+
+    let result = target.scatter_add(0, &index, &src);
+    assert_eq!(result.shape(), &[4]);
+}
+
+#[test]
+fn test_scatter_add_2d_dim0_shape() {
+    let target = Tensor::<f32, DimDyn>::zeros_dyn(&[4, 3]);
+    let index = Tensor::<i64, DimDyn>::zeros_dyn(&[2, 3]);
+    let src = Tensor::<f32, DimDyn>::ones_dyn(&[2, 3]);
+
+    let result = target.scatter_add(0, &index, &src);
+    assert_eq!(result.shape(), &[4, 3]);
+}
+
+#[test]
+fn test_scatter_add_2d_dim1_shape() {
+    let target = Tensor::<f32, DimDyn>::zeros_dyn(&[3, 4]);
+    let index = Tensor::<i64, DimDyn>::zeros_dyn(&[3, 2]);
+    let src = Tensor::<f32, DimDyn>::ones_dyn(&[3, 2]);
+
+    let result = target.scatter_add(1, &index, &src);
+    assert_eq!(result.shape(), &[3, 4]);
+}
+
+// ============================================================================
+// Gather with Gradient Tests
+// ============================================================================
+
+#[test]
+fn test_gather_with_grad_shape() {
+    use crate::tensor::Dim1;
+
+    let input = Tensor::<f32, Dim1>::ones([4]).set_requires_grad(true);
+    let index = Tensor::<i64, Dim1>::zeros([4]);
+    let output = input.gather_with_grad(0, &index);
+
+    assert_eq!(output.shape(), &[4]);
+    assert!(output.requires_grad());
+}
+
+#[test]
+fn test_gather_with_grad_2d() {
+    let input = Tensor::<f32, Dim2>::ones([4, 5]).set_requires_grad(true);
+    let index = Tensor::<i64, Dim2>::zeros([3, 5]);
+    let output = input.gather_with_grad(0, &index);
+
+    assert_eq!(output.shape(), &[3, 5]);
+    assert!(output.requires_grad());
+}
+
+#[test]
+fn test_gather_with_grad_no_requires_grad() {
+    use crate::tensor::Dim1;
+
+    let input = Tensor::<f32, Dim1>::ones([4]); // No requires_grad
+    let index = Tensor::<i64, Dim1>::zeros([4]);
+    let output = input.gather_with_grad(0, &index);
+
+    assert_eq!(output.shape(), &[4]);
+    assert!(!output.requires_grad());
+}

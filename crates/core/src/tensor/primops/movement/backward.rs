@@ -682,3 +682,77 @@ impl<T: FloatDType, D: Dimension> GradFn<T, DimDyn> for IntoDynBackward<T, D> {
         "IntoDynBackward"
     }
 }
+
+// ============================================================================
+// Gather Backward
+// ============================================================================
+
+/// Gradient for Gather: y = gather(x, dim, index)
+/// Input D -> Output D (same dimension, different shape on dim axis)
+///
+/// The backward of gather is scatter_add:
+/// ∂L/∂x = zeros_like(x).scatter_add(dim, index, ∂L/∂y)
+pub struct GatherBackward<T: FloatDType, D: Dimension> {
+    input: Tensor<T, D>,
+    index: Tensor<i64, D>,
+    dim: usize,
+    input_shape: Vec<usize>,
+}
+
+impl<T: FloatDType, D: Dimension> GatherBackward<T, D> {
+    pub fn new(
+        input: Tensor<T, D>,
+        index: Tensor<i64, D>,
+        dim: usize,
+        input_shape: Vec<usize>,
+    ) -> Self {
+        Self {
+            input,
+            index,
+            dim,
+            input_shape,
+        }
+    }
+}
+
+impl<T: FloatDType, D: Dimension> GradFn<T, D> for GatherBackward<T, D> {
+    fn backward(&self, grad_output: &Tensor<T, D>) {
+        if self.input.requires_grad() {
+            // Create zeros tensor with input shape
+            let grad_dyn: Tensor<T, DimDyn> = Tensor {
+                inner: grad_output.inner.clone(),
+                autograd_meta: None,
+                _dtype: PhantomData,
+                _dim: PhantomData,
+            };
+
+            // Create zeros with input shape
+            let zeros = Tensor::<T, DimDyn>::zeros_dyn(&self.input_shape);
+
+            // Convert index to DimDyn
+            let index_dyn: Tensor<i64, DimDyn> = Tensor {
+                inner: self.index.inner.clone(),
+                autograd_meta: None,
+                _dtype: PhantomData,
+                _dim: PhantomData,
+            };
+
+            // scatter_add: zeros[...][index[...]][...] += grad_output[...]
+            let grad_scattered = zeros.scatter_add(self.dim, &index_dyn, &grad_dyn);
+
+            // Convert back to D
+            let grad_input: Tensor<T, D> = Tensor {
+                inner: grad_scattered.inner,
+                autograd_meta: None,
+                _dtype: PhantomData,
+                _dim: PhantomData,
+            };
+
+            self.input.backward_with(grad_input);
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "GatherBackward"
+    }
+}

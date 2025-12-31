@@ -158,6 +158,21 @@ impl GraphStringifier {
                 let children: Vec<String> = inputs.iter().map(|i| self.visit_input(i)).collect();
                 format!("Concat([{}], axis={})", children.join(", "), axis)
             }
+
+            TensorOp::ScatterAdd {
+                target,
+                index,
+                src,
+                dim,
+            } => {
+                let target_str = self.visit_input(target);
+                let index_str = self.visit_input(index);
+                let src_str = self.visit_input(src);
+                format!(
+                    "ScatterAdd({}, index={}, src={}, dim={})",
+                    target_str, index_str, src_str, dim
+                )
+            }
         }
     }
 

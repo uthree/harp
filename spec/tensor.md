@@ -399,6 +399,7 @@ impl<T: FloatDType, D: Dimension> GradFnTyped<T, D::Smaller> for SumBackwardType
 - unfold1d, unfold2d, unfold3d（+ dilated versions）
 - fold1d, fold2d, fold3d（+ dilated versions）
 - maximum
+- gather_with_grad（ScatterAddによるGatherBackward実装）
 
 **次元変換の取り扱い:**
 - `try_into_dim()`/`into_dimensioned()`: `autograd_typed`を保持
@@ -473,6 +474,7 @@ impl<T: FloatDType, D: Dimension> GradFnTyped<T, D::Smaller> for SumBackwardType
 | `Unfold` | スライディングウィンドウ（im2col用、View::IndexExpr経由、dilation対応） |
 | `Fold` | Unfoldの逆操作（col2im、勾配計算用、slice+pad+sumで実装、dilation対応） |
 | `Gather` | インデックステンソルに基づく要素収集（View::IndexExpr + Expr::LoadIndex経由） |
+| `ScatterAdd` | インデックス指定位置への累積加算（AtomicAdd使用、GatherBackward用） |
 
 #### 特殊
 | 演算 | 説明 |
@@ -690,6 +692,10 @@ let combined = Tensor::concat(&[&a, &b], 0); // axis=0で結合
 let data = Tensor::<f32, Dim2>::ones([4, 5]);
 let index = Tensor::<i64, Dim2>::zeros([3, 5]);
 let gathered = data.gather(0, &index); // output[i][j] = input[index[i][j]][j]
+
+// Gather with gradient（勾配追跡可能）
+let data = Tensor::<f32, Dim2>::ones([4, 5]).set_requires_grad(true);
+let gathered = data.gather_with_grad(0, &index); // 逆伝播でScatterAddを使用
 ```
 
 ### 型安全な形状操作
@@ -774,6 +780,7 @@ let t = Tensor::<DimDyn>::from_data(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2]);
 | `z = Concat([a,b,...], axis)` | ∂L/∂a = slice(∂L/∂z, aの範囲), ... |
 | `z = Unfold(a)` | ∂L/∂a = fold(∂L/∂z) |
 | `z = Fold(a)` | ∂L/∂a = unfold(∂L/∂z) |
+| `z = Gather(a, dim, idx)` | ∂L/∂a = scatter_add(zeros, dim, idx, ∂L/∂z) |
 
 ### 融合演算の勾配
 
@@ -827,9 +834,10 @@ src/tensor/
     │   ├── mod.rs
     │   ├── core.rs     # pad, slice, squeeze, unsqueeze, reshape等
     │   ├── gather.rs   # gather演算（インデックステンソルに基づく要素収集）
+    │   ├── scatter.rs  # scatter_add演算（AtomicAdd使用、GatherBackward用）
     │   ├── unfold.rs   # unfold1d/2d/3d_dilated（stride, dilation対応）
     │   ├── fold.rs     # fold1d/2d/3d_dilated（unfoldの逆操作、stride, dilation対応）
-    │   ├── backward.rs # 勾配関数
+    │   ├── backward.rs # 勾配関数（GatherBackward等）
     │   └── tests.rs
     ├── reduce.rs   # 縮約演算
     └── unary.rs    # 単項演算

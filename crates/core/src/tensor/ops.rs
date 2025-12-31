@@ -81,6 +81,21 @@ pub enum TensorOp {
     // ============================================================
     /// 結合
     Concat { inputs: Vec<InputRef>, axis: usize },
+
+    /// Scatter-Add演算（AtomicAddを使用）
+    ///
+    /// GatherBackwardの実装に使用。
+    /// target[...][index[...]][...] += src[...]
+    ScatterAdd {
+        /// 累積先テンソル（初期値、通常はzeros）
+        target: InputRef,
+        /// インデックステンソル
+        index: InputRef,
+        /// ソーステンソル
+        src: InputRef,
+        /// 次元
+        dim: usize,
+    },
 }
 
 /// Elementwise演算の種類
@@ -276,6 +291,10 @@ impl TensorOp {
             TensorOp::MapReduce { inputs, .. } | TensorOp::Concat { inputs, .. } => {
                 inputs.iter().collect()
             }
+
+            TensorOp::ScatterAdd {
+                target, index, src, ..
+            } => vec![target, index, src],
         }
     }
 
@@ -298,6 +317,7 @@ impl TensorOp {
                 reduce_op: Some(_), ..
             } => "MapReduce(Reduce)",
             TensorOp::Concat { .. } => "Concat",
+            TensorOp::ScatterAdd { .. } => "ScatterAdd",
         }
     }
 }
@@ -328,6 +348,7 @@ impl std::fmt::Debug for TensorOp {
                 )
             }
             TensorOp::Concat { axis, .. } => write!(f, "Concat {{ axis: {} }}", axis),
+            TensorOp::ScatterAdd { dim, .. } => write!(f, "ScatterAdd {{ dim: {} }}", dim),
         }
     }
 }
