@@ -39,14 +39,15 @@
 
 mod activation;
 mod conv;
+mod conv_transpose;
 mod linear;
 mod pooling;
 
 pub use activation::{ELU, GELU, LeakyReLU, Mish, ReLU, SiLU, Sigmoid, Softplus, Swish, Tanh};
-pub use conv::{
-    Conv1d, Conv1dConfig, Conv2d, Conv2dConfig, Conv3d, Conv3dConfig, ConvTranspose1d,
-    ConvTranspose1dConfig, ConvTranspose2d, ConvTranspose2dConfig, ConvTranspose3d,
-    ConvTranspose3dConfig,
+pub use conv::{Conv1d, Conv1dConfig, Conv2d, Conv2dConfig, Conv3d, Conv3dConfig};
+pub use conv_transpose::{
+    ConvTranspose1d, ConvTranspose1dConfig, ConvTranspose2d, ConvTranspose2dConfig,
+    ConvTranspose3d, ConvTranspose3dConfig,
 };
 pub use linear::Linear;
 pub use pooling::{
