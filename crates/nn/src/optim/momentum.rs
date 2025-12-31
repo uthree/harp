@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::ops::{Add, Div, Mul, Sub};
 
-use harp::tensor::{DimDyn, FloatDType, Tensor};
+use harp::tensor::{DimDyn, FloatDType, NumericDType, Tensor};
 use typed_builder::TypedBuilder;
 
 use super::Optimizer;
@@ -133,7 +133,7 @@ where
                 let velocity = self
                     .velocities
                     .entry(name.clone())
-                    .or_insert_with(|| vec![<T as FloatDType>::ZERO; param_data.len()]);
+                    .or_insert_with(|| vec![<T as NumericDType>::ZERO; param_data.len()]);
 
                 // Momentum更新: v = momentum * v + grad
                 //              param = param - lr * v

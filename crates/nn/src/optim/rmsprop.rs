@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::ops::{Add, Div, Mul, Sub};
 
-use harp::tensor::{DimDyn, FloatDType, Tensor};
+use harp::tensor::{DimDyn, FloatDType, NumericDType, Tensor};
 use typed_builder::TypedBuilder;
 
 use super::Optimizer;
@@ -125,7 +125,7 @@ where
         + Div<T, Output = T>,
 {
     fn step<M: Module<T>>(&mut self, module: &mut M) {
-        let one = <T as FloatDType>::ONE;
+        let one = <T as NumericDType>::ONE;
 
         for (name, param) in module.parameters() {
             if let Some(grad) = param.grad_generic() {
@@ -145,7 +145,7 @@ where
                 let sq_avg = self
                     .square_avg
                     .entry(name.clone())
-                    .or_insert_with(|| vec![<T as FloatDType>::ZERO; param_data.len()]);
+                    .or_insert_with(|| vec![<T as NumericDType>::ZERO; param_data.len()]);
 
                 // RMSProp更新:
                 // v = rho * v + (1 - rho) * g^2

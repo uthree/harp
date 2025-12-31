@@ -12,7 +12,6 @@ use std::ops::Add;
 use std::ops::Mul;
 use std::sync::Arc;
 
-use crate::ast::{DType, Literal};
 use crate::tensor::shape::{Expr, View};
 use crate::tensor::{
     DimDyn, Dimension, ElementwiseOp, FloatDType, GradFn, IntegerDType, NumericDType, Tensor,
@@ -90,33 +89,16 @@ fn create_binary_elementwise<T: NumericDType, D: Dimension>(
     }
 }
 
-/// Create a tensor with scalar (constant fill) for binary ops (f32)
-fn scalar_tensor_f32(value: f32) -> Tensor<f32, DimDyn> {
+/// Create a tensor with scalar (constant fill) for binary ops (generic over FloatDType)
+fn scalar_tensor<T: FloatDType>(value: T) -> Tensor<T, DimDyn> {
     // For scalar operations, we create a scalar (shape=[]) tensor
     // that will be broadcast to the target shape
     let view = View::contiguous(Vec::<Expr>::new()); // scalar
     let inner = TensorInner::new(
-        TensorOp::ConstFill(Literal::F32(value)),
+        TensorOp::ConstFill(T::to_literal(value)),
         view,
         vec![],
-        DType::F32,
-    );
-    Tensor {
-        inner: Arc::new(inner),
-        autograd_meta: None,
-        _dtype: PhantomData,
-        _dim: PhantomData,
-    }
-}
-
-/// Create a tensor with scalar (constant fill) for binary ops (f64)
-fn scalar_tensor_f64(value: f64) -> Tensor<f64, DimDyn> {
-    let view = View::contiguous(Vec::<Expr>::new());
-    let inner = TensorInner::new(
-        TensorOp::ConstFill(Literal::F64(value)),
-        view,
-        vec![],
-        DType::F64,
+        T::DTYPE,
     );
     Tensor {
         inner: Arc::new(inner),
@@ -205,14 +187,14 @@ impl<T: FloatDType, D: Dimension> Mul for Tensor<T, D> {
 }
 
 // ============================================================================
-// Scalar operations with gradient tracking (f32)
+// Scalar operations with gradient tracking (generic over FloatDType)
 // ============================================================================
 
-// Tensor + scalar (f32)
-impl<D: Dimension> Add<f32> for &Tensor<f32, D> {
-    type Output = Tensor<f32, D>;
-    fn add(self, rhs: f32) -> Tensor<f32, D> {
-        let scalar = scalar_tensor_f32(rhs);
+// Tensor + scalar
+impl<T: FloatDType, D: Dimension> Add<T> for &Tensor<T, D> {
+    type Output = Tensor<T, D>;
+    fn add(self, rhs: T) -> Tensor<T, D> {
+        let scalar = scalar_tensor(rhs);
         let result = create_binary_elementwise(ElementwiseOp::Add, self, &scalar);
         if self.requires_grad() {
             let grad_fn = ScalarAddBackward::new(self.clone());
@@ -223,10 +205,32 @@ impl<D: Dimension> Add<f32> for &Tensor<f32, D> {
     }
 }
 
-impl<D: Dimension> Add<f32> for Tensor<f32, D> {
-    type Output = Tensor<f32, D>;
-    fn add(self, rhs: f32) -> Tensor<f32, D> {
+impl<T: FloatDType, D: Dimension> Add<T> for Tensor<T, D> {
+    type Output = Tensor<T, D>;
+    fn add(self, rhs: T) -> Tensor<T, D> {
         (&self).add(rhs)
+    }
+}
+
+// Tensor * scalar
+impl<T: FloatDType, D: Dimension> Mul<T> for &Tensor<T, D> {
+    type Output = Tensor<T, D>;
+    fn mul(self, rhs: T) -> Tensor<T, D> {
+        let scalar = scalar_tensor(rhs.clone());
+        let result = create_binary_elementwise(ElementwiseOp::Mul, self, &scalar);
+        if self.requires_grad() {
+            let grad_fn = ScalarMulBackward::new(self.clone(), rhs);
+            result.with_grad_fn(Arc::new(grad_fn))
+        } else {
+            result
+        }
+    }
+}
+
+impl<T: FloatDType, D: Dimension> Mul<T> for Tensor<T, D> {
+    type Output = Tensor<T, D>;
+    fn mul(self, rhs: T) -> Tensor<T, D> {
+        (&self).mul(rhs)
     }
 }
 
@@ -245,69 +249,6 @@ impl<D: Dimension> Add<Tensor<f32, D>> for f32 {
     }
 }
 
-// Tensor * scalar (f32)
-impl<D: Dimension> Mul<f32> for &Tensor<f32, D> {
-    type Output = Tensor<f32, D>;
-    fn mul(self, rhs: f32) -> Tensor<f32, D> {
-        let scalar = scalar_tensor_f32(rhs);
-        let result = create_binary_elementwise(ElementwiseOp::Mul, self, &scalar);
-        if self.requires_grad() {
-            let grad_fn = ScalarMulBackward::new(self.clone(), rhs);
-            result.with_grad_fn(Arc::new(grad_fn))
-        } else {
-            result
-        }
-    }
-}
-
-impl<D: Dimension> Mul<f32> for Tensor<f32, D> {
-    type Output = Tensor<f32, D>;
-    fn mul(self, rhs: f32) -> Tensor<f32, D> {
-        (&self).mul(rhs)
-    }
-}
-
-// scalar * Tensor (f32)
-impl<D: Dimension> Mul<&Tensor<f32, D>> for f32 {
-    type Output = Tensor<f32, D>;
-    fn mul(self, rhs: &Tensor<f32, D>) -> Tensor<f32, D> {
-        rhs * self // commutative
-    }
-}
-
-impl<D: Dimension> Mul<Tensor<f32, D>> for f32 {
-    type Output = Tensor<f32, D>;
-    fn mul(self, rhs: Tensor<f32, D>) -> Tensor<f32, D> {
-        self.mul(&rhs)
-    }
-}
-
-// ============================================================================
-// Scalar operations with gradient tracking (f64)
-// ============================================================================
-
-// Tensor + scalar (f64)
-impl<D: Dimension> Add<f64> for &Tensor<f64, D> {
-    type Output = Tensor<f64, D>;
-    fn add(self, rhs: f64) -> Tensor<f64, D> {
-        let scalar = scalar_tensor_f64(rhs);
-        let result = create_binary_elementwise(ElementwiseOp::Add, self, &scalar);
-        if self.requires_grad() {
-            let grad_fn = ScalarAddBackward::new(self.clone());
-            result.with_grad_fn(Arc::new(grad_fn))
-        } else {
-            result
-        }
-    }
-}
-
-impl<D: Dimension> Add<f64> for Tensor<f64, D> {
-    type Output = Tensor<f64, D>;
-    fn add(self, rhs: f64) -> Tensor<f64, D> {
-        (&self).add(rhs)
-    }
-}
-
 // scalar + Tensor (f64)
 impl<D: Dimension> Add<&Tensor<f64, D>> for f64 {
     type Output = Tensor<f64, D>;
@@ -323,25 +264,18 @@ impl<D: Dimension> Add<Tensor<f64, D>> for f64 {
     }
 }
 
-// Tensor * scalar (f64)
-impl<D: Dimension> Mul<f64> for &Tensor<f64, D> {
-    type Output = Tensor<f64, D>;
-    fn mul(self, rhs: f64) -> Tensor<f64, D> {
-        let scalar = scalar_tensor_f64(rhs);
-        let result = create_binary_elementwise(ElementwiseOp::Mul, self, &scalar);
-        if self.requires_grad() {
-            let grad_fn = ScalarMulBackward::new(self.clone(), rhs);
-            result.with_grad_fn(Arc::new(grad_fn))
-        } else {
-            result
-        }
+// scalar * Tensor (f32)
+impl<D: Dimension> Mul<&Tensor<f32, D>> for f32 {
+    type Output = Tensor<f32, D>;
+    fn mul(self, rhs: &Tensor<f32, D>) -> Tensor<f32, D> {
+        rhs * self // commutative
     }
 }
 
-impl<D: Dimension> Mul<f64> for Tensor<f64, D> {
-    type Output = Tensor<f64, D>;
-    fn mul(self, rhs: f64) -> Tensor<f64, D> {
-        (&self).mul(rhs)
+impl<D: Dimension> Mul<Tensor<f32, D>> for f32 {
+    type Output = Tensor<f32, D>;
+    fn mul(self, rhs: Tensor<f32, D>) -> Tensor<f32, D> {
+        self.mul(&rhs)
     }
 }
 
@@ -361,12 +295,12 @@ impl<D: Dimension> Mul<Tensor<f64, D>> for f64 {
 }
 
 // ============================================================================
-// Max: element-wise maximum
+// Max: element-wise maximum (generic over FloatDType)
 // ============================================================================
 
-impl<D: Dimension> Tensor<f32, D> {
+impl<T: FloatDType, D: Dimension> Tensor<T, D> {
     /// Compute element-wise maximum with another tensor (primop)
-    pub fn maximum(&self, other: &Tensor<f32, D>) -> Tensor<f32, D> {
+    pub fn maximum(&self, other: &Tensor<T, D>) -> Tensor<T, D> {
         let result = create_binary_elementwise(ElementwiseOp::Max, self, other);
 
         // Use typed system if available
@@ -379,33 +313,8 @@ impl<D: Dimension> Tensor<f32, D> {
     }
 
     /// Compute element-wise maximum with a scalar
-    pub fn maximum_scalar(&self, value: f32) -> Tensor<f32, D> {
-        let scalar = scalar_tensor_f32(value);
-        create_binary_elementwise(ElementwiseOp::Max, self, &scalar)
-    }
-}
-
-// ============================================================================
-// Max: Tensor<f64> (no gradient tracking)
-// ============================================================================
-
-impl<D: Dimension> Tensor<f64, D> {
-    /// Compute element-wise maximum with another tensor (primop)
-    pub fn maximum(&self, other: &Tensor<f64, D>) -> Tensor<f64, D> {
-        let result = create_binary_elementwise(ElementwiseOp::Max, self, other);
-
-        // Use typed system if available
-        if self.requires_grad() || other.requires_grad() {
-            let grad_fn = MaxBackward::new(self.clone(), other.clone());
-            result.with_grad_fn(Arc::new(grad_fn))
-        } else {
-            result
-        }
-    }
-
-    /// Compute element-wise maximum with a scalar
-    pub fn maximum_scalar(&self, value: f64) -> Tensor<f64, D> {
-        let scalar = scalar_tensor_f64(value);
+    pub fn maximum_scalar(&self, value: T) -> Tensor<T, D> {
+        let scalar = scalar_tensor(value);
         create_binary_elementwise(ElementwiseOp::Max, self, &scalar)
     }
 }

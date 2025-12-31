@@ -208,7 +208,15 @@ mod sealed {
 /// This is a sealed trait - only implemented for f32 and f64 (and future half-precision types).
 /// Provides transcendental functions (sin, cos, exp, log, etc.), gradient computation, and
 /// floor/ceil/round operations.
-pub trait FloatDType: NumericDType + sealed::Sealed {
+///
+/// Note: `ZERO` and `ONE` are inherited from `NumericDType`.
+pub trait FloatDType:
+    NumericDType
+    + sealed::Sealed
+    + std::ops::Sub<Output = Self>
+    + std::ops::Div<Output = Self>
+    + std::ops::Neg<Output = Self>
+{
     /// Negative infinity value for this type
     const NEG_INF: Self;
 
@@ -220,12 +228,6 @@ pub trait FloatDType: NumericDType + sealed::Sealed {
 
     /// Mathematical constant: π/2
     const FRAC_PI_2: Self;
-
-    /// Zero value
-    const ZERO: Self;
-
-    /// One value
-    const ONE: Self;
 
     /// Two value
     const TWO: Self;
@@ -248,8 +250,6 @@ impl FloatDType for f32 {
     const LOG2_E: Self = std::f32::consts::LOG2_E;
     const LN_2: Self = std::f32::consts::LN_2;
     const FRAC_PI_2: Self = std::f32::consts::FRAC_PI_2;
-    const ZERO: Self = 0.0;
-    const ONE: Self = 1.0;
     const TWO: Self = 2.0;
     const EPSILON: Self = 1e-8;
 
@@ -271,8 +271,6 @@ impl FloatDType for f64 {
     const LOG2_E: Self = std::f64::consts::LOG2_E;
     const LN_2: Self = std::f64::consts::LN_2;
     const FRAC_PI_2: Self = std::f64::consts::FRAC_PI_2;
-    const ZERO: Self = 0.0;
-    const ONE: Self = 1.0;
     const TWO: Self = 2.0;
     const EPSILON: Self = 1e-8;
 

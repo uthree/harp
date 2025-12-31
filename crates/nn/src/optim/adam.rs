@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::ops::{Add, Div, Mul, Sub};
 
-use harp::tensor::{DimDyn, FloatDType, Tensor};
+use harp::tensor::{DimDyn, FloatDType, NumericDType, Tensor};
 use typed_builder::TypedBuilder;
 
 use super::Optimizer;
@@ -159,11 +159,11 @@ where
 {
     fn step<M: Module<T>>(&mut self, module: &mut M) {
         self.t += 1;
-        let one = <T as FloatDType>::ONE;
+        let one = <T as NumericDType>::ONE;
 
         // β1^t と β2^t を計算（bias correction用）
-        let mut beta1_t = <T as FloatDType>::ONE;
-        let mut beta2_t = <T as FloatDType>::ONE;
+        let mut beta1_t = <T as NumericDType>::ONE;
+        let mut beta2_t = <T as NumericDType>::ONE;
         for _ in 0..self.t {
             beta1_t = beta1_t * self.beta1;
             beta2_t = beta2_t * self.beta2;
@@ -188,11 +188,11 @@ where
                 let m = self
                     .m
                     .entry(name.clone())
-                    .or_insert_with(|| vec![<T as FloatDType>::ZERO; param_data.len()]);
+                    .or_insert_with(|| vec![<T as NumericDType>::ZERO; param_data.len()]);
                 let v = self
                     .v
                     .entry(name.clone())
-                    .or_insert_with(|| vec![<T as FloatDType>::ZERO; param_data.len()]);
+                    .or_insert_with(|| vec![<T as NumericDType>::ZERO; param_data.len()]);
 
                 // Adam更新:
                 // m = β1 * m + (1 - β1) * g
