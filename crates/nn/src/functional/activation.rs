@@ -30,13 +30,6 @@
 
 use harp::tensor::{Dimension, FloatDType, Tensor};
 
-/// `tanh()` のエイリアス（後方互換性のため）
-///
-/// harp-core では `tanh()` として提供されています。
-pub fn tanh_activation<T: FloatDType, D: Dimension>(input: &Tensor<T, D>) -> Tensor<T, D> {
-    input.tanh()
-}
-
 #[cfg(test)]
 mod tests {
     use harp::tensor::Dim2;
@@ -82,13 +75,6 @@ mod tests {
     fn test_tanh() {
         let input = Tensor::<f32, Dim2>::zeros([2, 3]);
         let output = input.tanh();
-        assert_eq!(output.shape(), &[2, 3]);
-    }
-
-    #[test]
-    fn test_tanh_activation_alias() {
-        let input = Tensor::<f32, Dim2>::zeros([2, 3]);
-        let output = tanh_activation(&input);
         assert_eq!(output.shape(), &[2, 3]);
     }
 
