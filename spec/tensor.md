@@ -385,10 +385,15 @@ impl<T: FloatDType, D: Dimension> GradFnTyped<T, D::Smaller> for SumBackwardType
 
 **新システムに接続済み:**
 - Binary ops: Add, Mul（f32, f64）
-- Scalar ops: ScalarAdd, ScalarMul（f32, f64）  
+- Scalar ops: ScalarAdd, ScalarMul（f32, f64）
 - Unary ops: Neg
 - Reduce ops: Sum, Mean, Max
 - Movement ops: pad, slice, squeeze, unsqueeze, reshape, reshape_dyn, permute, transpose, expand, concat
+
+**複素数自動微分（ComplexGradFn）:**
+- 四則演算: Add, Mul, Neg, Recip（Sub, Divは合成経由）
+- 複素共役: conj
+- 超越関数: exp, ln, sqrt, sin, cos
 
 **レガシーシステムのみ:**
 - unfold1d, unfold2d, unfold3d（+ dilated versions）
@@ -529,7 +534,7 @@ primopsの組み合わせで表現される演算。f32, f64両方でサポー�
 | `sin(a+bi)` | `sin(a)*cosh(b) + i*cos(a)*sinh(b)` |
 | `cos(a+bi)` | `cos(a)*cosh(b) - i*sin(a)*sinh(b)` |
 
-**注意**: 複素数の自動微分（Wirtinger微分）は未実装です。順伝播のみサポートされています。
+**自動微分**: 複素数テンソルはWirtinger微分に基づく自動微分をサポートしています。詳細は「複素数自動微分」セクションを参照してください。
 
 #### メモリレイアウト
 
@@ -539,6 +544,73 @@ primopsの組み合わせで表現される演算。f32, f64両方でサポー�
 ```
 
 Lowering時に複素数は実数2つに分解されます。
+
+### 複素数自動微分（Wirtinger Derivatives）
+
+複素数テンソルの自動微分はWirtinger微分に基づいています。実数値損失関数 L に対する複素変数 z = x + iy の勾配は:
+
+```
+∂L/∂z* = (1/2)(∂L/∂x + i·∂L/∂y)
+```
+
+この勾配がbackward時に伝播されます。
+
+#### 複素数自動微分トレイト
+
+複素数テンソル用の自動微分システムは実数用とは別のトレイト体系を使用します:
+
+```rust
+/// 複素数テンソル用の勾配関数トレイト
+pub trait ComplexGradFn<T: FloatDType, D: Dimension>: Send + Sync
+where
+    Complex<T>: TensorDType,
+{
+    fn backward(&self, grad_output: &Tensor<Complex<T>, D>);
+    fn name(&self) -> &'static str;
+}
+
+/// 複素数テンソル用の自動微分メタデータ
+pub struct ComplexAutogradMeta<T: FloatDType, D: Dimension>
+where
+    Complex<T>: TensorDType,
+{
+    grad: RwLock<Option<Arc<Tensor<Complex<T>, D>>>>,
+    grad_fn: Option<Arc<dyn ComplexGradFn<T, D>>>,
+}
+```
+
+#### 演算別の勾配公式
+
+| 演算 | 正則性 | ∂f/∂z | backward実装 |
+|------|--------|-------|--------------|
+| `a + b` | ✅ | 1 | `grad_a = grad_b = grad_out` |
+| `a * b` | ✅ | b | `grad_a = grad_out * conj(b)` |
+| `a / b` | ✅ | 1/b | `grad_a = grad_out * conj(1/b)` |
+| `conj(a)` | ❌ | 0 | `grad_a = conj(grad_out)` |
+| `exp(a)` | ✅ | exp(a) | `grad_a = grad_out * conj(exp(a))` |
+| `ln(a)` | ✅ | 1/a | `grad_a = grad_out / conj(a)` |
+| `sqrt(a)` | ✅ | 1/(2√a) | `grad_a = grad_out / (2 * conj(sqrt(a)))` |
+| `sin(a)` | ✅ | cos(a) | `grad_a = grad_out * conj(cos(a))` |
+| `cos(a)` | ✅ | -sin(a) | `grad_a = -grad_out * conj(sin(a))` |
+
+**注意**: 正則関数では ∂f/∂z* = 0 なので、勾配計算は実数の場合と類似しますが、共役が必要です。
+
+#### 使用例
+
+```rust
+use harp::tensor::{Tensor, Dim2, Complex32, Complex};
+
+let a = Tensor::<Complex32, Dim2>::full([2, 3], Complex::new(1.0f32, 2.0f32))
+    .set_requires_grad(true);
+let b = Tensor::<Complex32, Dim2>::full([2, 3], Complex::new(3.0f32, 4.0f32))
+    .set_requires_grad(true);
+
+let c = &a * &b;
+assert!(c.requires_grad());
+
+// backward()の呼び出しにより勾配が計算される
+// a.grad()で勾配を取得可能
+```
 
 ## API
 

@@ -197,6 +197,75 @@ impl<T: FloatDType, D: Dimension> Default for AutogradMeta<T, D> {
 }
 
 // ============================================================================
+// ComplexGradFn - Gradient function trait for complex tensors
+// ============================================================================
+
+/// Gradient function trait for complex tensors (Wirtinger derivatives)
+///
+/// This trait is implemented by operations that can compute gradients for complex tensors.
+/// Uses Wirtinger calculus: for real-valued loss L and complex variable z,
+/// the gradient is ∂L/∂z* (conjugate Wirtinger derivative).
+///
+/// For holomorphic functions f(z), ∂f/∂z* = 0, so the backward rule simplifies to:
+/// grad_input = grad_output * conj(∂f/∂z)
+pub trait ComplexGradFn<T: FloatDType, D: Dimension>: Send + Sync
+where
+    Complex<T>: TensorDType,
+{
+    /// Compute and propagate gradients to inputs
+    ///
+    /// # Arguments
+    /// * `grad_output` - Gradient flowing back from the output (complex tensor)
+    fn backward(&self, grad_output: &Tensor<Complex<T>, D>);
+
+    /// Get the name of this gradient function (for debugging)
+    fn name(&self) -> &'static str;
+}
+
+/// Autograd metadata for complex tensors with static dimension typing
+///
+/// The presence of this struct indicates that gradient tracking is enabled for complex tensors.
+pub struct ComplexAutogradMeta<T: FloatDType, D: Dimension>
+where
+    Complex<T>: TensorDType,
+{
+    /// Stored gradient with static dimension (populated after backward())
+    pub(crate) grad: RwLock<Option<Arc<Tensor<Complex<T>, D>>>>,
+    /// Gradient function for backpropagation (uses ComplexGradFn)
+    pub(crate) grad_fn: Option<Arc<dyn ComplexGradFn<T, D>>>,
+}
+
+impl<T: FloatDType, D: Dimension> ComplexAutogradMeta<T, D>
+where
+    Complex<T>: TensorDType,
+{
+    /// Create new autograd metadata without gradient function (leaf tensor)
+    pub fn new() -> Self {
+        Self {
+            grad: RwLock::new(None),
+            grad_fn: None,
+        }
+    }
+
+    /// Create new autograd metadata with gradient function
+    pub fn with_grad_fn(grad_fn: Arc<dyn ComplexGradFn<T, D>>) -> Self {
+        Self {
+            grad: RwLock::new(None),
+            grad_fn: Some(grad_fn),
+        }
+    }
+}
+
+impl<T: FloatDType, D: Dimension> Default for ComplexAutogradMeta<T, D>
+where
+    Complex<T>: TensorDType,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ============================================================================
 // FloatDType - Sealed trait for floating-point types with autograd support
 // ============================================================================
 
@@ -1381,6 +1450,150 @@ impl<T: FloatDType, D: Dimension> Tensor<T, D> {
         self
     }
 }
+
+// ============================================================================
+// Complex Tensor Autograd Methods
+// ============================================================================
+
+/// Macro to implement autograd methods for complex tensor types
+macro_rules! impl_complex_autograd {
+    ($complex_type:ty, $real_type:ty) => {
+        impl<D: Dimension> Tensor<$complex_type, D> {
+            /// Enable gradient tracking for this complex tensor
+            ///
+            /// Note: This creates a new tensor with gradient tracking enabled.
+            /// The original tensor is consumed.
+            pub fn set_requires_grad(self, requires_grad: bool) -> Self {
+                if requires_grad && self.autograd_meta.is_none() {
+                    // Enable gradient tracking
+                    Tensor {
+                        inner: self.inner,
+                        autograd_meta: Some(Arc::new(ComplexAutogradMeta::<$real_type, D>::new())),
+                        _dtype: PhantomData,
+                        _dim: PhantomData,
+                    }
+                } else if !requires_grad && self.autograd_meta.is_some() {
+                    // Disable gradient tracking
+                    Tensor {
+                        inner: self.inner,
+                        autograd_meta: None,
+                        _dtype: PhantomData,
+                        _dim: PhantomData,
+                    }
+                } else {
+                    self
+                }
+            }
+
+            /// Reset the gradient to None
+            pub fn zero_grad(&self) {
+                if let Some(ref autograd_arc) = self.autograd_meta
+                    && let Some(autograd) = autograd_arc.downcast_ref::<ComplexAutogradMeta<$real_type, D>>()
+                {
+                    *autograd.grad.write().unwrap() = None;
+                }
+            }
+
+            /// Get typed complex autograd metadata
+            fn complex_autograd_meta_typed(&self) -> Option<&ComplexAutogradMeta<$real_type, D>> {
+                self.autograd_meta
+                    .as_ref()
+                    .and_then(|arc| arc.downcast_ref::<ComplexAutogradMeta<$real_type, D>>())
+            }
+
+            /// Perform backward propagation for complex tensor (Wirtinger derivatives)
+            ///
+            /// Creates an initial gradient of ones and propagates backwards using
+            /// conjugate Wirtinger derivatives.
+            ///
+            /// # Panics
+            ///
+            /// Panics if this tensor does not require gradients.
+            pub fn backward(&self) {
+                if self.autograd_meta.is_none() {
+                    panic!("backward() called on complex tensor that doesn't require gradients");
+                }
+                // Create ones tensor with dynamic shape, then cast dimension type
+                let ones_dyn = Tensor::<$complex_type, DimDyn>::full_dyn(
+                    self.shape(),
+                    Complex::new(<$real_type>::ONE, <$real_type>::ZERO),
+                );
+                let initial_grad = Tensor::<$complex_type, D> {
+                    inner: ones_dyn.inner,
+                    autograd_meta: None,
+                    _dtype: PhantomData,
+                    _dim: PhantomData,
+                };
+                self.backward_with(initial_grad);
+            }
+
+            /// Perform backward propagation with a custom initial gradient (Wirtinger derivatives)
+            ///
+            /// This is the core of the complex autograd system. The gradient function
+            /// handles propagation to inputs internally using Wirtinger calculus.
+            pub fn backward_with(&self, grad_output: Tensor<$complex_type, D>) {
+                if let Some(ref autograd_arc) = self.autograd_meta {
+                    // Try to downcast to ComplexAutogradMeta
+                    if let Some(autograd) = autograd_arc.downcast_ref::<ComplexAutogradMeta<$real_type, D>>() {
+                        // Accumulate gradient
+                        {
+                            let mut grad = autograd.grad.write().unwrap();
+                            if let Some(existing) = grad.take() {
+                                // Add to existing gradient
+                                let new_grad = &(*existing) + &grad_output;
+                                *grad = Some(Arc::new(new_grad));
+                            } else {
+                                *grad = Some(Arc::new(grad_output.clone()));
+                            }
+                        }
+
+                        // grad_fn handles propagation to inputs (no return value)
+                        if let Some(ref grad_fn) = autograd.grad_fn {
+                            grad_fn.backward(&grad_output);
+                        }
+                    }
+                }
+            }
+
+            /// Get the accumulated gradient for this complex tensor
+            ///
+            /// Returns None if backward() hasn't been called or if this tensor
+            /// doesn't require gradients.
+            pub fn grad(&self) -> Option<Tensor<$complex_type, D>> {
+                if let Some(ag) = self.complex_autograd_meta_typed() {
+                    return ag.grad.read().unwrap().as_ref().map(|g| (**g).clone());
+                }
+                None
+            }
+
+            /// Detach this complex tensor from the computation graph
+            ///
+            /// Returns a new tensor with the same data but no gradient tracking.
+            pub fn detach(&self) -> Tensor<$complex_type, D> {
+                Tensor {
+                    inner: self.inner.clone(),
+                    autograd_meta: None,
+                    _dtype: PhantomData,
+                    _dim: PhantomData,
+                }
+            }
+
+            /// Create a new tensor with complex autograd and a grad_fn
+            pub(crate) fn with_complex_grad_fn(
+                mut self,
+                grad_fn: Arc<dyn ComplexGradFn<$real_type, D>>,
+            ) -> Self {
+                self.autograd_meta = Some(Arc::new(
+                    ComplexAutogradMeta::<$real_type, D>::with_grad_fn(grad_fn),
+                ));
+                self
+            }
+        }
+    };
+}
+
+impl_complex_autograd!(Complex32, f32);
+impl_complex_autograd!(Complex64, f64);
 
 #[cfg(test)]
 mod tests {

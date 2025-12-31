@@ -20,8 +20,10 @@
 //! - `sin(a+bi) = sin(a)*cosh(b) + i*cos(a)*sinh(b)`
 //! - `cos(a+bi) = cos(a)*cosh(b) - i*sin(a)*sinh(b)`
 
-use crate::tensor::primops::complex::{ImagPart, RealPart};
-use crate::tensor::{Complex32, Complex64, Dimension, FloatDType, Sin, Sqrt, Tensor};
+use std::sync::Arc;
+
+use crate::tensor::primops::complex::{Conjugate, ImagPart, RealPart};
+use crate::tensor::{Complex32, Complex64, ComplexGradFn, Dimension, FloatDType, Sin, Sqrt, Tensor};
 
 // ============================================================================
 // Trait for complex transcendental operations
@@ -63,11 +65,189 @@ pub trait ComplexCos {
 }
 
 // ============================================================================
+// Backward functions for complex transcendental operations
+// ============================================================================
+
+/// Macro to define backward structs for transcendental functions
+/// These store input and output for gradient computation
+macro_rules! impl_transcendental_backward {
+    ($name:ident, $complex_type:ty, $real_type:ty, $backward_impl:expr) => {
+        pub struct $name<D: Dimension> {
+            input: Tensor<$complex_type, D>,
+            #[allow(dead_code)]
+            output: Tensor<$complex_type, D>,
+        }
+
+        impl<D: Dimension> $name<D> {
+            pub fn new(input: Tensor<$complex_type, D>, output: Tensor<$complex_type, D>) -> Self {
+                Self { input, output }
+            }
+        }
+
+        impl<D: Dimension> ComplexGradFn<$real_type, D> for $name<D> {
+            fn backward(&self, grad_output: &Tensor<$complex_type, D>) {
+                $backward_impl(self, grad_output);
+            }
+
+            fn name(&self) -> &'static str {
+                stringify!($name)
+            }
+        }
+    };
+}
+
+// Exp backward: ∂/∂z exp(z) = exp(z)
+// grad_input = grad_output * conj(exp(z))
+impl_transcendental_backward!(
+    Complex32ExpBackward,
+    Complex32,
+    f32,
+    |this: &Complex32ExpBackward<D>, grad_output: &Tensor<Complex32, D>| {
+        if this.input.requires_grad() {
+            let grad = grad_output * &this.output.conj();
+            this.input.backward_with(grad);
+        }
+    }
+);
+
+impl_transcendental_backward!(
+    Complex64ExpBackward,
+    Complex64,
+    f64,
+    |this: &Complex64ExpBackward<D>, grad_output: &Tensor<Complex64, D>| {
+        if this.input.requires_grad() {
+            let grad = grad_output * &this.output.conj();
+            this.input.backward_with(grad);
+        }
+    }
+);
+
+// Ln backward: ∂/∂z ln(z) = 1/z
+// grad_input = grad_output / conj(z)
+impl_transcendental_backward!(
+    Complex32LnBackward,
+    Complex32,
+    f32,
+    |this: &Complex32LnBackward<D>, grad_output: &Tensor<Complex32, D>| {
+        use crate::tensor::primops::Recip;
+        if this.input.requires_grad() {
+            let input_conj_recip = this.input.conj().recip();
+            let grad = grad_output * &input_conj_recip;
+            this.input.backward_with(grad);
+        }
+    }
+);
+
+impl_transcendental_backward!(
+    Complex64LnBackward,
+    Complex64,
+    f64,
+    |this: &Complex64LnBackward<D>, grad_output: &Tensor<Complex64, D>| {
+        use crate::tensor::primops::Recip;
+        if this.input.requires_grad() {
+            let input_conj_recip = this.input.conj().recip();
+            let grad = grad_output * &input_conj_recip;
+            this.input.backward_with(grad);
+        }
+    }
+);
+
+// Sqrt backward: ∂/∂z sqrt(z) = 1/(2*sqrt(z))
+// grad_input = grad_output / (2 * conj(sqrt(z)))
+impl_transcendental_backward!(
+    Complex32SqrtBackward,
+    Complex32,
+    f32,
+    |this: &Complex32SqrtBackward<D>, grad_output: &Tensor<Complex32, D>| {
+        use crate::tensor::primops::Recip;
+        if this.input.requires_grad() {
+            // grad = grad_out / (2 * conj(output))
+            // 2 * output = output + output (no scalar multiplication for complex)
+            let two_output = &this.output + &this.output;
+            let grad = grad_output * &two_output.conj().recip();
+            this.input.backward_with(grad);
+        }
+    }
+);
+
+impl_transcendental_backward!(
+    Complex64SqrtBackward,
+    Complex64,
+    f64,
+    |this: &Complex64SqrtBackward<D>, grad_output: &Tensor<Complex64, D>| {
+        use crate::tensor::primops::Recip;
+        if this.input.requires_grad() {
+            // grad = grad_out / (2 * conj(output))
+            // 2 * output = output + output (no scalar multiplication for complex)
+            let two_output = &this.output + &this.output;
+            let grad = grad_output * &two_output.conj().recip();
+            this.input.backward_with(grad);
+        }
+    }
+);
+
+// Sin backward: ∂/∂z sin(z) = cos(z)
+// grad_input = grad_output * conj(cos(z))
+impl_transcendental_backward!(
+    Complex32SinBackward,
+    Complex32,
+    f32,
+    |this: &Complex32SinBackward<D>, grad_output: &Tensor<Complex32, D>| {
+        if this.input.requires_grad() {
+            let cos_z = this.input.cos();
+            let grad = grad_output * &cos_z.conj();
+            this.input.backward_with(grad);
+        }
+    }
+);
+
+impl_transcendental_backward!(
+    Complex64SinBackward,
+    Complex64,
+    f64,
+    |this: &Complex64SinBackward<D>, grad_output: &Tensor<Complex64, D>| {
+        if this.input.requires_grad() {
+            let cos_z = this.input.cos();
+            let grad = grad_output * &cos_z.conj();
+            this.input.backward_with(grad);
+        }
+    }
+);
+
+// Cos backward: ∂/∂z cos(z) = -sin(z)
+// grad_input = -grad_output * conj(sin(z))
+impl_transcendental_backward!(
+    Complex32CosBackward,
+    Complex32,
+    f32,
+    |this: &Complex32CosBackward<D>, grad_output: &Tensor<Complex32, D>| {
+        if this.input.requires_grad() {
+            let sin_z = this.input.sin();
+            let grad = -(grad_output * &sin_z.conj());
+            this.input.backward_with(grad);
+        }
+    }
+);
+
+impl_transcendental_backward!(
+    Complex64CosBackward,
+    Complex64,
+    f64,
+    |this: &Complex64CosBackward<D>, grad_output: &Tensor<Complex64, D>| {
+        if this.input.requires_grad() {
+            let sin_z = this.input.sin();
+            let grad = -(grad_output * &sin_z.conj());
+            this.input.backward_with(grad);
+        }
+    }
+);
+
+// ============================================================================
 // Macro to implement complex transcendental operations
 // ============================================================================
 
 macro_rules! impl_complex_exp {
-    ($complex_type:ty, $real_type:ty) => {
+    ($complex_type:ty, $real_type:ty, $backward_type:ident) => {
         impl<D: Dimension> ComplexExp for Tensor<$complex_type, D>
         where
             Tensor<$real_type, D>: Clone,
@@ -91,14 +271,22 @@ macro_rules! impl_complex_exp {
                 let im = &exp_a * &sin_b;
 
                 // Construct complex result
-                crate::tensor::primops::complex::complex(&re, &im)
+                let result = crate::tensor::primops::complex::complex(&re, &im);
+
+                if self.requires_grad() {
+                    let grad_fn: Arc<dyn ComplexGradFn<$real_type, D>> =
+                        Arc::new($backward_type::new(self.clone(), result.clone()));
+                    result.with_complex_grad_fn(grad_fn)
+                } else {
+                    result
+                }
             }
         }
     };
 }
 
 macro_rules! impl_complex_ln {
-    ($complex_type:ty, $real_type:ty) => {
+    ($complex_type:ty, $real_type:ty, $backward_type:ident) => {
         impl<D: Dimension> ComplexLn for Tensor<$complex_type, D>
         where
             Tensor<$real_type, D>: Clone,
@@ -121,14 +309,22 @@ macro_rules! impl_complex_ln {
                 let arg_z = atan2_approx(&b, &a);
 
                 // Construct complex result
-                crate::tensor::primops::complex::complex(&ln_abs, &arg_z)
+                let result = crate::tensor::primops::complex::complex(&ln_abs, &arg_z);
+
+                if self.requires_grad() {
+                    let grad_fn: Arc<dyn ComplexGradFn<$real_type, D>> =
+                        Arc::new($backward_type::new(self.clone(), result.clone()));
+                    result.with_complex_grad_fn(grad_fn)
+                } else {
+                    result
+                }
             }
         }
     };
 }
 
 macro_rules! impl_complex_sqrt {
-    ($complex_type:ty, $real_type:ty) => {
+    ($complex_type:ty, $real_type:ty, $backward_type:ident) => {
         impl<D: Dimension> ComplexSqrt for Tensor<$complex_type, D>
         where
             Tensor<$real_type, D>: Clone,
@@ -158,14 +354,22 @@ macro_rules! impl_complex_sqrt {
                 let im = &sqrt_abs * &sin_half;
 
                 // Construct complex result
-                crate::tensor::primops::complex::complex(&re, &im)
+                let result = crate::tensor::primops::complex::complex(&re, &im);
+
+                if self.requires_grad() {
+                    let grad_fn: Arc<dyn ComplexGradFn<$real_type, D>> =
+                        Arc::new($backward_type::new(self.clone(), result.clone()));
+                    result.with_complex_grad_fn(grad_fn)
+                } else {
+                    result
+                }
             }
         }
     };
 }
 
 macro_rules! impl_complex_sin {
-    ($complex_type:ty, $real_type:ty) => {
+    ($complex_type:ty, $real_type:ty, $backward_type:ident) => {
         impl<D: Dimension> ComplexSin for Tensor<$complex_type, D>
         where
             Tensor<$real_type, D>: Clone,
@@ -188,14 +392,22 @@ macro_rules! impl_complex_sin {
                 let re = &sin_a * &cosh_b;
                 let im = &cos_a * &sinh_b;
 
-                crate::tensor::primops::complex::complex(&re, &im)
+                let result = crate::tensor::primops::complex::complex(&re, &im);
+
+                if self.requires_grad() {
+                    let grad_fn: Arc<dyn ComplexGradFn<$real_type, D>> =
+                        Arc::new($backward_type::new(self.clone(), result.clone()));
+                    result.with_complex_grad_fn(grad_fn)
+                } else {
+                    result
+                }
             }
         }
     };
 }
 
 macro_rules! impl_complex_cos {
-    ($complex_type:ty, $real_type:ty) => {
+    ($complex_type:ty, $real_type:ty, $backward_type:ident) => {
         impl<D: Dimension> ComplexCos for Tensor<$complex_type, D>
         where
             Tensor<$real_type, D>: Clone,
@@ -217,7 +429,15 @@ macro_rules! impl_complex_cos {
                 let re = &cos_a * &cosh_b;
                 let im = -(&sin_a * &sinh_b);
 
-                crate::tensor::primops::complex::complex(&re, &im)
+                let result = crate::tensor::primops::complex::complex(&re, &im);
+
+                if self.requires_grad() {
+                    let grad_fn: Arc<dyn ComplexGradFn<$real_type, D>> =
+                        Arc::new($backward_type::new(self.clone(), result.clone()));
+                    result.with_complex_grad_fn(grad_fn)
+                } else {
+                    result
+                }
             }
         }
     };
@@ -283,20 +503,20 @@ where
 // Apply macros
 // ============================================================================
 
-impl_complex_exp!(Complex32, f32);
-impl_complex_exp!(Complex64, f64);
+impl_complex_exp!(Complex32, f32, Complex32ExpBackward);
+impl_complex_exp!(Complex64, f64, Complex64ExpBackward);
 
-impl_complex_ln!(Complex32, f32);
-impl_complex_ln!(Complex64, f64);
+impl_complex_ln!(Complex32, f32, Complex32LnBackward);
+impl_complex_ln!(Complex64, f64, Complex64LnBackward);
 
-impl_complex_sqrt!(Complex32, f32);
-impl_complex_sqrt!(Complex64, f64);
+impl_complex_sqrt!(Complex32, f32, Complex32SqrtBackward);
+impl_complex_sqrt!(Complex64, f64, Complex64SqrtBackward);
 
-impl_complex_sin!(Complex32, f32);
-impl_complex_sin!(Complex64, f64);
+impl_complex_sin!(Complex32, f32, Complex32SinBackward);
+impl_complex_sin!(Complex64, f64, Complex64SinBackward);
 
-impl_complex_cos!(Complex32, f32);
-impl_complex_cos!(Complex64, f64);
+impl_complex_cos!(Complex32, f32, Complex32CosBackward);
+impl_complex_cos!(Complex64, f64, Complex64CosBackward);
 
 // ============================================================================
 // Tests

@@ -13,7 +13,10 @@ use std::sync::Arc;
 use crate::ast::helper::{conj, imag, make_complex, real, wildcard};
 use crate::tensor::dtype::TensorDType;
 use crate::tensor::shape::{Expr, View};
-use crate::tensor::{Complex, ComplexDType, Dimension, FloatDType, Tensor, TensorInner, TensorOp};
+use crate::tensor::{
+    Complex, Complex32, Complex64, ComplexDType, ComplexGradFn, Dimension, FloatDType, Tensor,
+    TensorInner, TensorOp,
+};
 
 // ============================================================================
 // Helper functions
@@ -117,28 +120,79 @@ where
 // Complex conjugate
 // ============================================================================
 
-impl<T: ComplexDType, D: Dimension> Conjugate for Tensor<T, D> {
-    type Output = Tensor<T, D>;
-
-    fn conj(&self) -> Self::Output {
-        let view = view_from_shape(self.shape());
-        let shape = self.shape().to_vec();
-
-        let inputs = vec![self.as_input_ref()];
-        let expr = conj(wildcard("0"));
-
-        let inner = TensorInner::new(TensorOp::elementwise(inputs, expr), view, shape, T::DTYPE);
-
-        // TODO: Add gradient support using Wirtinger derivatives
-        // For now, we don't track gradients for complex conjugate
-        Tensor {
-            inner: Arc::new(inner),
-            autograd_meta: None,
-            _dtype: PhantomData,
-            _dim: PhantomData,
+// Conjugate backward: conj is non-holomorphic
+// ∂/∂z conj(z) = 0, ∂/∂z* conj(z) = 1
+// For Wirtinger derivatives: grad_input = conj(grad_output)
+macro_rules! impl_conj_backward {
+    ($name:ident, $complex_type:ty, $real_type:ty) => {
+        pub struct $name<D: Dimension> {
+            input: Tensor<$complex_type, D>,
         }
-    }
+
+        impl<D: Dimension> $name<D> {
+            pub fn new(input: Tensor<$complex_type, D>) -> Self {
+                Self { input }
+            }
+        }
+
+        impl<D: Dimension> ComplexGradFn<$real_type, D> for $name<D> {
+            fn backward(&self, grad_output: &Tensor<$complex_type, D>) {
+                if self.input.requires_grad() {
+                    // conj is non-holomorphic: grad = conj(grad_output)
+                    self.input.backward_with(grad_output.conj());
+                }
+            }
+
+            fn name(&self) -> &'static str {
+                stringify!($name)
+            }
+        }
+    };
 }
+
+impl_conj_backward!(Complex32ConjBackward, Complex32, f32);
+impl_conj_backward!(Complex64ConjBackward, Complex64, f64);
+
+macro_rules! impl_complex_conj {
+    ($complex_type:ty, $real_type:ty, $backward_type:ident) => {
+        impl<D: Dimension> Conjugate for Tensor<$complex_type, D> {
+            type Output = Tensor<$complex_type, D>;
+
+            fn conj(&self) -> Self::Output {
+                let view = view_from_shape(self.shape());
+                let shape = self.shape().to_vec();
+
+                let inputs = vec![self.as_input_ref()];
+                let expr = conj(wildcard("0"));
+
+                let inner = TensorInner::new(
+                    TensorOp::elementwise(inputs, expr),
+                    view,
+                    shape,
+                    <$complex_type as TensorDType>::DTYPE,
+                );
+
+                let result: Tensor<$complex_type, D> = Tensor {
+                    inner: Arc::new(inner),
+                    autograd_meta: None,
+                    _dtype: PhantomData,
+                    _dim: PhantomData,
+                };
+
+                if self.requires_grad() {
+                    let grad_fn: Arc<dyn ComplexGradFn<$real_type, D>> =
+                        Arc::new($backward_type::new(self.clone()));
+                    result.with_complex_grad_fn(grad_fn)
+                } else {
+                    result
+                }
+            }
+        }
+    };
+}
+
+impl_complex_conj!(Complex32, f32, Complex32ConjBackward);
+impl_complex_conj!(Complex64, f64, Complex64ConjBackward);
 
 // ============================================================================
 // Complex construction from parts
