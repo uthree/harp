@@ -36,6 +36,7 @@
 | GroupParallelizationSuggester | ループ並列化（GroupId使用、動的分岐チェックあり） |
 | LocalParallelizationSuggester | ループ並列化（LocalId使用、動的分岐チェックなし） |
 | VectorizationSuggester | 連続メモリアクセスのSIMD化 |
+| ReductionTilingSuggester | 縮約ループのタイル化（部分和配列使用） |
 | CompositeSuggester | 複数Suggesterを組み合わせ |
 
 ## 並列化Suggester
@@ -90,6 +91,48 @@ Kernel { params: [gidx0: GroupId(0), lidx1: LocalId(1)], thread_group_size: [..,
 
 **LoopInterchangeSuggesterとの組み合わせ:**
 内側ループを並列化したい場合は、LoopInterchangeSuggesterで外側に持ってきてから並列化する。
+
+## ReductionTilingSuggester
+
+縮約ループ（acc = acc op value）をタイル化し、部分和配列を用いた並列化可能な形式に変換する。
+
+### 対応する縮約演算
+
+- **加算**: acc = acc + value（単位元: 0）
+- **乗算**: acc = acc * value（単位元: 1）
+- **最大値**: acc = max(acc, value)（単位元: -∞）
+- **最小値**: acc = min(acc, value)（単位元: +∞、内部で-max(-a,-b)に変換）
+
+### 変換例
+
+```
+// 入力
+acc = 0
+for i in 0..N { acc = acc + array[i] }
+
+// 出力（タイルサイズ=4）
+num_tiles = ceil_div(N, 4)
+partial = Allocate(F32, num_tiles)
+for t in 0..num_tiles { store(partial, t, 0.0) }
+for tile in 0..num_tiles {
+    for j in 0..4 {
+        idx = tile * 4 + j
+        if (idx < N) {
+            store(partial, tile, load(partial, tile) + array[idx])
+        }
+    }
+}
+Barrier
+acc = 0
+for t in 0..num_tiles { acc = acc + load(partial, t) }
+Deallocate(partial)
+```
+
+### 設計上の決定
+
+- **部分和は固定長バッファ配列**: Allocateノードでタイル数分のバッファを確保
+- **内側ループは展開しない**: for文のまま生成し、後続のParallelizationSuggesterで並列化可能
+- **バリアー挿入**: 最終縮約前にBarrierを挿入し、並列化後の同期を保証
 
 ## VectorizationSuggester
 
