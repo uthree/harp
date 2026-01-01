@@ -27,7 +27,11 @@
 //! ```
 
 pub mod activation;
+pub mod interpolate;
 pub mod pooling;
+
+// interpolate functions re-export
+pub use interpolate::{bilinear2d, linear1d, nearest1d, nearest2d, nearest3d, trilinear3d};
 
 // pooling functions re-export
 pub use pooling::{

@@ -502,6 +502,7 @@ primopsの組み合わせで表現される演算。f32, f64両方でサポー�
 | `Softmax(x)` | `Div(Exp(x - max), Reduce(Sum, Exp(x - max)))` |
 | `MatMul(a, b)` | `Reduce(Sum, Mul(Unsqueeze(a), Unsqueeze(b)))` |
 | `Conv2d` | Unfold + MatMul (im2col方式) |
+**補間関数は `harp-nn::functional::interpolate` へ移動：**
 | `nearest1d(size)` | arange + floor + gather（NCW形式、Dim3） |
 | `nearest2d(size)` | arange + floor + gather（NCHW形式、Dim4） |
 | `nearest3d(size)` | arange + floor + gather（NCDHW形式、Dim5） |
@@ -830,10 +831,6 @@ src/tensor/
 │   ├── arithmetic.rs
 │   ├── complex_arithmetic.rs    # 複素数四則演算
 │   ├── complex_transcendental.rs # 複素数超越関数
-│   ├── interpolate/             # 補間
-│   │   ├── mod.rs
-│   │   ├── nearest.rs           # 最近傍補間（nearest1d/2d/3d）
-│   │   └── linear.rs            # 線形補間（linear1d, bilinear2d, trilinear3d）
 │   ├── linalg.rs
 │   ├── reduction.rs
 │   └── transcendental.rs

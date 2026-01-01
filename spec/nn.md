@@ -15,6 +15,11 @@ crates/
 │       │   ├── linear.rs     # 全結合層
 │       │   ├── conv.rs       # 畳み込み層 (Conv/ConvTranspose)
 │       │   └── activation.rs # 活性化関数層
+│       ├── functional/       # 関数API
+│       │   ├── mod.rs
+│       │   ├── activation.rs # 活性化関数
+│       │   ├── pooling.rs    # プーリング関数
+│       │   └── interpolate.rs # 補間関数
 │       ├── loss.rs           # 損失関数
 │       └── optim/            # オプティマイザ
 │           ├── mod.rs        # Optimizer trait
@@ -132,6 +137,53 @@ let output = relu.forward(&input);
 
 let leaky = LeakyReLU::<f64>::new(0.01);
 let output = leaky.forward(&input);
+```
+
+### プーリング層
+
+```rust
+use harp_nn::layers::pooling::{MaxPool2d, AdaptiveAvgPool2d};
+
+let pool = MaxPool2d::<f32>::new((2, 2)).stride((2, 2)).build();
+let adaptive = AdaptiveAvgPool2d::<f32>::new((7, 7));
+```
+
+## functional モジュール
+
+レイヤーを使わない関数ベースのAPI。
+
+### プーリング関数
+
+```rust
+use harp_nn::functional::{max_pool2d, avg_pool2d, adaptive_avg_pool2d};
+
+let pooled = max_pool2d(&input, (2, 2), (2, 2), (0, 0));
+let avg = avg_pool2d(&input, (2, 2), (2, 2), (0, 0));
+let adaptive = adaptive_avg_pool2d(&input, (7, 7));
+```
+
+### 補間関数
+
+テンソルのリサイズ（アップサンプリング/ダウンサンプリング）を行う。
+
+| 関数 | 次元 | テンソル形式 |
+|------|------|------------|
+| `nearest1d(input, size)` | 1D | NCW (Dim3) |
+| `nearest2d(input, size)` | 2D | NCHW (Dim4) |
+| `nearest3d(input, size)` | 3D | NCDHW (Dim5) |
+| `linear1d(input, size)` | 1D | NCW (Dim3) |
+| `bilinear2d(input, size)` | 2D | NCHW (Dim4) |
+| `trilinear3d(input, size)` | 3D | NCDHW (Dim5) |
+
+```rust
+use harp_nn::functional::{nearest2d, bilinear2d};
+
+// アップサンプリング
+let upsampled = nearest2d(&input, (256, 256));
+let smooth_upsampled = bilinear2d(&input, (256, 256));
+
+// ダウンサンプリング
+let downsampled = bilinear2d(&input, (64, 64));
 ```
 
 ### #[derive(Module)] マクロ
