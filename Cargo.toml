@@ -1,40 +1,6 @@
-[workspace]
-resolver = "2"
-members = ["crates/core", "crates/backend-c", "crates/backend-opencl", "crates/backend-metal", "crates/data", "crates/nn", "crates/nn-derive"]
-
 [package]
 name = "harp"
 version = "0.1.0"
 edition = "2024"
-description = "Harp: High-level Array Processor - A transpiler for AI accelerators"
 
 [dependencies]
-# Core crate (always required)
-harp-core = { path = "crates/core" }
-
-# Backend crates (optional)
-harp-backend-c = { path = "crates/backend-c", optional = true }
-harp-backend-opencl = { path = "crates/backend-opencl", optional = true }
-
-# Automatic initialization
-ctor = "0.2"
-
-# Logging
-log = { version = "0.4", features = ["std"] }
-
-# Metal backend (optional, macOS only)
-[target.'cfg(target_os = "macos")'.dependencies]
-harp-backend-metal = { path = "crates/backend-metal", optional = true }
-
-[features]
-default = []
-c = ["dep:harp-backend-c"]
-opencl = ["dep:harp-backend-opencl"]
-metal = ["dep:harp-backend-metal"]
-viz = ["harp-core/viz"]
-
-[dev-dependencies]
-env_logger = "0.11"
-serial_test = "3.2"
-rstest = "0.24"
-harp-nn = { path = "crates/nn" }
