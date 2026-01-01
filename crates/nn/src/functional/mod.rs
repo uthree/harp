@@ -35,7 +35,6 @@ pub use interpolate::{bilinear2d, linear1d, nearest1d, nearest2d, nearest3d, tri
 
 // pooling functions re-export
 pub use pooling::{
-    adaptive_avg_pool2d, adaptive_max_pool2d, avg_pool1d, avg_pool2d, avg_pool3d,
-    global_avg_pool1d, global_avg_pool2d, global_avg_pool3d, global_max_pool1d, global_max_pool2d,
-    global_max_pool3d, max_pool1d, max_pool2d, max_pool3d,
+    adaptive_avg_pool2d, adaptive_max_pool2d, avg_pool1d, avg_pool2d, avg_pool3d, max_pool1d,
+    max_pool2d, max_pool3d,
 };

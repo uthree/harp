@@ -22,8 +22,6 @@
 //! - [`AvgPool3d`] - 3D平均プーリング
 //! - [`AdaptiveAvgPool2d`] - 2D適応的平均プーリング
 //! - [`AdaptiveMaxPool2d`] - 2D適応的最大プーリング
-//! - [`GlobalAvgPool2d`] - 2Dグローバル平均プーリング
-//! - [`GlobalMaxPool2d`] - 2Dグローバル最大プーリング
 //!
 //! ## 活性化関数層（パラメータなし）
 //! - [`ReLU`] - ReLU 活性化関数
@@ -51,6 +49,6 @@ pub use conv_transpose::{
 };
 pub use linear::Linear;
 pub use pooling::{
-    AdaptiveAvgPool2d, AdaptiveMaxPool2d, AvgPool1d, AvgPool2d, AvgPool3d, GlobalAvgPool2d,
-    GlobalMaxPool2d, MaxPool1d, MaxPool2d, MaxPool3d,
+    AdaptiveAvgPool2d, AdaptiveMaxPool2d, AvgPool1d, AvgPool2d, AvgPool3d, MaxPool1d, MaxPool2d,
+    MaxPool3d,
 };

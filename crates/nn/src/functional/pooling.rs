@@ -252,104 +252,6 @@ pub fn avg_pool3d(
 }
 
 // ============================================================================
-// Global Pooling
-// ============================================================================
-
-/// Global average pooling 1D
-///
-/// Reduces spatial dimension to 1 by averaging.
-///
-/// # Arguments
-/// * `input` - Input tensor of shape [N, C, L]
-///
-/// # Returns
-/// Output tensor of shape [N, C]
-pub fn global_avg_pool1d(input: &Tensor<f32, Dim3>) -> Tensor<f32, Dim2> {
-    let shape = input.shape();
-    let l = shape[2];
-    let summed = input.sum(2);
-    let inv_size = 1.0 / l as f32;
-    summed * inv_size
-}
-
-/// Global max pooling 1D
-///
-/// Reduces spatial dimension to 1 by taking maximum.
-///
-/// # Arguments
-/// * `input` - Input tensor of shape [N, C, L]
-///
-/// # Returns
-/// Output tensor of shape [N, C]
-pub fn global_max_pool1d(input: &Tensor<f32, Dim3>) -> Tensor<f32, Dim2> {
-    input.max(2)
-}
-
-/// Global average pooling 2D
-///
-/// Reduces spatial dimensions to 1x1 by averaging.
-///
-/// # Arguments
-/// * `input` - Input tensor of shape [N, C, H, W]
-///
-/// # Returns
-/// Output tensor of shape [N, C]
-pub fn global_avg_pool2d(input: &Tensor<f32, Dim4>) -> Tensor<f32, Dim2> {
-    let shape = input.shape();
-    let spatial_size = shape[2] * shape[3];
-
-    // Sum over H and W dimensions
-    let summed = input.sum(3).sum(2);
-    let inv_size = 1.0 / spatial_size as f32;
-    summed * inv_size
-}
-
-/// Global max pooling 2D
-///
-/// Reduces spatial dimensions to 1x1 by taking maximum.
-///
-/// # Arguments
-/// * `input` - Input tensor of shape [N, C, H, W]
-///
-/// # Returns
-/// Output tensor of shape [N, C]
-pub fn global_max_pool2d(input: &Tensor<f32, Dim4>) -> Tensor<f32, Dim2> {
-    input.max(3).max(2)
-}
-
-/// Global average pooling 3D
-///
-/// Reduces spatial dimensions to 1x1x1 by averaging.
-///
-/// # Arguments
-/// * `input` - Input tensor of shape [N, C, D, H, W]
-///
-/// # Returns
-/// Output tensor of shape [N, C]
-pub fn global_avg_pool3d(input: &Tensor<f32, Dim5>) -> Tensor<f32, Dim2> {
-    let shape = input.shape();
-    let spatial_size = shape[2] * shape[3] * shape[4];
-
-    // Sum over D, H and W dimensions
-    let summed = input.sum(4).sum(3).sum(2);
-    let inv_size = 1.0 / spatial_size as f32;
-    summed * inv_size
-}
-
-/// Global max pooling 3D
-///
-/// Reduces spatial dimensions to 1x1x1 by taking maximum.
-///
-/// # Arguments
-/// * `input` - Input tensor of shape [N, C, D, H, W]
-///
-/// # Returns
-/// Output tensor of shape [N, C]
-pub fn global_max_pool3d(input: &Tensor<f32, Dim5>) -> Tensor<f32, Dim2> {
-    input.max(4).max(3).max(2)
-}
-
-// ============================================================================
 // Adaptive Pooling
 // ============================================================================
 
@@ -444,20 +346,6 @@ mod tests {
         let input = Tensor::<f32, Dim4>::ones([1, 1, 4, 4]);
         let output = max_pool2d(&input, (3, 3), (1, 1), (1, 1));
         assert_eq!(output.shape(), &[1, 1, 4, 4]);
-    }
-
-    #[test]
-    fn test_global_avg_pool2d() {
-        let input = Tensor::<f32, Dim4>::ones([1, 1, 4, 4]);
-        let output = global_avg_pool2d(&input);
-        assert_eq!(output.shape(), &[1, 1]);
-    }
-
-    #[test]
-    fn test_global_max_pool2d() {
-        let input = Tensor::<f32, Dim4>::ones([1, 1, 4, 4]);
-        let output = global_max_pool2d(&input);
-        assert_eq!(output.shape(), &[1, 1]);
     }
 
     #[test]

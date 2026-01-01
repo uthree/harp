@@ -12,16 +12,14 @@
 //! - [`AvgPool3d`] - 3D平均プーリング
 //! - [`AdaptiveAvgPool2d`] - 2D適応的平均プーリング
 //! - [`AdaptiveMaxPool2d`] - 2D適応的最大プーリング
-//! - [`GlobalAvgPool2d`] - 2Dグローバル平均プーリング
-//! - [`GlobalMaxPool2d`] - 2Dグローバル最大プーリング
 
 use std::collections::HashMap;
 
-use harp::tensor::{Dim2, Dim3, Dim4, Dim5, DimDyn, Tensor};
+use harp::tensor::{Dim3, Dim4, Dim5, DimDyn, Tensor};
 
 use crate::functional::{
-    adaptive_avg_pool2d, adaptive_max_pool2d, avg_pool1d, avg_pool2d, avg_pool3d,
-    global_avg_pool2d, global_max_pool2d, max_pool1d, max_pool2d, max_pool3d,
+    adaptive_avg_pool2d, adaptive_max_pool2d, avg_pool1d, avg_pool2d, avg_pool3d, max_pool1d,
+    max_pool2d, max_pool3d,
 };
 use crate::{Module, ParameterMut};
 
@@ -559,68 +557,6 @@ impl Module<f32> for AdaptiveMaxPool2d {
 }
 
 // ============================================================================
-// GlobalAvgPool2d
-// ============================================================================
-
-/// 2D Global Average Pooling layer
-///
-/// Reduces spatial dimensions to scalar by averaging all values.
-///
-/// # Example
-///
-/// ```ignore
-/// let pool = GlobalAvgPool2d::new();
-/// let input = Tensor::<f32, Dim4>::ones([1, 512, 7, 7]);
-/// let output = pool.forward(&input); // [1, 512]
-/// ```
-#[derive(Debug, Clone, Default)]
-pub struct GlobalAvgPool2d;
-
-impl GlobalAvgPool2d {
-    pub fn new() -> Self {
-        Self
-    }
-
-    pub fn forward(&self, input: &Tensor<f32, Dim4>) -> Tensor<f32, Dim2> {
-        global_avg_pool2d(input)
-    }
-}
-
-impl Module<f32> for GlobalAvgPool2d {
-    fn parameters(&mut self) -> HashMap<String, &mut dyn ParameterMut<f32>> {
-        HashMap::new()
-    }
-
-    fn load_parameters(&mut self, _params: HashMap<String, Tensor<f32, DimDyn>>) {}
-}
-
-// ============================================================================
-// GlobalMaxPool2d
-// ============================================================================
-
-/// 2D Global Max Pooling layer
-#[derive(Debug, Clone, Default)]
-pub struct GlobalMaxPool2d;
-
-impl GlobalMaxPool2d {
-    pub fn new() -> Self {
-        Self
-    }
-
-    pub fn forward(&self, input: &Tensor<f32, Dim4>) -> Tensor<f32, Dim2> {
-        global_max_pool2d(input)
-    }
-}
-
-impl Module<f32> for GlobalMaxPool2d {
-    fn parameters(&mut self) -> HashMap<String, &mut dyn ParameterMut<f32>> {
-        HashMap::new()
-    }
-
-    fn load_parameters(&mut self, _params: HashMap<String, Tensor<f32, DimDyn>>) {}
-}
-
-// ============================================================================
 // Tests
 // ============================================================================
 
@@ -685,22 +621,6 @@ mod tests {
         let input = Tensor::<f32, Dim4>::ones([1, 512, 8, 8]);
         let output = pool.forward(&input);
         assert_eq!(output.shape(), &[1, 512, 2, 2]);
-    }
-
-    #[test]
-    fn test_global_avg_pool2d_layer() {
-        let pool = GlobalAvgPool2d::new();
-        let input = Tensor::<f32, Dim4>::ones([2, 512, 7, 7]);
-        let output = pool.forward(&input);
-        assert_eq!(output.shape(), &[2, 512]);
-    }
-
-    #[test]
-    fn test_global_max_pool2d_layer() {
-        let pool = GlobalMaxPool2d::new();
-        let input = Tensor::<f32, Dim4>::ones([2, 512, 7, 7]);
-        let output = pool.forward(&input);
-        assert_eq!(output.shape(), &[2, 512]);
     }
 
     #[test]
