@@ -158,6 +158,13 @@ pub trait GradFn<T: FloatDType, D: Dimension>: Send + Sync {
 }
 
 // ============================================================================
+// Type aliases for gradient storage
+// ============================================================================
+
+/// Type alias for gradient storage to reduce type complexity
+pub(crate) type GradStorage<T, D> = RwLock<Option<Arc<Tensor<T, D>>>>;
+
+// ============================================================================
 // AutogradMeta - New statically-typed autograd metadata
 // ============================================================================
 
@@ -167,7 +174,7 @@ pub trait GradFn<T: FloatDType, D: Dimension>: Send + Sync {
 /// Unlike `AutogradMeta<T>`, this version preserves the dimension type D.
 pub struct AutogradMeta<T: FloatDType, D: Dimension> {
     /// Stored gradient with static dimension (populated after backward())
-    pub(crate) grad: RwLock<Option<Arc<Tensor<T, D>>>>,
+    pub(crate) grad: GradStorage<T, D>,
     /// Gradient function for backpropagation (uses GradFn)
     pub(crate) grad_fn: Option<Arc<dyn GradFn<T, D>>>,
 }
@@ -230,7 +237,7 @@ where
     Complex<T>: TensorDType,
 {
     /// Stored gradient with static dimension (populated after backward())
-    pub(crate) grad: RwLock<Option<Arc<Tensor<Complex<T>, D>>>>,
+    pub(crate) grad: GradStorage<Complex<T>, D>,
     /// Gradient function for backpropagation (uses ComplexGradFn)
     pub(crate) grad_fn: Option<Arc<dyn ComplexGradFn<T, D>>>,
 }

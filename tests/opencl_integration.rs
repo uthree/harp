@@ -30,14 +30,14 @@ fn test_opencl_const_fill() {
         return;
     }
 
-    let t = Tensor::<f32, DimDyn>::full_dyn(&[2, 3], 3.14);
+    let t = Tensor::<f32, DimDyn>::full_dyn(&[2, 3], 2.5);
     let result = t.realize();
 
     assert!(result.is_ok(), "realize() failed: {:?}", result.err());
 
     let data = t.data().expect("No data after realize");
     assert_eq!(data.len(), 6);
-    assert!(data.iter().all(|&x| approx_eq(x, 3.14)));
+    assert!(data.iter().all(|&x| approx_eq(x, 2.5)));
 }
 
 #[test]

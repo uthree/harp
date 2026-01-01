@@ -3,7 +3,7 @@
 //! プーリング操作を関数として提供します。
 
 use harp::tensor::ops::PadValue;
-use harp::tensor::{Dim2, Dim3, Dim4, Dim5, Tensor};
+use harp::tensor::{Dim3, Dim4, Dim5, Tensor};
 
 // ============================================================================
 // 1D Pooling
