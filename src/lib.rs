@@ -5,34 +5,13 @@
 //!
 //! # Architecture
 //!
-//! Harp is organized into several crates:
-//!
-//! - **harp-core**: Core functionality (AST, optimization, Tensor API, backend traits)
-//! - **harp-backend-c**: C code generation backend
-//! - **harp-backend-metal**: Metal backend (macOS only)
-//! - **harp-backend-opencl**: OpenCL backend
-//! - **harp** (this crate): Facade that re-exports everything
-//!
-//! # Quick Start
-//!
-//! ```ignore
-//! use harp::prelude::*;
-//!
-//! // Set up a device (auto-selects best available)
-//! let device = HarpDevice::auto()?;
-//! device.set_as_default();
-//!
-//! // Create tensors
-//! let a = Tensor::<f32, Dim2>::full([10, 20], 1.0);
-//! let b = Tensor::<f32, Dim2>::full([10, 20], 2.0);
-//!
-//! // Lazy operations
-//! let result = &a + &b;
-//!
-//! // Execute computation
-//! result.realize()?;
-//! let data = result.data().unwrap();
-//! ```
+//! Harp provides:
+//! - **ast**: AST definitions for computation graphs
+//! - **opt**: Optimization passes for AST transformations
+//! - **shape**: Shape expressions for tensor operations
+//! - **backend**: Backend trait definitions and pipeline
+//! - **backends**: Backend implementations (C, OpenCL, Metal)
+//! - **viz**: Visualization tools (optional, feature: viz)
 //!
 //! # Feature Flags
 //!
@@ -42,94 +21,114 @@
 //! - `viz`: Enable visualization tools
 
 // ============================================================================
-// Backend Initialization
+// Core Modules
 // ============================================================================
 
-// Automatically initialize backends when the crate is loaded
+pub mod ast;
+pub mod backend;
+pub mod opt;
+pub mod shape;
+
+// Backend implementations (feature-gated)
+pub mod backends;
+
+// Optional visualization module
+#[cfg(feature = "viz")]
+pub mod viz;
+
+// ============================================================================
+// Re-exports
+// ============================================================================
+
+// Core types
+pub use ast::{DType, TensorDType};
+pub use backend::{Buffer, Compiler, Device, Kernel, KernelConfig, Pipeline, Renderer};
+
+// ============================================================================
+// Prelude
+// ============================================================================
+
+/// Prelude module with commonly used types and traits
+pub mod prelude {
+    // Data types
+    pub use crate::ast::DType;
+
+    // Backend traits
+    pub use crate::backend::{
+        Buffer, BufferSignature, Compiler, Device, HarpDevice, Kernel, KernelSignature, Pipeline,
+        Renderer,
+    };
+
+    // Shape expressions
+    pub use crate::shape::{Expr, View};
+}
+
+// ============================================================================
+// Backend Initialization
+// ============================================================================
 
 #[cfg(feature = "c")]
 #[ctor::ctor]
 fn init_c() {
-    harp_backend_c::init();
+    backends::c::init();
 }
 
 #[cfg(feature = "opencl")]
 #[ctor::ctor]
 fn init_opencl() {
-    harp_backend_opencl::init();
+    backends::opencl::init();
 }
 
 #[cfg(all(feature = "metal", target_os = "macos"))]
 #[ctor::ctor]
 fn init_metal() {
-    harp_backend_metal::init();
+    backends::metal::init();
 }
 
 // ============================================================================
-// Re-exports from harp-core
-// ============================================================================
-
-// Core modules
-pub use harp_core::ast;
-pub use harp_core::backend;
-pub use harp_core::opt;
-pub use harp_core::tensor;
-
-// Visualization (optional)
-#[cfg(feature = "viz")]
-pub use harp_core::viz;
-
-// Core types
-pub use harp_core::{Buffer, Compiler, Device, Kernel, KernelConfig, Pipeline, Renderer};
-pub use harp_core::{DType, TensorDType};
-
-// Prelude
-pub use harp_core::prelude;
-
-// ============================================================================
-// Re-exports from backend crates
+// Backend Re-exports (for convenience)
 // ============================================================================
 
 /// C backend types (when enabled)
 #[cfg(feature = "c")]
 pub mod c {
-    pub use harp_backend_c::*;
+    pub use crate::backends::c::*;
 }
 
 /// OpenCL backend types (when enabled)
 #[cfg(feature = "opencl")]
 pub mod opencl {
-    pub use harp_backend_opencl::*;
+    pub use crate::backends::opencl::*;
 }
 
 /// Metal backend types (when enabled)
 #[cfg(all(feature = "metal", target_os = "macos"))]
 pub mod metal {
-    pub use harp_backend_metal::*;
+    pub use crate::backends::metal::*;
 }
 
 // ============================================================================
-// Renderer re-exports (for convenience)
+// Renderer re-exports
 // ============================================================================
 
 /// Renderer types from enabled backends
 pub mod renderer {
     // Core renderer types are always available
-    pub use harp_core::backend::renderer::{
+    pub use crate::backend::renderer::{
         CLikeRenderer, GenericRenderer, OptimizationLevel, Renderer, extract_buffer_placeholders,
     };
 
     // C renderer
     #[cfg(feature = "c")]
-    pub use harp_backend_c::renderer::{CCode, CRenderer};
+    pub use crate::backends::c::renderer::{CCode, CRenderer};
 
     // OpenCL renderer
     #[cfg(feature = "opencl")]
-    pub use harp_backend_opencl::renderer::{OpenCLCode, OpenCLRenderer};
+    pub use crate::backends::opencl::renderer::{OpenCLCode, OpenCLRenderer};
 
     // Metal renderer
     #[cfg(all(feature = "metal", target_os = "macos"))]
-    pub use harp_backend_metal::renderer::{MetalCode, MetalRenderer};
+    pub use crate::backends::metal::renderer::{MetalCode, MetalRenderer};
 }
 
 // ============================================================================
@@ -142,7 +141,7 @@ mod tests {
     fn test_facade_compiles() {
         // Verify that the facade compiles correctly
         use super::prelude::*;
-        let _ = Tensor::<f32, Dim2>::zeros([2, 3]);
+        let _ = Expr::Const(42);
     }
 
     #[cfg(feature = "opencl")]

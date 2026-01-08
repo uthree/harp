@@ -15,17 +15,21 @@
 - `cache/`: 統一カーネルキャッシュ（CacheEntry, KernelCacheKey, get_cached_kernel, insert_cached_kernel）
 - `c_like.rs`: C言語系構文の共通レンダリングロジック（CLikeRenderer trait）、OptimizationLevel、extract_buffer_placeholders関数
 
-### バックエンド実装
-- `metal/`: Metalバックエンド（macOS GPU）
+### バックエンド実装（src/backends/）
+- `c/`: Cコード生成バックエンド（feature: c）
+  - `mod.rs`: モジュール定義とre-export
+  - `renderer.rs`: Cレンダラー
+  - `device.rs`: Cデバイス（コード生成のみ）
+- `metal/`: Metalバックエンド（feature: metal、macOS GPU）
   - `mod.rs`: モジュール定義とre-export
   - `renderer.rs`: Metal Shading Languageレンダラー
   - `MetalCode`: Metal Shading Languageソースコードを表す型
-  - `buffer.rs`, `device.rs`, `kernel.rs`, `compiler.rs`: GPU実行用の実装（metal feature）
-- `opencl/`: OpenCLバックエンド（クロスプラットフォームGPU）
+  - `buffer.rs`, `device.rs`, `kernel.rs`, `compiler.rs`: GPU実行用の実装
+- `opencl/`: OpenCLバックエンド（feature: opencl、クロスプラットフォームGPU）
   - `mod.rs`: モジュール定義とre-export
   - `renderer.rs`: OpenCL Cレンダラー
   - `OpenCLCode`: OpenCL Cコードを表す型
-  - `buffer.rs`, `device.rs`, `kernel.rs`, `compiler.rs`: GPU実行用の実装（opencl feature）
+  - `buffer.rs`, `device.rs`, `kernel.rs`, `compiler.rs`: GPU実行用の実装
 
 ## 主要コンポーネント
 
@@ -137,7 +141,7 @@ use harp::backend::{set_default_device, DeviceKind};
 
 #[cfg(feature = "metal")]
 {
-    use harp::backend::metal::MetalDevice;
+    use harp::backends::metal::MetalDevice;
     let device = MetalDevice::new().unwrap();
     set_default_device(device, DeviceKind::Metal);
 }
@@ -392,7 +396,7 @@ pub trait Kernel: Send + Sync {
 
 ```rust
 use harp::backend::traits::{Buffer, Compiler, Device, KernelConfig};
-use harp::backend::opencl::{OpenCLBuffer, OpenCLCompiler, OpenCLDevice};
+use harp::backends::opencl::{OpenCLBuffer, OpenCLCompiler, OpenCLDevice};
 
 // デバイス作成
 let device = OpenCLDevice::new()?;

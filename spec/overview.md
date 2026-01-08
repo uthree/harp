@@ -1,50 +1,36 @@
 # Harp プロジェクト概要
 
-Harpは高性能なテンソル計算ライブラリです。計算グラフを構築し、様々なバックエンド（OpenCL, Metal等）で実行します。
+Harpは計算グラフから効率的なGPU/CPUカーネルを生成するトランスコンパイラです。
+
+**注意**: 現在リファクタリング中のため、上位レイヤー（Tensor, nn, data）は削除されています。
+再設計後に新しい高レベルAPIが追加される予定です。
 
 ## ディレクトリ構成
 
 ```
 harp/
-├── Cargo.toml            # メインクレート（ワークスペース）
-├── crates/
-│   ├── nn/               # ニューラルネットワークモジュール
-│   └── nn-derive/        # Module derive マクロ
+├── Cargo.toml              # パッケージ設定
 ├── src/
-│   ├── lib.rs            # エントリポイント
-│   ├── tensor/           # 統合Tensor型（autograd + lazy evaluation）
-│   │   ├── mod.rs        # Tensor<D> 定義
-│   │   ├── dimension.rs  # Dimension trait, Dim<N>, DimDyn
-│   │   ├── ops.rs        # 演算子オーバーロード
-│   │   ├── forward.rs    # forward() 実装
-│   │   ├── lowerer/      # Tensor→AST変換
-│   │   └── grad.rs       # GradFn, backward() 実装
-│   ├── core/             # コア型（DType, Expr, View）
-│   ├── ast/              # 抽象構文木
-│   ├── renderer/         # コードレンダラー（常に利用可能）
-│   │   ├── mod.rs
-│   │   ├── traits.rs     # Renderer trait
-│   │   ├── c_like.rs     # CLikeRenderer
-│   │   ├── opencl.rs     # OpenCLRenderer
-│   │   └── metal.rs      # MetalRenderer
-│   ├── backend/          # 実行バックエンド（feature gated）
-│   │   ├── mod.rs
-│   │   ├── traits.rs     # Device, Buffer, Kernel, Compiler
-│   │   ├── pipeline.rs   # Pipeline, CompiledKernel
-│   │   ├── global.rs     # グローバルデバイス管理
-│   │   ├── opencl/       # OpenCLバックエンド (feature: opencl)
-│   │   └── metal/        # Metalバックエンド (feature: metal)
-│   ├── opt/              # 最適化パイプライン（AST最適化）
-│   └── viz/              # 最適化履歴可視化TUI (feature: viz)
-├── examples/             # サンプルコード
-├── tests/                # 統合テスト
-└── spec/                 # 仕様書
+│   ├── lib.rs              # ルートモジュール
+│   ├── ast/                # 抽象構文木
+│   ├── backend/            # バックエンドトレイト・Pipeline
+│   ├── opt/                # AST最適化
+│   ├── shape/              # 形状式（Expr, View）
+│   ├── viz/                # 可視化TUI (feature: viz)
+│   └── backends/           # バックエンド実装
+│       ├── c/              # Cコード生成 (feature: c)
+│       ├── opencl/         # OpenCL (feature: opencl)
+│       └── metal/          # Metal (feature: metal, macOSのみ)
+├── examples/               # サンプルコード
+├── tests/                  # 統合テスト
+└── spec/                   # 仕様書
 ```
 
 ## Feature Flags
 
 | Feature | 説明 |
 |---------|------|
+| `c` | Cバックエンドを有効化 |
 | `opencl` | OpenCLバックエンドを有効化 |
 | `metal` | Metalバックエンドを有効化（macOSのみ） |
 | `viz` | 最適化履歴可視化TUIを有効化 |
@@ -59,62 +45,49 @@ harp = { version = "0.1", features = ["metal"] }
 
 ## 主要モジュール
 
-### tensor（統合Tensor型）【推奨API】
-
-**Tensorはharpの主要なAPIです。** PyTorchライクなインターフェースで、遅延評価、演算融合（Eager Fusion）、自動微分をサポートします。
-
-**主要機能:**
-- 静的次元管理（`Dim<N>`: `Dim0`-`Dim6`）と動的次元（`DimDyn`）
-- 遅延評価による計算グラフ構築
-- **Eager Fusion**: 演算呼び出し時に自動融合（Elementwise→Elementwise, Elementwise→Reduce）
-- `realize()`: 計算実行（1回の呼び出し = 1カーネル実行）
-- `backward()`: 自動微分（勾配計算）
-- `fork()`: 明示的な分岐点作成
-
-**仕様書:** [tensor.md](tensor.md)
-
 ### ast
 
-抽象構文木（AstNode, Function, Literal）
+抽象構文木（AstNode）の定義。計算グラフの中間表現として使用されます。
+
+**主要な型:**
+- `AstNode`: 計算ノード（演算、定数、変数、ループ、関数など）
+- `DType`: データ型（F32, F64, I32, etc.）
+- `Literal`: 定数値
 
 **仕様書:** [ast.md](ast.md)
 
-### renderer
+### shape
 
-コードレンダラー。バックエンド無しでもソースコード生成が可能。
+形状式とビューの定義。動的・静的な形状表現をサポートします。
 
-- `GenericRenderer`: C言語風コード生成
-- `OpenCLRenderer`: OpenCL Cコード生成
-- `MetalRenderer`: Metal Shading Language生成
+**主要な型:**
+- `Expr`: 形状式（定数、算術演算、ループインデックス）
+- `View`: メモリレイアウト（Linear, IndexExpr, Masked）
+- `PadValue`: パディング値（Zero, One, NegInf）
 
 ### backend
 
-GPU実行バックエンド。Renderer traitとDevice/Buffer/Kernel traits。
+バックエンドトレイトとPipeline。
+
+**主要な型:**
+- `Device`: デバイストレイト
+- `Buffer`: バッファトレイト
+- `Kernel`: カーネルトレイト
+- `Compiler`: コンパイラトレイト
+- `Pipeline`: AST→カーネルのパイプライン
+- `Renderer`, `CLikeRenderer`: コードレンダラートレイト
 
 **仕様書:** [backend.md](backend.md)
 
 ### opt
 
-AST最適化パイプライン
+AST最適化パイプライン。ループ融合、タイリング、ベクトル化などを提供。
 
 **仕様書:** [opt.md](opt.md), [opt-ast.md](opt-ast.md)
 
-### nn (別クレート: harp-nn)
-
-ニューラルネットワーク構築のための層・損失関数・オプティマイザを提供。
-
-**主要コンポーネント:**
-- `Module<T>` トレイト: 学習可能なパラメータを持つ計算ユニットの基底
-- `Parameter<T>`: 学習可能なテンソルのラッパー
-- `#[derive(Module)]`: Module トレイトの自動実装
-- `Linear<T>`: 全結合層
-- `SGD<T>`, `Momentum<T>`: オプティマイザ
-
-**仕様書:** [nn.md](nn.md)
-
 ### viz (feature: viz)
 
-最適化履歴可視化TUI。ratatuiを使用してターミナルで最適化ステップを対話的に確認できる。
+最適化履歴可視化TUI。ratatuiを使用してターミナルで最適化ステップを対話的に確認できます。
 
 **機能:**
 - 左右キー（←/→ または h/l）: ステップ間を移動
@@ -122,80 +95,66 @@ AST最適化パイプライン
 - 2ペインレイアウト: ソースコード（syntectでハイライト）+ 候補リスト
 - ステータスバー: ステップ番号、コスト、Suggester名
 
-**使用例:**
-```bash
-cargo run --features viz --example viz_demo
-```
+## バックエンド実装
+
+### backends::c (feature: c)
+
+Cコードを生成するバックエンド。実行機能は持たず、コード生成のみ。
+
+### backends::opencl (feature: opencl)
+
+OpenCLを使用したGPU実行バックエンド。
+
+### backends::metal (feature: metal, macOSのみ)
+
+Apple Metal APIを使用したGPU実行バックエンド。
 
 ## 使用例
 
-### 基本的な計算（遅延評価 + Eager Fusion）
+### AST構築とレンダリング
 
 ```rust
-use harp::tensor::{Tensor, Dim2};
+use harp::ast::{AstNode, DType, Literal};
+use harp::ast::helper::*;
 
-// テンソル作成（まだ計算は実行されない）
-let x = Tensor::<Dim2>::full([3, 4], 2.0);
-let y = Tensor::<Dim2>::full([3, 4], 3.0);
+// AST構築
+let a = var("a");
+let b = var("b");
+let expr = add(a, b);
 
-// 演算（計算グラフを構築 + Eager Fusion）
-let z = &x + &y;  // z = x + y
-let w = &z * &z;  // w = z^2 → 自動的にFusedElementwiseに融合
-
-// realize()で計算実行（1カーネルとして実行）
-let result = w.realize().unwrap();
-let data = result.data().unwrap();
+// レンダリング
+use harp::renderer::GenericRenderer;
+let renderer = GenericRenderer::default();
+let code = renderer.render(&expr);
 ```
 
-### 自動微分（backward）
+### Pipeline によるカーネルコンパイル
 
 ```rust
-use harp::tensor::{Tensor, Dim2};
+use harp::backend::{Pipeline, KernelSignature, BufferSignature};
+use harp::shape::Expr;
 
-// 勾配追跡を有効化
-let x = Tensor::<Dim2>::full([2, 2], 2.0).set_requires_grad(true);
-
-// y = x * x = x^2
-let y = &x * &x;
-
-// 逆伝播
-y.backward();
-
-// 勾配取得: dy/dx = 2x = 4.0
-let grad = x.grad().unwrap();
-```
-
-### ニューラルネットワーク（harp-nn）
-
-```rust
-use harp::tensor::{Tensor, Dim2};
-use harp_nn::{Linear, Module, SGD, Optimizer};
-
-// モデル作成
-let mut linear = Linear::<f32>::new(784, 128);
-let mut optimizer = SGD::new(0.01);
-
-// 学習ループ
-linear.zero_grad();
-let output = linear.forward(&input);
-// ... loss計算、backward()、optimizer.step() ...
-```
-
-### グローバルデバイス管理
-
-```rust
-use harp::backend::{set_default_device, DeviceKind};
-
+// Pipeline作成（要: バックエンド有効化）
 #[cfg(feature = "metal")]
 {
-    use harp::backend::metal::MetalDevice;
-    let device = MetalDevice::new().unwrap();
-    set_default_device(device, DeviceKind::Metal);
-}
+    use harp::backends::metal::{MetalDevice, MetalCompiler, MetalRenderer};
 
-// デバイス設定後はforward()が使用可能
-let x = Tensor::<Dim2>::ones([3, 4]);
-let y = &x + &x;
-y.forward().unwrap();
+    let device = MetalDevice::new().unwrap();
+    let renderer = MetalRenderer::default();
+    let compiler = MetalCompiler::new();
+    let mut pipeline = Pipeline::new(renderer, compiler, device);
+
+    // ASTをコンパイル
+    let signature = KernelSignature::new(
+        vec![BufferSignature::new("input".to_string(), vec![Expr::Const(32)])],
+        vec![BufferSignature::new("output".to_string(), vec![Expr::Const(32)])],
+    );
+    let compiled = pipeline.compile_ast(ast, signature).unwrap();
+}
 ```
 
+## 今後の予定
+
+- 新しい高レベルTensor API
+- 自動微分のサポート
+- ニューラルネットワーク層

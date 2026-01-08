@@ -353,10 +353,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "data"
-version = "0.1.0"
-
-[[package]]
 name = "directories"
 version = "5.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -637,58 +633,19 @@ checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 name = "harp"
 version = "0.1.0"
 dependencies = [
- "ctor",
- "env_logger",
- "harp-backend-c",
- "harp-backend-metal",
- "harp-backend-opencl",
- "harp-core",
- "harp-nn",
- "log",
- "rstest",
- "serial_test",
-]
-
-[[package]]
-name = "harp-backend-c"
-version = "0.1.0"
-dependencies = [
- "harp-core",
- "log",
-]
-
-[[package]]
-name = "harp-backend-metal"
-version = "0.1.0"
-dependencies = [
- "harp-core",
- "log",
- "metal",
- "objc",
-]
-
-[[package]]
-name = "harp-backend-opencl"
-version = "0.1.0"
-dependencies = [
- "harp-core",
- "log",
- "ocl",
-]
-
-[[package]]
-name = "harp-core"
-version = "0.1.0"
-dependencies = [
  "crossterm",
+ "ctor",
  "directories",
  "env_logger",
  "indexmap",
  "indicatif",
  "log",
+ "metal",
  "ndarray",
  "num-complex",
  "num-traits 0.2.19",
+ "objc",
+ "ocl",
  "paste",
  "ratatui",
  "rstest",
@@ -697,24 +654,6 @@ dependencies = [
  "serial_test",
  "syntect",
  "tempfile",
-]
-
-[[package]]
-name = "harp-nn"
-version = "0.1.0"
-dependencies = [
- "harp",
- "harp-nn-derive",
- "typed-builder",
-]
-
-[[package]]
-name = "harp-nn-derive"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]
@@ -1639,26 +1578,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c0cbe268d35bdb4bb5a56a2de88d0ad0eb70af5384a99d648cd4b3d04039800e"
 dependencies = [
  "winnow",
-]
-
-[[package]]
-name = "typed-builder"
-version = "0.20.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd9d30e3a08026c78f246b173243cf07b3696d274debd26680773b6773c2afc7"
-dependencies = [
- "typed-builder-macro",
-]
-
-[[package]]
-name = "typed-builder-macro"
-version = "0.20.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c36781cc0e46a83726d9879608e4cf6c2505237e263a8eb8c24502989cfdb28"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]
