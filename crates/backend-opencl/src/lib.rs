@@ -11,7 +11,7 @@
 //! init();
 //!
 //! // Now OpenCL is available as a device
-//! use crate::backend::HarpDevice;
+//! use harp::backend::HarpDevice;
 //! let device = HarpDevice::opencl(0).unwrap();
 //! device.set_as_default();
 //! ```
@@ -28,12 +28,12 @@ pub use device::{OpenCLDevice, OpenCLError};
 pub use kernel::OpenCLKernel;
 
 // Re-export renderer types for convenience
-pub use crate::backend::renderer::OptimizationLevel;
+pub use harp::backend::renderer::OptimizationLevel;
 pub use renderer::{OpenCLCode, OpenCLRenderer};
 
-use crate::backend::device::{BackendRegistry, DeviceError};
-use crate::backend::global::DeviceKind;
-use crate::backend::traits::Device;
+use harp::backend::device::{BackendRegistry, DeviceError};
+use harp::backend::global::DeviceKind;
+use harp::backend::traits::Device;
 use ocl::{Device as OclDevice, Platform};
 use std::any::Any;
 use std::sync::Arc;
@@ -93,7 +93,7 @@ impl BackendRegistry for OpenCLBackendRegistry {
 /// crate, this is done automatically via the `ctor` attribute.
 pub fn init() {
     // Register the backend
-    crate::backend::register_backend(Box::new(OpenCLBackendRegistry));
+    harp::backend::register_backend(Box::new(OpenCLBackendRegistry));
 }
 
 #[cfg(test)]

@@ -2,8 +2,8 @@
 
 use super::buffer::OpenCLBuffer;
 use super::device::OpenCLError;
-use crate::backend::global::DeviceKind;
-use crate::backend::traits::{Buffer, Kernel, KernelConfig};
+use harp::backend::global::DeviceKind;
+use harp::backend::traits::{Buffer, Kernel, KernelConfig};
 use ocl::core::{ProgramInfo, ProgramInfoResult};
 use ocl::{Kernel as OclKernel, Program, Queue};
 use std::sync::Arc;

@@ -8,9 +8,9 @@
 //! - Embedding in other C/C++ projects
 //! - Portability across different platforms
 
-use crate::ast::{AstNode, DType, VarDecl};
-use crate::backend::Renderer;
-use crate::backend::renderer::CLikeRenderer;
+use harp::ast::{AstNode, DType, VarDecl};
+use harp::backend::Renderer;
+use harp::backend::renderer::CLikeRenderer;
 
 /// Pure C source code representation
 ///
@@ -224,9 +224,9 @@ impl CLikeRenderer for CRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::helper::*;
-    use crate::ast::{AstNode, Literal};
-    use crate::backend::renderer::CLikeRenderer;
+    use harp::ast::helper::*;
+    use harp::ast::{AstNode, Literal};
+    use harp::backend::renderer::CLikeRenderer;
 
     #[test]
     fn test_render_header() {

@@ -1,0 +1,10 @@
+[package]
+name = "harp-backend-opencl"
+version = "0.1.0"
+edition = "2024"
+description = "OpenCL backend for Harp"
+
+[dependencies]
+harp = { path = "../.." }
+ocl = "0.19"
+log = { version = "0.4", features = ["std"] }

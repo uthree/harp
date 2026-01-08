@@ -4,8 +4,8 @@
 //! parallel kernel execution. It is used for generating sequential
 //! C code that can be compiled with any C99 compliant compiler.
 
-use crate::ast::DType;
-use crate::backend::{
+use harp::ast::DType;
+use harp::backend::{
     Device, DeviceFeature, DeviceInstruction, DeviceProfile, DeviceType, OpKind, SimdCapability,
 };
 

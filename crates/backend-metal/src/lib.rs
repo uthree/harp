@@ -11,7 +11,7 @@
 //! init();
 //!
 //! // Now Metal is available as a device
-//! use crate::backend::HarpDevice;
+//! use harp::backend::HarpDevice;
 //! let device = HarpDevice::metal(0).unwrap();
 //! device.set_as_default();
 //! ```
@@ -30,12 +30,12 @@ pub use device::{MetalDevice, MetalError};
 pub use kernel::MetalKernel;
 
 // Re-export renderer types for convenience
-pub use crate::backend::renderer::OptimizationLevel;
+pub use harp::backend::renderer::OptimizationLevel;
 pub use renderer::{MetalCode, MetalRenderer};
 
-use crate::backend::device::{BackendRegistry, DeviceError};
-use crate::backend::global::DeviceKind;
-use crate::backend::traits::Device;
+use harp::backend::device::{BackendRegistry, DeviceError};
+use harp::backend::global::DeviceKind;
+use harp::backend::traits::Device;
 use std::any::Any;
 use std::sync::Arc;
 
@@ -87,7 +87,7 @@ impl BackendRegistry for MetalBackendRegistry {
 /// crate, this is done automatically via the `ctor` attribute.
 pub fn init() {
     // Register the backend
-    crate::backend::register_backend(Box::new(MetalBackendRegistry));
+    harp::backend::register_backend(Box::new(MetalBackendRegistry));
 }
 
 #[cfg(test)]

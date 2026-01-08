@@ -1,3 +1,7 @@
+[workspace]
+resolver = "2"
+members = ["crates/backend-c", "crates/backend-opencl", "crates/backend-metal"]
+
 [package]
 name = "harp"
 version = "0.1.0"
@@ -19,27 +23,13 @@ tempfile = "3.20"
 num-traits = "0.2.19"
 num-complex = "0.4.6"
 
-# Automatic initialization
-ctor = "0.2"
-
-# OpenCL backend (optional)
-ocl = { version = "0.19", optional = true }
-
 # Visualization (optional)
 ratatui = { version = "0.29", optional = true }
 crossterm = { version = "0.28", optional = true }
 syntect = { version = "5.2", optional = true, default-features = false, features = ["default-syntaxes", "default-themes", "regex-fancy"] }
 
-# Metal backend (optional, macOS only)
-[target.'cfg(target_os = "macos")'.dependencies]
-metal = { version = "0.29", optional = true }
-objc = { version = "0.2", optional = true }
-
 [features]
 default = []
-c = []
-opencl = ["dep:ocl"]
-metal = ["dep:metal", "dep:objc"]
 viz = ["dep:ratatui", "dep:crossterm", "dep:syntect"]
 
 [dev-dependencies]

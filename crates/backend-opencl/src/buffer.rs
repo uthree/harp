@@ -1,37 +1,41 @@
-//! Metal native buffer
+//! OpenCL native buffer
 
-use super::device::{MetalDevice, MetalError};
-use crate::ast::DType;
-use crate::backend::traits::{Buffer, TypedBuffer};
-use metal::{Buffer as MtlBuffer, MTLResourceOptions};
+use super::device::{OpenCLDevice, OpenCLError};
+use harp::ast::DType;
+use harp::backend::traits::{Buffer, TypedBuffer};
+use ocl::{Buffer as OclBuffer, Queue, flags};
 use std::sync::Arc;
 
-/// Metal native buffer
+/// OpenCL native buffer
 ///
-/// Wraps a Metal buffer with shape and type information.
+/// Wraps an OpenCL buffer with shape and type information.
 #[derive(Clone)]
-pub struct MetalBuffer {
-    buffer: Arc<MtlBuffer>,
+pub struct OpenCLBuffer {
+    buffer: Arc<OclBuffer<u8>>,
+    queue: Arc<Queue>,
     shape: Vec<usize>,
     dtype: DType,
     byte_len: usize,
 }
 
-impl TypedBuffer for MetalBuffer {
-    type Dev = MetalDevice;
-    type Error = MetalError;
+impl TypedBuffer for OpenCLBuffer {
+    type Dev = OpenCLDevice;
+    type Error = OpenCLError;
 
     fn allocate(device: &Self::Dev, shape: Vec<usize>, dtype: DType) -> Result<Self, Self::Error> {
         let element_count: usize = shape.iter().product();
         let byte_len = element_count * dtype.size_in_bytes();
 
-        // Create Metal buffer with shared storage mode for CPU/GPU access
-        let buffer = device
-            .device()
-            .new_buffer(byte_len as u64, MTLResourceOptions::StorageModeShared);
+        // Create OpenCL buffer
+        let buffer = OclBuffer::<u8>::builder()
+            .queue((*device.queue).clone())
+            .flags(flags::MEM_READ_WRITE)
+            .len(byte_len)
+            .build()?;
 
         Ok(Self {
             buffer: Arc::new(buffer),
+            queue: Arc::clone(&device.queue),
             shape,
             dtype,
             byte_len,
@@ -55,40 +59,36 @@ impl TypedBuffer for MetalBuffer {
             return Err(Self::buffer_size_mismatch_error(data.len(), self.byte_len));
         }
 
-        // Copy data to buffer
-        let buffer_ptr = self.buffer.contents() as *mut u8;
-        unsafe {
-            std::ptr::copy_nonoverlapping(data.as_ptr(), buffer_ptr, data.len());
-        }
-
+        // Get mutable access to buffer (Arc::make_mut will clone if needed)
+        let buffer = Arc::make_mut(&mut self.buffer);
+        buffer.write(data).enq()?;
+        self.queue.finish()?;
         Ok(())
     }
 
     fn read_to_host(&self) -> Result<Vec<u8>, Self::Error> {
         let mut result = vec![0u8; self.byte_len];
-        let buffer_ptr = self.buffer.contents() as *const u8;
-        unsafe {
-            std::ptr::copy_nonoverlapping(buffer_ptr, result.as_mut_ptr(), self.byte_len);
-        }
+        self.buffer.read(&mut result).enq()?;
+        self.queue.finish()?;
         Ok(result)
     }
 
     fn buffer_size_mismatch_error(expected: usize, actual: usize) -> Self::Error {
-        MetalError::from(format!(
+        OpenCLError::from(format!(
             "Buffer size mismatch: expected {} bytes, got {} bytes",
             expected, actual
         ))
     }
 
     fn buffer_alignment_error(buffer_size: usize, type_size: usize) -> Self::Error {
-        MetalError::from(format!(
+        OpenCLError::from(format!(
             "Buffer size {} is not aligned to type size {}",
             buffer_size, type_size
         ))
     }
 }
 
-impl Buffer for MetalBuffer {
+impl Buffer for OpenCLBuffer {
     fn shape(&self) -> &[usize] {
         &self.shape
     }
@@ -127,19 +127,19 @@ impl Buffer for MetalBuffer {
     }
 }
 
-impl MetalBuffer {
-    /// Get the underlying Metal buffer
-    pub fn mtl_buffer(&self) -> &MtlBuffer {
+impl OpenCLBuffer {
+    /// Get the underlying OpenCL buffer
+    pub fn ocl_buffer(&self) -> &OclBuffer<u8> {
         &self.buffer
     }
 
     /// Create a buffer initialized with data from host
     pub fn from_host(
-        context: &MetalDevice,
+        context: &OpenCLDevice,
         shape: Vec<usize>,
         dtype: DType,
         data: &[u8],
-    ) -> Result<Self, MetalError> {
+    ) -> Result<Self, OpenCLError> {
         let mut buffer = Self::allocate(context, shape, dtype)?;
         TypedBuffer::write_from_host(&mut buffer, data)?;
         Ok(buffer)
@@ -147,65 +147,17 @@ impl MetalBuffer {
 
     /// Create a buffer initialized with typed data from host
     pub fn from_vec<T>(
-        context: &MetalDevice,
+        context: &OpenCLDevice,
         shape: Vec<usize>,
         dtype: DType,
         data: &[T],
-    ) -> Result<Self, MetalError> {
+    ) -> Result<Self, OpenCLError> {
         let byte_len = std::mem::size_of_val(data);
         let bytes = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, byte_len) };
         Self::from_host(context, shape, dtype, bytes)
     }
 }
 
-// Metal buffers are safe to send between threads
-unsafe impl Send for MetalBuffer {}
-unsafe impl Sync for MetalBuffer {}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::backend::traits::{Device, TypedBuffer};
-
-    #[test]
-    fn test_metal_buffer_allocation() {
-        if !MetalDevice::is_available() {
-            println!("Metal not available, skipping test");
-            return;
-        }
-
-        let context = MetalDevice::new().unwrap();
-
-        // Allocate a buffer
-        let shape = vec![4, 4];
-        let buffer = MetalBuffer::allocate(&context, shape.clone(), DType::F32);
-        assert!(
-            buffer.is_ok(),
-            "Failed to allocate buffer: {:?}",
-            buffer.err()
-        );
-
-        let buffer = buffer.unwrap();
-        assert_eq!(TypedBuffer::shape(&buffer), &shape);
-        assert_eq!(TypedBuffer::dtype(&buffer), DType::F32);
-        assert_eq!(TypedBuffer::byte_len(&buffer), 4 * 4 * 4); // 16 floats * 4 bytes
-    }
-
-    #[test]
-    fn test_metal_buffer_data_transfer() {
-        if !MetalDevice::is_available() {
-            println!("Metal not available, skipping test");
-            return;
-        }
-
-        let context = MetalDevice::new().unwrap();
-
-        // Create a buffer and write data
-        let data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
-        let buffer = MetalBuffer::from_vec(&context, vec![4], DType::F32, &data).unwrap();
-
-        // Read data back
-        let result: Vec<f32> = buffer.read_vec().unwrap();
-        assert_eq!(result, data);
-    }
-}
+// OpenCL buffers are safe to send between threads
+unsafe impl Send for OpenCLBuffer {}
+unsafe impl Sync for OpenCLBuffer {}

@@ -1,7 +1,7 @@
 //! Metal native device
 
-use crate::ast::DType;
-use crate::backend::traits::{
+use harp::ast::DType;
+use harp::backend::traits::{
     Device, DeviceFeature, DeviceInstruction, DeviceProfile, DeviceType, OpKind, SimdCapability,
 };
 use metal::{CommandQueue, Device as MtlDevice};

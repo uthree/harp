@@ -1,0 +1,11 @@
+[package]
+name = "harp-backend-metal"
+version = "0.1.0"
+edition = "2024"
+description = "Metal backend for Harp (macOS only)"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+harp = { path = "../.." }
+metal = "0.29"
+objc = "0.2"
+log = { version = "0.4", features = ["std"] }

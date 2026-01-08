@@ -2,7 +2,7 @@
 
 use super::device::{MetalDevice, MetalError};
 use super::kernel::MetalKernel;
-use crate::backend::traits::{Compiler, KernelConfig};
+use harp::backend::traits::{Compiler, KernelConfig};
 use metal::CompileOptions;
 use std::sync::Arc;
 
@@ -129,9 +129,9 @@ impl MetalCompiler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::DType;
-    use crate::backend::traits::{Device, TypedBuffer};
-    use crate::buffer::MetalBuffer;
+    use crate::MetalBuffer;
+    use harp::ast::DType;
+    use harp::backend::traits::{Device, TypedBuffer};
 
     #[test]
     fn test_metal_simple_kernel() {

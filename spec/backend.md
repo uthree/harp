@@ -15,18 +15,18 @@
 - `cache/`: 統一カーネルキャッシュ（CacheEntry, KernelCacheKey, get_cached_kernel, insert_cached_kernel）
 - `c_like.rs`: C言語系構文の共通レンダリングロジック（CLikeRenderer trait）、OptimizationLevel、extract_buffer_placeholders関数
 
-### バックエンド実装（src/backends/）
-- `c/`: Cコード生成バックエンド（feature: c）
-  - `mod.rs`: モジュール定義とre-export
+### バックエンド実装（crates/）
+- `backend-c/`: Cコード生成バックエンド（harp-backend-cクレート）
+  - `lib.rs`: モジュール定義とre-export
   - `renderer.rs`: Cレンダラー
   - `device.rs`: Cデバイス（コード生成のみ）
-- `metal/`: Metalバックエンド（feature: metal、macOS GPU）
-  - `mod.rs`: モジュール定義とre-export
+- `backend-metal/`: Metalバックエンド（harp-backend-metalクレート、macOS GPU）
+  - `lib.rs`: モジュール定義とre-export
   - `renderer.rs`: Metal Shading Languageレンダラー
   - `MetalCode`: Metal Shading Languageソースコードを表す型
   - `buffer.rs`, `device.rs`, `kernel.rs`, `compiler.rs`: GPU実行用の実装
-- `opencl/`: OpenCLバックエンド（feature: opencl、クロスプラットフォームGPU）
-  - `mod.rs`: モジュール定義とre-export
+- `backend-opencl/`: OpenCLバックエンド（harp-backend-openclクレート、クロスプラットフォームGPU）
+  - `lib.rs`: モジュール定義とre-export
   - `renderer.rs`: OpenCL Cレンダラー
   - `OpenCLCode`: OpenCL Cコードを表す型
   - `buffer.rs`, `device.rs`, `kernel.rs`, `compiler.rs`: GPU実行用の実装

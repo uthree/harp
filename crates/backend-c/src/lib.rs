@@ -22,11 +22,11 @@ pub use device::CDevice;
 pub use renderer::{CCode, CRenderer};
 
 // Re-export renderer types for convenience
-pub use crate::backend::renderer::OptimizationLevel;
+pub use harp::backend::renderer::OptimizationLevel;
 
-use crate::backend::device::{BackendRegistry, DeviceError};
-use crate::backend::global::DeviceKind;
-use crate::backend::traits::Device;
+use harp::backend::device::{BackendRegistry, DeviceError};
+use harp::backend::global::DeviceKind;
+use harp::backend::traits::Device;
 use std::any::Any;
 use std::sync::Arc;
 
@@ -76,7 +76,7 @@ impl BackendRegistry for CBackendRegistry {
 /// crate, this is done automatically via the `ctor` attribute.
 pub fn init() {
     // Register the backend
-    crate::backend::register_backend(Box::new(CBackendRegistry));
+    harp::backend::register_backend(Box::new(CBackendRegistry));
 
     // Note: We don't register a realizer because C backend doesn't support runtime execution
 }

@@ -9,38 +9,46 @@ Harpは計算グラフから効率的なGPU/CPUカーネルを生成するトラ
 
 ```
 harp/
-├── Cargo.toml              # パッケージ設定
+├── Cargo.toml              # ワークスペース設定
 ├── src/
-│   ├── lib.rs              # ルートモジュール
+│   ├── lib.rs              # harp クレート（コア機能）
 │   ├── ast/                # 抽象構文木
 │   ├── backend/            # バックエンドトレイト・Pipeline
 │   ├── opt/                # AST最適化
 │   ├── shape/              # 形状式（Expr, View）
-│   ├── viz/                # 可視化TUI (feature: viz)
-│   └── backends/           # バックエンド実装
-│       ├── c/              # Cコード生成 (feature: c)
-│       ├── opencl/         # OpenCL (feature: opencl)
-│       └── metal/          # Metal (feature: metal, macOSのみ)
+│   └── viz/                # 可視化TUI (feature: viz)
+├── crates/
+│   ├── backend-c/          # Cコード生成バックエンド
+│   ├── backend-opencl/     # OpenCLバックエンド
+│   └── backend-metal/      # Metalバックエンド (macOSのみ)
 ├── examples/               # サンプルコード
 ├── tests/                  # 統合テスト
 └── spec/                   # 仕様書
 ```
 
-## Feature Flags
+## クレート構成
+
+| クレート | 説明 |
+|----------|------|
+| `harp` | コア機能（AST, backend traits, opt, shape） |
+| `harp-backend-c` | Cコード生成バックエンド |
+| `harp-backend-opencl` | OpenCL GPU実行バックエンド |
+| `harp-backend-metal` | Metal GPU実行バックエンド（macOSのみ） |
+
+## Feature Flags (harpクレート)
 
 | Feature | 説明 |
 |---------|------|
-| `c` | Cバックエンドを有効化 |
-| `opencl` | OpenCLバックエンドを有効化 |
-| `metal` | Metalバックエンドを有効化（macOSのみ） |
 | `viz` | 最適化履歴可視化TUIを有効化 |
 
 ```toml
 # Cargo.toml での使用例
 [dependencies]
-harp = { version = "0.1", features = ["opencl"] }
+harp = "0.1"
+# バックエンドを使用する場合
+harp-backend-opencl = "0.1"
 # macOSの場合
-harp = { version = "0.1", features = ["metal"] }
+harp-backend-metal = "0.1"
 ```
 
 ## 主要モジュール
@@ -97,15 +105,15 @@ AST最適化パイプライン。ループ融合、タイリング、ベクト�
 
 ## バックエンド実装
 
-### backends::c (feature: c)
+### harp-backend-c
 
 Cコードを生成するバックエンド。実行機能は持たず、コード生成のみ。
 
-### backends::opencl (feature: opencl)
+### harp-backend-opencl
 
 OpenCLを使用したGPU実行バックエンド。
 
-### backends::metal (feature: metal, macOSのみ)
+### harp-backend-metal (macOSのみ)
 
 Apple Metal APIを使用したGPU実行バックエンド。
 
@@ -133,24 +141,19 @@ let code = renderer.render(&expr);
 ```rust
 use harp::backend::{Pipeline, KernelSignature, BufferSignature};
 use harp::shape::Expr;
+use harp_backend_metal::{MetalDevice, MetalCompiler, MetalRenderer};
 
-// Pipeline作成（要: バックエンド有効化）
-#[cfg(feature = "metal")]
-{
-    use harp::backends::metal::{MetalDevice, MetalCompiler, MetalRenderer};
+let device = MetalDevice::new().unwrap();
+let renderer = MetalRenderer::default();
+let compiler = MetalCompiler::new();
+let mut pipeline = Pipeline::new(renderer, compiler, device);
 
-    let device = MetalDevice::new().unwrap();
-    let renderer = MetalRenderer::default();
-    let compiler = MetalCompiler::new();
-    let mut pipeline = Pipeline::new(renderer, compiler, device);
-
-    // ASTをコンパイル
-    let signature = KernelSignature::new(
-        vec![BufferSignature::new("input".to_string(), vec![Expr::Const(32)])],
-        vec![BufferSignature::new("output".to_string(), vec![Expr::Const(32)])],
-    );
-    let compiled = pipeline.compile_ast(ast, signature).unwrap();
-}
+// ASTをコンパイル
+let signature = KernelSignature::new(
+    vec![BufferSignature::new("input".to_string(), vec![Expr::Const(32)])],
+    vec![BufferSignature::new("output".to_string(), vec![Expr::Const(32)])],
+);
+let compiled = pipeline.compile_ast(ast, signature).unwrap();
 ```
 
 ## 今後の予定
