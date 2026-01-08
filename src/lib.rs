@@ -69,7 +69,7 @@ pub mod prelude {
 pub mod renderer {
     // Core renderer types are always available
     pub use crate::backend::renderer::{
-        extract_buffer_placeholders, CLikeRenderer, GenericRenderer, OptimizationLevel, Renderer,
+        CLikeRenderer, GenericRenderer, OptimizationLevel, Renderer, extract_buffer_placeholders,
     };
 }
 
