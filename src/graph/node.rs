@@ -279,6 +279,24 @@ impl GraphNode {
         )
     }
 
+    /// Expand a dimension of size 1 to a larger size (explicit broadcast)
+    ///
+    /// # Example
+    /// ```ignore
+    /// let x = input(vec![Expr::Const(32), Expr::Const(1)], DType::F32);
+    /// let y = x.expand(1, Expr::Const(64));  // [32, 1] -> [32, 64]
+    /// ```
+    pub fn expand(&self, axis: usize, size: Expr) -> Self {
+        let new_view = self.0.view.clone().expand(axis, size);
+        GraphNode::new(
+            vec![self.clone()],
+            new_view,
+            GraphOp::View(self.0.view.clone()),
+            self.0.dtype.clone(),
+            None,
+        )
+    }
+
     /// Reshape to a new shape
     pub fn reshape(&self, shape: Vec<Expr>) -> Self {
         let new_view = self.0.view.clone().reshape(shape);

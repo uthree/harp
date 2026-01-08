@@ -468,6 +468,65 @@ impl View {
         }
     }
 
+    /// Expand a dimension of size 1 to a larger size (explicit broadcast)
+    ///
+    /// This operation allows broadcasting by expanding a size-1 dimension
+    /// to a specified size. The stride for that axis remains 0, so all
+    /// elements along that axis read from the same memory location.
+    ///
+    /// # Panics
+    /// - If `axis >= ndim()`
+    /// - If `shape[axis] != 1`
+    pub fn expand(self, axis: usize, size: Expr) -> Self {
+        assert!(axis < self.ndim(), "axis out of bounds");
+        let current_shape = self.shape();
+        assert_eq!(
+            current_shape[axis],
+            1.into(),
+            "can only expand an axis of size 1"
+        );
+
+        match self {
+            View::Linear {
+                mut shape,
+                strides,
+                offset,
+            } => {
+                // Change shape[axis] to the new size
+                // Stride stays 0 (or whatever it was for size-1 axis)
+                shape[axis] = size;
+                View::Linear {
+                    shape,
+                    strides,
+                    offset,
+                }
+            }
+            View::IndexExpr {
+                mut shape,
+                index_expr,
+            } => {
+                // Update shape, index_expr stays the same
+                // (Idx(axis) will iterate over [0, size) but index_expr ignores it
+                // since the original axis was size 1)
+                shape[axis] = size;
+                View::IndexExpr { shape, index_expr }
+            }
+            View::Masked {
+                inner,
+                condition,
+                default_value,
+            } => {
+                // Expand the inner view
+                let new_inner = inner.expand(axis, size);
+                View::Masked {
+                    inner: Box::new(new_inner),
+                    condition,
+                    default_value,
+                }
+            }
+        }
+    }
+
     pub fn flip(self, axis: usize) -> Self {
         assert!(axis < self.ndim(), "axis out of bounds");
         match self {
@@ -1487,6 +1546,64 @@ mod tests {
     fn test_squeeze_non_one_axis() {
         let view = View::contiguous(vec![3, 4]);
         let _ = view.squeeze(0); // Should panic: axis 0 has size 3, not 1
+    }
+
+    #[test]
+    fn test_expand() {
+        // Start with a view that has unsqueezed axis (stride = 0)
+        // This is the typical use case: unsqueeze then expand
+        let view = View::contiguous(vec![3, 4]).unsqueeze(1); // (3, 4) -> (3, 1, 4)
+        let expanded = view.expand(1, Expr::from(5)); // (3, 1, 4) -> (3, 5, 4)
+
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = expanded
+        else {
+            panic!("Expected Linear view")
+        };
+        assert_eq!(shape, vec![Expr::from(3), Expr::from(5), Expr::from(4)]);
+        // Stride for expanded axis should remain 0 (broadcast behavior)
+        assert_eq!(strides, vec![Expr::from(4), Expr::from(0), Expr::from(1)]);
+        assert_eq!(offset, Expr::from(0));
+    }
+
+    #[test]
+    fn test_expand_contiguous_size1() {
+        // Contiguous tensor with size-1 axis has non-zero stride
+        // expand still works, stride is preserved (allows non-broadcast expand)
+        let view = View::contiguous(vec![3, 1, 4]);
+        let expanded = view.expand(1, Expr::from(5)); // (3, 1, 4) -> (3, 5, 4)
+
+        let View::Linear { shape, strides, .. } = expanded else {
+            panic!("Expected Linear view")
+        };
+        assert_eq!(shape, vec![Expr::from(3), Expr::from(5), Expr::from(4)]);
+        // Stride for axis 1 is 4 (from contiguous), preserved after expand
+        assert_eq!(strides, vec![Expr::from(4), Expr::from(4), Expr::from(1)]);
+    }
+
+    #[test]
+    fn test_expand_after_unsqueeze() {
+        // unsqueeze then expand is a common broadcast pattern
+        let view = View::contiguous(vec![3, 4]);
+        let unsqueezed = view.unsqueeze(1); // (3, 4) -> (3, 1, 4)
+        let expanded = unsqueezed.expand(1, Expr::from(5)); // (3, 1, 4) -> (3, 5, 4)
+
+        let View::Linear { shape, strides, .. } = expanded else {
+            panic!("Expected Linear view")
+        };
+        assert_eq!(shape, vec![Expr::from(3), Expr::from(5), Expr::from(4)]);
+        // The stride for axis 1 should be 0 (from unsqueeze)
+        assert_eq!(strides[1], Expr::from(0));
+    }
+
+    #[test]
+    #[should_panic(expected = "can only expand an axis of size 1")]
+    fn test_expand_non_one_axis() {
+        let view = View::contiguous(vec![3, 4]);
+        let _ = view.expand(0, Expr::from(10)); // Should panic: axis 0 has size 3, not 1
     }
 
     #[test]

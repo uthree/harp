@@ -119,12 +119,13 @@ let g = -&a;       // 否定
 ### ビュー変換
 
 ```rust
-x.permute(&[1, 0])     // 軸入れ替え
-x.unsqueeze(0)         // 次元追加
-x.squeeze(1)           // 次元削除
-x.reshape(new_shape)   // 形状変更
-x.flip(0)              // 軸反転
-x.repeat(0, Expr::Const(2))  // 繰り返し
+x.permute(&[1, 0])              // 軸入れ替え
+x.unsqueeze(0)                  // 次元追加（サイズ1）
+x.squeeze(1)                    // 次元削除（サイズ1のみ）
+x.expand(1, Expr::Const(64))    // 次元拡張（サイズ1→指定サイズ、ブロードキャスト）
+x.reshape(new_shape)            // 形状変更
+x.flip(0)                       // 軸反転
+x.repeat(0, Expr::Const(2))     // 繰り返し
 ```
 
 ### 縮約

@@ -33,22 +33,23 @@ impl GraphTransform for ViewFusion {
         if let GraphOp::View(outer_view) = node.op() {
             // Check if the source is also a View operation
             if node.sources().len() == 1
-                && let GraphOp::View(inner_view) = node.sources()[0].op() {
-                    // Check if the inner node has exactly one source
-                    if node.sources()[0].sources().len() == 1 {
-                        // Compose views: outer(inner(x)) = composed(x)
-                        // Note: View::compose is an associated function
-                        let composed = crate::graph::View::compose(outer_view, inner_view);
-                        let new_node = GraphNode::new(
-                            node.sources()[0].sources().to_vec(),
-                            node.view().clone(),
-                            GraphOp::View(composed),
-                            node.dtype().clone(),
-                            None,
-                        );
-                        return Some(new_node);
-                    }
+                && let GraphOp::View(inner_view) = node.sources()[0].op()
+            {
+                // Check if the inner node has exactly one source
+                if node.sources()[0].sources().len() == 1 {
+                    // Compose views: outer(inner(x)) = composed(x)
+                    // Note: View::compose is an associated function
+                    let composed = crate::graph::View::compose(outer_view, inner_view);
+                    let new_node = GraphNode::new(
+                        node.sources()[0].sources().to_vec(),
+                        node.view().clone(),
+                        GraphOp::View(composed),
+                        node.dtype().clone(),
+                        None,
+                    );
+                    return Some(new_node);
                 }
+            }
         }
         None
     }
@@ -107,20 +108,20 @@ impl GraphTransform for ElementwiseReduceFusion {
                     map: elem_map,
                     reduce: None,
                 } = node.sources()[0].op()
-                {
-                    // Combine: use elementwise map with reduce operation
-                    let new_node = GraphNode::new(
-                        node.sources()[0].sources().to_vec(),
-                        node.view().clone(),
-                        GraphOp::MapReduce {
-                            map: elem_map.clone(),
-                            reduce: Some((*reduce_op, *axis)),
-                        },
-                        node.dtype().clone(),
-                        None,
-                    );
-                    return Some(new_node);
-                }
+            {
+                // Combine: use elementwise map with reduce operation
+                let new_node = GraphNode::new(
+                    node.sources()[0].sources().to_vec(),
+                    node.view().clone(),
+                    GraphOp::MapReduce {
+                        map: elem_map.clone(),
+                        reduce: Some((*reduce_op, *axis)),
+                    },
+                    node.dtype().clone(),
+                    None,
+                );
+                return Some(new_node);
+            }
         }
         None
     }
