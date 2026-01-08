@@ -14,8 +14,9 @@ harp/
 │   ├── lib.rs              # harp クレート（コア機能）
 │   ├── ast/                # 抽象構文木
 │   ├── backend/            # バックエンドトレイト・Pipeline
+│   ├── graph/              # 計算グラフ（GraphNode, View, Expr）
+│   ├── lowerer/            # GraphNode → AST 変換
 │   ├── opt/                # AST最適化
-│   ├── shape/              # 形状式（Expr, View）
 │   └── viz/                # 可視化TUI (feature: viz)
 ├── crates/
 │   ├── backend-c/          # Cコード生成バックエンド
@@ -64,14 +65,30 @@ harp-backend-metal = "0.1"
 
 **仕様書:** [ast.md](ast.md)
 
-### shape
+### graph
 
-形状式とビューの定義。動的・静的な形状表現をサポートします。
+計算グラフの定義。テンソル演算をDAG構造で表現します。
 
 **主要な型:**
+- `GraphNode`: 計算ノード（Rc<GraphInner>）
+- `GraphOp`: 演算の種類（View, MapReduce）
+- `ReduceOp`: 縮約演算（Sum, Max, Min, Prod）
 - `Expr`: 形状式（定数、算術演算、ループインデックス）
 - `View`: メモリレイアウト（Linear, IndexExpr, Masked）
-- `PadValue`: パディング値（Zero, One, NegInf）
+
+**仕様書:** [graph.md](graph.md)
+
+### lowerer
+
+GraphNode計算グラフをASTに変換。融合パスとLowering処理を提供。
+
+**主要な型:**
+- `Lowerer`: グラフ→AST変換器
+- `IndexGenerator`: View→インデックス式変換
+- `LoopGenerator`: ネストループ生成
+- `FusionPass`: 融合パストレイト
+
+**仕様書:** [lowerer.md](lowerer.md)
 
 ### backend
 

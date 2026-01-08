@@ -7,8 +7,8 @@
 //!
 //! Harp provides:
 //! - **ast**: AST definitions for computation graphs
+//! - **graph**: Computation graph representation (includes shape module)
 //! - **opt**: Optimization passes for AST transformations
-//! - **shape**: Shape expressions for tensor operations
 //! - **backend**: Backend trait definitions and pipeline
 //! - **viz**: Visualization tools (optional, feature: viz)
 //!
@@ -27,8 +27,12 @@
 
 pub mod ast;
 pub mod backend;
+pub mod graph;
+pub mod lowerer;
 pub mod opt;
-pub mod shape;
+
+// Re-export shape module at top level for convenience
+pub use graph::shape;
 
 // Optional visualization module
 #[cfg(feature = "viz")]
@@ -57,8 +61,8 @@ pub mod prelude {
         Renderer,
     };
 
-    // Shape expressions
-    pub use crate::shape::{Expr, View};
+    // Shape expressions (from graph module)
+    pub use crate::graph::shape::{Expr, View};
 }
 
 // ============================================================================
