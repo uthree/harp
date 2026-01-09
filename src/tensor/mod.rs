@@ -29,6 +29,7 @@
 
 pub mod dim;
 mod ops;
+mod realize;
 mod tensor;
 
 // Re-export dimension types

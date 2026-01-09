@@ -29,6 +29,7 @@
 
 pub mod cache;
 pub mod device;
+pub mod executor;
 pub mod global;
 pub mod pipeline;
 pub mod renderer;
@@ -56,6 +57,9 @@ pub use cache::{
 // Re-export sequence types
 pub use sequence::{ExecutionQuery, ProgramExecutionError};
 
+// Re-export executor types
+pub use executor::{ExecutionError, ExecutionResult, execute_graph};
+
 // Re-export Renderer trait and types
 pub use renderer::{
     CLikeRenderer, GenericRenderer, OptimizationLevel, Renderer, extract_buffer_placeholders,
@@ -63,12 +67,15 @@ pub use renderer::{
 
 // Re-export global device management
 pub use global::{
-    DeviceKind, clear_default_device, get_default_device, get_default_device_kind,
-    has_default_device, set_default_device, set_device, set_device_str, with_device,
+    DeviceKind, allocate_buffer_on_default_device, clear_default_device, get_default_device,
+    get_default_device_kind, has_default_device, set_default_device, set_device, set_device_str,
+    with_device,
 };
 
 // Re-export device types
-pub use device::{BackendRegistry, DeviceError, HarpDevice, register_backend};
+pub use device::{
+    BackendRegistry, DeviceError, HarpDevice, allocate_buffer_on_device, register_backend,
+};
 
 /// カーネルのシグネチャ（入出力バッファの形状情報）
 #[derive(Debug, Clone, PartialEq, Eq)]

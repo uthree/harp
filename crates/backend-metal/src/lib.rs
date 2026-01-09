@@ -72,6 +72,31 @@ impl BackendRegistry for MetalBackendRegistry {
             .map(|d| d.name().to_string())
             .collect()
     }
+
+    fn supports_runtime(&self) -> bool {
+        true // Metal supports runtime execution
+    }
+
+    fn allocate_buffer(
+        &self,
+        device: &dyn Any,
+        shape: Vec<usize>,
+        dtype: eclat::ast::DType,
+    ) -> Result<Box<dyn eclat::backend::Buffer>, DeviceError> {
+        use eclat::backend::traits::TypedBuffer;
+
+        let metal_device = device.downcast_ref::<MetalDevice>().ok_or_else(|| {
+            DeviceError::InitializationError(
+                "Invalid device type: expected MetalDevice".to_string(),
+            )
+        })?;
+
+        let buffer = MetalBuffer::allocate(metal_device, shape, dtype).map_err(|e| {
+            DeviceError::InitializationError(format!("Failed to allocate Metal buffer: {}", e))
+        })?;
+
+        Ok(Box::new(buffer))
+    }
 }
 
 // ============================================================================

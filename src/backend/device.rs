@@ -95,6 +95,34 @@ pub trait BackendRegistry: Send + Sync {
 
     /// 利用可能なデバイスの一覧を取得
     fn list_devices(&self) -> Vec<String>;
+
+    /// ランタイム実行をサポートするかどうか
+    ///
+    /// Cバックエンドはコード生成のみでランタイム実行をサポートしないため、
+    /// この関数を使ってチェックできる。
+    fn supports_runtime(&self) -> bool {
+        false // デフォルトはfalse、GPUバックエンドでオーバーライド
+    }
+
+    /// デバイス上にバッファを割り当てる
+    ///
+    /// # Arguments
+    /// * `device` - デバイスのArc（create_deviceで作成されたもの）
+    /// * `shape` - バッファの形状
+    /// * `dtype` - データ型
+    ///
+    /// # Returns
+    /// 割り当てられたバッファ、またはエラー
+    fn allocate_buffer(
+        &self,
+        _device: &dyn Any,
+        _shape: Vec<usize>,
+        _dtype: crate::ast::DType,
+    ) -> Result<Box<dyn crate::backend::Buffer>, DeviceError> {
+        Err(DeviceError::InitializationError(
+            "This backend does not support runtime buffer allocation".to_string(),
+        ))
+    }
 }
 
 /// 登録されたバックエンドのグローバルレジストリ
@@ -120,6 +148,41 @@ pub fn register_backend(backend: Box<dyn BackendRegistry>) {
 fn get_backends() -> std::sync::RwLockReadGuard<'static, Vec<Box<dyn BackendRegistry>>> {
     let backends = BACKENDS.get_or_init(|| RwLock::new(Vec::new()));
     backends.read().unwrap()
+}
+
+/// 指定されたDeviceKindに対応するバックエンドでバッファを割り当てる
+///
+/// # Arguments
+/// * `kind` - デバイスの種類
+/// * `device` - デバイスのArc参照
+/// * `shape` - バッファの形状
+/// * `dtype` - データ型
+///
+/// # Returns
+/// 割り当てられたバッファ、またはエラー
+pub fn allocate_buffer_on_device(
+    kind: DeviceKind,
+    device: &dyn Any,
+    shape: Vec<usize>,
+    dtype: crate::ast::DType,
+) -> Result<Box<dyn crate::backend::Buffer>, DeviceError> {
+    let backends = get_backends();
+
+    let backend = backends.iter().find(|b| b.kind() == kind).ok_or_else(|| {
+        DeviceError::BackendUnavailable {
+            backend: kind,
+            reason: "Backend not registered".to_string(),
+        }
+    })?;
+
+    if !backend.supports_runtime() {
+        return Err(DeviceError::BackendUnavailable {
+            backend: kind,
+            reason: "This backend does not support runtime execution".to_string(),
+        });
+    }
+
+    backend.allocate_buffer(device, shape, dtype)
 }
 
 // ============================================================================
@@ -276,6 +339,32 @@ impl HarpDevice {
     /// 内部デバイスのArcを取得（型消去）
     pub fn device_arc(&self) -> Arc<dyn Any + Send + Sync> {
         self.device.clone()
+    }
+
+    /// このデバイス上にバッファを割り当てる
+    ///
+    /// # Arguments
+    /// * `shape` - バッファの形状
+    /// * `dtype` - データ型
+    ///
+    /// # Returns
+    /// 割り当てられたバッファ、またはエラー
+    pub fn allocate_buffer(
+        &self,
+        shape: Vec<usize>,
+        dtype: crate::ast::DType,
+    ) -> Result<Box<dyn crate::backend::Buffer>, DeviceError> {
+        allocate_buffer_on_device(self.kind, self.device.as_ref(), shape, dtype)
+    }
+
+    /// このバックエンドがランタイム実行をサポートするかどうか
+    pub fn supports_runtime(&self) -> bool {
+        let backends = get_backends();
+        backends
+            .iter()
+            .find(|b| b.kind() == self.kind)
+            .map(|b| b.supports_runtime())
+            .unwrap_or(false)
     }
 
     // ========================================================================

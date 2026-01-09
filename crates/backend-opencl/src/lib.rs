@@ -78,6 +78,31 @@ impl BackendRegistry for OpenCLBackendRegistry {
         }
         devices
     }
+
+    fn supports_runtime(&self) -> bool {
+        true // OpenCL supports runtime execution
+    }
+
+    fn allocate_buffer(
+        &self,
+        device: &dyn Any,
+        shape: Vec<usize>,
+        dtype: eclat::ast::DType,
+    ) -> Result<Box<dyn eclat::backend::Buffer>, DeviceError> {
+        use eclat::backend::traits::TypedBuffer;
+
+        let opencl_device = device.downcast_ref::<OpenCLDevice>().ok_or_else(|| {
+            DeviceError::InitializationError(
+                "Invalid device type: expected OpenCLDevice".to_string(),
+            )
+        })?;
+
+        let buffer = OpenCLBuffer::allocate(opencl_device, shape, dtype).map_err(|e| {
+            DeviceError::InitializationError(format!("Failed to allocate OpenCL buffer: {}", e))
+        })?;
+
+        Ok(Box::new(buffer))
+    }
 }
 
 // ============================================================================

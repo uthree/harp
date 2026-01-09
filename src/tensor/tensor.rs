@@ -3,10 +3,12 @@
 //! The `Tensor<D>` type wraps a computation graph node and provides
 //! type-safe tensor operations with compile-time dimension checking.
 
+use std::cell::RefCell;
 use std::marker::PhantomData;
 use std::rc::Rc;
 
 use crate::ast::DType;
+use crate::backend::Buffer;
 use crate::graph::{self, Expr, GraphNode};
 
 use super::dim::Dimension;
@@ -49,6 +51,10 @@ pub(crate) struct TensorInner<D: Dimension> {
     /// The underlying computation graph node.
     pub(crate) graph: GraphNode,
 
+    /// Realized buffer (None if not yet realized).
+    /// Uses RefCell for interior mutability since Tensor is shared via Rc.
+    pub(crate) buffer: RefCell<Option<Box<dyn Buffer>>>,
+
     /// Phantom marker for the dimension type.
     pub(crate) _dim: PhantomData<D>,
 }
@@ -78,6 +84,7 @@ impl<D: Dimension> Tensor<D> {
         Self {
             inner: Rc::new(TensorInner {
                 graph,
+                buffer: RefCell::new(None),
                 _dim: PhantomData,
             }),
         }

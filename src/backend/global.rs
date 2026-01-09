@@ -160,6 +160,38 @@ pub fn get_default_device<D: Device + Send + Sync + 'static>() -> Option<Arc<D>>
     })
 }
 
+/// デフォルトデバイス上にバッファを割り当てる
+///
+/// # Arguments
+/// * `shape` - バッファの形状
+/// * `dtype` - データ型
+///
+/// # Returns
+/// 割り当てられたバッファ、またはエラー
+///
+/// # Errors
+/// - デバイスが設定されていない場合
+/// - バックエンドがランタイム実行をサポートしない場合
+/// - バッファ割り当てに失敗した場合
+pub fn allocate_buffer_on_default_device(
+    shape: Vec<usize>,
+    dtype: crate::ast::DType,
+) -> Result<Box<dyn crate::backend::Buffer>, super::device::DeviceError> {
+    use super::device::{DeviceError, allocate_buffer_on_device};
+
+    let (kind, device) = DEFAULT_DEVICE.with(|state| {
+        let state = state.borrow();
+        (state.kind, state.device.clone())
+    });
+
+    if kind == DeviceKind::None {
+        return Err(DeviceError::NoAvailableBackend);
+    }
+
+    let device = device.ok_or(DeviceError::NoAvailableBackend)?;
+    allocate_buffer_on_device(kind, device.as_ref(), shape, dtype)
+}
+
 /// Run a closure with a temporary default device
 ///
 /// The original default device is restored after the closure completes.
