@@ -227,6 +227,7 @@ impl CLikeRenderer for OpenCLRenderer {
 
     fn render_dtype_backend(&self, dtype: &DType) -> String {
         match dtype {
+            DType::Void => "void".to_string(),
             DType::Bool => "uchar".to_string(),
             DType::I8 => "char".to_string(),
             DType::I16 => "short".to_string(),

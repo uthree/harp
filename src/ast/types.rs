@@ -184,6 +184,9 @@ impl TensorDType for f64 {
 /// ASTノードの型を表す列挙型
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub enum DType {
+    // Void (no value, used for function return types)
+    Void,
+
     // Boolean
     Bool,
 
@@ -469,6 +472,7 @@ impl DType {
     /// バイト単位でのサイズを取得
     pub fn size_in_bytes(&self) -> usize {
         match self {
+            DType::Void => 0,
             DType::Bool => 1,
             DType::I8 | DType::U8 => 1,
             DType::I16 | DType::U16 => 2,

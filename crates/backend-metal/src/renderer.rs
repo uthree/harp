@@ -73,6 +73,7 @@ impl std::fmt::Display for MetalCode {
 /// Metal用のDType変換
 fn render_dtype_metal(dtype: &DType) -> String {
     match dtype {
+        DType::Void => "void".to_string(),
         DType::Bool => "uchar".to_string(),
         DType::I8 => "char".to_string(),
         DType::I16 => "short".to_string(),

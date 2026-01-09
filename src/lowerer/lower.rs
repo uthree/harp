@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use crate::ast::{AstNode, DType, Literal};
+use crate::ast::{AstNode, DType, Literal, Mutability, VarDecl, VarKind};
 use crate::graph::{GraphNode, GraphOp, ReduceOp, collect_inputs, topological_sort};
 
 use super::fusion::AllFusions;
@@ -13,12 +13,21 @@ use super::fusion::FusionPass;
 use super::index_gen::IndexGenerator;
 use super::loop_gen::LoopGenerator;
 
+/// Buffer information for kernel parameters
+#[derive(Clone, Debug)]
+struct BufferInfo {
+    name: String,
+    dtype: DType,
+}
+
 /// Main lowerer for converting computation graphs to AST
 pub struct Lowerer {
     /// Counter for generating unique buffer names
     buffer_counter: usize,
     /// Mapping from graph nodes to buffer names
     buffer_map: HashMap<*const crate::graph::GraphInner, String>,
+    /// Mapping from graph nodes to dtypes
+    dtype_map: HashMap<*const crate::graph::GraphInner, DType>,
     /// Generated kernels
     kernels: Vec<AstNode>,
     /// Loop generator
@@ -37,6 +46,7 @@ impl Lowerer {
         Self {
             buffer_counter: 0,
             buffer_map: HashMap::new(),
+            dtype_map: HashMap::new(),
             kernels: Vec::new(),
             loop_gen: LoopGenerator::new(),
         }
@@ -70,7 +80,14 @@ impl Lowerer {
         self.buffer_counter += 1;
 
         self.buffer_map.insert(ptr, name.clone());
+        self.dtype_map.insert(ptr, node.dtype().clone());
         name
+    }
+
+    /// Get buffer dtype for a node
+    fn get_buffer_dtype(&self, node: &GraphNode) -> DType {
+        let ptr = std::rc::Rc::as_ptr(&node.0);
+        self.dtype_map.get(&ptr).cloned().unwrap_or(DType::F32)
     }
 
     /// Lower a computation graph to a Program AST
@@ -127,6 +144,20 @@ impl Lowerer {
         }
     }
 
+    /// Collect buffer info for input sources
+    fn collect_input_buffers(&self, node: &GraphNode) -> Vec<BufferInfo> {
+        node.sources()
+            .iter()
+            .map(|src| BufferInfo {
+                name: {
+                    let ptr = std::rc::Rc::as_ptr(&src.0);
+                    self.buffer_map.get(&ptr).cloned().unwrap_or_default()
+                },
+                dtype: self.get_buffer_dtype(src),
+            })
+            .collect()
+    }
+
     /// Lower a View operation
     fn lower_view(&mut self, node: &GraphNode, output_buf: &str) -> AstNode {
         let shape = node.shape();
@@ -136,6 +167,13 @@ impl Lowerer {
         let src = &node.sources()[0];
         let src_buf = self.get_buffer_name(src);
         let src_idx = self.index_gen().view_to_index(src.view());
+
+        // Collect buffer info
+        let input_buffers = self.collect_input_buffers(node);
+        let output_buffer = BufferInfo {
+            name: output_buf.to_string(),
+            dtype: node.dtype().clone(),
+        };
 
         // Load from source, store to output
         let load = AstNode::Load {
@@ -153,13 +191,20 @@ impl Lowerer {
 
         let body = self.loop_gen.generate_loops(&shape, store);
 
-        self.make_kernel(output_buf, node.dtype(), body)
+        self.make_kernel(output_buf, body, input_buffers, output_buffer)
     }
 
     /// Lower an elementwise (MapReduce with reduce=None) operation
     fn lower_elementwise(&mut self, node: &GraphNode, output_buf: &str, map: &AstNode) -> AstNode {
         let shape = node.shape();
         let output_idx = self.index_gen().view_to_index(node.view());
+
+        // Collect buffer info
+        let input_buffers = self.collect_input_buffers(node);
+        let output_buffer = BufferInfo {
+            name: output_buf.to_string(),
+            dtype: node.dtype().clone(),
+        };
 
         // Substitute Wildcards with Load operations
         let element_expr = self.substitute_wildcards(node, map);
@@ -172,7 +217,7 @@ impl Lowerer {
 
         let body = self.loop_gen.generate_loops(&shape, store);
 
-        self.make_kernel(output_buf, node.dtype(), body)
+        self.make_kernel(output_buf, body, input_buffers, output_buffer)
     }
 
     /// Lower a reduction operation
@@ -187,6 +232,13 @@ impl Lowerer {
         // Use source shape for iteration (before reduction)
         let src = &node.sources()[0];
         let src_shape = src.shape();
+
+        // Collect buffer info
+        let input_buffers = self.collect_input_buffers(node);
+        let output_buffer = BufferInfo {
+            name: output_buf.to_string(),
+            dtype: node.dtype().clone(),
+        };
 
         // Output index excludes the reduced dimension (simplified: just use ridx0)
         let output_idx = self.index_gen().view_to_index(node.view());
@@ -212,16 +264,42 @@ impl Lowerer {
             combine_expr,
         );
 
-        self.make_kernel(output_buf, node.dtype(), body)
+        self.make_kernel(output_buf, body, input_buffers, output_buffer)
     }
 
-    /// Create a Kernel AST node
-    fn make_kernel(&self, name: &str, dtype: &DType, body: AstNode) -> AstNode {
+    /// Create a Kernel AST node with buffer parameters
+    fn make_kernel(
+        &self,
+        name: &str,
+        body: AstNode,
+        input_buffers: Vec<BufferInfo>,
+        output_buffer: BufferInfo,
+    ) -> AstNode {
         let one = Box::new(AstNode::Const(Literal::I64(1)));
+
+        // Create parameters for input buffers
+        let mut params: Vec<VarDecl> = input_buffers
+            .into_iter()
+            .map(|buf| VarDecl {
+                name: buf.name,
+                dtype: DType::Ptr(Box::new(buf.dtype)),
+                mutability: Mutability::Immutable,
+                kind: VarKind::Normal,
+            })
+            .collect();
+
+        // Add output buffer parameter
+        params.push(VarDecl {
+            name: output_buffer.name,
+            dtype: DType::Ptr(Box::new(output_buffer.dtype)),
+            mutability: Mutability::Mutable,
+            kind: VarKind::Normal,
+        });
+
         AstNode::Kernel {
             name: Some(format!("kernel_{}", name)),
-            params: vec![],
-            return_type: dtype.clone(),
+            params,
+            return_type: DType::Void,
             body: Box::new(body),
             default_grid_size: [one.clone(), one.clone(), one.clone()],
             default_thread_group_size: [one.clone(), one.clone(), one],

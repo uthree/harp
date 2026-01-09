@@ -41,6 +41,7 @@ src/lowerer/
 pub struct Lowerer {
     buffer_counter: usize,
     buffer_map: HashMap<*const GraphInner, String>,
+    dtype_map: HashMap<*const GraphInner, DType>,
     kernels: Vec<AstNode>,
     loop_gen: LoopGenerator,
 }
@@ -50,6 +51,8 @@ impl Lowerer {
     pub fn lower(&mut self, roots: &[GraphNode]) -> AstNode;
 }
 ```
+
+生成されるKernelは入力バッファと出力バッファをポインタ引数として持ちます。
 
 ### FusionPass
 
@@ -133,6 +136,10 @@ for ridx0 in 0..shape[0]:
 ```rust
 Kernel {
     name: "kernel_y",
+    params: [
+        VarDecl { name: "x", dtype: Ptr(F32), mutability: Immutable },
+        VarDecl { name: "y", dtype: Ptr(F32), mutability: Mutable },
+    ],
     body: Range { var: "ridx0", stop: shape[0],
         body: Range { var: "ridx1", stop: shape[1],
             body: Store(output, idx, Load(input, idx) * 2.0)
@@ -146,6 +153,10 @@ Kernel {
 ```rust
 Kernel {
     name: "kernel_y",
+    params: [
+        VarDecl { name: "x", dtype: Ptr(F32), mutability: Immutable },
+        VarDecl { name: "y", dtype: Ptr(F32), mutability: Mutable },
+    ],
     body: Range { var: "ridx0", stop: shape[0],
         body: Block [
             Assign(acc, 0.0),
