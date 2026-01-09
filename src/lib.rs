@@ -8,8 +8,11 @@
 //! Eclat provides:
 //! - **ast**: AST definitions for computation graphs
 //! - **graph**: Computation graph representation (includes shape module)
+//! - **tensor**: High-level Tensor API with static dimension checking
+//! - **grad**: Automatic differentiation (reverse-mode)
 //! - **opt**: Optimization passes for AST transformations
 //! - **backend**: Backend trait definitions and pipeline
+//! - **lowerer**: Graph to AST lowering
 //! - **viz**: Visualization tools (optional, feature: viz)
 //!
 //! Backend implementations are provided as separate crates:
@@ -20,6 +23,25 @@
 //! # Feature Flags
 //!
 //! - `viz`: Enable visualization tools
+//!
+//! # Quick Start
+//!
+//! ```ignore
+//! use eclat::tensor::{Tensor, D2, D1};
+//! use eclat::grad::Differentiable;
+//! use eclat::ast::DType;
+//!
+//! // Create input tensors with static dimension checking
+//! let x: Tensor<D2> = Tensor::input([32, 64], DType::F32);
+//! let y: Tensor<D2> = Tensor::input([32, 64], DType::F32);
+//!
+//! // Build computation graph (lazy evaluation)
+//! let z: Tensor<D2> = &x * &y;
+//! let loss: Tensor<D1> = z.sum(1);
+//!
+//! // Compute gradients (also lazy)
+//! let grads = loss.graph().backward(&[x.graph()]);
+//! ```
 
 // ============================================================================
 // Core Modules
@@ -27,9 +49,11 @@
 
 pub mod ast;
 pub mod backend;
+pub mod grad;
 pub mod graph;
 pub mod lowerer;
 pub mod opt;
+pub mod tensor;
 
 // Re-export shape module at top level for convenience
 pub use graph::shape;
@@ -63,6 +87,12 @@ pub mod prelude {
 
     // Shape expressions (from graph module)
     pub use crate::graph::shape::{Expr, View};
+
+    // Tensor types
+    pub use crate::tensor::{D0, D1, D2, D3, D4, D5, D6, Dimension, Dyn, Tensor};
+
+    // Gradient computation
+    pub use crate::grad::{Differentiable, GradResult, backward};
 }
 
 // ============================================================================
