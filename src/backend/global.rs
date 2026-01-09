@@ -21,7 +21,7 @@
 //! });
 //! ```
 
-use super::device::{DeviceError, HarpDevice};
+use super::device::{DeviceError, EclatDevice};
 use super::traits::Device;
 use std::any::Any;
 use std::cell::RefCell;
@@ -103,18 +103,18 @@ pub fn set_default_device<D: Device + Send + Sync + 'static>(device: D, kind: De
     });
 }
 
-/// Set the default device using HarpDevice
+/// Set the default device using EclatDevice
 ///
 /// This is the recommended way to set the default device.
 ///
 /// # Example
 /// ```ignore
-/// use eclat::backend::{HarpDevice, set_device};
+/// use eclat::backend::{EclatDevice, set_device};
 ///
-/// let device = HarpDevice::auto()?;
+/// let device = EclatDevice::auto()?;
 /// set_device(device);
 /// ```
-pub fn set_device(device: HarpDevice) {
+pub fn set_device(device: EclatDevice) {
     DEFAULT_DEVICE.with(|state| {
         let mut state = state.borrow_mut();
         state.kind = device.kind();
@@ -133,7 +133,7 @@ pub fn set_device(device: HarpDevice) {
 /// set_device_str("c")?;
 /// ```
 pub fn set_device_str(device_str: &str) -> Result<(), DeviceError> {
-    let device = HarpDevice::new(device_str)?;
+    let device = EclatDevice::new(device_str)?;
     set_device(device);
     Ok(())
 }
@@ -190,6 +190,33 @@ pub fn allocate_buffer_on_default_device(
 
     let device = device.ok_or(DeviceError::NoAvailableBackend)?;
     allocate_buffer_on_device(kind, device.as_ref(), shape, dtype)
+}
+
+/// デフォルトデバイス上でASTをコンパイルしてカーネルを返す
+///
+/// # Arguments
+/// * `program` - コンパイルするASTプログラム
+/// * `signature` - カーネルの入出力シグネチャ
+///
+/// # Returns
+/// コンパイルされたカーネル、またはエラー
+pub fn compile_ast_on_default_device(
+    program: crate::ast::AstNode,
+    signature: crate::backend::KernelSignature,
+) -> Result<Box<dyn crate::backend::Kernel>, super::device::DeviceError> {
+    use super::device::{DeviceError, compile_ast_on_device};
+
+    let (kind, device) = DEFAULT_DEVICE.with(|state| {
+        let state = state.borrow();
+        (state.kind, state.device.clone())
+    });
+
+    if kind == DeviceKind::None {
+        return Err(DeviceError::NoAvailableBackend);
+    }
+
+    let device = device.ok_or(DeviceError::NoAvailableBackend)?;
+    compile_ast_on_device(kind, device.as_ref(), program, signature)
 }
 
 /// Run a closure with a temporary default device

@@ -9,7 +9,7 @@ use std::error::Error;
 use std::fmt;
 
 use crate::backend::traits::Buffer;
-use crate::graph::GraphNode;
+use crate::graph::{GraphInner, GraphNode, collect_inputs};
 
 // ============================================================================
 // Error Types
@@ -133,11 +133,11 @@ impl Default for ExecutionResult {
 /// # Arguments
 ///
 /// * `roots` - The root nodes of the computation graph to execute
-/// * `inputs` - Pre-allocated input buffers, keyed by buffer ID
+/// * `input_buffers` - Pre-allocated input buffers, keyed by GraphNode pointer
 ///
 /// # Returns
 ///
-/// An `ExecutionResult` containing the output buffers.
+/// An `ExecutionResult` containing the output buffers, keyed by output index.
 ///
 /// # Errors
 ///
@@ -147,11 +147,14 @@ impl Default for ExecutionResult {
 /// - Execution fails
 /// - Required input buffers are missing
 pub fn execute_graph(
-    _roots: &[GraphNode],
-    _inputs: &HashMap<usize, &dyn Buffer>,
+    roots: &[GraphNode],
+    input_buffers: &HashMap<*const GraphInner, Box<dyn Buffer>>,
 ) -> Result<ExecutionResult, ExecutionError> {
     use crate::backend::DeviceKind;
-    use crate::backend::global::get_default_device_kind;
+    use crate::backend::global::{
+        allocate_buffer_on_default_device, compile_ast_on_default_device, get_default_device_kind,
+    };
+    use crate::lowerer::Lowerer;
 
     // 1. Check device is set
     let device_kind = get_default_device_kind();
@@ -159,11 +162,80 @@ pub fn execute_graph(
         return Err(ExecutionError::NoDevice);
     }
 
-    // TODO: Implement the full execution pipeline
-    // For now, return an error indicating not yet implemented
-    Err(ExecutionError::Internal(
-        "execute_graph is not yet fully implemented".to_string(),
-    ))
+    if roots.is_empty() {
+        return Ok(ExecutionResult::new());
+    }
+
+    // 2. Lower graph to AST
+    let mut lowerer = Lowerer::new();
+    let program = lowerer.lower(roots);
+
+    // 3. Collect input nodes and build signature
+    let input_nodes = collect_inputs(roots);
+    let signature = lowerer.build_kernel_signature(&input_nodes, roots);
+
+    // 4. Verify all inputs have buffers
+    for input_node in &input_nodes {
+        let ptr = std::rc::Rc::as_ptr(&input_node.0);
+        if !input_buffers.contains_key(&ptr) {
+            let name = lowerer
+                .lookup_buffer_name(input_node)
+                .cloned()
+                .unwrap_or_else(|| format!("node@{:p}", ptr));
+            return Err(ExecutionError::MissingInput(name));
+        }
+    }
+
+    // 5. Compile AST to kernel
+    let kernel = compile_ast_on_default_device(program, signature).map_err(|e| {
+        ExecutionError::CompilationFailed(format!("Failed to compile kernel: {}", e))
+    })?;
+
+    // 6. Prepare input buffer references in order
+    let mut ordered_inputs: Vec<&dyn Buffer> = Vec::with_capacity(input_nodes.len());
+    for input_node in &input_nodes {
+        let ptr = std::rc::Rc::as_ptr(&input_node.0);
+        let buffer = input_buffers.get(&ptr).unwrap();
+        ordered_inputs.push(buffer.as_ref());
+    }
+
+    // 7. Allocate output buffers
+    let mut output_buffers: Vec<Box<dyn Buffer>> = Vec::with_capacity(roots.len());
+    for root in roots {
+        let shape: Vec<usize> = root
+            .shape()
+            .iter()
+            .map(|e| {
+                e.evaluate()
+                    .expect("Cannot evaluate shape expression at runtime") as usize
+            })
+            .collect();
+        let dtype = root.dtype().clone();
+
+        let buffer = allocate_buffer_on_default_device(shape, dtype).map_err(|e| {
+            ExecutionError::AllocationFailed(format!("Failed to allocate output buffer: {}", e))
+        })?;
+        output_buffers.push(buffer);
+    }
+
+    // 8. Execute kernel with output buffers
+    // We need to create a Vec<&mut dyn Buffer> manually to avoid lifetime issues
+    let output_refs: &mut [&mut dyn Buffer] = &mut output_buffers
+        .iter_mut()
+        .map(|b| &mut **b as &mut dyn Buffer)
+        .collect::<Vec<_>>();
+
+    kernel
+        .execute(&ordered_inputs, output_refs)
+        .map_err(|e| ExecutionError::ExecutionFailed(format!("Kernel execution failed: {}", e)))?;
+
+    // 9. Build result
+    let mut result = ExecutionResult::new();
+    for (i, buffer) in output_buffers.into_iter().enumerate() {
+        result.insert(i, buffer);
+    }
+
+    Ok(result)
 }
 
 // ============================================================================

@@ -6,12 +6,59 @@
 //! - Reading results back to host (`to_vec()`)
 
 use std::cell::Ref;
+use std::collections::HashMap;
+use std::sync::RwLock;
 
 use crate::ast::{DType, TensorDType};
 use crate::backend::{Buffer, ExecutionError, has_default_device};
+use crate::graph::GraphInner;
 
 use super::dim::Dimension;
 use super::tensor::Tensor;
+
+// ============================================================================
+// Global Buffer Cache
+// ============================================================================
+
+/// Global cache for input tensor buffers.
+///
+/// When `set_data()` is called on an input tensor, its buffer is registered here
+/// so that `realize()` can access it when executing computation graphs.
+///
+/// Keys are GraphNode pointers cast to usize for Send/Sync compatibility.
+/// Note: Buffer trait already requires Send + Sync.
+static INPUT_BUFFER_CACHE: std::sync::LazyLock<RwLock<HashMap<usize, Box<dyn Buffer>>>> =
+    std::sync::LazyLock::new(|| RwLock::new(HashMap::new()));
+
+/// Convert a GraphInner pointer to a usize key.
+fn ptr_to_key(ptr: *const GraphInner) -> usize {
+    ptr as usize
+}
+
+/// Register a buffer in the global cache for later retrieval.
+fn register_input_buffer(graph_ptr: *const GraphInner, buffer: Box<dyn Buffer>) {
+    let mut cache = INPUT_BUFFER_CACHE.write().unwrap();
+    cache.insert(ptr_to_key(graph_ptr), buffer);
+}
+
+/// Get a clone of a buffer from the cache.
+fn clone_input_buffer(graph_ptr: *const GraphInner) -> Option<Box<dyn Buffer>> {
+    let cache = INPUT_BUFFER_CACHE.read().unwrap();
+    cache.get(&ptr_to_key(graph_ptr)).map(|b| b.clone_buffer())
+}
+
+/// Remove a buffer from the cache.
+#[allow(dead_code)]
+fn remove_input_buffer(graph_ptr: *const GraphInner) {
+    let mut cache = INPUT_BUFFER_CACHE.write().unwrap();
+    cache.remove(&ptr_to_key(graph_ptr));
+}
+
+/// Check if a buffer exists in the cache.
+fn has_input_buffer(graph_ptr: *const GraphInner) -> bool {
+    let cache = INPUT_BUFFER_CACHE.read().unwrap();
+    cache.contains_key(&ptr_to_key(graph_ptr))
+}
 
 // ============================================================================
 // Realization Methods
@@ -85,6 +132,9 @@ impl<D: Dimension> Tensor<D> {
     /// let result: Vec<f32> = z.to_vec()?;
     /// ```
     pub fn realize(&self) -> Result<&Self, ExecutionError> {
+        use crate::backend::execute_graph;
+        use crate::graph::collect_inputs;
+
         // Check if already realized
         if self.is_realized() {
             return Ok(self);
@@ -95,20 +145,56 @@ impl<D: Dimension> Tensor<D> {
             return Err(ExecutionError::NoDevice);
         }
 
-        // TODO: Implement full execution pipeline
-        // For now, return error for non-input tensors
-        if !self.inner.graph.is_external() {
-            return Err(ExecutionError::Internal(
-                "realize() for computed tensors is not yet implemented. \
-                 Only input tensors with set_data() are currently supported."
-                    .to_string(),
+        // For input tensors (external nodes), check if data was set
+        if self.inner.graph.is_external() {
+            let ptr = std::rc::Rc::as_ptr(&self.inner.graph.0);
+            if has_input_buffer(ptr) {
+                // Copy buffer from cache to self
+                let buffer = clone_input_buffer(ptr).ok_or_else(|| {
+                    ExecutionError::Internal("Buffer disappeared from cache".to_string())
+                })?;
+                *self.inner.buffer.borrow_mut() = Some(buffer);
+                return Ok(self);
+            }
+            return Err(ExecutionError::MissingInput(
+                "Input tensor has no data. Call set_data() first.".to_string(),
             ));
         }
 
-        // For input tensors without data, this is an error
-        Err(ExecutionError::MissingInput(
-            "Input tensor has no data. Call set_data() first.".to_string(),
-        ))
+        // For computed tensors, collect input buffers and execute graph
+        let input_nodes = collect_inputs(std::slice::from_ref(&self.inner.graph));
+
+        // Build input buffer map
+        let mut input_buffers: HashMap<*const GraphInner, Box<dyn Buffer>> =
+            HashMap::with_capacity(input_nodes.len());
+
+        for input_node in &input_nodes {
+            let ptr = std::rc::Rc::as_ptr(&input_node.0);
+            if let Some(buffer) = clone_input_buffer(ptr) {
+                input_buffers.insert(ptr, buffer);
+            } else {
+                let name = input_node
+                    .name()
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| format!("node@{:p}", ptr));
+                return Err(ExecutionError::MissingInput(format!(
+                    "Input tensor '{}' has no data. Call set_data() first.",
+                    name
+                )));
+            }
+        }
+
+        // Execute the computation graph
+        let mut result = execute_graph(std::slice::from_ref(&self.inner.graph), &input_buffers)?;
+
+        // Store the result buffer (output index 0 corresponds to our root)
+        let buffer = result.take(0).ok_or_else(|| {
+            ExecutionError::Internal("No output buffer returned from execution".to_string())
+        })?;
+
+        *self.inner.buffer.borrow_mut() = Some(buffer);
+
+        Ok(self)
     }
 
     /// Read tensor data back to host as a Vec<T>.
@@ -234,7 +320,11 @@ impl<D: Dimension> Tensor<D> {
             .write_from_host(bytes)
             .map_err(|e| ExecutionError::ExecutionFailed(e.to_string()))?;
 
-        // Store buffer
+        // Register buffer in global cache for realize() to access
+        let graph_ptr = std::rc::Rc::as_ptr(&self.inner.graph.0);
+        register_input_buffer(graph_ptr, buffer.clone_buffer());
+
+        // Store buffer locally
         *self.inner.buffer.borrow_mut() = Some(buffer);
 
         Ok(())
@@ -406,5 +496,141 @@ mod tests {
         x_i32.set_data(&input_i32).expect("set_data for i32 failed");
         let output_i32: Vec<i32> = x_i32.to_vec().expect("to_vec for i32 failed");
         assert_eq!(output_i32, input_i32.to_vec());
+    }
+
+    // ========================================================================
+    // Integration Tests for Computation Graph Execution
+    // ========================================================================
+
+    /// Test realize with simple element-wise addition
+    #[test]
+    fn test_realize_add() {
+        let device_result = crate::backend::set_device_str("metal")
+            .or_else(|_| crate::backend::set_device_str("opencl"));
+
+        if device_result.is_err() {
+            println!("No GPU backend available, skipping test");
+            return;
+        }
+
+        let x: Tensor<D1> = Tensor::input([4], DType::F32);
+        let y: Tensor<D1> = Tensor::input([4], DType::F32);
+
+        x.set_data(&[1.0f32, 2.0, 3.0, 4.0])
+            .expect("set_data for x failed");
+        y.set_data(&[5.0f32, 6.0, 7.0, 8.0])
+            .expect("set_data for y failed");
+
+        let z = &x + &y;
+        let realize_result = z.realize();
+        assert!(
+            realize_result.is_ok(),
+            "realize failed: {:?}",
+            realize_result.err()
+        );
+
+        let result: Vec<f32> = z.to_vec().expect("to_vec failed");
+        assert_eq!(result, vec![6.0, 8.0, 10.0, 12.0]);
+    }
+
+    /// Test realize with element-wise multiplication
+    #[test]
+    fn test_realize_mul() {
+        let device_result = crate::backend::set_device_str("metal")
+            .or_else(|_| crate::backend::set_device_str("opencl"));
+
+        if device_result.is_err() {
+            println!("No GPU backend available, skipping test");
+            return;
+        }
+
+        let x: Tensor<D1> = Tensor::input([4], DType::F32);
+        let y: Tensor<D1> = Tensor::input([4], DType::F32);
+
+        x.set_data(&[1.0f32, 2.0, 3.0, 4.0])
+            .expect("set_data for x failed");
+        y.set_data(&[2.0f32, 3.0, 4.0, 5.0])
+            .expect("set_data for y failed");
+
+        let z = &x * &y;
+        z.realize().expect("realize failed");
+
+        let result: Vec<f32> = z.to_vec().expect("to_vec failed");
+        assert_eq!(result, vec![2.0, 6.0, 12.0, 20.0]);
+    }
+
+    /// Test realize with 2D tensors
+    #[test]
+    fn test_realize_2d() {
+        let device_result = crate::backend::set_device_str("metal")
+            .or_else(|_| crate::backend::set_device_str("opencl"));
+
+        if device_result.is_err() {
+            println!("No GPU backend available, skipping test");
+            return;
+        }
+
+        let x: Tensor<D2> = Tensor::input([2, 3], DType::F32);
+        let y: Tensor<D2> = Tensor::input([2, 3], DType::F32);
+
+        x.set_data(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0])
+            .expect("set_data for x failed");
+        y.set_data(&[6.0f32, 5.0, 4.0, 3.0, 2.0, 1.0])
+            .expect("set_data for y failed");
+
+        let z = &x + &y;
+        z.realize().expect("realize failed");
+
+        let result: Vec<f32> = z.to_vec().expect("to_vec failed");
+        assert_eq!(result, vec![7.0, 7.0, 7.0, 7.0, 7.0, 7.0]);
+    }
+
+    /// Test that realize is idempotent
+    #[test]
+    fn test_realize_idempotent() {
+        let device_result = crate::backend::set_device_str("metal")
+            .or_else(|_| crate::backend::set_device_str("opencl"));
+
+        if device_result.is_err() {
+            println!("No GPU backend available, skipping test");
+            return;
+        }
+
+        let x: Tensor<D1> = Tensor::input([4], DType::F32);
+        x.set_data(&[1.0f32, 2.0, 3.0, 4.0])
+            .expect("set_data failed");
+
+        // First realize
+        x.realize().expect("first realize failed");
+        let result1: Vec<f32> = x.to_vec().expect("to_vec failed");
+
+        // Second realize should be a no-op
+        x.realize().expect("second realize failed");
+        let result2: Vec<f32> = x.to_vec().expect("to_vec failed");
+
+        assert_eq!(result1, result2);
+    }
+
+    /// Test realize with missing input
+    #[test]
+    fn test_realize_missing_input() {
+        let device_result = crate::backend::set_device_str("metal")
+            .or_else(|_| crate::backend::set_device_str("opencl"));
+
+        if device_result.is_err() {
+            println!("No GPU backend available, skipping test");
+            return;
+        }
+
+        let x: Tensor<D1> = Tensor::input([4], DType::F32);
+        let y: Tensor<D1> = Tensor::input([4], DType::F32);
+
+        // Only set data for x, not y
+        x.set_data(&[1.0f32, 2.0, 3.0, 4.0])
+            .expect("set_data for x failed");
+
+        let z = &x + &y;
+        let result = z.realize();
+        assert!(matches!(result, Err(ExecutionError::MissingInput(_))));
     }
 }

@@ -81,7 +81,7 @@ pub mod prelude {
 
     // Backend traits
     pub use crate::backend::{
-        Buffer, BufferSignature, Compiler, Device, HarpDevice, Kernel, KernelSignature, Pipeline,
+        Buffer, BufferSignature, Compiler, Device, EclatDevice, Kernel, KernelSignature, Pipeline,
         Renderer,
     };
 

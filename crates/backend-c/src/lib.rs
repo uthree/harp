@@ -66,7 +66,7 @@ impl BackendRegistry for CBackendRegistry {
 /// Initialize the C backend
 ///
 /// This function registers the C backend with eclat-core, making it
-/// available for device selection via `HarpDevice::c()`.
+/// available for device selection via `EclatDevice::c()`.
 ///
 /// Note: The C backend does NOT support runtime execution. It is only
 /// useful for code generation. Attempting to realize() a tensor with

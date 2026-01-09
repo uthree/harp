@@ -17,10 +17,10 @@
 //! ## Usage
 //!
 //! ```ignore
-//! use eclat::backend::{Pipeline, HarpDevice, set_device};
+//! use eclat::backend::{Pipeline, EclatDevice, set_device};
 //!
 //! // Set up a device
-//! let device = HarpDevice::auto()?;
+//! let device = EclatDevice::auto()?;
 //! set_device(device);
 //!
 //! // Compile and run a program
@@ -67,14 +67,15 @@ pub use renderer::{
 
 // Re-export global device management
 pub use global::{
-    DeviceKind, allocate_buffer_on_default_device, clear_default_device, get_default_device,
-    get_default_device_kind, has_default_device, set_default_device, set_device, set_device_str,
-    with_device,
+    DeviceKind, allocate_buffer_on_default_device, clear_default_device,
+    compile_ast_on_default_device, get_default_device, get_default_device_kind, has_default_device,
+    set_default_device, set_device, set_device_str, with_device,
 };
 
 // Re-export device types
 pub use device::{
-    BackendRegistry, DeviceError, HarpDevice, allocate_buffer_on_device, register_backend,
+    BackendRegistry, DeviceError, EclatDevice, allocate_buffer_on_device, compile_ast_on_device,
+    register_backend,
 };
 
 /// カーネルのシグネチャ（入出力バッファの形状情報）

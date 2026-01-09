@@ -11,8 +11,8 @@
 //! init();
 //!
 //! // Now OpenCL is available as a device
-//! use eclat::backend::HarpDevice;
-//! let device = HarpDevice::opencl(0).unwrap();
+//! use eclat::backend::EclatDevice;
+//! let device = EclatDevice::opencl(0).unwrap();
 //! device.set_as_default();
 //! ```
 
@@ -103,6 +103,31 @@ impl BackendRegistry for OpenCLBackendRegistry {
 
         Ok(Box::new(buffer))
     }
+
+    fn compile_ast(
+        &self,
+        device: &dyn Any,
+        program: eclat::ast::AstNode,
+        signature: eclat::backend::KernelSignature,
+    ) -> Result<Box<dyn eclat::backend::Kernel>, DeviceError> {
+        use eclat::backend::Pipeline;
+
+        let opencl_device = device.downcast_ref::<OpenCLDevice>().ok_or_else(|| {
+            DeviceError::InitializationError(
+                "Invalid device type: expected OpenCLDevice".to_string(),
+            )
+        })?;
+
+        let renderer = OpenCLRenderer::new();
+        let compiler = OpenCLCompiler;
+        let mut pipeline = Pipeline::new(renderer, compiler, opencl_device.clone());
+
+        let cache_entry = pipeline.compile_ast(program, signature).map_err(|e| {
+            DeviceError::InitializationError(format!("Failed to compile AST: {}", e))
+        })?;
+
+        Ok(cache_entry.kernel)
+    }
 }
 
 // ============================================================================
@@ -112,7 +137,7 @@ impl BackendRegistry for OpenCLBackendRegistry {
 /// Initialize the OpenCL backend
 ///
 /// This function registers the OpenCL backend with eclat-core, making it
-/// available for device selection via `HarpDevice::auto()` or `HarpDevice::opencl()`.
+/// available for device selection via `EclatDevice::auto()` or `EclatDevice::opencl()`.
 ///
 /// This should be called once at program startup. When using the `eclat` facade
 /// crate, this is done automatically via the `ctor` attribute.

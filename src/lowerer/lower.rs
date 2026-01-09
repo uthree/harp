@@ -438,6 +438,69 @@ impl Lowerer {
         let lit = op.identity(dtype);
         AstNode::Const(lit)
     }
+
+    // =========================================================================
+    // Public API for buffer map access
+    // =========================================================================
+
+    /// Get a reference to the buffer map
+    ///
+    /// The buffer map contains mappings from GraphNode raw pointers to buffer names.
+    /// This is useful for retrieving buffer names after lowering.
+    pub fn buffer_map(&self) -> &HashMap<*const crate::graph::GraphInner, String> {
+        &self.buffer_map
+    }
+
+    /// Get a reference to the dtype map
+    ///
+    /// The dtype map contains mappings from GraphNode raw pointers to DTypes.
+    pub fn dtype_map(&self) -> &HashMap<*const crate::graph::GraphInner, DType> {
+        &self.dtype_map
+    }
+
+    /// Look up the buffer name for a given graph node
+    ///
+    /// Returns `None` if the node has not been assigned a buffer.
+    /// Unlike the internal `get_buffer_name`, this does not create new buffers.
+    pub fn lookup_buffer_name(&self, node: &GraphNode) -> Option<&String> {
+        let ptr = std::rc::Rc::as_ptr(&node.0);
+        self.buffer_map.get(&ptr)
+    }
+
+    /// Look up the dtype for a given graph node
+    ///
+    /// Returns `None` if the node's dtype has not been recorded.
+    pub fn lookup_dtype(&self, node: &GraphNode) -> Option<DType> {
+        let ptr = std::rc::Rc::as_ptr(&node.0);
+        self.dtype_map.get(&ptr).cloned()
+    }
+
+    /// Build a KernelSignature from input and output nodes
+    ///
+    /// This function creates a signature containing buffer information
+    /// for the specified input and output nodes.
+    pub fn build_kernel_signature(
+        &self,
+        inputs: &[GraphNode],
+        outputs: &[GraphNode],
+    ) -> crate::backend::KernelSignature {
+        use crate::backend::{BufferSignature, KernelSignature};
+        use crate::shape::Expr;
+
+        let build_buffer_sig = |node: &GraphNode| -> BufferSignature {
+            let name = self
+                .lookup_buffer_name(node)
+                .cloned()
+                .unwrap_or_else(|| "unknown".to_string());
+            let shape: Vec<Expr> = node.shape().clone();
+            BufferSignature::new(name, shape)
+        };
+
+        let input_sigs: Vec<BufferSignature> = inputs.iter().map(build_buffer_sig).collect();
+        let output_sigs: Vec<BufferSignature> = outputs.iter().map(build_buffer_sig).collect();
+
+        KernelSignature::new(input_sigs, output_sigs)
+    }
 }
 
 #[cfg(test)]

@@ -5,19 +5,19 @@
 //! # Examples
 //!
 //! ```ignore
-//! use eclat::backend::{HarpDevice, set_device};
+//! use eclat::backend::{EclatDevice, set_device};
 //!
 //! // Auto-select best available backend (Metal > OpenCL > C)
-//! let device = HarpDevice::auto()?;
+//! let device = EclatDevice::auto()?;
 //! set_device(device);
 //!
 //! // Explicit backend selection
-//! let device = HarpDevice::new("metal")?;
-//! let device = HarpDevice::new("opencl:0")?;  // with device index
-//! let device = HarpDevice::new("c")?;
+//! let device = EclatDevice::new("metal")?;
+//! let device = EclatDevice::new("opencl:0")?;  // with device index
+//! let device = EclatDevice::new("c")?;
 //!
 //! // List all available devices
-//! for (kind, index, name) in HarpDevice::list_all() {
+//! for (kind, index, name) in EclatDevice::list_all() {
 //!     println!("{:?}:{} - {}", kind, index, name);
 //! }
 //! ```
@@ -123,6 +123,26 @@ pub trait BackendRegistry: Send + Sync {
             "This backend does not support runtime buffer allocation".to_string(),
         ))
     }
+
+    /// ASTをコンパイルしてカーネルを返す
+    ///
+    /// # Arguments
+    /// * `device` - デバイスのArc（create_deviceで作成されたもの）
+    /// * `program` - コンパイルするASTプログラム
+    /// * `signature` - カーネルの入出力シグネチャ
+    ///
+    /// # Returns
+    /// コンパイルされたカーネル、またはエラー
+    fn compile_ast(
+        &self,
+        _device: &dyn Any,
+        _program: crate::ast::AstNode,
+        _signature: crate::backend::KernelSignature,
+    ) -> Result<Box<dyn crate::backend::Kernel>, DeviceError> {
+        Err(DeviceError::InitializationError(
+            "This backend does not support AST compilation".to_string(),
+        ))
+    }
 }
 
 /// 登録されたバックエンドのグローバルレジストリ
@@ -131,7 +151,7 @@ static BACKENDS: OnceLock<RwLock<Vec<Box<dyn BackendRegistry>>>> = OnceLock::new
 /// バックエンドを登録する
 ///
 /// バックエンドクレートの初期化時に呼び出される。
-/// 登録されたバックエンドは `HarpDevice::auto()` や `HarpDevice::new()` で使用される。
+/// 登録されたバックエンドは `EclatDevice::auto()` や `EclatDevice::new()` で使用される。
 pub fn register_backend(backend: Box<dyn BackendRegistry>) {
     let backends = BACKENDS.get_or_init(|| RwLock::new(Vec::new()));
     let mut backends = backends.write().unwrap();
@@ -185,8 +205,43 @@ pub fn allocate_buffer_on_device(
     backend.allocate_buffer(device, shape, dtype)
 }
 
+/// 指定されたDeviceKindに対応するバックエンドでASTをコンパイルする
+///
+/// # Arguments
+/// * `kind` - デバイスの種類
+/// * `device` - デバイスのArc参照
+/// * `program` - コンパイルするASTプログラム
+/// * `signature` - カーネルの入出力シグネチャ
+///
+/// # Returns
+/// コンパイルされたカーネル、またはエラー
+pub fn compile_ast_on_device(
+    kind: DeviceKind,
+    device: &dyn Any,
+    program: crate::ast::AstNode,
+    signature: crate::backend::KernelSignature,
+) -> Result<Box<dyn crate::backend::Kernel>, DeviceError> {
+    let backends = get_backends();
+
+    let backend = backends.iter().find(|b| b.kind() == kind).ok_or_else(|| {
+        DeviceError::BackendUnavailable {
+            backend: kind,
+            reason: "Backend not registered".to_string(),
+        }
+    })?;
+
+    if !backend.supports_runtime() {
+        return Err(DeviceError::BackendUnavailable {
+            backend: kind,
+            reason: "This backend does not support runtime execution".to_string(),
+        });
+    }
+
+    backend.compile_ast(device, program, signature)
+}
+
 // ============================================================================
-// HarpDevice
+// EclatDevice
 // ============================================================================
 
 /// PyTorch風のデバイス指定
@@ -198,33 +253,33 @@ pub fn allocate_buffer_on_device(
 ///
 /// ```ignore
 /// // 文字列から作成
-/// let device = HarpDevice::new("metal")?;
-/// let device = HarpDevice::new("opencl:0")?;
-/// let device = HarpDevice::new("c")?;
+/// let device = EclatDevice::new("metal")?;
+/// let device = EclatDevice::new("opencl:0")?;
+/// let device = EclatDevice::new("c")?;
 ///
 /// // 自動選択（優先順位: Metal > OpenCL > C）
-/// let device = HarpDevice::auto()?;
+/// let device = EclatDevice::auto()?;
 ///
 /// // デフォルトとして設定
 /// device.set_as_default();
 /// ```
 #[derive(Clone)]
-pub struct HarpDevice {
+pub struct EclatDevice {
     kind: DeviceKind,
     index: usize,
     device: Arc<dyn Any + Send + Sync>,
 }
 
-impl std::fmt::Debug for HarpDevice {
+impl std::fmt::Debug for EclatDevice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("HarpDevice")
+        f.debug_struct("EclatDevice")
             .field("kind", &self.kind)
             .field("index", &self.index)
             .finish()
     }
 }
 
-impl HarpDevice {
+impl EclatDevice {
     /// デバイスを直接作成（バックエンドクレートから呼び出される）
     pub fn from_device(kind: DeviceKind, index: usize, device: Arc<dyn Any + Send + Sync>) -> Self {
         Self {
@@ -367,6 +422,22 @@ impl HarpDevice {
             .unwrap_or(false)
     }
 
+    /// このデバイス上でASTをコンパイルしてカーネルを返す
+    ///
+    /// # Arguments
+    /// * `program` - コンパイルするASTプログラム
+    /// * `signature` - カーネルの入出力シグネチャ
+    ///
+    /// # Returns
+    /// コンパイルされたカーネル、またはエラー
+    pub fn compile_ast(
+        &self,
+        program: crate::ast::AstNode,
+        signature: crate::backend::KernelSignature,
+    ) -> Result<Box<dyn crate::backend::Kernel>, DeviceError> {
+        compile_ast_on_device(self.kind, self.device.as_ref(), program, signature)
+    }
+
     // ========================================================================
     // Private helpers
     // ========================================================================
@@ -429,7 +500,7 @@ impl HarpDevice {
     }
 }
 
-impl std::str::FromStr for HarpDevice {
+impl std::str::FromStr for EclatDevice {
     type Err = DeviceError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -443,38 +514,41 @@ mod tests {
 
     #[test]
     fn test_parse_device_str() {
-        assert_eq!(HarpDevice::parse_device_str("metal").unwrap(), ("metal", 0));
         assert_eq!(
-            HarpDevice::parse_device_str("opencl:0").unwrap(),
+            EclatDevice::parse_device_str("metal").unwrap(),
+            ("metal", 0)
+        );
+        assert_eq!(
+            EclatDevice::parse_device_str("opencl:0").unwrap(),
             ("opencl", 0)
         );
         assert_eq!(
-            HarpDevice::parse_device_str("opencl:1").unwrap(),
+            EclatDevice::parse_device_str("opencl:1").unwrap(),
             ("opencl", 1)
         );
-        assert_eq!(HarpDevice::parse_device_str("c").unwrap(), ("c", 0));
+        assert_eq!(EclatDevice::parse_device_str("c").unwrap(), ("c", 0));
     }
 
     #[test]
     fn test_parse_backend() {
         assert_eq!(
-            HarpDevice::parse_backend("metal").unwrap(),
+            EclatDevice::parse_backend("metal").unwrap(),
             DeviceKind::Metal
         );
         assert_eq!(
-            HarpDevice::parse_backend("Metal").unwrap(),
+            EclatDevice::parse_backend("Metal").unwrap(),
             DeviceKind::Metal
         );
         assert_eq!(
-            HarpDevice::parse_backend("METAL").unwrap(),
+            EclatDevice::parse_backend("METAL").unwrap(),
             DeviceKind::Metal
         );
         assert_eq!(
-            HarpDevice::parse_backend("opencl").unwrap(),
+            EclatDevice::parse_backend("opencl").unwrap(),
             DeviceKind::OpenCL
         );
-        assert_eq!(HarpDevice::parse_backend("c").unwrap(), DeviceKind::C);
-        assert!(HarpDevice::parse_backend("unknown").is_err());
+        assert_eq!(EclatDevice::parse_backend("c").unwrap(), DeviceKind::C);
+        assert!(EclatDevice::parse_backend("unknown").is_err());
     }
 
     #[test]
