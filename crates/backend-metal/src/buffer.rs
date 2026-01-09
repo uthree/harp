@@ -1,8 +1,8 @@
 //! Metal native buffer
 
 use super::device::{MetalDevice, MetalError};
-use harp::ast::DType;
-use harp::backend::traits::{Buffer, TypedBuffer};
+use eclat::ast::DType;
+use eclat::backend::traits::{Buffer, TypedBuffer};
 use metal::{Buffer as MtlBuffer, MTLResourceOptions};
 use std::sync::Arc;
 
@@ -165,7 +165,7 @@ unsafe impl Sync for MetalBuffer {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use harp::backend::traits::{Device, TypedBuffer};
+    use eclat::backend::traits::{Device, TypedBuffer};
 
     #[test]
     fn test_metal_buffer_allocation() {

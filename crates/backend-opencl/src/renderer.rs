@@ -1,6 +1,6 @@
-use harp::ast::{AstNode, DType};
-use harp::backend::Renderer;
-use harp::backend::renderer::CLikeRenderer;
+use eclat::ast::{AstNode, DType};
+use eclat::backend::Renderer;
+use eclat::backend::renderer::CLikeRenderer;
 
 /// OpenCL Cコードを表す型
 ///
@@ -156,7 +156,7 @@ impl OpenCLRenderer {
 
             // paramsが空の場合、関数本体からバッファプレースホルダーを抽出
             if params.is_empty() {
-                use harp::backend::renderer::extract_buffer_placeholders;
+                use eclat::backend::renderer::extract_buffer_placeholders;
                 let (inputs, has_output) = extract_buffer_placeholders(body);
                 let mut buffer_params: Vec<String> = Vec::new();
 
@@ -300,8 +300,8 @@ impl CLikeRenderer for OpenCLRenderer {
         }
     }
 
-    fn render_param_attribute(&self, param: &harp::ast::VarDecl, _is_kernel: bool) -> String {
-        use harp::ast::{Mutability, VarKind};
+    fn render_param_attribute(&self, param: &eclat::ast::VarDecl, _is_kernel: bool) -> String {
+        use eclat::ast::{Mutability, VarKind};
 
         let type_str = self.render_dtype_backend(&param.dtype);
         let mut_str = match param.mutability {
@@ -326,10 +326,10 @@ impl CLikeRenderer for OpenCLRenderer {
 
     fn render_thread_var_declarations(
         &self,
-        params: &[harp::ast::VarDecl],
+        params: &[eclat::ast::VarDecl],
         indent: &str,
     ) -> String {
-        use harp::ast::VarKind;
+        use eclat::ast::VarKind;
 
         let mut declarations = String::new();
 
@@ -459,7 +459,7 @@ impl CLikeRenderer for OpenCLRenderer {
 }
 
 /// Implementation of KernelSourceRenderer for native OpenCL backend
-impl harp::backend::pipeline::KernelSourceRenderer for OpenCLRenderer {
+impl eclat::backend::pipeline::KernelSourceRenderer for OpenCLRenderer {
     fn render_kernel_source(&mut self, program: &AstNode) -> String {
         if let AstNode::Program { functions, .. } = program {
             let mut code = String::new();
@@ -493,8 +493,8 @@ impl harp::backend::pipeline::KernelSourceRenderer for OpenCLRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use harp::ast::{Mutability, Scope, VarDecl, VarKind};
-    use harp::backend::renderer::CLikeRenderer;
+    use eclat::ast::{Mutability, Scope, VarDecl, VarKind};
+    use eclat::backend::renderer::CLikeRenderer;
 
     #[test]
     fn test_render_header() {
@@ -508,7 +508,7 @@ mod tests {
 
     #[test]
     fn test_kernel_function_with_mixed_params() {
-        use harp::ast::helper::const_int;
+        use eclat::ast::helper::const_int;
         // カーネル関数でGroupIdとNormalパラメータが混在している場合のテスト
         let mut renderer = OpenCLRenderer::new();
 
@@ -572,7 +572,7 @@ mod tests {
 
     #[test]
     fn test_kernel_function_all_params_filtered() {
-        use harp::ast::helper::const_int;
+        use eclat::ast::helper::const_int;
         // 全パラメータがフィルタされる場合（GroupId, LocalIdのみ）
         let mut renderer = OpenCLRenderer::new();
 
@@ -728,7 +728,7 @@ mod tests {
 
     #[test]
     fn test_render_thread_var_declarations() {
-        use harp::ast::{DType, Mutability, VarDecl, VarKind};
+        use eclat::ast::{DType, Mutability, VarDecl, VarKind};
 
         let renderer = OpenCLRenderer::new();
 

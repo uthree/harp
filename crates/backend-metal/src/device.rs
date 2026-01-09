@@ -1,7 +1,7 @@
 //! Metal native device
 
-use harp::ast::DType;
-use harp::backend::traits::{
+use eclat::ast::DType;
+use eclat::backend::traits::{
     Device, DeviceFeature, DeviceInstruction, DeviceProfile, DeviceType, OpKind, SimdCapability,
 };
 use metal::{CommandQueue, Device as MtlDevice};

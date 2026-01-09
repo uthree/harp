@@ -33,7 +33,7 @@ pub fn reset_buffer_id_counter() {
 ///
 /// # Example
 /// ```
-/// use harp::graph::{input, Expr, DType};
+/// use eclat::graph::{input, Expr, DType};
 /// let x = input(vec![Expr::Const(32), Expr::Const(64)], DType::F32);
 /// ```
 pub fn input(shape: Vec<Expr>, dtype: DType) -> GraphNode {
@@ -59,7 +59,7 @@ pub fn named_input(name: impl Into<String>, shape: Vec<Expr>, dtype: DType) -> G
 ///
 /// # Example
 /// ```
-/// use harp::graph::{dynamic_input, DType};
+/// use eclat::graph::{dynamic_input, DType};
 /// // Tensor with 4 dynamic dimensions (indexed 0..3)
 /// let x = dynamic_input(4, DType::F32);
 /// ```
@@ -193,7 +193,7 @@ impl Default for GraphNodeBuilder {
 ///
 /// # Example
 /// ```
-/// use harp::graph_shape;
+/// use eclat::graph_shape;
 /// let shape = graph_shape![32, 64, 128];
 /// ```
 #[macro_export]

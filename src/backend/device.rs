@@ -5,7 +5,7 @@
 //! # Examples
 //!
 //! ```ignore
-//! use harp::backend::{HarpDevice, set_device};
+//! use eclat::backend::{HarpDevice, set_device};
 //!
 //! // Auto-select best available backend (Metal > OpenCL > C)
 //! let device = HarpDevice::auto()?;
@@ -78,7 +78,7 @@ impl std::error::Error for DeviceError {}
 
 /// バックエンド登録用のトレイト
 ///
-/// 各バックエンドクレート（harp-backend-c, harp-backend-metal, harp-backend-opencl）は
+/// 各バックエンドクレート（eclat-backend-c, eclat-backend-metal, eclat-backend-opencl）は
 /// このトレイトを実装し、`register_backend` 関数で登録する。
 pub trait BackendRegistry: Send + Sync {
     /// バックエンドの種類
@@ -316,7 +316,7 @@ impl HarpDevice {
             DeviceError::BackendUnavailable {
                 backend: kind,
                 reason: format!(
-                    "Backend not registered. Make sure harp-backend-{} is included as a dependency.",
+                    "Backend not registered. Make sure eclat-backend-{} is included as a dependency.",
                     kind.to_string().to_lowercase()
                 ),
             }

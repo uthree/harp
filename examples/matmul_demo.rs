@@ -14,9 +14,9 @@
 //!
 //! Run with: cargo run --example matmul_demo
 
-use harp::ast::{AstNode, DType};
-use harp::graph::{Expr, GraphNode, input};
-use harp::lowerer::Lowerer;
+use eclat::ast::{AstNode, DType};
+use eclat::graph::{Expr, GraphNode, input};
+use eclat::lowerer::Lowerer;
 
 fn main() {
     println!("{}", "=".repeat(70));

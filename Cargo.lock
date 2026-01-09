@@ -364,6 +364,56 @@ dependencies = [
 ]
 
 [[package]]
+name = "eclat"
+version = "0.1.0"
+dependencies = [
+ "crossterm",
+ "directories",
+ "env_logger",
+ "indexmap",
+ "indicatif",
+ "log",
+ "ndarray",
+ "num-complex",
+ "num-traits 0.2.19",
+ "paste",
+ "ratatui",
+ "rstest",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "syntect",
+ "tempfile",
+]
+
+[[package]]
+name = "eclat-backend-c"
+version = "0.1.0"
+dependencies = [
+ "eclat",
+ "log",
+]
+
+[[package]]
+name = "eclat-backend-metal"
+version = "0.1.0"
+dependencies = [
+ "eclat",
+ "log",
+ "metal",
+ "objc",
+]
+
+[[package]]
+name = "eclat-backend-opencl"
+version = "0.1.0"
+dependencies = [
+ "eclat",
+ "log",
+ "ocl",
+]
+
+[[package]]
 name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -618,56 +668,6 @@ name = "glob"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
-
-[[package]]
-name = "harp"
-version = "0.1.0"
-dependencies = [
- "crossterm",
- "directories",
- "env_logger",
- "indexmap",
- "indicatif",
- "log",
- "ndarray",
- "num-complex",
- "num-traits 0.2.19",
- "paste",
- "ratatui",
- "rstest",
- "serde",
- "serde_json",
- "serial_test",
- "syntect",
- "tempfile",
-]
-
-[[package]]
-name = "harp-backend-c"
-version = "0.1.0"
-dependencies = [
- "harp",
- "log",
-]
-
-[[package]]
-name = "harp-backend-metal"
-version = "0.1.0"
-dependencies = [
- "harp",
- "log",
- "metal",
- "objc",
-]
-
-[[package]]
-name = "harp-backend-opencl"
-version = "0.1.0"
-dependencies = [
- "harp",
- "log",
- "ocl",
-]
 
 [[package]]
 name = "hashbrown"

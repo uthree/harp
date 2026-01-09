@@ -183,7 +183,7 @@ impl View {
     ///
     /// # Example
     /// ```
-    /// use harp::shape::{View, Expr};
+    /// use eclat::shape::{View, Expr};
     ///
     /// // permute([1, 0]) ∘ contiguous([3, 4])
     /// let inner = View::contiguous(vec![3, 4]);
@@ -659,7 +659,7 @@ impl View {
     ///
     /// # Example
     /// ```
-    /// use harp::shape::{View, Expr};
+    /// use eclat::shape::{View, Expr};
     ///
     /// let view = View::contiguous(vec![3, 4]); // shape: [3, 4]
     /// let tiled = view.tile(0, 2); // shape: [6, 4], idx0を%3で循環
@@ -818,7 +818,7 @@ impl View {
     ///
     /// # Examples
     /// ```
-    /// use harp::shape::View;
+    /// use eclat::shape::View;
     ///
     /// // 連続したViewは最内軸も連続
     /// let view = View::contiguous(vec![3, 4]);
@@ -859,7 +859,7 @@ impl View {
     ///
     /// # Examples
     /// ```
-    /// use harp::shape::{View, Expr};
+    /// use eclat::shape::{View, Expr};
     ///
     /// // 転置を式で表現: offset = idx1 * 4 + idx0
     /// let view = View::from_index_expr(
@@ -890,8 +890,8 @@ impl View {
     ///
     /// # Examples
     /// ```
-    /// use harp::shape::{View, Expr};
-    /// use harp::shape::PadValue;
+    /// use eclat::shape::{View, Expr};
+    /// use eclat::shape::PadValue;
     ///
     /// // 3x4のテンソルに各軸に1ずつパディング -> 5x6
     /// let inner = View::contiguous(vec![3, 4]);
@@ -1015,8 +1015,8 @@ impl View {
     ///
     /// # Examples
     /// ```
-    /// use harp::shape::{View, Expr};
-    /// use harp::shape::PadValue;
+    /// use eclat::shape::{View, Expr};
+    /// use eclat::shape::PadValue;
     ///
     /// // Attention mask (causal): ridx[0] <= ridx[1]
     /// let inner = View::contiguous(vec![4, 4]);
@@ -1076,7 +1076,7 @@ impl View {
     ///
     /// # Example
     /// ```
-    /// use harp::shape::{View, Expr};
+    /// use eclat::shape::{View, Expr};
     ///
     /// // [N, C, H, W] + unfold(axes=[2,3], sizes=[kH,kW], strides=[sH,sW], dilations=[1,1])
     /// // → [N, C, out_H, out_W, kH, kW]

@@ -1,11 +1,11 @@
-//! Harp: High-level Array Processor
+//! Eclat: A Tensor Computation Library with JIT Compilation
 //!
-//! Harp is a transpiler that generates efficient kernels for AI accelerators,
+//! Eclat is a transpiler that generates efficient kernels for AI accelerators,
 //! GPUs, and CPUs from high-level computation graphs.
 //!
 //! # Architecture
 //!
-//! Harp provides:
+//! Eclat provides:
 //! - **ast**: AST definitions for computation graphs
 //! - **graph**: Computation graph representation (includes shape module)
 //! - **opt**: Optimization passes for AST transformations
@@ -13,9 +13,9 @@
 //! - **viz**: Visualization tools (optional, feature: viz)
 //!
 //! Backend implementations are provided as separate crates:
-//! - **harp-backend-c**: C code generation backend
-//! - **harp-backend-opencl**: OpenCL GPU backend
-//! - **harp-backend-metal**: Metal GPU backend (macOS only)
+//! - **eclat-backend-c**: C code generation backend
+//! - **eclat-backend-opencl**: OpenCL GPU backend
+//! - **eclat-backend-metal**: Metal GPU backend (macOS only)
 //!
 //! # Feature Flags
 //!

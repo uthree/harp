@@ -7,13 +7,13 @@
 //! 4. Compile with gcc
 //! 5. Execute and verify results
 //!
-//! Run with: cargo run -p harp-backend-c --example matmul_c
+//! Run with: cargo run -p eclat-backend-c --example matmul_c
 
-use harp::ast::{AstNode, DType};
-use harp::backend::Renderer;
-use harp::graph::{Expr, GraphNode, input};
-use harp::lowerer::Lowerer;
-use harp_backend_c::CRenderer;
+use eclat::ast::{AstNode, DType};
+use eclat::backend::Renderer;
+use eclat::graph::{Expr, GraphNode, input};
+use eclat::lowerer::Lowerer;
+use eclat_backend_c::CRenderer;
 use std::io::Write;
 use std::process::Command;
 
@@ -72,8 +72,8 @@ fn main() {
     let executable_c = generate_executable_c(n as usize);
 
     let temp_dir = std::env::temp_dir();
-    let c_file = temp_dir.join("harp_vecadd.c");
-    let exe_file = temp_dir.join("harp_vecadd");
+    let c_file = temp_dir.join("eclat_vecadd.c");
+    let exe_file = temp_dir.join("eclat_vecadd");
 
     // Write C code to file
     {

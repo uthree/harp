@@ -5,13 +5,13 @@
 //! # Usage
 //!
 //! ```ignore
-//! use harp_backend_opencl::init;
+//! use eclat_backend_opencl::init;
 //!
 //! // Initialize the backend (typically done automatically via ctor)
 //! init();
 //!
 //! // Now OpenCL is available as a device
-//! use harp::backend::HarpDevice;
+//! use eclat::backend::HarpDevice;
 //! let device = HarpDevice::opencl(0).unwrap();
 //! device.set_as_default();
 //! ```
@@ -28,12 +28,12 @@ pub use device::{OpenCLDevice, OpenCLError};
 pub use kernel::OpenCLKernel;
 
 // Re-export renderer types for convenience
-pub use harp::backend::renderer::OptimizationLevel;
+pub use eclat::backend::renderer::OptimizationLevel;
 pub use renderer::{OpenCLCode, OpenCLRenderer};
 
-use harp::backend::device::{BackendRegistry, DeviceError};
-use harp::backend::global::DeviceKind;
-use harp::backend::traits::Device;
+use eclat::backend::device::{BackendRegistry, DeviceError};
+use eclat::backend::global::DeviceKind;
+use eclat::backend::traits::Device;
 use ocl::{Device as OclDevice, Platform};
 use std::any::Any;
 use std::sync::Arc;
@@ -86,14 +86,14 @@ impl BackendRegistry for OpenCLBackendRegistry {
 
 /// Initialize the OpenCL backend
 ///
-/// This function registers the OpenCL backend with harp-core, making it
+/// This function registers the OpenCL backend with eclat-core, making it
 /// available for device selection via `HarpDevice::auto()` or `HarpDevice::opencl()`.
 ///
-/// This should be called once at program startup. When using the `harp` facade
+/// This should be called once at program startup. When using the `eclat` facade
 /// crate, this is done automatically via the `ctor` attribute.
 pub fn init() {
     // Register the backend
-    harp::backend::register_backend(Box::new(OpenCLBackendRegistry));
+    eclat::backend::register_backend(Box::new(OpenCLBackendRegistry));
 }
 
 #[cfg(test)]

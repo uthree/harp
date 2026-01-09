@@ -7,7 +7,7 @@
 //! # Example
 //!
 //! ```
-//! use harp::opt::ast::{AstMultiStageSelector, SimpleCostEstimator};
+//! use eclat::opt::ast::{AstMultiStageSelector, SimpleCostEstimator};
 //!
 //! // 2段階の選択パイプライン
 //! let selector = AstMultiStageSelector::new()
@@ -141,7 +141,7 @@ impl Clone for SelectionStage {
 /// # Example
 ///
 /// ```
-/// use harp::opt::ast::{AstMultiStageSelector, SimpleCostEstimator};
+/// use eclat::opt::ast::{AstMultiStageSelector, SimpleCostEstimator};
 ///
 /// // 2段階の選択パイプライン
 /// let selector = AstMultiStageSelector::new()

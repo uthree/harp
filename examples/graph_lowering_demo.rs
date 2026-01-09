@@ -6,11 +6,11 @@
 //!
 //! Run with: cargo run --example graph_lowering_demo
 
-use harp::ast::{AstNode, DType};
-use harp::graph::{
+use eclat::ast::{AstNode, DType};
+use eclat::graph::{
     Expr, GraphNode, collect_inputs, count_nodes, graph_to_string, input, topological_sort,
 };
-use harp::lowerer::Lowerer;
+use eclat::lowerer::Lowerer;
 
 fn main() {
     println!("{}", "=".repeat(70));

@@ -5,13 +5,13 @@
 //! # Usage
 //!
 //! ```ignore
-//! use harp_backend_metal::init;
+//! use eclat_backend_metal::init;
 //!
 //! // Initialize the backend (typically done automatically via ctor)
 //! init();
 //!
 //! // Now Metal is available as a device
-//! use harp::backend::HarpDevice;
+//! use eclat::backend::HarpDevice;
 //! let device = HarpDevice::metal(0).unwrap();
 //! device.set_as_default();
 //! ```
@@ -30,12 +30,12 @@ pub use device::{MetalDevice, MetalError};
 pub use kernel::MetalKernel;
 
 // Re-export renderer types for convenience
-pub use harp::backend::renderer::OptimizationLevel;
+pub use eclat::backend::renderer::OptimizationLevel;
 pub use renderer::{MetalCode, MetalRenderer};
 
-use harp::backend::device::{BackendRegistry, DeviceError};
-use harp::backend::global::DeviceKind;
-use harp::backend::traits::Device;
+use eclat::backend::device::{BackendRegistry, DeviceError};
+use eclat::backend::global::DeviceKind;
+use eclat::backend::traits::Device;
 use std::any::Any;
 use std::sync::Arc;
 
@@ -80,14 +80,14 @@ impl BackendRegistry for MetalBackendRegistry {
 
 /// Initialize the Metal backend
 ///
-/// This function registers the Metal backend with harp-core, making it
+/// This function registers the Metal backend with eclat-core, making it
 /// available for device selection via `HarpDevice::auto()` or `HarpDevice::metal()`.
 ///
-/// This should be called once at program startup. When using the `harp` facade
+/// This should be called once at program startup. When using the `eclat` facade
 /// crate, this is done automatically via the `ctor` attribute.
 pub fn init() {
     // Register the backend
-    harp::backend::register_backend(Box::new(MetalBackendRegistry));
+    eclat::backend::register_backend(Box::new(MetalBackendRegistry));
 }
 
 #[cfg(test)]

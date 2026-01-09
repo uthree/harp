@@ -1,7 +1,7 @@
 //! OpenCL native device
 
-use harp::ast::DType;
-use harp::backend::traits::{
+use eclat::ast::DType;
+use eclat::backend::traits::{
     Device, DeviceFeature, DeviceInstruction, DeviceProfile, DeviceType, OpKind, SimdCapability,
 };
 use ocl::core::{DeviceInfo, DeviceInfoResult};
@@ -336,8 +336,8 @@ unsafe impl Sync for OpenCLDevice {}
 mod tests {
     use super::*;
     use crate::{OpenCLBuffer, OpenCLCompiler};
-    use harp::ast::DType;
-    use harp::backend::traits::{Compiler, Device, KernelConfig, TypedBuffer};
+    use eclat::ast::DType;
+    use eclat::backend::traits::{Compiler, Device, KernelConfig, TypedBuffer};
 
     #[test]
     fn test_opencl_is_available() {

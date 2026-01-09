@@ -27,7 +27,7 @@ impl CaptureLogger {
 ///
 /// # Example
 /// ```no_run
-/// use harp::opt::log_capture;
+/// use eclat::opt::log_capture;
 ///
 /// // env_logger::init()の代わりに
 /// log_capture::init_with_env_logger();

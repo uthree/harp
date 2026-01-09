@@ -1,9 +1,9 @@
 [package]
-name = "harp-backend-c"
+name = "eclat-backend-c"
 version = "0.1.0"
 edition = "2024"
-description = "C backend for Harp (code generation only)"
+description = "C backend for Eclat (code generation only)"
 
 [dependencies]
-harp = { path = "../.." }
+eclat = { path = "../.." }
 log = { version = "0.4", features = ["std"] }

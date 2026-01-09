@@ -3,10 +3,10 @@ resolver = "2"
 members = ["crates/backend-c", "crates/backend-opencl", "crates/backend-metal"]
 
 [package]
-name = "harp"
+name = "eclat"
 version = "0.1.0"
 edition = "2024"
-description = "Harp: High-level Array Processor - A transpiler for AI accelerators"
+description = "Eclat: A transpiler for AI accelerators"
 
 [dependencies]
 # Core dependencies

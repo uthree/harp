@@ -969,7 +969,7 @@ impl AstNode {
     ///
     /// # Example
     /// ```
-    /// use harp::ast::{AstNode, helper::*};
+    /// use eclat::ast::{AstNode, helper::*};
     /// use std::collections::HashMap;
     ///
     /// // Create an expression: Wildcard("0") + Wildcard("1")

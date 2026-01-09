@@ -65,8 +65,8 @@ impl From<io::Error> for VizError {
 ///
 /// # Example
 /// ```ignore
-/// use harp::opt::ast::history::OptimizationHistory;
-/// use harp::viz::run;
+/// use eclat::opt::ast::history::OptimizationHistory;
+/// use eclat::viz::run;
 ///
 /// let history = OptimizationHistory::new();
 /// // ... add snapshots to history ...
@@ -87,9 +87,9 @@ pub fn run(history: OptimizationHistory) -> Result<(), VizError> {
 ///
 /// # Example
 /// ```ignore
-/// use harp::opt::ast::history::OptimizationHistory;
-/// use harp::renderer::opencl::OpenCLRenderer;
-/// use harp::viz::run_with_renderer;
+/// use eclat::opt::ast::history::OptimizationHistory;
+/// use eclat::renderer::opencl::OpenCLRenderer;
+/// use eclat::viz::run_with_renderer;
 ///
 /// let history = OptimizationHistory::new();
 /// let renderer = OpenCLRenderer::new();

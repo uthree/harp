@@ -87,7 +87,7 @@ where
     /// # Example
     ///
     /// ```ignore
-    /// use harp::opt::{RuntimeSelector, BeamSearchOptimizer};
+    /// use eclat::opt::{RuntimeSelector, BeamSearchOptimizer};
     ///
     /// let selector = RuntimeSelector::new(renderer, compiler, signature, buffer_factory)
     ///     .with_pre_filter_count(10);
@@ -134,7 +134,7 @@ where
     /// # Example
     ///
     /// ```ignore
-    /// use harp::opt::progress::{IndicatifProgress, SearchProgress};
+    /// use eclat::opt::progress::{IndicatifProgress, SearchProgress};
     ///
     /// let optimizer = BeamSearchOptimizer::new(suggester)
     ///     .with_progress(IndicatifProgress::new());

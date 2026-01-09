@@ -261,7 +261,7 @@ impl AstRewriter {
 ///
 /// 使用例:
 /// ```
-/// use harp::astpat;
+/// use eclat::astpat;
 /// let rule = astpat!(|a, b| (a + b) => (b + a));
 /// ```
 #[macro_export]

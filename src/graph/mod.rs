@@ -20,7 +20,7 @@
 //! # Example
 //!
 //! ```rust
-//! use harp::graph::{input, Expr, DType};
+//! use eclat::graph::{input, Expr, DType};
 //!
 //! // Create input tensors
 //! let a = input(vec![Expr::Const(32), Expr::Const(64)], DType::F32);

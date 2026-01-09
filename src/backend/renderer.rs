@@ -9,7 +9,7 @@
 //! - `GenericRenderer`: C-like generic renderer (always available)
 //!
 //! Backend-specific renderers (OpenCL, Metal, C) are provided by their respective
-//! backend crates: `harp-backend-opencl`, `harp-backend-metal`, `harp-backend-c`.
+//! backend crates: `eclat-backend-opencl`, `eclat-backend-metal`, `eclat-backend-c`.
 
 use crate::ast::{AstNode, DType, Literal, VarDecl};
 

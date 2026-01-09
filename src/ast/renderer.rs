@@ -10,8 +10,8 @@ use crate::backend::renderer::CLikeRenderer;
 ///
 /// # 例
 /// ```ignore
-/// use harp::backend::opencl::OpenCLRenderer;
-/// use harp::ast::{AstNode, renderer::render_ast_with};
+/// use eclat::backend::opencl::OpenCLRenderer;
+/// use eclat::ast::{AstNode, renderer::render_ast_with};
 ///
 /// let renderer = OpenCLRenderer::new();
 /// let ast = AstNode::Program {

@@ -1,8 +1,8 @@
 //! OpenCL native buffer
 
 use super::device::{OpenCLDevice, OpenCLError};
-use harp::ast::DType;
-use harp::backend::traits::{Buffer, TypedBuffer};
+use eclat::ast::DType;
+use eclat::backend::traits::{Buffer, TypedBuffer};
 use ocl::{Buffer as OclBuffer, Queue, flags};
 use std::sync::Arc;
 

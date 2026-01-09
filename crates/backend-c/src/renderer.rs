@@ -8,9 +8,9 @@
 //! - Embedding in other C/C++ projects
 //! - Portability across different platforms
 
-use harp::ast::{AstNode, DType, VarDecl};
-use harp::backend::Renderer;
-use harp::backend::renderer::CLikeRenderer;
+use eclat::ast::{AstNode, DType, VarDecl};
+use eclat::backend::Renderer;
+use eclat::backend::renderer::CLikeRenderer;
 
 /// Pure C source code representation
 ///
@@ -225,9 +225,9 @@ impl CLikeRenderer for CRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use harp::ast::helper::*;
-    use harp::ast::{AstNode, Literal};
-    use harp::backend::renderer::CLikeRenderer;
+    use eclat::ast::helper::*;
+    use eclat::ast::{AstNode, Literal};
+    use eclat::backend::renderer::CLikeRenderer;
 
     #[test]
     fn test_render_header() {

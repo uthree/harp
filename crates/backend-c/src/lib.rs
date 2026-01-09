@@ -6,7 +6,7 @@
 //! # Usage
 //!
 //! ```ignore
-//! use harp_backend_c::init;
+//! use eclat_backend_c::init;
 //!
 //! // Initialize the backend (typically done automatically via ctor)
 //! init();
@@ -22,11 +22,11 @@ pub use device::CDevice;
 pub use renderer::{CCode, CRenderer};
 
 // Re-export renderer types for convenience
-pub use harp::backend::renderer::OptimizationLevel;
+pub use eclat::backend::renderer::OptimizationLevel;
 
-use harp::backend::device::{BackendRegistry, DeviceError};
-use harp::backend::global::DeviceKind;
-use harp::backend::traits::Device;
+use eclat::backend::device::{BackendRegistry, DeviceError};
+use eclat::backend::global::DeviceKind;
+use eclat::backend::traits::Device;
 use std::any::Any;
 use std::sync::Arc;
 
@@ -65,18 +65,18 @@ impl BackendRegistry for CBackendRegistry {
 
 /// Initialize the C backend
 ///
-/// This function registers the C backend with harp-core, making it
+/// This function registers the C backend with eclat-core, making it
 /// available for device selection via `HarpDevice::c()`.
 ///
 /// Note: The C backend does NOT support runtime execution. It is only
 /// useful for code generation. Attempting to realize() a tensor with
 /// the C backend will result in an error.
 ///
-/// This should be called once at program startup. When using the `harp` facade
+/// This should be called once at program startup. When using the `eclat` facade
 /// crate, this is done automatically via the `ctor` attribute.
 pub fn init() {
     // Register the backend
-    harp::backend::register_backend(Box::new(CBackendRegistry));
+    eclat::backend::register_backend(Box::new(CBackendRegistry));
 
     // Note: We don't register a realizer because C backend doesn't support runtime execution
 }

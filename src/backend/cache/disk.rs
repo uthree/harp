@@ -23,7 +23,7 @@ pub struct DiskCacheMetadata {
     /// デバイス名（バイナリ互換性チェック用）
     pub device_name: String,
     /// Harpバージョン
-    pub harp_version: String,
+    pub eclat_version: String,
 }
 
 /// キャッシュディレクトリを取得
@@ -43,7 +43,7 @@ pub fn get_cache_dir() -> Option<PathBuf> {
     }
 
     // システム標準のキャッシュディレクトリ
-    directories::ProjectDirs::from("", "", "harp").map(|dirs| dirs.cache_dir().join("kernels"))
+    directories::ProjectDirs::from("", "", "eclat").map(|dirs| dirs.cache_dir().join("kernels"))
 }
 
 /// キャッシュキーからハッシュを計算
@@ -115,7 +115,7 @@ pub fn save_binary(
 }
 
 /// 現在のHarpバージョンを取得
-pub fn harp_version() -> &'static str {
+pub fn eclat_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
@@ -144,7 +144,7 @@ mod tests {
             grid_size: [256, 1, 1],
             local_size: Some([64, 1, 1]),
             device_name: "Apple M1".to_string(),
-            harp_version: "0.1.0".to_string(),
+            eclat_version: "0.1.0".to_string(),
         };
 
         let json = serde_json::to_string(&metadata).unwrap();

@@ -2,8 +2,8 @@
 
 use super::buffer::MetalBuffer;
 use super::device::MetalError;
-use harp::backend::global::DeviceKind;
-use harp::backend::traits::{Buffer, Kernel, KernelConfig};
+use eclat::backend::global::DeviceKind;
+use eclat::backend::traits::{Buffer, Kernel, KernelConfig};
 use metal::{CommandQueue, ComputePipelineState, MTLSize};
 use std::sync::Arc;
 

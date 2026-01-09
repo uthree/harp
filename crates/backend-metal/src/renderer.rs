@@ -1,6 +1,6 @@
-use harp::ast::{AstNode, DType, Mutability, VarDecl, VarKind};
-use harp::backend::Renderer;
-use harp::backend::renderer::CLikeRenderer;
+use eclat::ast::{AstNode, DType, Mutability, VarDecl, VarKind};
+use eclat::backend::Renderer;
+use eclat::backend::renderer::CLikeRenderer;
 
 /// Metal Shading Language のソースコードを表す型
 ///
@@ -167,7 +167,7 @@ fn render_param_attribute_metal(param: &VarDecl, is_kernel: bool) -> String {
 ///
 /// GroupIdやLocalIdがある場合、統合されたuint3パラメータを追加する。
 fn render_extra_kernel_params_metal(params: &[VarDecl]) -> Vec<String> {
-    use harp::ast::VarKind;
+    use eclat::ast::VarKind;
 
     let mut extra_params = Vec::new();
 
@@ -190,7 +190,7 @@ fn render_extra_kernel_params_metal(params: &[VarDecl]) -> Vec<String> {
 ///
 /// GroupIdやLocalIdパラメータに対して、uint3から個別の変数を抽出する宣言を生成する。
 fn render_thread_var_declarations_metal(params: &[VarDecl], indent: &str) -> String {
-    use harp::ast::VarKind;
+    use eclat::ast::VarKind;
 
     let mut declarations = String::new();
 
@@ -335,7 +335,7 @@ impl MetalKernelRenderer {
 
             // paramsが空の場合、関数本体からバッファプレースホルダーを抽出
             if params.is_empty() {
-                use harp::backend::renderer::extract_buffer_placeholders;
+                use eclat::backend::renderer::extract_buffer_placeholders;
                 let (inputs, has_output) = extract_buffer_placeholders(body);
                 let mut buffer_params: Vec<String> = Vec::new();
                 let mut buffer_index = 0;
@@ -661,7 +661,7 @@ impl Renderer for MetalRenderer {
 }
 
 /// Implementation of KernelSourceRenderer for native Metal backend
-impl harp::backend::pipeline::KernelSourceRenderer for MetalRenderer {
+impl eclat::backend::pipeline::KernelSourceRenderer for MetalRenderer {
     fn render_kernel_source(&mut self, program: &AstNode) -> String {
         if let AstNode::Program { functions, .. } = program {
             // Use the internal MetalKernelRenderer to generate kernel-only source
@@ -676,9 +676,9 @@ impl harp::backend::pipeline::KernelSourceRenderer for MetalRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use harp::ast::helper::*;
-    use harp::ast::{AstNode, Literal, Scope};
-    use harp::backend::renderer::CLikeRenderer;
+    use eclat::ast::helper::*;
+    use eclat::ast::{AstNode, Literal, Scope};
+    use eclat::backend::renderer::CLikeRenderer;
 
     #[test]
     #[allow(clippy::approx_constant)]
@@ -766,8 +766,8 @@ mod tests {
             load(var("input"), var("gidx"), DType::F32) * AstNode::Const(2.0f32.into()),
         )];
 
-        use harp::ast::Scope;
-        use harp::ast::helper::const_int;
+        use eclat::ast::Scope;
+        use eclat::ast::helper::const_int;
         let one = const_int(1);
         let func = AstNode::Kernel {
             name: Some("scale_kernel".to_string()),
@@ -802,8 +802,8 @@ mod tests {
 
     #[test]
     fn test_render_program() {
-        use harp::ast::Scope;
-        use harp::ast::helper::const_int;
+        use eclat::ast::Scope;
+        use eclat::ast::helper::const_int;
         let one = const_int(1);
 
         // カーネル関数を作成

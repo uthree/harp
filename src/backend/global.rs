@@ -5,8 +5,8 @@
 //!
 //! # Example
 //! ```ignore
-//! use harp::backend::global::{set_default_device, get_default_device_kind, with_device, DeviceKind};
-//! use harp::backend::metal::MetalDevice;
+//! use eclat::backend::global::{set_default_device, get_default_device_kind, with_device, DeviceKind};
+//! use eclat::backend::metal::MetalDevice;
 //!
 //! // Set the default device for this thread
 //! let device = MetalDevice::new()?;
@@ -89,8 +89,8 @@ pub fn has_default_device() -> bool {
 ///
 /// # Example
 /// ```ignore
-/// use harp::backend::global::{set_default_device, DeviceKind};
-/// use harp::backend::metal::MetalDevice;
+/// use eclat::backend::global::{set_default_device, DeviceKind};
+/// use eclat::backend::metal::MetalDevice;
 ///
 /// let device = MetalDevice::new()?;
 /// set_default_device(device, DeviceKind::Metal);
@@ -109,7 +109,7 @@ pub fn set_default_device<D: Device + Send + Sync + 'static>(device: D, kind: De
 ///
 /// # Example
 /// ```ignore
-/// use harp::backend::{HarpDevice, set_device};
+/// use eclat::backend::{HarpDevice, set_device};
 ///
 /// let device = HarpDevice::auto()?;
 /// set_device(device);
@@ -126,7 +126,7 @@ pub fn set_device(device: HarpDevice) {
 ///
 /// # Example
 /// ```ignore
-/// use harp::backend::set_device_str;
+/// use eclat::backend::set_device_str;
 ///
 /// set_device_str("opencl:0")?;
 /// set_device_str("metal")?;
@@ -166,7 +166,7 @@ pub fn get_default_device<D: Device + Send + Sync + 'static>() -> Option<Arc<D>>
 ///
 /// # Example
 /// ```ignore
-/// use harp::backend::global::{with_device, DeviceKind};
+/// use eclat::backend::global::{with_device, DeviceKind};
 ///
 /// with_device(my_device, DeviceKind::Metal, || {
 ///     // Code here uses my_device as the default

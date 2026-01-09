@@ -10,14 +10,14 @@
 //! - **Renderer**: Code generation for C-like languages
 //!
 //! Backend-specific implementations (C, Metal, OpenCL) are provided by separate crates:
-//! - `harp-backend-c`: Pure C backend for CPU
-//! - `harp-backend-metal`: Metal backend for macOS
-//! - `harp-backend-opencl`: OpenCL backend for cross-platform GPU
+//! - `eclat-backend-c`: Pure C backend for CPU
+//! - `eclat-backend-metal`: Metal backend for macOS
+//! - `eclat-backend-opencl`: OpenCL backend for cross-platform GPU
 //!
 //! ## Usage
 //!
 //! ```ignore
-//! use harp::backend::{Pipeline, HarpDevice, set_device};
+//! use eclat::backend::{Pipeline, HarpDevice, set_device};
 //!
 //! // Set up a device
 //! let device = HarpDevice::auto()?;

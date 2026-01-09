@@ -2,7 +2,7 @@
 
 use super::device::{OpenCLDevice, OpenCLError};
 use super::kernel::OpenCLKernel;
-use harp::backend::traits::{Compiler, KernelConfig};
+use eclat::backend::traits::{Compiler, KernelConfig};
 use ocl::Program;
 use std::sync::Arc;
 
