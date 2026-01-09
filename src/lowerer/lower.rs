@@ -20,10 +20,34 @@ struct BufferInfo {
     dtype: DType,
 }
 
+/// Kernel operation type for naming (tinygrad-style)
+#[derive(Clone, Copy, Debug)]
+enum KernelOpType {
+    /// Elementwise operation
+    Elementwise,
+    /// Reduce operation
+    Reduce,
+    /// Copy/View operation
+    Copy,
+}
+
+impl KernelOpType {
+    /// Get the prefix character for kernel naming
+    fn prefix(&self) -> &'static str {
+        match self {
+            KernelOpType::Elementwise => "E",
+            KernelOpType::Reduce => "R",
+            KernelOpType::Copy => "C",
+        }
+    }
+}
+
 /// Main lowerer for converting computation graphs to AST
 pub struct Lowerer {
     /// Counter for generating unique buffer names
     buffer_counter: usize,
+    /// Counter for generating unique kernel names
+    kernel_counter: usize,
     /// Mapping from graph nodes to buffer names
     buffer_map: HashMap<*const crate::graph::GraphInner, String>,
     /// Mapping from graph nodes to dtypes
@@ -45,6 +69,7 @@ impl Lowerer {
     pub fn new() -> Self {
         Self {
             buffer_counter: 0,
+            kernel_counter: 0,
             buffer_map: HashMap::new(),
             dtype_map: HashMap::new(),
             kernels: Vec::new(),
@@ -62,6 +87,33 @@ impl Lowerer {
         let name = format!("buf{}", self.buffer_counter);
         self.buffer_counter += 1;
         name
+    }
+
+    /// Generate kernel name in tinygrad-style: {op_type}_{shape}_{counter}
+    ///
+    /// Examples:
+    /// - Elementwise [256, 256] → "E_256_256_0"
+    /// - Reduce [32, 64] → "R_32_64_1"
+    /// - Copy [128] → "C_128_2"
+    fn generate_kernel_name(&mut self, op_type: KernelOpType, node: &GraphNode) -> String {
+        let prefix = op_type.prefix();
+        let shape = node.shape();
+
+        // Format shape as _dim1_dim2_...
+        let shape_str: String = shape
+            .iter()
+            .map(|dim| {
+                // Try to get constant value, otherwise use "N" for dynamic
+                dim.as_const().map_or("N".to_string(), |v| v.to_string())
+            })
+            .collect::<Vec<_>>()
+            .join("_");
+
+        let name = format!("{}_{}", prefix, shape_str);
+        let kernel_id = self.kernel_counter;
+        self.kernel_counter += 1;
+
+        format!("{}_{}", name, kernel_id)
     }
 
     /// Get or create buffer name for a node
@@ -163,6 +215,9 @@ impl Lowerer {
         let shape = node.shape();
         let output_idx = self.index_gen().view_to_index(node.view());
 
+        // Generate tinygrad-style kernel name
+        let kernel_name = self.generate_kernel_name(KernelOpType::Copy, node);
+
         // Get source buffer and index
         let src = &node.sources()[0];
         let src_buf = self.get_buffer_name(src);
@@ -191,13 +246,16 @@ impl Lowerer {
 
         let body = self.loop_gen.generate_loops(&shape, store);
 
-        self.make_kernel(output_buf, body, input_buffers, output_buffer)
+        self.make_kernel(&kernel_name, body, input_buffers, output_buffer)
     }
 
     /// Lower an elementwise (MapReduce with reduce=None) operation
     fn lower_elementwise(&mut self, node: &GraphNode, output_buf: &str, map: &AstNode) -> AstNode {
         let shape = node.shape();
         let output_idx = self.index_gen().view_to_index(node.view());
+
+        // Generate tinygrad-style kernel name
+        let kernel_name = self.generate_kernel_name(KernelOpType::Elementwise, node);
 
         // Collect buffer info
         let input_buffers = self.collect_input_buffers(node);
@@ -217,7 +275,7 @@ impl Lowerer {
 
         let body = self.loop_gen.generate_loops(&shape, store);
 
-        self.make_kernel(output_buf, body, input_buffers, output_buffer)
+        self.make_kernel(&kernel_name, body, input_buffers, output_buffer)
     }
 
     /// Lower a reduction operation
@@ -232,6 +290,9 @@ impl Lowerer {
         // Use source shape for iteration (before reduction)
         let src = &node.sources()[0];
         let src_shape = src.shape();
+
+        // Generate tinygrad-style kernel name
+        let kernel_name = self.generate_kernel_name(KernelOpType::Reduce, node);
 
         // Collect buffer info
         let input_buffers = self.collect_input_buffers(node);
@@ -264,7 +325,7 @@ impl Lowerer {
             combine_expr,
         );
 
-        self.make_kernel(output_buf, body, input_buffers, output_buffer)
+        self.make_kernel(&kernel_name, body, input_buffers, output_buffer)
     }
 
     /// Create a Kernel AST node with buffer parameters
@@ -297,7 +358,7 @@ impl Lowerer {
         });
 
         AstNode::Kernel {
-            name: Some(format!("kernel_{}", name)),
+            name: Some(name.to_string()),
             params,
             return_type: DType::Void,
             body: Box::new(body),
