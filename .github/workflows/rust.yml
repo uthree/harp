@@ -44,11 +44,11 @@ jobs:
             - name: Install Rust toolchain
               uses: dtolnay/rust-toolchain@stable
 
-            - name: Build with OpenCL feature
-              run: cargo build --workspace --verbose --features opencl
+            - name: Build with OpenCL
+              run: cargo build --workspace --exclude eclat-backend-metal --verbose
 
             - name: Run OpenCL integration tests
-              run: RUST_LOG=error cargo test --workspace --verbose --features opencl -- --test-threads=1
+              run: RUST_LOG=error cargo test --workspace --exclude eclat-backend-metal --verbose -- --test-threads=1
 
     metal_build_test:
         name: Metal Build Test (macOS)
@@ -60,11 +60,11 @@ jobs:
             - name: Install Rust toolchain
               uses: dtolnay/rust-toolchain@stable
 
-            - name: Build with Metal feature
-              run: cargo build --workspace --verbose --features metal
+            - name: Build with Metal
+              run: cargo build --workspace --exclude eclat-backend-opencl --verbose
 
             - name: Run Metal integration tests
-              run: cargo test --workspace --verbose --features metal
+              run: cargo test --workspace --exclude eclat-backend-opencl --verbose
 
     clippy:
         name: Clippy Check
@@ -84,7 +84,7 @@ jobs:
                   components: clippy
 
             - name: Run Clippy
-              run: cargo clippy --workspace --exclude eclat-backend-metal --features opencl -- -D warnings
+              run: cargo clippy --workspace --exclude eclat-backend-metal -- -D warnings
 
     format:
         name: Format Check
