@@ -81,7 +81,9 @@ pub fn simplification_rules() -> Vec<Rc<AstRewriteRule>> {
         log2_exp2(),
         exp2_log2(),
         // 同項規則
-        add_same_to_mul_two(),
+        // TODO: add_same_to_mul_two は a + a を a * 2 (整数) に変換するが、
+        // これが浮動小数点型に対して後続のビットシフト最適化で不正なコードを生成するため無効化
+        // add_same_to_mul_two(),
         // Block簡約
         unwrap_single_statement_block(),
         // ビット演算最適化（2の累乗の乗算をシフトに変換）

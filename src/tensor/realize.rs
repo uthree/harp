@@ -170,22 +170,71 @@ impl<D: Dimension, T: TensorDType> Tensor<D, T> {
 
         for input_node in &input_nodes {
             let ptr = std::rc::Rc::as_ptr(&input_node.0);
+            let name = input_node.name();
+
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "[realize] Input node: name={:?}, ptr={:p}, has_cached_buffer={}",
+                name,
+                ptr,
+                has_input_buffer(ptr)
+            );
+
             if let Some(buffer) = clone_input_buffer(ptr) {
                 input_buffers.insert(ptr, buffer);
             } else {
-                let name = input_node
-                    .name()
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| format!("node@{:p}", ptr));
-                return Err(ExecutionError::MissingInput(format!(
-                    "Input tensor '{}' has no data. Call set_data() first.",
-                    name
-                )));
+                // Check if this is a special constant node (ones, zeros)
+                if let Some(buffer) = create_constant_buffer(input_node, name)? {
+                    #[cfg(debug_assertions)]
+                    eprintln!("[realize] Created constant buffer for {:?}", name);
+                    input_buffers.insert(ptr, buffer);
+                } else {
+                    let name_str = name
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| format!("node@{:p}", ptr));
+                    return Err(ExecutionError::MissingInput(format!(
+                        "Input tensor '{}' has no data. Call set_data() first.",
+                        name_str
+                    )));
+                }
+            }
+        }
+
+        #[cfg(debug_assertions)]
+        {
+            eprintln!(
+                "[realize] Executing graph with {} inputs",
+                input_buffers.len()
+            );
+            for (ptr, buf) in &input_buffers {
+                if let Ok(data) = buf.read_to_host() {
+                    let len = std::cmp::min(data.len(), 32);
+                    eprintln!(
+                        "[realize] Input buffer {:p}: {} bytes, first bytes: {:?}",
+                        ptr,
+                        data.len(),
+                        &data[..len]
+                    );
+                }
             }
         }
 
         // Execute the computation graph
         let mut result = execute_graph(std::slice::from_ref(&self.inner.graph), &input_buffers)?;
+
+        #[cfg(debug_assertions)]
+        {
+            if let Some(out_buf) = result.get(0) {
+                if let Ok(data) = out_buf.read_to_host() {
+                    let len = std::cmp::min(data.len(), 32);
+                    eprintln!(
+                        "[realize] Output buffer: {} bytes, first bytes: {:?}",
+                        data.len(),
+                        &data[..len]
+                    );
+                }
+            }
+        }
 
         // Store the result buffer (output index 0 corresponds to our root)
         let buffer = result.take(0).ok_or_else(|| {
@@ -331,6 +380,125 @@ fn allocate_buffer(shape: Vec<usize>, dtype: DType) -> Result<Box<dyn Buffer>, E
 
     allocate_buffer_on_default_device(shape, dtype)
         .map_err(|e| ExecutionError::AllocationFailed(format!("Failed to allocate buffer: {}", e)))
+}
+
+/// Create a buffer for special constant nodes (ones, zeros).
+///
+/// These nodes are created internally during backward pass and need to be
+/// initialized with their respective constant values.
+///
+/// Returns `None` if the node is not a recognized constant type.
+fn create_constant_buffer(
+    node: &crate::graph::GraphNode,
+    name: Option<&str>,
+) -> Result<Option<Box<dyn Buffer>>, ExecutionError> {
+    let shape: Vec<usize> = node
+        .shape()
+        .iter()
+        .map(|e| {
+            e.evaluate()
+                .expect("Cannot evaluate shape expression at runtime") as usize
+        })
+        .collect();
+    let dtype = node.dtype().clone();
+
+    match name {
+        Some("ones") => {
+            let buffer = create_filled_buffer(shape, dtype, 1.0)?;
+            Ok(Some(buffer))
+        }
+        Some("zeros") => {
+            let buffer = create_filled_buffer(shape, dtype, 0.0)?;
+            Ok(Some(buffer))
+        }
+        Some("scalar") => {
+            // Scalars default to 1.0 (used for initial gradient)
+            let buffer = create_filled_buffer(shape, dtype, 1.0)?;
+            Ok(Some(buffer))
+        }
+        _ => Ok(None),
+    }
+}
+
+/// Create a buffer filled with a constant value.
+fn create_filled_buffer(
+    shape: Vec<usize>,
+    dtype: DType,
+    value: f64,
+) -> Result<Box<dyn Buffer>, ExecutionError> {
+    let mut buffer = allocate_buffer(shape.clone(), dtype.clone())?;
+    let numel: usize = shape.iter().product();
+
+    // Create data based on dtype
+    let bytes: Vec<u8> = match dtype {
+        DType::F32 => {
+            let val = value as f32;
+            let data: Vec<f32> = vec![val; numel];
+            unsafe {
+                std::slice::from_raw_parts(
+                    data.as_ptr() as *const u8,
+                    numel * std::mem::size_of::<f32>(),
+                )
+                .to_vec()
+            }
+        }
+        DType::F64 => {
+            let val = value;
+            let data: Vec<f64> = vec![val; numel];
+            unsafe {
+                std::slice::from_raw_parts(
+                    data.as_ptr() as *const u8,
+                    numel * std::mem::size_of::<f64>(),
+                )
+                .to_vec()
+            }
+        }
+        DType::I32 => {
+            let val = value as i32;
+            let data: Vec<i32> = vec![val; numel];
+            unsafe {
+                std::slice::from_raw_parts(
+                    data.as_ptr() as *const u8,
+                    numel * std::mem::size_of::<i32>(),
+                )
+                .to_vec()
+            }
+        }
+        DType::I64 => {
+            let val = value as i64;
+            let data: Vec<i64> = vec![val; numel];
+            unsafe {
+                std::slice::from_raw_parts(
+                    data.as_ptr() as *const u8,
+                    numel * std::mem::size_of::<i64>(),
+                )
+                .to_vec()
+            }
+        }
+        DType::U32 => {
+            let val = value as u32;
+            let data: Vec<u32> = vec![val; numel];
+            unsafe {
+                std::slice::from_raw_parts(
+                    data.as_ptr() as *const u8,
+                    numel * std::mem::size_of::<u32>(),
+                )
+                .to_vec()
+            }
+        }
+        _ => {
+            return Err(ExecutionError::Internal(format!(
+                "Unsupported dtype {:?} for constant buffer",
+                dtype
+            )));
+        }
+    };
+
+    buffer
+        .write_from_host(&bytes)
+        .map_err(|e| ExecutionError::ExecutionFailed(e.to_string()))?;
+
+    Ok(buffer)
 }
 
 // ============================================================================

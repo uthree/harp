@@ -3,7 +3,7 @@
 //! The `Tensor<D>` type wraps a computation graph node and provides
 //! type-safe tensor operations with compile-time dimension checking.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::marker::PhantomData;
 use std::rc::Rc;
 
@@ -29,6 +29,14 @@ pub(crate) struct TensorInner<D: Dimension, T: TensorDType = f32> {
     /// Realized buffer (None if not yet realized).
     /// Uses RefCell for interior mutability since Tensor is shared via Rc.
     pub(crate) buffer: RefCell<Option<Box<dyn Buffer>>>,
+
+    /// Whether this tensor requires gradient computation.
+    /// When true, gradients will be computed during the backward pass.
+    pub(crate) requires_grad: Cell<bool>,
+
+    /// Stored gradient from backward pass.
+    /// This is `Some` after backward() is called on a downstream tensor.
+    pub(crate) grad: RefCell<Option<Tensor<D, T>>>,
 
     /// Phantom marker for the dimension type.
     pub(crate) _dim: PhantomData<D>,
@@ -63,6 +71,8 @@ impl<D: Dimension, T: TensorDType> Tensor<D, T> {
             inner: Rc::new(TensorInner {
                 graph,
                 buffer: RefCell::new(None),
+                requires_grad: Cell::new(false),
+                grad: RefCell::new(None),
                 _dim: PhantomData,
                 _dtype: PhantomData,
             }),

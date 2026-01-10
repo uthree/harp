@@ -18,6 +18,7 @@ use super::loop_gen::LoopGenerator;
 struct BufferInfo {
     name: String,
     dtype: DType,
+    shape: Vec<crate::graph::Expr>,
 }
 
 /// Kernel operation type for naming (tinygrad-style)
@@ -52,6 +53,8 @@ pub struct Lowerer {
     buffer_map: HashMap<*const crate::graph::GraphInner, String>,
     /// Mapping from graph nodes to dtypes
     dtype_map: HashMap<*const crate::graph::GraphInner, DType>,
+    /// Mapping from graph nodes to shapes
+    shape_map: HashMap<*const crate::graph::GraphInner, Vec<crate::graph::Expr>>,
     /// Generated kernels
     kernels: Vec<AstNode>,
     /// Loop generator
@@ -72,6 +75,7 @@ impl Lowerer {
             kernel_counter: 0,
             buffer_map: HashMap::new(),
             dtype_map: HashMap::new(),
+            shape_map: HashMap::new(),
             kernels: Vec::new(),
             loop_gen: LoopGenerator::new(),
         }
@@ -133,6 +137,7 @@ impl Lowerer {
 
         self.buffer_map.insert(ptr, name.clone());
         self.dtype_map.insert(ptr, node.dtype().clone());
+        self.shape_map.insert(ptr, node.shape().clone());
         name
     }
 
@@ -196,16 +201,26 @@ impl Lowerer {
         }
     }
 
-    /// Collect buffer info for input sources
+    /// Collect buffer info for input sources (deduplicated)
     fn collect_input_buffers(&self, node: &GraphNode) -> Vec<BufferInfo> {
+        let mut seen = std::collections::HashSet::new();
         node.sources()
             .iter()
-            .map(|src| BufferInfo {
-                name: {
+            .filter_map(|src| {
+                let name = {
                     let ptr = std::rc::Rc::as_ptr(&src.0);
                     self.buffer_map.get(&ptr).cloned().unwrap_or_default()
-                },
-                dtype: self.get_buffer_dtype(src),
+                };
+                // Only include if we haven't seen this buffer name before
+                if seen.insert(name.clone()) {
+                    Some(BufferInfo {
+                        name,
+                        dtype: self.get_buffer_dtype(src),
+                        shape: src.shape().clone(),
+                    })
+                } else {
+                    None
+                }
             })
             .collect()
     }
@@ -228,6 +243,7 @@ impl Lowerer {
         let output_buffer = BufferInfo {
             name: output_buf.to_string(),
             dtype: node.dtype().clone(),
+            shape: node.shape().clone(),
         };
 
         // Load from source, store to output
@@ -262,6 +278,7 @@ impl Lowerer {
         let output_buffer = BufferInfo {
             name: output_buf.to_string(),
             dtype: node.dtype().clone(),
+            shape: node.shape().clone(),
         };
 
         // Substitute Wildcards with Load operations
@@ -299,6 +316,7 @@ impl Lowerer {
         let output_buffer = BufferInfo {
             name: output_buf.to_string(),
             dtype: node.dtype().clone(),
+            shape: node.shape().clone(),
         };
 
         // Output index excludes the reduced dimension (simplified: just use ridx0)
@@ -338,6 +356,10 @@ impl Lowerer {
     ) -> AstNode {
         let one = Box::new(AstNode::Const(Literal::I64(1)));
 
+        // Compute grid size from output shape
+        // Grid size is the total number of elements to process
+        let grid_size = self.shape_to_grid_size(&output_buffer.shape);
+
         // Create parameters for input buffers
         let mut params: Vec<VarDecl> = input_buffers
             .into_iter()
@@ -362,9 +384,21 @@ impl Lowerer {
             params,
             return_type: DType::Void,
             body: Box::new(body),
-            default_grid_size: [one.clone(), one.clone(), one.clone()],
+            default_grid_size: grid_size,
             default_thread_group_size: [one.clone(), one.clone(), one],
         }
+    }
+
+    /// Convert shape to grid size for kernel dispatch
+    ///
+    /// Currently returns [1, 1, 1] to use sequential loop execution.
+    /// The kernel body contains Range loops that iterate over all elements.
+    /// TODO: For parallel execution, replace Range loops with thread indexing
+    /// and set grid_size to the actual output shape.
+    fn shape_to_grid_size(&self, _shape: &[crate::graph::Expr]) -> [Box<AstNode>; 3] {
+        let one = Box::new(AstNode::Const(Literal::I64(1)));
+        // Use sequential execution for now - a single thread runs all loops
+        [one.clone(), one.clone(), one]
     }
 
     /// Substitute Wildcard nodes with Load operations
@@ -473,6 +507,35 @@ impl Lowerer {
     pub fn lookup_dtype(&self, node: &GraphNode) -> Option<DType> {
         let ptr = std::rc::Rc::as_ptr(&node.0);
         self.dtype_map.get(&ptr).cloned()
+    }
+
+    /// Get buffer information by name
+    ///
+    /// Returns (shape, dtype) for the given buffer name.
+    /// This is useful for allocating intermediate buffers during execution.
+    pub fn get_buffer_info_by_name(&self, name: &str) -> Option<(Vec<crate::graph::Expr>, DType)> {
+        // Find the node with this buffer name
+        for (ptr, buf_name) in &self.buffer_map {
+            if buf_name == name {
+                let dtype = self.dtype_map.get(ptr).cloned().unwrap_or(DType::F32);
+                let shape = self.shape_map.get(ptr).cloned().unwrap_or_default();
+                return Some((shape, dtype));
+            }
+        }
+        None
+    }
+
+    /// Get all buffer names with their shapes and dtypes
+    ///
+    /// Returns a map from buffer name to (shape, dtype).
+    pub fn get_all_buffer_info(&self) -> HashMap<String, (Vec<crate::graph::Expr>, DType)> {
+        let mut result = HashMap::new();
+        for (ptr, name) in &self.buffer_map {
+            let dtype = self.dtype_map.get(ptr).cloned().unwrap_or(DType::F32);
+            let shape = self.shape_map.get(ptr).cloned().unwrap_or_default();
+            result.insert(name.clone(), (shape, dtype));
+        }
+        result
     }
 
     /// Build a KernelSignature from input and output nodes

@@ -156,7 +156,6 @@ mod tests {
 
     mod integration {
         use super::*;
-        use eclat::ast::DType;
         use eclat::backend::{clear_default_device, set_device_str};
         use eclat::tensor::Tensor;
         use eclat::tensor::dim::{D1, D2};
@@ -250,6 +249,117 @@ mod tests {
 
             let output = z.to_vec().expect("to_vec failed");
             assert_eq!(output, vec![7.0, 7.0, 7.0, 7.0, 7.0, 7.0]);
+        }
+
+        #[test]
+        fn test_autograd_backward_square() {
+            // Test: y = x^2, loss = sum(y)
+            // Expected gradient: dy/dx = 2x
+            if !setup_metal() {
+                println!("Metal not available, skipping test");
+                return;
+            }
+
+            let x: Tensor<D1, f32> = Tensor::input([4]);
+            x.requires_grad_(true);
+            x.set_data(&[1.0f32, 2.0, 3.0, 4.0])
+                .expect("set_data failed");
+
+            let y = &x * &x; // y = x^2
+            let loss = y.sum(0); // scalar
+
+            // Compute gradients
+            loss.backward_with_params(&[&x]).expect("backward failed");
+
+            // Get and realize the gradient
+            let grad = x.grad().expect("gradient should exist");
+            grad.realize().expect("realize gradient failed");
+
+            let grad_values = grad.to_vec().expect("to_vec failed");
+            // Expected: 2 * x = [2, 4, 6, 8]
+            assert_eq!(grad_values, vec![2.0, 4.0, 6.0, 8.0]);
+        }
+
+        #[test]
+        fn test_autograd_backward_mul() {
+            // Test: z = a * b, loss = sum(z)
+            // Expected: dz/da = b, dz/db = a
+            if !setup_metal() {
+                println!("Metal not available, skipping test");
+                return;
+            }
+
+            let a: Tensor<D1, f32> = Tensor::input([4]);
+            let b: Tensor<D1, f32> = Tensor::input([4]);
+            a.requires_grad_(true);
+            b.requires_grad_(true);
+
+            a.set_data(&[1.0f32, 2.0, 3.0, 4.0])
+                .expect("set_data a failed");
+            b.set_data(&[5.0f32, 6.0, 7.0, 8.0])
+                .expect("set_data b failed");
+
+            let z = &a * &b;
+            let loss = z.sum(0);
+
+            loss.backward_with_params(&[&a, &b])
+                .expect("backward failed");
+
+            // Get gradients
+            let grad_a = a.grad().expect("gradient a should exist");
+            let grad_b = b.grad().expect("gradient b should exist");
+
+            grad_a.realize().expect("realize grad_a failed");
+            grad_b.realize().expect("realize grad_b failed");
+
+            let grad_a_values = grad_a.to_vec().expect("to_vec grad_a failed");
+            let grad_b_values = grad_b.to_vec().expect("to_vec grad_b failed");
+
+            // grad_a = b = [5, 6, 7, 8]
+            // grad_b = a = [1, 2, 3, 4]
+            assert_eq!(grad_a_values, vec![5.0, 6.0, 7.0, 8.0]);
+            assert_eq!(grad_b_values, vec![1.0, 2.0, 3.0, 4.0]);
+        }
+
+        #[test]
+        fn test_autograd_zero_grad() {
+            if !setup_metal() {
+                println!("Metal not available, skipping test");
+                return;
+            }
+
+            let x: Tensor<D1, f32> = Tensor::input([4]);
+            x.requires_grad_(true);
+            x.set_data(&[1.0f32, 2.0, 3.0, 4.0])
+                .expect("set_data failed");
+
+            // First backward
+            let y1 = &x * &x;
+            let loss1 = y1.sum(0);
+            loss1
+                .backward_with_params(&[&x])
+                .expect("backward 1 failed");
+
+            let grad1 = x.grad().expect("grad1 should exist");
+            grad1.realize().expect("realize grad1 failed");
+            let grad1_values = grad1.to_vec().expect("to_vec failed");
+            assert_eq!(grad1_values, vec![2.0, 4.0, 6.0, 8.0]);
+
+            // Zero grad and compute again
+            x.zero_grad();
+            assert!(x.grad().is_none());
+
+            let y2 = &x + &x; // y = 2x, dy/dx = 2
+            let loss2 = y2.sum(0);
+            loss2
+                .backward_with_params(&[&x])
+                .expect("backward 2 failed");
+
+            let grad2 = x.grad().expect("grad2 should exist");
+            grad2.realize().expect("realize grad2 failed");
+            let grad2_values = grad2.to_vec().expect("to_vec failed");
+            // grad = 2 (ones broadcast)
+            assert_eq!(grad2_values, vec![2.0, 2.0, 2.0, 2.0]);
         }
     }
 }

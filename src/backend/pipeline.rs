@@ -13,7 +13,7 @@ use crate::opt::ast::{
     AstSuggester, BeamSearchOptimizer, CompositeSuggester as AstCompositeSuggester,
     FunctionInliningSuggester, GroupParallelizationSuggester, LoopFusionSuggester,
     LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester,
-    OptimizationHistory as AstOptimizationHistory, RuleBaseSuggester, VectorizationSuggester,
+    OptimizationHistory as AstOptimizationHistory, RuleBaseSuggester,
 };
 use crate::opt::context::DeviceCapabilities;
 use crate::opt::progress::{IndicatifProgress, NoOpProgress};
@@ -146,6 +146,9 @@ where
         let kernel_source = self.renderer.render_kernel_source(&optimized_program);
 
         // Debug: log the kernel source
+        #[cfg(debug_assertions)]
+        eprintln!("[compile_ast] Generated kernel source:\n{}", kernel_source);
+
         log::debug!("Generated kernel source (from AST):\n{}", kernel_source);
 
         // Extract dispatch size config (for dynamic shape support)
@@ -234,8 +237,12 @@ where
         ];
 
         // デバイスがSIMD対応していれば追加
+        // TODO: Vectorization is disabled because it incorrectly vectorizes loads
+        // from scalar buffers during broadcast/expand operations.
+        // This needs to be fixed by adding shape-awareness to the vectorization pass.
         if !simd_widths.is_empty() {
-            suggesters.push(Box::new(VectorizationSuggester::with_widths(simd_widths)));
+            // suggesters.push(Box::new(VectorizationSuggester::with_widths(simd_widths)));
+            let _ = simd_widths; // suppress unused warning
         }
 
         // デバイスが並列カーネルをサポートしていれば並列化Suggesterを追加

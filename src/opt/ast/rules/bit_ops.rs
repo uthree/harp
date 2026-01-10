@@ -16,7 +16,6 @@ fn log2_of_power_of_two(n: i64) -> i64 {
     n.trailing_zeros() as i64
 }
 
-/// 乗算を左シフトに変換: x * 2^n = x << n
 pub fn mul_power_of_two_to_shift_right() -> Rc<AstRewriteRule> {
     AstRewriteRule::new(
         AstNode::Mul(
@@ -50,7 +49,6 @@ pub fn mul_power_of_two_to_shift_right() -> Rc<AstRewriteRule> {
     )
 }
 
-/// 乗算を左シフトに変換: 2^n * x = x << n
 pub fn mul_power_of_two_to_shift_left() -> Rc<AstRewriteRule> {
     AstRewriteRule::new(
         AstNode::Mul(

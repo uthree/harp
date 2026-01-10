@@ -125,10 +125,9 @@ impl Default for ExecutionResult {
 /// This function:
 /// 1. Validates that a device is set
 /// 2. Lowers the graph to AST
-/// 3. Compiles the AST to kernel(s)
-/// 4. Allocates output buffers
-/// 5. Executes the kernel(s)
-/// 6. Returns the output buffers
+/// 3. Compiles and executes each kernel in sequence
+/// 4. Manages intermediate buffers
+/// 5. Returns the output buffers
 ///
 /// # Arguments
 ///
@@ -150,10 +149,9 @@ pub fn execute_graph(
     roots: &[GraphNode],
     input_buffers: &HashMap<*const GraphInner, Box<dyn Buffer>>,
 ) -> Result<ExecutionResult, ExecutionError> {
+    use crate::ast::AstNode;
     use crate::backend::DeviceKind;
-    use crate::backend::global::{
-        allocate_buffer_on_default_device, compile_ast_on_default_device, get_default_device_kind,
-    };
+    use crate::backend::global::{allocate_buffer_on_default_device, get_default_device_kind};
     use crate::lowerer::Lowerer;
 
     // 1. Check device is set
@@ -170,11 +168,48 @@ pub fn execute_graph(
     let mut lowerer = Lowerer::new();
     let program = lowerer.lower(roots);
 
-    // 3. Collect input nodes and build signature
-    let input_nodes = collect_inputs(roots);
-    let signature = lowerer.build_kernel_signature(&input_nodes, roots);
+    // 3. Extract kernel info from the program
+    let kernels = match &program {
+        AstNode::Program { functions, .. } => functions.clone(),
+        _ => {
+            return Err(ExecutionError::Internal(
+                "Expected Program node".to_string(),
+            ));
+        }
+    };
 
-    // 4. Verify all inputs have buffers
+    #[cfg(debug_assertions)]
+    {
+        eprintln!("[execute_graph] Generated {} kernels:", kernels.len());
+        for (i, f) in kernels.iter().enumerate() {
+            if let AstNode::Kernel { name, params, .. } = f {
+                let param_names: Vec<_> = params.iter().map(|p| &p.name).collect();
+                eprintln!("  Kernel {}: name={:?}, params={:?}", i, name, param_names);
+            }
+        }
+    }
+
+    // 4. Collect input nodes and verify buffers
+    let input_nodes = collect_inputs(roots);
+
+    #[cfg(debug_assertions)]
+    {
+        eprintln!("[execute_graph] Input nodes: {}", input_nodes.len());
+        for (i, node) in input_nodes.iter().enumerate() {
+            let buf_name = lowerer
+                .lookup_buffer_name(node)
+                .cloned()
+                .unwrap_or_default();
+            eprintln!(
+                "  Input {}: name={:?}, buf_name={}, shape={:?}",
+                i,
+                node.name(),
+                buf_name,
+                node.shape()
+            );
+        }
+    }
+
     for input_node in &input_nodes {
         let ptr = std::rc::Rc::as_ptr(&input_node.0);
         if !input_buffers.contains_key(&ptr) {
@@ -186,56 +221,259 @@ pub fn execute_graph(
         }
     }
 
-    // 5. Compile AST to kernel
-    let kernel = compile_ast_on_default_device(program, signature).map_err(|e| {
-        ExecutionError::CompilationFailed(format!("Failed to compile kernel: {}", e))
-    })?;
-
-    // 6. Prepare input buffer references in order
-    let mut ordered_inputs: Vec<&dyn Buffer> = Vec::with_capacity(input_nodes.len());
+    // 5. Build a name-to-buffer map for input buffers
+    let mut buffer_map: HashMap<String, Box<dyn Buffer>> = HashMap::new();
     for input_node in &input_nodes {
         let ptr = std::rc::Rc::as_ptr(&input_node.0);
-        let buffer = input_buffers.get(&ptr).unwrap();
-        ordered_inputs.push(buffer.as_ref());
+        let name = lowerer
+            .lookup_buffer_name(input_node)
+            .cloned()
+            .unwrap_or_default();
+        let buffer = input_buffers.get(&ptr).unwrap().clone_buffer();
+        buffer_map.insert(name, buffer);
     }
 
-    // 7. Allocate output buffers
-    let mut output_buffers: Vec<Box<dyn Buffer>> = Vec::with_capacity(roots.len());
-    for root in roots {
-        let shape: Vec<usize> = root
-            .shape()
-            .iter()
-            .map(|e| {
-                e.evaluate()
-                    .expect("Cannot evaluate shape expression at runtime") as usize
-            })
-            .collect();
-        let dtype = root.dtype().clone();
+    // 6. Execute each kernel in sequence
+    for kernel_ast in &kernels {
+        if let AstNode::Kernel {
+            name: kernel_name,
+            params,
+            default_grid_size,
+            ..
+        } = kernel_ast
+        {
+            let entry_point = kernel_name.clone().unwrap_or_else(|| "kernel".to_string());
 
-        let buffer = allocate_buffer_on_default_device(shape, dtype).map_err(|e| {
-            ExecutionError::AllocationFailed(format!("Failed to allocate output buffer: {}", e))
-        })?;
-        output_buffers.push(buffer);
+            // Extract input and output buffer names
+            let (input_params, output_params): (Vec<_>, Vec<_>) = params
+                .iter()
+                .partition(|p| matches!(p.mutability, crate::ast::Mutability::Immutable));
+
+            // Build kernel inputs
+            let mut kernel_inputs: Vec<&dyn Buffer> = Vec::new();
+            for param in &input_params {
+                let buf = buffer_map.get(&param.name).ok_or_else(|| {
+                    ExecutionError::MissingInput(format!(
+                        "Buffer '{}' not found for kernel '{}'",
+                        param.name, entry_point
+                    ))
+                })?;
+                kernel_inputs.push(buf.as_ref());
+            }
+
+            // Allocate output buffers
+            let mut kernel_outputs: Vec<Box<dyn Buffer>> = Vec::new();
+            for param in &output_params {
+                // Try to get buffer info from lowerer first
+                let (shape, dtype) =
+                    if let Some((shape_exprs, dt)) = lowerer.get_buffer_info_by_name(&param.name) {
+                        // Evaluate shape expressions to concrete sizes
+                        let shape: Vec<usize> = shape_exprs
+                            .iter()
+                            .map(|e| {
+                                e.evaluate()
+                                    .expect("Cannot evaluate shape expression at runtime")
+                                    as usize
+                            })
+                            .collect();
+                        (shape, dt)
+                    } else {
+                        // Fallback to inferring from grid size and param dtype
+                        let shape = infer_buffer_shape(default_grid_size);
+                        let dtype = extract_buffer_dtype(&param.dtype);
+                        (shape, dtype)
+                    };
+
+                #[cfg(debug_assertions)]
+                eprintln!(
+                    "[execute_graph] Allocating output buffer '{}' with shape {:?}, dtype {:?}",
+                    param.name, shape, dtype
+                );
+
+                let buffer = allocate_buffer_on_default_device(shape, dtype).map_err(|e| {
+                    ExecutionError::AllocationFailed(format!(
+                        "Failed to allocate buffer '{}': {}",
+                        param.name, e
+                    ))
+                })?;
+                kernel_outputs.push(buffer);
+            }
+
+            // Compile this kernel
+            let kernel_program = AstNode::Program {
+                functions: vec![kernel_ast.clone()],
+                execution_waves: vec![],
+            };
+
+            // Build signature for this kernel
+            let kernel_sig = build_kernel_signature_from_params(&input_params, &output_params);
+
+            let compiled_kernel =
+                crate::backend::global::compile_ast_on_default_device(kernel_program, kernel_sig)
+                    .map_err(|e| {
+                    ExecutionError::CompilationFailed(format!(
+                        "Failed to compile kernel '{}': {}",
+                        entry_point, e
+                    ))
+                })?;
+
+            // Execute the kernel
+            let output_refs: &mut [&mut dyn Buffer] = &mut kernel_outputs
+                .iter_mut()
+                .map(|b| &mut **b as &mut dyn Buffer)
+                .collect::<Vec<_>>();
+
+            compiled_kernel
+                .execute(&kernel_inputs, output_refs)
+                .map_err(|e| {
+                    ExecutionError::ExecutionFailed(format!(
+                        "Kernel '{}' execution failed: {}",
+                        entry_point, e
+                    ))
+                })?;
+
+            // Store output buffers in buffer_map for subsequent kernels
+            for (param, buffer) in output_params.iter().zip(kernel_outputs.into_iter()) {
+                #[cfg(debug_assertions)]
+                {
+                    if let Ok(data) = buffer.read_to_host() {
+                        let len = std::cmp::min(data.len(), 32);
+                        eprintln!(
+                            "[execute_graph] After kernel '{}', buffer '{}': {} bytes, first bytes: {:?}",
+                            entry_point,
+                            param.name,
+                            data.len(),
+                            &data[..len]
+                        );
+                    }
+                }
+                buffer_map.insert(param.name.clone(), buffer);
+            }
+        }
     }
 
-    // 8. Execute kernel with output buffers
-    // We need to create a Vec<&mut dyn Buffer> manually to avoid lifetime issues
-    let output_refs: &mut [&mut dyn Buffer] = &mut output_buffers
-        .iter_mut()
-        .map(|b| &mut **b as &mut dyn Buffer)
-        .collect::<Vec<_>>();
-
-    kernel
-        .execute(&ordered_inputs, output_refs)
-        .map_err(|e| ExecutionError::ExecutionFailed(format!("Kernel execution failed: {}", e)))?;
-
-    // 9. Build result
+    // 7. Collect final output buffers
+    // The root node's buffer should have been updated by the last kernel
     let mut result = ExecutionResult::new();
-    for (i, buffer) in output_buffers.into_iter().enumerate() {
-        result.insert(i, buffer);
+
+    #[cfg(debug_assertions)]
+    {
+        eprintln!("[execute_graph] Collecting output buffers:");
+        eprintln!(
+            "  Available buffers: {:?}",
+            buffer_map.keys().collect::<Vec<_>>()
+        );
+    }
+
+    for (i, root) in roots.iter().enumerate() {
+        let buf_name = lowerer
+            .lookup_buffer_name(root)
+            .cloned()
+            .unwrap_or_else(|| format!("output_{}", i));
+
+        #[cfg(debug_assertions)]
+        eprintln!("  Root {}: looking for buffer '{}'", i, buf_name);
+
+        if let Some(buffer) = buffer_map.remove(&buf_name) {
+            #[cfg(debug_assertions)]
+            {
+                if let Ok(data) = buffer.read_to_host() {
+                    let len = std::cmp::min(data.len(), 32);
+                    eprintln!(
+                        "  -> Found buffer '{}': {} bytes, first bytes: {:?}",
+                        buf_name,
+                        data.len(),
+                        &data[..len]
+                    );
+                }
+            }
+            result.insert(i, buffer);
+        } else {
+            // The output buffer might be the last one generated
+            // Find the highest numbered buffer
+            let highest_buf = buffer_map
+                .keys()
+                .filter(|k| k.starts_with("buf"))
+                .filter_map(|k| {
+                    k.strip_prefix("buf")
+                        .and_then(|s| s.parse::<usize>().ok())
+                        .map(|n| (n, k.clone()))
+                })
+                .max_by_key(|(n, _)| *n)
+                .map(|(_, name)| name);
+
+            #[cfg(debug_assertions)]
+            eprintln!("  -> Not found, highest buffer: {:?}", highest_buf);
+
+            if let Some(key) = highest_buf {
+                if let Some(buffer) = buffer_map.remove(&key) {
+                    #[cfg(debug_assertions)]
+                    {
+                        if let Ok(data) = buffer.read_to_host() {
+                            let len = std::cmp::min(data.len(), 32);
+                            eprintln!(
+                                "  -> Using buffer '{}': {} bytes, first bytes: {:?}",
+                                key,
+                                data.len(),
+                                &data[..len]
+                            );
+                        }
+                    }
+                    result.insert(i, buffer);
+                }
+            }
+        }
     }
 
     Ok(result)
+}
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+/// Infer buffer shape from kernel grid size
+fn infer_buffer_shape(grid_size: &[Box<crate::ast::AstNode>; 3]) -> Vec<usize> {
+    let mut shape = Vec::new();
+    for dim in grid_size {
+        if let crate::ast::AstNode::Const(crate::ast::Literal::I64(n)) = dim.as_ref() {
+            if *n > 1 {
+                shape.push(*n as usize);
+            }
+        }
+    }
+    if shape.is_empty() {
+        shape.push(1);
+    }
+    shape
+}
+
+/// Extract element dtype from pointer type
+fn extract_buffer_dtype(dtype: &crate::ast::DType) -> crate::ast::DType {
+    match dtype {
+        crate::ast::DType::Ptr(inner) => inner.as_ref().clone(),
+        other => other.clone(),
+    }
+}
+
+/// Build a kernel signature from parameter declarations
+fn build_kernel_signature_from_params(
+    input_params: &[&crate::ast::VarDecl],
+    output_params: &[&crate::ast::VarDecl],
+) -> crate::backend::KernelSignature {
+    use crate::backend::{BufferSignature, KernelSignature};
+
+    let inputs: Vec<BufferSignature> = input_params
+        .iter()
+        .map(|p| BufferSignature::new(p.name.clone(), vec![]))
+        .collect();
+
+    let outputs: Vec<BufferSignature> = output_params
+        .iter()
+        .map(|p| BufferSignature::new(p.name.clone(), vec![]))
+        .collect();
+
+    KernelSignature::new(inputs, outputs)
 }
 
 // ============================================================================

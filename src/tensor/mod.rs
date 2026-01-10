@@ -27,6 +27,7 @@
 //! // let bad: Tensor<D3> = x.sum(1);  // Error: expected D3, found D1
 //! ```
 
+mod autograd;
 pub mod dim;
 mod ops;
 mod realize;
@@ -37,3 +38,6 @@ pub use dim::{D0, D1, D2, D3, D4, D5, D6, DimAdd1, DimEq, DimSub1, Dimension, Dy
 
 // Re-export tensor type
 pub use tensor::Tensor;
+
+// Re-export autograd types
+pub use autograd::BackwardError;
