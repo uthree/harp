@@ -2,8 +2,11 @@
 name = "eclat-backend-c"
 version = "0.1.0"
 edition = "2024"
-description = "C backend for Eclat (code generation only)"
+description = "C backend for Eclat with CPU runtime execution"
 
 [dependencies]
 eclat = { path = "../.." }
 log = { version = "0.4", features = ["std"] }
+libloading = "0.8"
+tempfile = "3"
+cc = "1"

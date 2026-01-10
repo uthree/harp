@@ -13,6 +13,11 @@ jobs:
             - name: Checkout repository
               uses: actions/checkout@v4
 
+            - name: Install dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y build-essential
+
             - name: Install Rust toolchain
               uses: dtolnay/rust-toolchain@stable
 
@@ -71,7 +76,7 @@ jobs:
             - name: Install dependencies
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y ocl-icd-opencl-dev
+                  sudo apt-get install -y ocl-icd-opencl-dev build-essential
 
             - name: Install Rust toolchain
               uses: dtolnay/rust-toolchain@stable
@@ -79,7 +84,7 @@ jobs:
                   components: clippy
 
             - name: Run Clippy
-              run: cargo clippy --workspace --features opencl -- -D warnings
+              run: cargo clippy --workspace --exclude eclat-backend-metal --features opencl -- -D warnings
 
     format:
         name: Format Check

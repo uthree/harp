@@ -222,6 +222,14 @@ impl CLikeRenderer for CRenderer {
     }
 }
 
+/// Implementation of KernelSourceRenderer for C backend
+impl eclat::backend::pipeline::KernelSourceRenderer for CRenderer {
+    fn render_kernel_source(&mut self, program: &AstNode) -> String {
+        // Use render_program_clike which properly handles Kernel and Function nodes
+        self.render_program_clike(program)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

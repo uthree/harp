@@ -155,4 +155,103 @@ mod tests {
         // Just ensure init doesn't panic
         init();
     }
+
+    mod integration {
+        use super::*;
+        use eclat::ast::DType;
+        use eclat::backend::{clear_default_device, set_device_str};
+        use eclat::tensor::Tensor;
+        use eclat::tensor::dim::{D1, D2};
+
+        fn setup_opencl() -> bool {
+            // Initialize OpenCL backend
+            init();
+            clear_default_device();
+            set_device_str("opencl").is_ok()
+        }
+
+        #[test]
+        fn test_tensor_set_data_to_vec() {
+            if !setup_opencl() {
+                println!("OpenCL not available, skipping test");
+                return;
+            }
+
+            let x: Tensor<D1> = Tensor::input([4], DType::F32);
+            let input_data = [1.0f32, 2.0, 3.0, 4.0];
+
+            x.set_data(&input_data).expect("set_data failed");
+            assert!(x.is_realized());
+
+            let output: Vec<f32> = x.to_vec().expect("to_vec failed");
+            assert_eq!(output, input_data.to_vec());
+        }
+
+        #[test]
+        fn test_realize_add() {
+            if !setup_opencl() {
+                println!("OpenCL not available, skipping test");
+                return;
+            }
+
+            let x: Tensor<D1> = Tensor::input([4], DType::F32);
+            let y: Tensor<D1> = Tensor::input([4], DType::F32);
+
+            x.set_data(&[1.0f32, 2.0, 3.0, 4.0])
+                .expect("set_data x failed");
+            y.set_data(&[5.0f32, 6.0, 7.0, 8.0])
+                .expect("set_data y failed");
+
+            let z = &x + &y;
+            let result = z.realize();
+            assert!(result.is_ok(), "realize failed: {:?}", result.err());
+
+            let output: Vec<f32> = z.to_vec().expect("to_vec failed");
+            assert_eq!(output, vec![6.0, 8.0, 10.0, 12.0]);
+        }
+
+        #[test]
+        fn test_realize_mul() {
+            if !setup_opencl() {
+                println!("OpenCL not available, skipping test");
+                return;
+            }
+
+            let x: Tensor<D1> = Tensor::input([4], DType::F32);
+            let y: Tensor<D1> = Tensor::input([4], DType::F32);
+
+            x.set_data(&[1.0f32, 2.0, 3.0, 4.0])
+                .expect("set_data x failed");
+            y.set_data(&[2.0f32, 3.0, 4.0, 5.0])
+                .expect("set_data y failed");
+
+            let z = &x * &y;
+            z.realize().expect("realize failed");
+
+            let output: Vec<f32> = z.to_vec().expect("to_vec failed");
+            assert_eq!(output, vec![2.0, 6.0, 12.0, 20.0]);
+        }
+
+        #[test]
+        fn test_realize_add_2d() {
+            if !setup_opencl() {
+                println!("OpenCL not available, skipping test");
+                return;
+            }
+
+            let x: Tensor<D2> = Tensor::input([2, 3], DType::F32);
+            let y: Tensor<D2> = Tensor::input([2, 3], DType::F32);
+
+            x.set_data(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0])
+                .expect("set_data x failed");
+            y.set_data(&[6.0f32, 5.0, 4.0, 3.0, 2.0, 1.0])
+                .expect("set_data y failed");
+
+            let z = &x + &y;
+            z.realize().expect("realize failed");
+
+            let output: Vec<f32> = z.to_vec().expect("to_vec failed");
+            assert_eq!(output, vec![7.0, 7.0, 7.0, 7.0, 7.0, 7.0]);
+        }
+    }
 }
