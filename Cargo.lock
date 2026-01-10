@@ -379,6 +379,7 @@ version = "0.1.0"
 dependencies = [
  "crossterm",
  "directories",
+ "eclat-backend-metal",
  "env_logger",
  "indexmap",
  "indicatif",
