@@ -64,7 +64,7 @@ fn has_input_buffer(graph_ptr: *const GraphInner) -> bool {
 // Realization Methods
 // ============================================================================
 
-impl<D: Dimension> Tensor<D> {
+impl<D: Dimension, T: TensorDType> Tensor<D, T> {
     /// Check if this tensor has been realized (has data in a buffer).
     ///
     /// # Example
@@ -199,43 +199,30 @@ impl<D: Dimension> Tensor<D> {
 
     /// Read tensor data back to host as a Vec<T>.
     ///
-    /// # Type Safety
-    ///
-    /// The type `T` must match the tensor's DType:
-    /// - `f32` for `DType::F32`
-    /// - `f64` for `DType::F64`
-    /// - `i32` for `DType::I32`
-    /// - etc.
+    /// The type `T` is determined at compile time by the tensor's type parameter.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     /// - The tensor has not been realized
-    /// - The type `T` doesn't match the tensor's DType
     /// - Reading from the buffer fails
     ///
     /// # Example
     ///
     /// ```ignore
-    /// let x: Tensor<D1> = Tensor::input([4], DType::F32);
+    /// let x: Tensor<D1, f32> = Tensor::input([4]);
     /// x.set_data(&[1.0f32, 2.0, 3.0, 4.0])?;
     ///
     /// let data: Vec<f32> = x.to_vec()?;
     /// assert_eq!(data, vec![1.0, 2.0, 3.0, 4.0]);
     /// ```
-    pub fn to_vec<T: TensorDType + Clone>(&self) -> Result<Vec<T>, ExecutionError> {
+    pub fn to_vec(&self) -> Result<Vec<T>, ExecutionError>
+    where
+        T: Clone,
+    {
         // Check if realized
         if !self.is_realized() {
             return Err(ExecutionError::NotRealized);
-        }
-
-        // Check dtype matches
-        if T::DTYPE != self.dtype() {
-            return Err(ExecutionError::DTypeMismatch(format!(
-                "Expected {:?}, tensor has {:?}",
-                T::DTYPE,
-                self.dtype()
-            )));
         }
 
         // Read from buffer
@@ -264,10 +251,11 @@ impl<D: Dimension> Tensor<D> {
     /// Set the input data for this tensor.
     ///
     /// This allocates a buffer on the current device and copies the data.
+    /// The data type is determined at compile time by the tensor's type parameter `T`.
     ///
     /// # Arguments
     ///
-    /// * `data` - Slice of data that matches the tensor's shape and dtype
+    /// * `data` - Slice of data that matches the tensor's shape
     ///
     /// # Errors
     ///
@@ -279,22 +267,13 @@ impl<D: Dimension> Tensor<D> {
     /// # Example
     ///
     /// ```ignore
-    /// let x: Tensor<D2> = Tensor::input([2, 3], DType::F32);
+    /// let x: Tensor<D2, f32> = Tensor::input([2, 3]);
     /// x.set_data(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0])?;
     /// ```
-    pub fn set_data<T: TensorDType>(&self, data: &[T]) -> Result<(), ExecutionError> {
+    pub fn set_data(&self, data: &[T]) -> Result<(), ExecutionError> {
         // Check device is set
         if !has_default_device() {
             return Err(ExecutionError::NoDevice);
-        }
-
-        // Verify dtype matches
-        if T::DTYPE != self.dtype() {
-            return Err(ExecutionError::DTypeMismatch(format!(
-                "Data type {:?} doesn't match tensor dtype {:?}",
-                T::DTYPE,
-                self.dtype()
-            )));
         }
 
         // Verify size matches
@@ -308,7 +287,7 @@ impl<D: Dimension> Tensor<D> {
         }
 
         // Allocate buffer and write data
-        let buffer = allocate_buffer(self.shape(), self.dtype())?;
+        let buffer = allocate_buffer(self.shape(), T::DTYPE)?;
         let mut buffer = buffer;
 
         // Convert data to bytes
@@ -365,7 +344,7 @@ mod tests {
 
     #[test]
     fn test_is_realized() {
-        let x: Tensor<D2> = Tensor::input([2, 3], DType::F32);
+        let x: Tensor<D2, f32> = Tensor::input([2, 3]);
         assert!(!x.is_realized());
     }
 
@@ -374,15 +353,15 @@ mod tests {
         // Clear any existing device
         crate::backend::clear_default_device();
 
-        let x: Tensor<D1> = Tensor::input([4], DType::F32);
+        let x: Tensor<D1, f32> = Tensor::input([4]);
         let result = x.realize();
         assert!(matches!(result, Err(ExecutionError::NoDevice)));
     }
 
     #[test]
     fn test_to_vec_not_realized() {
-        let x: Tensor<D1> = Tensor::input([4], DType::F32);
-        let result: Result<Vec<f32>, _> = x.to_vec();
+        let x: Tensor<D1, f32> = Tensor::input([4]);
+        let result = x.to_vec();
         assert!(matches!(result, Err(ExecutionError::NotRealized)));
     }
 
@@ -391,7 +370,7 @@ mod tests {
         // Clear any existing device
         crate::backend::clear_default_device();
 
-        let x: Tensor<D1> = Tensor::input([4], DType::F32);
+        let x: Tensor<D1, f32> = Tensor::input([4]);
         let result = x.set_data(&[1.0f32, 2.0, 3.0, 4.0]);
         assert!(matches!(result, Err(ExecutionError::NoDevice)));
     }
@@ -402,7 +381,7 @@ mod tests {
         let _ = crate::backend::set_device_str("c");
 
         if has_default_device() {
-            let x: Tensor<D1> = Tensor::input([4], DType::F32);
+            let x: Tensor<D1, f32> = Tensor::input([4]);
             let result = x.set_data(&[1.0f32, 2.0, 3.0]); // Wrong size
 
             // If buffer allocation is implemented, we should get ShapeMismatch
@@ -412,19 +391,6 @@ mod tests {
                 Err(ExecutionError::Internal(_)) => {} // Buffer allocation not implemented yet
                 other => panic!("Unexpected result: {:?}", other),
             }
-        }
-    }
-
-    #[test]
-    fn test_set_data_dtype_mismatch() {
-        let _ = crate::backend::set_device_str("c");
-
-        if has_default_device() {
-            let x: Tensor<D1> = Tensor::input([4], DType::F32);
-            let result = x.set_data(&[1i32, 2, 3, 4]); // Wrong dtype
-
-            // DType check happens before buffer allocation, so this should always work
-            assert!(matches!(result, Err(ExecutionError::DTypeMismatch(_))));
         }
     }
 
@@ -447,24 +413,24 @@ mod tests {
         println!("Testing with device: {:?}", device_kind);
 
         // Test 1D tensor
-        let x: Tensor<D1> = Tensor::input([4], DType::F32);
+        let x: Tensor<D1, f32> = Tensor::input([4]);
         let input_data = [1.0f32, 2.0, 3.0, 4.0];
 
         let result = x.set_data(&input_data);
         assert!(result.is_ok(), "set_data failed: {:?}", result.err());
         assert!(x.is_realized());
 
-        let output: Vec<f32> = x.to_vec().expect("to_vec failed");
+        let output = x.to_vec().expect("to_vec failed");
         assert_eq!(output, input_data.to_vec());
 
         // Test 2D tensor
-        let y: Tensor<D2> = Tensor::input([2, 3], DType::F32);
+        let y: Tensor<D2, f32> = Tensor::input([2, 3]);
         let input_data_2d = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0];
 
         y.set_data(&input_data_2d).expect("set_data for 2D failed");
         assert!(y.is_realized());
 
-        let output_2d: Vec<f32> = y.to_vec().expect("to_vec for 2D failed");
+        let output_2d = y.to_vec().expect("to_vec for 2D failed");
         assert_eq!(output_2d, input_data_2d.to_vec());
 
         // Test clear_buffer
@@ -484,17 +450,17 @@ mod tests {
         }
 
         // Test f64
-        let x_f64: Tensor<D1> = Tensor::input([4], DType::F64);
+        let x_f64: Tensor<D1, f64> = Tensor::input([4]);
         let input_f64 = [1.0f64, 2.0, 3.0, 4.0];
         x_f64.set_data(&input_f64).expect("set_data for f64 failed");
-        let output_f64: Vec<f64> = x_f64.to_vec().expect("to_vec for f64 failed");
+        let output_f64 = x_f64.to_vec().expect("to_vec for f64 failed");
         assert_eq!(output_f64, input_f64.to_vec());
 
         // Test i32
-        let x_i32: Tensor<D1> = Tensor::input([4], DType::I32);
+        let x_i32: Tensor<D1, i32> = Tensor::input([4]);
         let input_i32 = [1i32, 2, 3, 4];
         x_i32.set_data(&input_i32).expect("set_data for i32 failed");
-        let output_i32: Vec<i32> = x_i32.to_vec().expect("to_vec for i32 failed");
+        let output_i32 = x_i32.to_vec().expect("to_vec for i32 failed");
         assert_eq!(output_i32, input_i32.to_vec());
     }
 
@@ -513,8 +479,8 @@ mod tests {
             return;
         }
 
-        let x: Tensor<D1> = Tensor::input([4], DType::F32);
-        let y: Tensor<D1> = Tensor::input([4], DType::F32);
+        let x: Tensor<D1, f32> = Tensor::input([4]);
+        let y: Tensor<D1, f32> = Tensor::input([4]);
 
         x.set_data(&[1.0f32, 2.0, 3.0, 4.0])
             .expect("set_data for x failed");
@@ -529,7 +495,7 @@ mod tests {
             realize_result.err()
         );
 
-        let result: Vec<f32> = z.to_vec().expect("to_vec failed");
+        let result = z.to_vec().expect("to_vec failed");
         assert_eq!(result, vec![6.0, 8.0, 10.0, 12.0]);
     }
 
@@ -544,8 +510,8 @@ mod tests {
             return;
         }
 
-        let x: Tensor<D1> = Tensor::input([4], DType::F32);
-        let y: Tensor<D1> = Tensor::input([4], DType::F32);
+        let x: Tensor<D1, f32> = Tensor::input([4]);
+        let y: Tensor<D1, f32> = Tensor::input([4]);
 
         x.set_data(&[1.0f32, 2.0, 3.0, 4.0])
             .expect("set_data for x failed");
@@ -555,7 +521,7 @@ mod tests {
         let z = &x * &y;
         z.realize().expect("realize failed");
 
-        let result: Vec<f32> = z.to_vec().expect("to_vec failed");
+        let result = z.to_vec().expect("to_vec failed");
         assert_eq!(result, vec![2.0, 6.0, 12.0, 20.0]);
     }
 
@@ -570,8 +536,8 @@ mod tests {
             return;
         }
 
-        let x: Tensor<D2> = Tensor::input([2, 3], DType::F32);
-        let y: Tensor<D2> = Tensor::input([2, 3], DType::F32);
+        let x: Tensor<D2, f32> = Tensor::input([2, 3]);
+        let y: Tensor<D2, f32> = Tensor::input([2, 3]);
 
         x.set_data(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0])
             .expect("set_data for x failed");
@@ -581,7 +547,7 @@ mod tests {
         let z = &x + &y;
         z.realize().expect("realize failed");
 
-        let result: Vec<f32> = z.to_vec().expect("to_vec failed");
+        let result = z.to_vec().expect("to_vec failed");
         assert_eq!(result, vec![7.0, 7.0, 7.0, 7.0, 7.0, 7.0]);
     }
 
@@ -596,17 +562,17 @@ mod tests {
             return;
         }
 
-        let x: Tensor<D1> = Tensor::input([4], DType::F32);
+        let x: Tensor<D1, f32> = Tensor::input([4]);
         x.set_data(&[1.0f32, 2.0, 3.0, 4.0])
             .expect("set_data failed");
 
         // First realize
         x.realize().expect("first realize failed");
-        let result1: Vec<f32> = x.to_vec().expect("to_vec failed");
+        let result1 = x.to_vec().expect("to_vec failed");
 
         // Second realize should be a no-op
         x.realize().expect("second realize failed");
-        let result2: Vec<f32> = x.to_vec().expect("to_vec failed");
+        let result2 = x.to_vec().expect("to_vec failed");
 
         assert_eq!(result1, result2);
     }
@@ -622,8 +588,8 @@ mod tests {
             return;
         }
 
-        let x: Tensor<D1> = Tensor::input([4], DType::F32);
-        let y: Tensor<D1> = Tensor::input([4], DType::F32);
+        let x: Tensor<D1, f32> = Tensor::input([4]);
+        let y: Tensor<D1, f32> = Tensor::input([4]);
 
         // Only set data for x, not y
         x.set_data(&[1.0f32, 2.0, 3.0, 4.0])

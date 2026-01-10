@@ -161,13 +161,13 @@ mod tests {
                 return;
             }
 
-            let x: Tensor<D1> = Tensor::input([4], DType::F32);
+            let x: Tensor<D1, f32> = Tensor::input([4]);
             let input_data = [1.0f32, 2.0, 3.0, 4.0];
 
             x.set_data(&input_data).expect("set_data failed");
             assert!(x.is_realized());
 
-            let output: Vec<f32> = x.to_vec().expect("to_vec failed");
+            let output = x.to_vec().expect("to_vec failed");
             assert_eq!(output, input_data.to_vec());
         }
 
@@ -178,8 +178,8 @@ mod tests {
                 return;
             }
 
-            let x: Tensor<D1> = Tensor::input([4], DType::F32);
-            let y: Tensor<D1> = Tensor::input([4], DType::F32);
+            let x: Tensor<D1, f32> = Tensor::input([4]);
+            let y: Tensor<D1, f32> = Tensor::input([4]);
 
             x.set_data(&[1.0f32, 2.0, 3.0, 4.0])
                 .expect("set_data x failed");
@@ -190,7 +190,7 @@ mod tests {
             let result = z.realize();
             assert!(result.is_ok(), "realize failed: {:?}", result.err());
 
-            let output: Vec<f32> = z.to_vec().expect("to_vec failed");
+            let output = z.to_vec().expect("to_vec failed");
             assert_eq!(output, vec![6.0, 8.0, 10.0, 12.0]);
         }
 
@@ -201,8 +201,8 @@ mod tests {
                 return;
             }
 
-            let x: Tensor<D1> = Tensor::input([4], DType::F32);
-            let y: Tensor<D1> = Tensor::input([4], DType::F32);
+            let x: Tensor<D1, f32> = Tensor::input([4]);
+            let y: Tensor<D1, f32> = Tensor::input([4]);
 
             x.set_data(&[1.0f32, 2.0, 3.0, 4.0])
                 .expect("set_data x failed");
@@ -212,7 +212,7 @@ mod tests {
             let z = &x * &y;
             z.realize().expect("realize failed");
 
-            let output: Vec<f32> = z.to_vec().expect("to_vec failed");
+            let output = z.to_vec().expect("to_vec failed");
             assert_eq!(output, vec![2.0, 6.0, 12.0, 20.0]);
         }
 
@@ -223,8 +223,8 @@ mod tests {
                 return;
             }
 
-            let x: Tensor<D2> = Tensor::input([2, 3], DType::F32);
-            let y: Tensor<D2> = Tensor::input([2, 3], DType::F32);
+            let x: Tensor<D2, f32> = Tensor::input([2, 3]);
+            let y: Tensor<D2, f32> = Tensor::input([2, 3]);
 
             x.set_data(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0])
                 .expect("set_data x failed");
@@ -234,7 +234,7 @@ mod tests {
             let z = &x + &y;
             z.realize().expect("realize failed");
 
-            let output: Vec<f32> = z.to_vec().expect("to_vec failed");
+            let output = z.to_vec().expect("to_vec failed");
             assert_eq!(output, vec![7.0, 7.0, 7.0, 7.0, 7.0, 7.0]);
         }
     }

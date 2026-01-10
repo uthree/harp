@@ -7,7 +7,7 @@ use std::cell::RefCell;
 use std::marker::PhantomData;
 use std::rc::Rc;
 
-use crate::ast::DType;
+use crate::ast::{DType, TensorDType};
 use crate::backend::Buffer;
 use crate::graph::{self, Expr, GraphNode};
 
@@ -17,37 +17,12 @@ use super::dim::Dimension;
 // Tensor Structure
 // ============================================================================
 
-/// A tensor with statically-checked dimensions.
-///
-/// `Tensor<D>` wraps a `GraphNode` computation graph and provides:
-/// - Compile-time dimension checking via the `D` type parameter
-/// - Lazy evaluation: operations build a graph, `realize()` executes it
-/// - Type-safe operations that preserve dimension information
-///
-/// # Type Parameters
-///
-/// - `D`: A type implementing `Dimension` that represents the tensor's dimensionality
-///
-/// # Examples
-///
-/// ```ignore
-/// use eclat::tensor::{Tensor, D2, D1};
-/// use eclat::ast::DType;
-///
-/// // Create a 2D input tensor
-/// let x: Tensor<D2> = Tensor::input([32, 64], DType::F32);
-///
-/// // Operations preserve type information
-/// let y: Tensor<D2> = &x + &x;  // D2 + D2 = D2
-/// let z: Tensor<D1> = y.sum(1); // sum over axis 1: D2 -> D1
-/// ```
 #[derive(Clone)]
-pub struct Tensor<D: Dimension> {
-    pub(crate) inner: Rc<TensorInner<D>>,
+pub struct Tensor<D: Dimension, T: TensorDType = f32> {
+    pub(crate) inner: Rc<TensorInner<D, T>>,
 }
 
-/// Internal tensor data.
-pub(crate) struct TensorInner<D: Dimension> {
+pub(crate) struct TensorInner<D: Dimension, T: TensorDType = f32> {
     /// The underlying computation graph node.
     pub(crate) graph: GraphNode,
 
@@ -57,9 +32,12 @@ pub(crate) struct TensorInner<D: Dimension> {
 
     /// Phantom marker for the dimension type.
     pub(crate) _dim: PhantomData<D>,
+
+    /// Phantom marker for the data type.
+    pub(crate) _dtype: PhantomData<T>,
 }
 
-impl<D: Dimension> Tensor<D> {
+impl<D: Dimension, T: TensorDType> Tensor<D, T> {
     // ========================================================================
     // Constructors
     // ========================================================================
@@ -86,6 +64,7 @@ impl<D: Dimension> Tensor<D> {
                 graph,
                 buffer: RefCell::new(None),
                 _dim: PhantomData,
+                _dtype: PhantomData,
             }),
         }
     }
@@ -93,17 +72,17 @@ impl<D: Dimension> Tensor<D> {
     /// Create an input tensor placeholder.
     ///
     /// This creates a tensor that will receive data at execution time.
+    /// The data type is determined by the type parameter `T`.
     ///
     /// # Examples
     ///
     /// ```ignore
     /// use eclat::tensor::{Tensor, D2};
-    /// use eclat::ast::DType;
     ///
-    /// let x: Tensor<D2> = Tensor::input([32, 64], DType::F32);
+    /// let x: Tensor<D2, f32> = Tensor::input([32, 64]);
     /// assert_eq!(x.shape(), vec![32, 64]);
     /// ```
-    pub fn input<const N: usize>(shape: [usize; N], dtype: DType) -> Self
+    pub fn input<const N: usize>(shape: [usize; N]) -> Self
     where
         D: Dimension,
     {
@@ -116,15 +95,15 @@ impl<D: Dimension> Tensor<D> {
         );
 
         let expr_shape: Vec<Expr> = shape.iter().map(|&s| Expr::Const(s as i64)).collect();
-        let graph = graph::input(expr_shape, dtype);
+        let graph = graph::input(expr_shape, T::DTYPE);
         Self::from_graph(graph)
     }
 
     /// Create a named input tensor placeholder.
     ///
     /// Named inputs are useful for debugging and identifying tensors
-    /// in the computation graph.
-    pub fn named_input<const N: usize>(name: &str, shape: [usize; N], dtype: DType) -> Self
+    /// in the computation graph. The data type is determined by `T`.
+    pub fn named_input<const N: usize>(name: &str, shape: [usize; N]) -> Self
     where
         D: Dimension,
     {
@@ -137,12 +116,13 @@ impl<D: Dimension> Tensor<D> {
         );
 
         let expr_shape: Vec<Expr> = shape.iter().map(|&s| Expr::Const(s as i64)).collect();
-        let graph = graph::named_input(name, expr_shape, dtype);
+        let graph = graph::named_input(name, expr_shape, T::DTYPE);
         Self::from_graph(graph)
     }
 
     /// Create a tensor filled with zeros.
-    pub fn zeros<const N: usize>(shape: [usize; N], dtype: DType) -> Self
+    /// The data type is determined by `T`.
+    pub fn zeros<const N: usize>(shape: [usize; N]) -> Self
     where
         D: Dimension,
     {
@@ -155,12 +135,13 @@ impl<D: Dimension> Tensor<D> {
         );
 
         let expr_shape: Vec<Expr> = shape.iter().map(|&s| Expr::Const(s as i64)).collect();
-        let graph = graph::zeros(expr_shape, dtype);
+        let graph = graph::zeros(expr_shape, T::DTYPE);
         Self::from_graph(graph)
     }
 
     /// Create a tensor filled with ones.
-    pub fn ones<const N: usize>(shape: [usize; N], dtype: DType) -> Self
+    /// The data type is determined by `T`.
+    pub fn ones<const N: usize>(shape: [usize; N]) -> Self
     where
         D: Dimension,
     {
@@ -173,7 +154,7 @@ impl<D: Dimension> Tensor<D> {
         );
 
         let expr_shape: Vec<Expr> = shape.iter().map(|&s| Expr::Const(s as i64)).collect();
-        let graph = graph::ones(expr_shape, dtype);
+        let graph = graph::ones(expr_shape, T::DTYPE);
         Self::from_graph(graph)
     }
 
@@ -234,7 +215,7 @@ impl<D: Dimension> Tensor<D> {
     /// Convert to a dynamic dimension tensor.
     ///
     /// This is useful when the dimension is not known at compile time.
-    pub fn into_dyn(self) -> Tensor<super::dim::Dyn> {
+    pub fn into_dyn(self) -> Tensor<super::dim::Dyn, T> {
         Tensor::from_graph(self.inner.graph.clone())
     }
 }
@@ -243,7 +224,7 @@ impl<D: Dimension> Tensor<D> {
 // Debug Implementation
 // ============================================================================
 
-impl<D: Dimension> std::fmt::Debug for Tensor<D> {
+impl<D: Dimension, T: TensorDType> std::fmt::Debug for Tensor<D, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Tensor")
             .field("ndim", &D::NDIM)
@@ -257,10 +238,11 @@ impl<D: Dimension> std::fmt::Debug for Tensor<D> {
 // Scalar Tensor (D0) Specific Methods
 // ============================================================================
 
-impl Tensor<super::dim::D0> {
+impl<T: TensorDType> Tensor<super::dim::D0, T> {
     /// Create a scalar tensor from a constant value.
-    pub fn scalar(_value: f32, dtype: DType) -> Self {
-        let graph = graph::scalar(dtype);
+    /// The data type is determined by `T`.
+    pub fn scalar(_value: T) -> Self {
+        let graph = graph::scalar(T::DTYPE);
         // Note: The actual value will be set during realize()
         // For now, create a constant node
         Self::from_graph(graph)
@@ -278,7 +260,7 @@ mod tests {
 
     #[test]
     fn test_tensor_input() {
-        let x: Tensor<D2> = Tensor::input([32, 64], DType::F32);
+        let x: Tensor<D2, f32> = Tensor::input([32, 64]);
         assert_eq!(x.shape(), vec![32, 64]);
         assert_eq!(x.ndim(), 2);
         assert_eq!(x.dtype(), DType::F32);
@@ -286,40 +268,40 @@ mod tests {
 
     #[test]
     fn test_tensor_named_input() {
-        let x: Tensor<D2> = Tensor::named_input("input", [32, 64], DType::F32);
+        let x: Tensor<D2, f32> = Tensor::named_input("input", [32, 64]);
         assert_eq!(x.shape(), vec![32, 64]);
     }
 
     #[test]
     fn test_tensor_zeros() {
-        let x: Tensor<D3> = Tensor::zeros([2, 3, 4], DType::F32);
+        let x: Tensor<D3, f32> = Tensor::zeros([2, 3, 4]);
         assert_eq!(x.shape(), vec![2, 3, 4]);
         assert_eq!(x.ndim(), 3);
     }
 
     #[test]
     fn test_tensor_ones() {
-        let x: Tensor<D1> = Tensor::ones([100], DType::F64);
+        let x: Tensor<D1, f64> = Tensor::ones([100]);
         assert_eq!(x.shape(), vec![100]);
         assert_eq!(x.dtype(), DType::F64);
     }
 
     #[test]
     fn test_tensor_scalar() {
-        let x: Tensor<D0> = Tensor::scalar(3.14, DType::F32);
+        let x: Tensor<D0, f32> = Tensor::scalar(3.14);
         assert_eq!(x.ndim(), 0);
         assert_eq!(x.shape(), Vec::<usize>::new());
     }
 
     #[test]
     fn test_tensor_numel() {
-        let x: Tensor<D3> = Tensor::input([2, 3, 4], DType::F32);
+        let x: Tensor<D3, f32> = Tensor::input([2, 3, 4]);
         assert_eq!(x.numel(), 24);
     }
 
     #[test]
     fn test_tensor_into_dyn() {
-        let x: Tensor<D2> = Tensor::input([32, 64], DType::F32);
+        let x: Tensor<D2, f32> = Tensor::input([32, 64]);
         let x_dyn = x.into_dyn();
         assert_eq!(x_dyn.shape(), vec![32, 64]);
     }
@@ -328,6 +310,6 @@ mod tests {
     #[should_panic(expected = "Shape length 2 doesn't match dimension 3")]
     fn test_tensor_dimension_mismatch() {
         // This should panic because we're trying to create a D3 tensor with a 2D shape
-        let _x: Tensor<D3> = Tensor::input([32, 64], DType::F32);
+        let _x: Tensor<D3, f32> = Tensor::input([32, 64]);
     }
 }
