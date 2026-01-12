@@ -10,23 +10,44 @@ use libloading::{Library, Symbol};
 use std::any::Any;
 use std::error::Error;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tempfile::TempDir;
 
 /// Type alias for the kernel function signature
 /// The kernel function takes pointers to input and output buffers
 type KernelFn = unsafe extern "C" fn();
 
-/// C kernel for CPU execution
-///
-/// Loads a compiled shared library and executes the kernel function.
-pub struct CKernel {
+/// Internal state of CKernel (shared via Arc)
+struct CKernelInner {
     /// Temporary directory containing the compiled library (kept alive)
     #[allow(dead_code)]
     temp_dir: TempDir,
     /// Loaded library
     library: Library,
+}
+
+// Safety: CKernelInner can be sent between threads as the library is self-contained
+unsafe impl Send for CKernelInner {}
+unsafe impl Sync for CKernelInner {}
+
+/// C kernel for CPU execution
+///
+/// Loads a compiled shared library and executes the kernel function.
+/// The internal state is shared via Arc to enable cloning for caching.
+pub struct CKernel {
+    /// Shared internal state (library and temp directory)
+    inner: Arc<CKernelInner>,
     /// Kernel configuration
     config: KernelConfig,
+}
+
+impl Clone for CKernel {
+    fn clone(&self) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+            config: self.config.clone(),
+        }
+    }
 }
 
 // Safety: CKernel can be sent between threads as the library is self-contained
@@ -55,10 +76,14 @@ impl CKernel {
         }
 
         Ok(Self {
-            temp_dir,
-            library,
+            inner: Arc::new(CKernelInner { temp_dir, library }),
             config,
         })
+    }
+
+    /// Get a reference to the library
+    fn library(&self) -> &Library {
+        &self.inner.library
     }
 
     /// Execute the kernel with the given buffer pointers
@@ -90,33 +115,33 @@ impl CKernel {
         match args.len() {
             1 => {
                 type Fn1 = unsafe extern "C" fn(*mut u8);
-                let func: Symbol<Fn1> = unsafe { self.library.get(entry_point.as_bytes())? };
+                let func: Symbol<Fn1> = unsafe { self.library().get(entry_point.as_bytes())? };
                 unsafe { func(args[0]) };
             }
             2 => {
                 type Fn2 = unsafe extern "C" fn(*mut u8, *mut u8);
-                let func: Symbol<Fn2> = unsafe { self.library.get(entry_point.as_bytes())? };
+                let func: Symbol<Fn2> = unsafe { self.library().get(entry_point.as_bytes())? };
                 unsafe { func(args[0], args[1]) };
             }
             3 => {
                 type Fn3 = unsafe extern "C" fn(*mut u8, *mut u8, *mut u8);
-                let func: Symbol<Fn3> = unsafe { self.library.get(entry_point.as_bytes())? };
+                let func: Symbol<Fn3> = unsafe { self.library().get(entry_point.as_bytes())? };
                 unsafe { func(args[0], args[1], args[2]) };
             }
             4 => {
                 type Fn4 = unsafe extern "C" fn(*mut u8, *mut u8, *mut u8, *mut u8);
-                let func: Symbol<Fn4> = unsafe { self.library.get(entry_point.as_bytes())? };
+                let func: Symbol<Fn4> = unsafe { self.library().get(entry_point.as_bytes())? };
                 unsafe { func(args[0], args[1], args[2], args[3]) };
             }
             5 => {
                 type Fn5 = unsafe extern "C" fn(*mut u8, *mut u8, *mut u8, *mut u8, *mut u8);
-                let func: Symbol<Fn5> = unsafe { self.library.get(entry_point.as_bytes())? };
+                let func: Symbol<Fn5> = unsafe { self.library().get(entry_point.as_bytes())? };
                 unsafe { func(args[0], args[1], args[2], args[3], args[4]) };
             }
             6 => {
                 type Fn6 =
                     unsafe extern "C" fn(*mut u8, *mut u8, *mut u8, *mut u8, *mut u8, *mut u8);
-                let func: Symbol<Fn6> = unsafe { self.library.get(entry_point.as_bytes())? };
+                let func: Symbol<Fn6> = unsafe { self.library().get(entry_point.as_bytes())? };
                 unsafe { func(args[0], args[1], args[2], args[3], args[4], args[5]) };
             }
             n => {
@@ -134,9 +159,7 @@ impl CKernel {
 
 impl Kernel for CKernel {
     fn clone_kernel(&self) -> Box<dyn Kernel> {
-        // CKernel cannot be cloned because it owns a TempDir
-        // Return a placeholder error - this should not normally be called
-        panic!("CKernel cannot be cloned");
+        Box::new(self.clone())
     }
 
     fn config(&self) -> &KernelConfig {

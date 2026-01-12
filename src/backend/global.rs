@@ -255,19 +255,6 @@ pub fn compile_ast_with_cache(
 
     let device = device.ok_or(DeviceError::NoAvailableBackend)?;
 
-    // Cバックエンドはカーネルのクローンをサポートしていないため、キャッシュをスキップ
-    if kind == DeviceKind::C {
-        log::debug!("C backend does not support kernel caching, compiling directly...");
-        let kernel = compile_ast_on_default_device(program, signature.clone())?;
-        let dispatch_config =
-            crate::backend::pipeline::DispatchSizeConfig::from_const([1, 1, 1], [1, 1, 1]);
-        return Ok(crate::backend::cache::CacheEntry::new(
-            kernel,
-            signature,
-            dispatch_config,
-        ));
-    }
-
     // dyn traitはファットポインタなので、データポインタ部分のみを取得
     let device_id = Arc::as_ptr(&device) as *const () as usize;
 
