@@ -361,5 +361,55 @@ mod tests {
             // grad = 2 (ones broadcast)
             assert_eq!(grad2_values, vec![2.0, 2.0, 2.0, 2.0]);
         }
+
+        #[test]
+        fn test_kernel_cache_hit() {
+            use eclat::backend::get_cache_stats;
+
+            if !setup_metal() {
+                println!("Metal not available, skipping test");
+                return;
+            }
+
+            // 初期統計を取得
+            let initial_stats = get_cache_stats();
+            let initial_hits = initial_stats.hits;
+            let initial_misses = initial_stats.misses;
+
+            // テンソルを作成
+            let x: Tensor<D1, f32> = Tensor::input([4]);
+            let y: Tensor<D1, f32> = Tensor::input([4]);
+
+            x.set_data(&[1.0f32, 2.0, 3.0, 4.0])
+                .expect("set_data x failed");
+            y.set_data(&[5.0f32, 6.0, 7.0, 8.0])
+                .expect("set_data y failed");
+
+            // 1回目の実行: キャッシュミス
+            let z1 = &x + &y;
+            z1.realize().expect("realize z1 failed");
+
+            let stats_after_first = get_cache_stats();
+            assert!(
+                stats_after_first.misses > initial_misses,
+                "Expected cache miss on first run"
+            );
+
+            // バッファをクリアして同じグラフを再実行
+            z1.clear_buffer();
+
+            // 2回目の実行: キャッシュヒット
+            z1.realize().expect("realize z1 again failed");
+
+            let stats_after_second = get_cache_stats();
+            assert!(
+                stats_after_second.hits > initial_hits,
+                "Expected cache hit on second run"
+            );
+
+            // 結果が正しいことも確認
+            let output = z1.to_vec().expect("to_vec failed");
+            assert_eq!(output, vec![6.0, 8.0, 10.0, 12.0]);
+        }
     }
 }

@@ -219,6 +219,77 @@ pub fn compile_ast_on_default_device(
     compile_ast_on_device(kind, device.as_ref(), program, signature)
 }
 
+/// キャッシュ対応のASTコンパイル関数
+///
+/// 同一構造のASTに対してはキャッシュされたカーネルを返し、
+/// GPUコンパイルをスキップする。
+///
+/// # Arguments
+/// * `program` - コンパイルするASTプログラム
+/// * `signature` - カーネルの入出力シグネチャ
+///
+/// # Returns
+/// キャッシュエントリ（カーネル、シグネチャ、ディスパッチ設定を含む）
+pub fn compile_ast_with_cache(
+    program: crate::ast::AstNode,
+    signature: crate::backend::KernelSignature,
+) -> Result<crate::backend::cache::CacheEntry, super::device::DeviceError> {
+    use super::cache::{generate_cache_key, get_cached_kernel, insert_cached_kernel};
+    use super::device::DeviceError;
+
+    let (kind, device) = DEFAULT_DEVICE.with(|state| {
+        let state = state.borrow();
+        (state.kind, state.device.clone())
+    });
+
+    if kind == DeviceKind::None {
+        return Err(DeviceError::NoAvailableBackend);
+    }
+
+    let device = device.ok_or(DeviceError::NoAvailableBackend)?;
+
+    // Cバックエンドはカーネルのクローンをサポートしていないため、キャッシュをスキップ
+    if kind == DeviceKind::C {
+        log::debug!("C backend does not support kernel caching, compiling directly...");
+        let kernel = compile_ast_on_default_device(program, signature.clone())?;
+        let dispatch_config =
+            crate::backend::pipeline::DispatchSizeConfig::from_const([1, 1, 1], [1, 1, 1]);
+        return Ok(crate::backend::cache::CacheEntry::new(
+            kernel,
+            signature,
+            dispatch_config,
+        ));
+    }
+
+    // dyn traitはファットポインタなので、データポインタ部分のみを取得
+    let device_id = Arc::as_ptr(&device) as *const () as usize;
+
+    // キャッシュキー生成
+    let cache_key = generate_cache_key(&program, kind, device_id);
+
+    // メモリキャッシュをチェック
+    if let Some(entry) = get_cached_kernel(&cache_key) {
+        log::debug!("Kernel cache hit");
+        return Ok(entry);
+    }
+
+    log::debug!("Kernel cache miss, compiling...");
+
+    // コンパイル
+    let kernel = compile_ast_on_default_device(program, signature.clone())?;
+
+    // CacheEntryを構築（デフォルトのディスパッチ設定を使用）
+    let dispatch_config =
+        crate::backend::pipeline::DispatchSizeConfig::from_const([1, 1, 1], [1, 1, 1]);
+    let entry =
+        crate::backend::cache::CacheEntry::new(kernel, signature, dispatch_config);
+
+    // キャッシュに挿入
+    insert_cached_kernel(cache_key, entry.clone());
+
+    Ok(entry)
+}
+
 /// Run a closure with a temporary default device
 ///
 /// The original default device is restored after the closure completes.

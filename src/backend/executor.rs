@@ -308,14 +308,15 @@ pub fn execute_graph(
             // Build signature for this kernel
             let kernel_sig = build_kernel_signature_from_params(&input_params, &output_params);
 
-            let compiled_kernel =
-                crate::backend::global::compile_ast_on_default_device(kernel_program, kernel_sig)
+            let cache_entry =
+                crate::backend::global::compile_ast_with_cache(kernel_program, kernel_sig)
                     .map_err(|e| {
-                    ExecutionError::CompilationFailed(format!(
-                        "Failed to compile kernel '{}': {}",
-                        entry_point, e
-                    ))
-                })?;
+                        ExecutionError::CompilationFailed(format!(
+                            "Failed to compile kernel '{}': {}",
+                            entry_point, e
+                        ))
+                    })?;
+            let compiled_kernel = cache_entry.kernel;
 
             // Execute the kernel
             let output_refs: &mut [&mut dyn Buffer] = &mut kernel_outputs
