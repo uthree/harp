@@ -508,6 +508,22 @@ pub trait Kernel: Send + Sync {
 
     /// Get a reference to self as Any (for downcasting to concrete types)
     fn as_any(&self) -> &dyn std::any::Any;
+
+    /// Check if this kernel supports binary caching
+    ///
+    /// Returns true if the kernel can be serialized to binary format
+    /// for disk caching. Default implementation returns false.
+    fn supports_binary_cache(&self) -> bool {
+        false
+    }
+
+    /// Get the compiled binary for disk caching
+    ///
+    /// Returns the binary representation of the compiled kernel if supported.
+    /// Default implementation returns None.
+    fn get_binary(&self) -> Option<Vec<u8>> {
+        None
+    }
 }
 
 /// GPU kernel compiler

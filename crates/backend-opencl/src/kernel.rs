@@ -35,6 +35,14 @@ impl Kernel for OpenCLKernel {
         self
     }
 
+    fn supports_binary_cache(&self) -> bool {
+        true
+    }
+
+    fn get_binary(&self) -> Option<Vec<u8>> {
+        self.get_binary_internal().ok()
+    }
+
     fn execute(
         &self,
         inputs: &[&dyn Buffer],
@@ -185,10 +193,10 @@ impl OpenCLKernel {
         Ok(())
     }
 
-    /// コンパイル済みバイナリを取得
+    /// コンパイル済みバイナリを取得（内部用）
     ///
     /// ディスクキャッシュ用にプログラムのバイナリデータを抽出する。
-    pub fn get_binary(&self) -> Result<Vec<u8>, OpenCLError> {
+    fn get_binary_internal(&self) -> Result<Vec<u8>, OpenCLError> {
         let info = ocl::core::get_program_info(self.program.as_core(), ProgramInfo::Binaries)?;
 
         if let ProgramInfoResult::Binaries(binaries) = info {

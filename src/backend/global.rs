@@ -224,6 +224,10 @@ pub fn compile_ast_on_default_device(
 /// 同一構造のASTに対してはキャッシュされたカーネルを返し、
 /// GPUコンパイルをスキップする。
 ///
+/// キャッシュ階層:
+/// 1. メモリキャッシュ（同一プロセス内）
+/// 2. ディスクキャッシュ（セッション間、OpenCLのみ）
+///
 /// # Arguments
 /// * `program` - コンパイルするASTプログラム
 /// * `signature` - カーネルの入出力シグネチャ
@@ -234,8 +238,11 @@ pub fn compile_ast_with_cache(
     program: crate::ast::AstNode,
     signature: crate::backend::KernelSignature,
 ) -> Result<crate::backend::cache::CacheEntry, super::device::DeviceError> {
+    use super::cache::disk::{
+        compute_cache_hash, eclat_version, load_binary, save_binary, DiskCacheMetadata,
+    };
     use super::cache::{generate_cache_key, get_cached_kernel, insert_cached_kernel};
-    use super::device::DeviceError;
+    use super::device::{compile_from_binary_on_device, DeviceError};
 
     let (kind, device) = DEFAULT_DEVICE.with(|state| {
         let state = state.borrow();
@@ -267,24 +274,89 @@ pub fn compile_ast_with_cache(
     // キャッシュキー生成
     let cache_key = generate_cache_key(&program, kind, device_id);
 
-    // メモリキャッシュをチェック
+    // 1. メモリキャッシュをチェック
     if let Some(entry) = get_cached_kernel(&cache_key) {
-        log::debug!("Kernel cache hit");
+        log::debug!("Memory cache hit");
         return Ok(entry);
     }
 
-    log::debug!("Kernel cache miss, compiling...");
+    // 2. ディスクキャッシュをチェック（OpenCLのみ）
+    let disk_hash = compute_cache_hash(&cache_key);
+    let device_kind_str = kind.to_string();
 
-    // コンパイル
+    if let Some((binary, metadata)) = load_binary(&disk_hash, &device_kind_str) {
+        // バージョンチェック
+        if metadata.eclat_version == eclat_version() {
+            log::debug!("Disk cache hit: {}", disk_hash);
+
+            // バイナリからカーネルを復元
+            let config = crate::backend::KernelConfig {
+                entry_point: metadata.entry_point,
+                global_work_size: metadata.grid_size,
+                local_work_size: metadata.local_size,
+                shape_vars: std::collections::HashMap::new(),
+            };
+
+            if let Ok(kernel) = compile_from_binary_on_device(kind, device.as_ref(), &binary, config)
+            {
+                let dispatch_config =
+                    crate::backend::pipeline::DispatchSizeConfig::from_const(
+                        metadata.grid_size,
+                        metadata.local_size.unwrap_or([1, 1, 1]),
+                    );
+                let entry = crate::backend::cache::CacheEntry::new(
+                    kernel,
+                    signature.clone(),
+                    dispatch_config,
+                );
+
+                // メモリキャッシュにも挿入
+                insert_cached_kernel(cache_key, entry.clone());
+
+                return Ok(entry);
+            } else {
+                log::debug!("Failed to restore from disk cache, recompiling...");
+            }
+        } else {
+            log::debug!(
+                "Disk cache version mismatch: {} != {}",
+                metadata.eclat_version,
+                eclat_version()
+            );
+        }
+    }
+
+    log::debug!("Cache miss, compiling...");
+
+    // 3. コンパイル
     let kernel = compile_ast_on_default_device(program, signature.clone())?;
 
     // CacheEntryを構築（デフォルトのディスパッチ設定を使用）
     let dispatch_config =
         crate::backend::pipeline::DispatchSizeConfig::from_const([1, 1, 1], [1, 1, 1]);
     let entry =
-        crate::backend::cache::CacheEntry::new(kernel, signature, dispatch_config);
+        crate::backend::cache::CacheEntry::new(kernel, signature.clone(), dispatch_config.clone());
 
-    // キャッシュに挿入
+    // 4. ディスクキャッシュに保存（バイナリサポートがある場合）
+    if entry.kernel.supports_binary_cache() {
+        if let Some(binary) = entry.kernel.get_binary() {
+            let metadata = DiskCacheMetadata {
+                entry_point: entry.kernel.config().entry_point.clone(),
+                grid_size: entry.kernel.config().global_work_size,
+                local_size: entry.kernel.config().local_work_size,
+                device_name: kind.to_string(),
+                eclat_version: eclat_version().to_string(),
+            };
+
+            if let Err(e) = save_binary(&disk_hash, &device_kind_str, &binary, &metadata) {
+                log::debug!("Failed to save disk cache: {}", e);
+            } else {
+                log::debug!("Saved to disk cache: {} ({} bytes)", disk_hash, binary.len());
+            }
+        }
+    }
+
+    // 5. メモリキャッシュに挿入
     insert_cached_kernel(cache_key, entry.clone());
 
     Ok(entry)

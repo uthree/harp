@@ -143,6 +143,31 @@ pub trait BackendRegistry: Send + Sync {
             "This backend does not support AST compilation".to_string(),
         ))
     }
+
+    /// バイナリキャッシュをサポートするかどうか
+    fn supports_binary_cache(&self) -> bool {
+        false
+    }
+
+    /// バイナリからカーネルを復元
+    ///
+    /// ディスクキャッシュから読み込んだバイナリを使用してカーネルを作成する。
+    /// ソースコードからのコンパイルをスキップできるため高速。
+    ///
+    /// # Arguments
+    /// * `device` - デバイスのArc
+    /// * `binary` - コンパイル済みバイナリ
+    /// * `config` - カーネル設定
+    fn compile_from_binary(
+        &self,
+        _device: &dyn Any,
+        _binary: &[u8],
+        _config: crate::backend::KernelConfig,
+    ) -> Result<Box<dyn crate::backend::Kernel>, DeviceError> {
+        Err(DeviceError::InitializationError(
+            "This backend does not support binary cache".to_string(),
+        ))
+    }
 }
 
 /// 登録されたバックエンドのグローバルレジストリ
@@ -238,6 +263,34 @@ pub fn compile_ast_on_device(
     }
 
     backend.compile_ast(device, program, signature)
+}
+
+/// デバイス上でバイナリからカーネルを復元
+///
+/// ディスクキャッシュから読み込んだバイナリを使用してカーネルを作成する。
+pub fn compile_from_binary_on_device(
+    kind: DeviceKind,
+    device: &dyn Any,
+    binary: &[u8],
+    config: crate::backend::KernelConfig,
+) -> Result<Box<dyn crate::backend::Kernel>, DeviceError> {
+    let backends = get_backends();
+
+    let backend = backends.iter().find(|b| b.kind() == kind).ok_or_else(|| {
+        DeviceError::BackendUnavailable {
+            backend: kind,
+            reason: "Backend not registered".to_string(),
+        }
+    })?;
+
+    if !backend.supports_binary_cache() {
+        return Err(DeviceError::BackendUnavailable {
+            backend: kind,
+            reason: "This backend does not support binary cache".to_string(),
+        });
+    }
+
+    backend.compile_from_binary(device, binary, config)
 }
 
 // ============================================================================
