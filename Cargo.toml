@@ -39,3 +39,6 @@ rstest = "0.24"
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 eclat-backend-metal = { path = "crates/backend-metal" }
+
+[target.'cfg(not(target_os = "macos"))'.dev-dependencies]
+eclat-backend-c = { path = "crates/backend-c" }

@@ -13,10 +13,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Function Fitting Demo ===\n");
     println!("Learning: y = 2*x + 1\n");
 
-    // Initialize Metal backend
-    eclat_backend_metal::init();
-    set_device_str("metal")?;
-    println!("Device: Metal GPU\n");
+    // Initialize backend based on platform
+    #[cfg(target_os = "macos")]
+    {
+        eclat_backend_metal::init();
+        set_device_str("metal")?;
+        println!("Device: Metal GPU\n");
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        eclat_backend_c::init();
+        set_device_str("c")?;
+        println!("Device: C CPU\n");
+    }
 
     // ========================================================================
     // Generate training data: y = 2*x + 1
