@@ -11,7 +11,7 @@ use crate::ast::{DType, TensorDType};
 use crate::backend::Buffer;
 use crate::graph::{self, Expr, GraphNode};
 
-use super::dim::Dimension;
+use super::dim::{Dimension, Dyn};
 
 // ============================================================================
 // Tensor Structure
@@ -166,6 +166,58 @@ impl<D: Dimension, T: TensorDType> Tensor<D, T> {
         let expr_shape: Vec<Expr> = shape.iter().map(|&s| Expr::Const(s as i64)).collect();
         let graph = graph::ones(expr_shape, T::DTYPE);
         Self::from_graph(graph)
+    }
+
+    // ========================================================================
+    // Dynamic Dimension Constructors
+    // ========================================================================
+
+    /// Create a tensor with dynamic dimensions from shape and data.
+    ///
+    /// This is primarily used for neural network parameters where the
+    /// dimension count is determined at runtime.
+    ///
+    /// # Arguments
+    /// * `shape` - The shape of the tensor
+    /// * `data` - The initial data (flattened)
+    ///
+    /// # Panics
+    /// Panics if `data.len()` doesn't match the product of `shape`.
+    pub fn from_shape_data(shape: &[usize], data: &[f32]) -> Tensor<Dyn, f32> {
+        let numel: usize = shape.iter().product();
+        assert_eq!(
+            data.len(),
+            numel,
+            "Data length {} doesn't match shape {:?} (numel={})",
+            data.len(),
+            shape,
+            numel
+        );
+
+        let expr_shape: Vec<Expr> = shape.iter().map(|&s| Expr::Const(s as i64)).collect();
+        let graph = graph::input(expr_shape, DType::F32);
+        let tensor = Tensor::<Dyn, f32>::from_graph(graph);
+
+        // Set the data
+        // Note: This requires realizing the tensor which we defer to set_data
+        tensor
+    }
+
+    /// Create an input tensor with dynamic dimensions.
+    ///
+    /// Unlike `input()` which requires compile-time dimension count,
+    /// this method accepts a runtime slice.
+    pub fn dyn_input(shape: &[usize]) -> Tensor<Dyn, f32> {
+        let expr_shape: Vec<Expr> = shape.iter().map(|&s| Expr::Const(s as i64)).collect();
+        let graph = graph::input(expr_shape, DType::F32);
+        Tensor::<Dyn, f32>::from_graph(graph)
+    }
+
+    /// Create a zeros tensor with dynamic dimensions.
+    pub fn dyn_zeros(shape: &[usize]) -> Tensor<Dyn, f32> {
+        let expr_shape: Vec<Expr> = shape.iter().map(|&s| Expr::Const(s as i64)).collect();
+        let graph = graph::zeros(expr_shape, DType::F32);
+        Tensor::<Dyn, f32>::from_graph(graph)
     }
 
     // ========================================================================

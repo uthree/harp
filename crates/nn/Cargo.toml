@@ -1,0 +1,8 @@
+[package]
+name = "eclat-nn"
+version = "0.1.0"
+edition = "2024"
+description = "Neural network modules and optimizers for Eclat"
+
+[dependencies]
+eclat = { path = "../.." }
