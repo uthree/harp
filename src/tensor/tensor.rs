@@ -298,7 +298,7 @@ mod tests {
 
     #[test]
     fn test_tensor_scalar() {
-        let x: Tensor<D0, f32> = Tensor::scalar(3.14);
+        let x: Tensor<D0, f32> = Tensor::scalar(2.5);
         assert_eq!(x.ndim(), 0);
         assert_eq!(x.shape(), Vec::<usize>::new());
     }

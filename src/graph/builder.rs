@@ -17,6 +17,7 @@ fn next_buffer_id() -> usize {
 
 /// Reset buffer ID counter (for testing)
 #[cfg(test)]
+#[allow(dead_code)]
 pub fn reset_buffer_id_counter() {
     BUFFER_ID_COUNTER.store(0, Ordering::SeqCst);
 }

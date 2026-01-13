@@ -6,8 +6,8 @@
 //! Run with: cargo run --example function_fitting
 
 use eclat::backend::set_device_str;
-use eclat::tensor::dim::D1;
 use eclat::tensor::Tensor;
+use eclat::tensor::dim::D1;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Function Fitting Demo ===\n");
@@ -135,7 +135,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    println!("\nSuccess! The model learned y = {:.2}*x + {:.2}", w_val, b_val);
+    println!(
+        "\nSuccess! The model learned y = {:.2}*x + {:.2}",
+        w_val, b_val
+    );
 
     Ok(())
 }

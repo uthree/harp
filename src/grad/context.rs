@@ -83,7 +83,7 @@ impl GradContext {
     /// - It has a gradient set, AND
     /// - Any of its sources require gradients
     pub fn should_propagate(&self, node: &GraphNode) -> bool {
-        if self.grad_map.get(&node_id(node)).is_none() {
+        if !self.grad_map.contains_key(&node_id(node)) {
             return false;
         }
 

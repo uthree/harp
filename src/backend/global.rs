@@ -239,10 +239,10 @@ pub fn compile_ast_with_cache(
     signature: crate::backend::KernelSignature,
 ) -> Result<crate::backend::cache::CacheEntry, super::device::DeviceError> {
     use super::cache::disk::{
-        compute_cache_hash, eclat_version, load_binary, save_binary, DiskCacheMetadata,
+        DiskCacheMetadata, compute_cache_hash, eclat_version, load_binary, save_binary,
     };
     use super::cache::{generate_cache_key, get_cached_kernel, insert_cached_kernel};
-    use super::device::{compile_from_binary_on_device, DeviceError};
+    use super::device::{DeviceError, compile_from_binary_on_device};
 
     let (kind, device) = DEFAULT_DEVICE.with(|state| {
         let state = state.borrow();
@@ -284,13 +284,13 @@ pub fn compile_ast_with_cache(
                 shape_vars: std::collections::HashMap::new(),
             };
 
-            if let Ok(kernel) = compile_from_binary_on_device(kind, device.as_ref(), &binary, config)
+            if let Ok(kernel) =
+                compile_from_binary_on_device(kind, device.as_ref(), &binary, config)
             {
-                let dispatch_config =
-                    crate::backend::pipeline::DispatchSizeConfig::from_const(
-                        metadata.grid_size,
-                        metadata.local_size.unwrap_or([1, 1, 1]),
-                    );
+                let dispatch_config = crate::backend::pipeline::DispatchSizeConfig::from_const(
+                    metadata.grid_size,
+                    metadata.local_size.unwrap_or([1, 1, 1]),
+                );
                 let entry = crate::backend::cache::CacheEntry::new(
                     kernel,
                     signature.clone(),
@@ -325,8 +325,8 @@ pub fn compile_ast_with_cache(
         crate::backend::cache::CacheEntry::new(kernel, signature.clone(), dispatch_config.clone());
 
     // 4. ディスクキャッシュに保存（バイナリサポートがある場合）
-    if entry.kernel.supports_binary_cache() {
-        if let Some(binary) = entry.kernel.get_binary() {
+    if entry.kernel.supports_binary_cache()
+        && let Some(binary) = entry.kernel.get_binary() {
             let metadata = DiskCacheMetadata {
                 entry_point: entry.kernel.config().entry_point.clone(),
                 grid_size: entry.kernel.config().global_work_size,
@@ -338,10 +338,13 @@ pub fn compile_ast_with_cache(
             if let Err(e) = save_binary(&disk_hash, &device_kind_str, &binary, &metadata) {
                 log::debug!("Failed to save disk cache: {}", e);
             } else {
-                log::debug!("Saved to disk cache: {} ({} bytes)", disk_hash, binary.len());
+                log::debug!(
+                    "Saved to disk cache: {} ({} bytes)",
+                    disk_hash,
+                    binary.len()
+                );
             }
         }
-    }
 
     // 5. メモリキャッシュに挿入
     insert_cached_kernel(cache_key, entry.clone());

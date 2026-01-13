@@ -51,7 +51,7 @@ pub fn backward(output: &GraphNode, params: &[&GraphNode]) -> GradResult {
     ctx.set_grad(output, initial_grad);
 
     // Get topologically sorted nodes (from inputs to output)
-    let sorted = topological_sort(&[output.clone()]);
+    let sorted = topological_sort(std::slice::from_ref(output));
 
     // Traverse in reverse order (from output to inputs)
     for node in sorted.into_iter().rev() {

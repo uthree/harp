@@ -406,8 +406,8 @@ pub fn execute_graph(
             #[cfg(debug_assertions)]
             eprintln!("  -> Not found, highest buffer: {:?}", highest_buf);
 
-            if let Some(key) = highest_buf {
-                if let Some(buffer) = buffer_map.remove(&key) {
+            if let Some(key) = highest_buf
+                && let Some(buffer) = buffer_map.remove(&key) {
                     #[cfg(debug_assertions)]
                     {
                         if let Ok(data) = buffer.read_to_host() {
@@ -422,7 +422,6 @@ pub fn execute_graph(
                     }
                     result.insert(i, buffer);
                 }
-            }
         }
     }
 
@@ -437,11 +436,10 @@ pub fn execute_graph(
 fn infer_buffer_shape(grid_size: &[Box<crate::ast::AstNode>; 3]) -> Vec<usize> {
     let mut shape = Vec::new();
     for dim in grid_size {
-        if let crate::ast::AstNode::Const(crate::ast::Literal::I64(n)) = dim.as_ref() {
-            if *n > 1 {
+        if let crate::ast::AstNode::Const(crate::ast::Literal::I64(n)) = dim.as_ref()
+            && *n > 1 {
                 shape.push(*n as usize);
             }
-        }
     }
     if shape.is_empty() {
         shape.push(1);

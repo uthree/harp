@@ -224,8 +224,8 @@ impl<D: Dimension, T: TensorDType> Tensor<D, T> {
 
         #[cfg(debug_assertions)]
         {
-            if let Some(out_buf) = result.get(0) {
-                if let Ok(data) = out_buf.read_to_host() {
+            if let Some(out_buf) = result.get(0)
+                && let Ok(data) = out_buf.read_to_host() {
                     let len = std::cmp::min(data.len(), 32);
                     eprintln!(
                         "[realize] Output buffer: {} bytes, first bytes: {:?}",
@@ -233,7 +233,6 @@ impl<D: Dimension, T: TensorDType> Tensor<D, T> {
                         &data[..len]
                     );
                 }
-            }
         }
 
         // Store the result buffer (output index 0 corresponds to our root)

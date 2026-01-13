@@ -54,7 +54,7 @@ fn demo_elementwise() {
     println!();
 
     // Analyze graph
-    print_graph_info(&[c.clone()]);
+    print_graph_info(std::slice::from_ref(&c));
 
     // Lower to AST
     let mut lowerer = Lowerer::new();
@@ -85,7 +85,7 @@ fn demo_reduction() {
     println!("Output shape: [32, 1]");
     println!();
 
-    print_graph_info(&[y.clone()]);
+    print_graph_info(std::slice::from_ref(&y));
 
     let mut lowerer = Lowerer::new();
     let program = lowerer.lower(&[y]);
@@ -122,11 +122,11 @@ fn demo_complex_graph() {
     println!("  3. final = mul_result.sum(axis=1)");
     println!();
 
-    print_graph_info(&[final_result.clone()]);
+    print_graph_info(std::slice::from_ref(&final_result));
 
     // Show topological order
     println!("Topological order (execution order):");
-    let sorted = topological_sort(&[final_result.clone()]);
+    let sorted = topological_sort(std::slice::from_ref(&final_result));
     for (i, node) in sorted.iter().enumerate() {
         let name = node.name().unwrap_or("unnamed");
         let is_input = node.is_external();

@@ -149,10 +149,7 @@ impl BackendRegistry for OpenCLBackendRegistry {
         let kernel = compiler
             .compile_from_binary(opencl_device, binary, config)
             .map_err(|e| {
-                DeviceError::InitializationError(format!(
-                    "Failed to compile from binary: {}",
-                    e
-                ))
+                DeviceError::InitializationError(format!("Failed to compile from binary: {}", e))
             })?;
 
         Ok(Box::new(kernel))

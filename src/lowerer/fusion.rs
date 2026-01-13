@@ -169,7 +169,7 @@ mod tests {
         let unsqueezed = transposed.unsqueeze(0);
 
         // Apply fusion
-        let fused = fuse_views(&[unsqueezed.clone()]);
+        let fused = fuse_views(std::slice::from_ref(&unsqueezed));
 
         // Should reduce node count
         let orig_count = crate::graph::count_nodes(&[unsqueezed]);
@@ -186,7 +186,7 @@ mod tests {
         let summed = doubled.sum(1); // reduce
 
         // Apply fusion
-        let fused = fuse_elementwise_reduce(&[summed.clone()]);
+        let fused = fuse_elementwise_reduce(std::slice::from_ref(&summed));
 
         // The fused graph should have fewer nodes
         let orig_count = crate::graph::count_nodes(&[summed]);

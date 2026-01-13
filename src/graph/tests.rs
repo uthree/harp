@@ -18,7 +18,7 @@ fn test_simple_computation_graph() {
     assert_eq!(d.sources().len(), 1);
 
     // Verify inputs
-    let inputs = collect_inputs(&[d.clone()]);
+    let inputs = collect_inputs(std::slice::from_ref(&d));
     assert_eq!(inputs.len(), 2);
 }
 
@@ -31,7 +31,7 @@ fn test_complex_graph() {
     let z = (&(&x + &y) * &x) - &y.sqrt();
 
     // Count nodes
-    let count = count_nodes(&[z.clone()]);
+    let count = count_nodes(std::slice::from_ref(&z));
     assert!(count >= 4); // At least x, y, and intermediate nodes
 }
 
@@ -73,7 +73,7 @@ fn test_topological_order() {
     let c = (&a + &b).with_name("c");
     let d = (&c * &a).with_name("d");
 
-    let sorted = topological_sort(&[d.clone()]);
+    let sorted = topological_sort(std::slice::from_ref(&d));
 
     // Find positions
     let get_pos = |name: &str| sorted.iter().position(|n| n.name() == Some(name)).unwrap();

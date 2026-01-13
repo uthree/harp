@@ -299,7 +299,7 @@ mod tests {
     #[test]
     fn test_topological_sort() {
         let (a, b, c) = make_test_graph();
-        let sorted = topological_sort(&[c.clone()]);
+        let sorted = topological_sort(std::slice::from_ref(&c));
 
         // a and b should come before c
         let a_idx = sorted.iter().position(|n| n == &a).unwrap();
@@ -360,7 +360,7 @@ mod tests {
         let new_c = &transformed[0];
 
         // The sources of new_c should include new_a instead of a
-        let inputs = collect_inputs(&[new_c.clone()]);
+        let inputs = collect_inputs(std::slice::from_ref(new_c));
         assert!(inputs.iter().any(|n| n.name() == Some("new_a")));
     }
 }
