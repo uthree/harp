@@ -513,8 +513,9 @@ impl EclatDevice {
             "metal" => Ok(DeviceKind::Metal),
             "opencl" => Ok(DeviceKind::OpenCL),
             "c" => Ok(DeviceKind::C),
+            "rust" => Ok(DeviceKind::Rust),
             _ => Err(DeviceError::ParseError(format!(
-                "Unknown backend: '{}'. Valid options: metal, opencl, c",
+                "Unknown backend: '{}'. Valid options: metal, opencl, c, rust",
                 s
             ))),
         }

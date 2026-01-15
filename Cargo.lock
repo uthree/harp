@@ -429,6 +429,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "eclat-backend-rust"
+version = "0.1.0"
+dependencies = [
+ "eclat",
+ "libloading",
+ "log",
+ "tempfile",
+]
+
+[[package]]
 name = "eclat-nn"
 version = "0.1.0"
 dependencies = [

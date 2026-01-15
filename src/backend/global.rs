@@ -39,6 +39,8 @@ pub enum DeviceKind {
     OpenCL,
     /// C backend (CPU fallback)
     C,
+    /// Rust backend (CPU, experimental)
+    Rust,
 }
 
 impl std::fmt::Display for DeviceKind {
@@ -48,6 +50,7 @@ impl std::fmt::Display for DeviceKind {
             DeviceKind::Metal => write!(f, "Metal"),
             DeviceKind::OpenCL => write!(f, "OpenCL"),
             DeviceKind::C => write!(f, "C"),
+            DeviceKind::Rust => write!(f, "Rust"),
         }
     }
 }
@@ -413,5 +416,6 @@ mod tests {
         assert_eq!(format!("{}", DeviceKind::Metal), "Metal");
         assert_eq!(format!("{}", DeviceKind::OpenCL), "OpenCL");
         assert_eq!(format!("{}", DeviceKind::C), "C");
+        assert_eq!(format!("{}", DeviceKind::Rust), "Rust");
     }
 }

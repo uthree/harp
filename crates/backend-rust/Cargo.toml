@@ -1,0 +1,11 @@
+[package]
+name = "eclat-backend-rust"
+version = "0.1.0"
+edition = "2024"
+description = "Rust backend for Eclat with CPU runtime execution"
+
+[dependencies]
+eclat = { path = "../.." }
+log = { version = "0.4", features = ["std"] }
+libloading = "0.8"
+tempfile = "3"
