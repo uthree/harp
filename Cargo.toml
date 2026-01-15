@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/backend-c", "crates/backend-opencl", "crates/backend-metal", "crates/backend-rust", "crates/nn"]
+members = ["crates/backend-c", "crates/backend-opencl", "crates/backend-metal", "crates/backend-cuda", "crates/backend-rust", "crates/nn"]
 
 [package]
 name = "eclat"

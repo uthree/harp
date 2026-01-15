@@ -512,10 +512,11 @@ impl EclatDevice {
         match s.to_lowercase().as_str() {
             "metal" => Ok(DeviceKind::Metal),
             "opencl" => Ok(DeviceKind::OpenCL),
+            "cuda" => Ok(DeviceKind::Cuda),
             "c" => Ok(DeviceKind::C),
             "rust" => Ok(DeviceKind::Rust),
             _ => Err(DeviceError::ParseError(format!(
-                "Unknown backend: '{}'. Valid options: metal, opencl, c, rust",
+                "Unknown backend: '{}'. Valid options: metal, opencl, cuda, c, rust",
                 s
             ))),
         }

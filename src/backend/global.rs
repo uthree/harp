@@ -37,6 +37,8 @@ pub enum DeviceKind {
     Metal,
     /// OpenCL backend
     OpenCL,
+    /// CUDA backend (NVIDIA GPU)
+    Cuda,
     /// C backend (CPU fallback)
     C,
     /// Rust backend (CPU, experimental)
@@ -49,6 +51,7 @@ impl std::fmt::Display for DeviceKind {
             DeviceKind::None => write!(f, "None"),
             DeviceKind::Metal => write!(f, "Metal"),
             DeviceKind::OpenCL => write!(f, "OpenCL"),
+            DeviceKind::Cuda => write!(f, "Cuda"),
             DeviceKind::C => write!(f, "C"),
             DeviceKind::Rust => write!(f, "Rust"),
         }
@@ -415,6 +418,7 @@ mod tests {
         assert_eq!(format!("{}", DeviceKind::None), "None");
         assert_eq!(format!("{}", DeviceKind::Metal), "Metal");
         assert_eq!(format!("{}", DeviceKind::OpenCL), "OpenCL");
+        assert_eq!(format!("{}", DeviceKind::Cuda), "Cuda");
         assert_eq!(format!("{}", DeviceKind::C), "C");
         assert_eq!(format!("{}", DeviceKind::Rust), "Rust");
     }
