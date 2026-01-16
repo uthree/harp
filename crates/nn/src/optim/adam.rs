@@ -4,7 +4,7 @@
 //!
 //! Reference: Kingma, D. P., & Ba, J. (2014). Adam: A Method for Stochastic Optimization.
 
-use super::{OptimError, Optimizer};
+use super::{get_param_data, OptimError, Optimizer};
 use crate::nn::Parameter;
 
 /// Adam optimizer.
@@ -106,31 +106,9 @@ impl Optimizer for Adam {
         let bias_correction2 = 1.0 - beta2.powi(self.t as i32);
 
         for (i, param) in self.params.iter().enumerate() {
-            // Get gradient
-            let grad = param
-                .grad()
-                .ok_or_else(|| OptimError::NoGradient(param.name().to_string()))?;
-
-            // Realize gradient and get data
-            grad.realize()
-                .map_err(|e| OptimError::ExecutionError(e.to_string()))?;
-            let grad_data = grad
-                .to_vec()
-                .map_err(|e| OptimError::ExecutionError(e.to_string()))?;
-
-            // Get current parameter data
-            let param_data = param
-                .to_vec()
-                .map_err(|e| OptimError::ExecutionError(e.to_string()))?;
-
-            // Check shapes match
-            if grad_data.len() != param_data.len() {
-                return Err(OptimError::ShapeMismatch {
-                    param_name: param.name().to_string(),
-                    expected: param_data.len(),
-                    got: grad_data.len(),
-                });
-            }
+            let data = get_param_data(param)?;
+            let param_data = data.param_data;
+            let grad_data = data.grad_data;
 
             // Compute update
             let mut new_data = vec![0.0f32; param_data.len()];

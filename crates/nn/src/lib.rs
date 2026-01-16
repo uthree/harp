@@ -32,5 +32,5 @@ pub mod nn;
 pub mod optim;
 
 // Re-export commonly used types
-pub use nn::{Linear, Module, Parameter};
-pub use optim::{Adam, Optimizer, SGD};
+pub use nn::{Linear, Module, Parameter, ParameterError};
+pub use optim::{Adam, OptimError, Optimizer, SGD};

@@ -28,6 +28,6 @@ mod parameter;
 mod module;
 mod linear;
 
-pub use parameter::Parameter;
+pub use parameter::{Parameter, ParameterError};
 pub use module::Module;
 pub use linear::Linear;

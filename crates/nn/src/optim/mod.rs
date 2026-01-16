@@ -33,6 +33,6 @@ mod optimizer;
 mod sgd;
 mod adam;
 
-pub use optimizer::{Optimizer, OptimError};
+pub use optimizer::{get_param_data, OptimError, Optimizer, ParamData};
 pub use sgd::SGD;
 pub use adam::Adam;

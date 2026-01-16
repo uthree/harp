@@ -196,11 +196,7 @@ impl<D: Dimension, T: TensorDType> Tensor<D, T> {
 
         let expr_shape: Vec<Expr> = shape.iter().map(|&s| Expr::Const(s as i64)).collect();
         let graph = graph::input(expr_shape, DType::F32);
-        let tensor = Tensor::<Dyn, f32>::from_graph(graph);
-
-        // Set the data
-        // Note: This requires realizing the tensor which we defer to set_data
-        tensor
+        Tensor::<Dyn, f32>::from_graph(graph)
     }
 
     /// Create an input tensor with dynamic dimensions.

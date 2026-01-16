@@ -60,8 +60,7 @@ impl Linear {
         let weight_data: Vec<f32> = (0..out_features * in_features)
             .map(|i| {
                 // Simple deterministic pseudo-random for reproducibility
-                let x = (i as f32 * 0.1).sin() * bound;
-                x
+                (i as f32 * 0.1).sin() * bound
             })
             .collect();
         let weight = Parameter::from_data("weight", &weight_data, &[out_features, in_features]);

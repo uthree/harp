@@ -2,8 +2,6 @@
 //!
 //! Base trait for all optimization algorithms.
 
-use crate::nn::Parameter;
-
 /// Base trait for optimizers.
 ///
 /// All optimizers implement this trait, providing:
@@ -82,26 +80,52 @@ impl std::fmt::Display for OptimError {
 
 impl std::error::Error for OptimError {}
 
-/// Helper struct for managing parameter references in optimizers.
-#[derive(Clone)]
-pub struct ParamGroup {
-    /// Parameters in this group
-    pub params: Vec<Parameter>,
-    /// Learning rate for this group (overrides optimizer default if set)
-    pub lr: Option<f32>,
+use crate::nn::Parameter;
+
+/// Data extracted from a parameter for optimization.
+pub struct ParamData {
+    /// Current parameter values
+    pub param_data: Vec<f32>,
+    /// Gradient values
+    pub grad_data: Vec<f32>,
 }
 
-impl ParamGroup {
-    /// Create a new parameter group with default settings.
-    pub fn new(params: Vec<Parameter>) -> Self {
-        Self { params, lr: None }
+/// Extract gradient and parameter data for optimization step.
+///
+/// This helper function:
+/// 1. Gets the gradient from the parameter
+/// 2. Realizes the gradient tensor
+/// 3. Extracts gradient and parameter data as vectors
+/// 4. Validates that shapes match
+pub fn get_param_data(param: &Parameter) -> Result<ParamData, OptimError> {
+    // Get gradient
+    let grad = param
+        .grad()
+        .ok_or_else(|| OptimError::NoGradient(param.name().to_string()))?;
+
+    // Realize gradient and get data
+    grad.realize()
+        .map_err(|e| OptimError::ExecutionError(e.to_string()))?;
+    let grad_data = grad
+        .to_vec()
+        .map_err(|e| OptimError::ExecutionError(e.to_string()))?;
+
+    // Get current parameter data
+    let param_data = param
+        .to_vec()
+        .map_err(|e| OptimError::ExecutionError(e.to_string()))?;
+
+    // Check shapes match
+    if grad_data.len() != param_data.len() {
+        return Err(OptimError::ShapeMismatch {
+            param_name: param.name().to_string(),
+            expected: param_data.len(),
+            got: grad_data.len(),
+        });
     }
 
-    /// Create a parameter group with a specific learning rate.
-    pub fn with_lr(params: Vec<Parameter>, lr: f32) -> Self {
-        Self {
-            params,
-            lr: Some(lr),
-        }
-    }
+    Ok(ParamData {
+        param_data,
+        grad_data,
+    })
 }

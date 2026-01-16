@@ -5,7 +5,7 @@
 
 use eclat::tensor::{Tensor, dim::Dyn};
 use std::cell::{Ref, RefCell};
-use std::sync::Arc;
+use std::rc::Rc;
 
 /// Internal state of a parameter
 struct ParameterInner {
@@ -24,7 +24,7 @@ struct ParameterInner {
 /// `Parameter` is a wrapper around `Tensor<Dyn, f32>` that:
 /// - Automatically enables gradient tracking
 /// - Provides a named interface for parameter management
-/// - Supports sharing via `Arc` for efficient cloning
+/// - Supports sharing via `Rc` for efficient cloning
 ///
 /// # Example
 ///
@@ -39,7 +39,7 @@ struct ParameterInner {
 /// ```
 #[derive(Clone)]
 pub struct Parameter {
-    inner: Arc<ParameterInner>,
+    inner: Rc<ParameterInner>,
 }
 
 impl Parameter {
@@ -78,7 +78,7 @@ impl Parameter {
 
         // Store initial data for lazy initialization (will be set when device is available)
         Self {
-            inner: Arc::new(ParameterInner {
+            inner: Rc::new(ParameterInner {
                 name: name.to_string(),
                 tensor: RefCell::new(tensor),
                 shape: shape.to_vec(),
@@ -279,8 +279,8 @@ mod tests {
         assert_eq!(p1.name(), p2.name());
         assert_eq!(p1.shape(), p2.shape());
 
-        // Arc::ptr_eq to verify sharing
-        assert!(Arc::ptr_eq(&p1.inner, &p2.inner));
+        // Rc::ptr_eq to verify sharing
+        assert!(Rc::ptr_eq(&p1.inner, &p2.inner));
     }
 
     #[test]
