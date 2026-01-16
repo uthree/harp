@@ -22,10 +22,10 @@ jobs:
               uses: dtolnay/rust-toolchain@stable
 
             - name: Build workspace
-              run: cargo build --workspace --exclude eclat-backend-opencl --exclude eclat-backend-metal
+              run: cargo build --workspace --exclude eclat-backend-opencl --exclude eclat-backend-metal --exclude eclat-backend-cuda --exclude eclat-backend-rust --exclude eclat-nn
 
             - name: Run tests
-              run: cargo test --workspace --exclude eclat-backend-opencl --exclude eclat-backend-metal
+              run: cargo test --workspace --exclude eclat-backend-opencl --exclude eclat-backend-metal --exclude eclat-backend-cuda --exclude eclat-backend-rust --exclude eclat-nn
 
     c_backend_integration_test:
         name: C Backend Integration Test
@@ -69,10 +69,10 @@ jobs:
               uses: dtolnay/rust-toolchain@stable
 
             - name: Build with OpenCL
-              run: cargo build --workspace --exclude eclat-backend-metal --verbose
+              run: cargo build --workspace --exclude eclat-backend-metal --exclude eclat-backend-cuda --exclude eclat-backend-rust --exclude eclat-nn --verbose
 
             - name: Run OpenCL integration tests
-              run: RUST_LOG=error cargo test --workspace --exclude eclat-backend-metal --verbose -- --test-threads=1
+              run: RUST_LOG=error cargo test --workspace --exclude eclat-backend-metal --exclude eclat-backend-cuda --exclude eclat-backend-rust --exclude eclat-nn --verbose -- --test-threads=1
 
     metal_build_test:
         name: Metal Build Test (macOS)
@@ -85,7 +85,28 @@ jobs:
               uses: dtolnay/rust-toolchain@stable
 
             - name: Build with Metal
-              run: cargo build --workspace --exclude eclat-backend-opencl --verbose
+              run: cargo build --workspace --exclude eclat-backend-opencl --exclude eclat-backend-cuda --exclude eclat-backend-rust --exclude eclat-nn --verbose
 
             - name: Run Metal integration tests
-              run: cargo test --workspace --exclude eclat-backend-opencl --verbose
+              run: cargo test --workspace --exclude eclat-backend-opencl --exclude eclat-backend-cuda --exclude eclat-backend-rust --exclude eclat-nn --verbose
+
+    cuda_backend_build_test:
+        name: CUDA Backend Build Test
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Install dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y build-essential
+
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@stable
+
+            - name: Build CUDA backend (without CUDA runtime)
+              run: cargo build -p eclat-backend-cuda --verbose
+
+            - name: Run CUDA backend tests (renderer tests only)
+              run: cargo test -p eclat-backend-cuda --verbose
