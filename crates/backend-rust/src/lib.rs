@@ -123,11 +123,18 @@ impl BackendRegistry for RustBackendRegistry {
 /// The Rust backend compiles generated Rust code to a shared library (cdylib)
 /// and executes it on the CPU. This requires rustc to be available on the system.
 ///
-/// This should be called once at program startup.
+/// This is called automatically at program startup via the `ctor` attribute
+/// when this crate is linked.
 pub fn init() {
     // Register the backend
     eclat::backend::register_backend(Box::new(RustBackendRegistry));
     log::info!("Rust backend initialized");
+}
+
+/// Automatic initialization at program startup
+#[ctor::ctor]
+fn auto_init() {
+    init();
 }
 
 #[cfg(test)]

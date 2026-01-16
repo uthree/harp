@@ -142,11 +142,18 @@ impl BackendRegistry for CudaBackendRegistry {
 /// Note: If built without the `cuda-runtime` feature, the backend will
 /// register but report as unavailable.
 ///
-/// This should be called once at program startup.
+/// This is called automatically at program startup via the `ctor` attribute
+/// when this crate is linked.
 pub fn init() {
     // Register the backend
     eclat::backend::register_backend(Box::new(CudaBackendRegistry));
     log::info!("CUDA backend initialized");
+}
+
+/// Automatic initialization at program startup
+#[ctor::ctor]
+fn auto_init() {
+    init();
 }
 
 #[cfg(test)]

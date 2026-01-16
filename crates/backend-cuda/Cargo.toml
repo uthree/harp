@@ -8,6 +8,7 @@ description = "CUDA backend for Eclat"
 eclat = { path = "../.." }
 log = { version = "0.4", features = ["std"] }
 tempfile = "3"
+ctor = "0.2"
 
 # CUDA bindings - optional, requires CUDA SDK
 # Enable with: --features cuda-runtime

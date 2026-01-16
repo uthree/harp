@@ -433,6 +433,7 @@ dependencies = [
 name = "eclat-backend-cuda"
 version = "0.1.0"
 dependencies = [
+ "ctor",
  "cudarc",
  "eclat",
  "env_logger",
@@ -455,6 +456,7 @@ dependencies = [
 name = "eclat-backend-opencl"
 version = "0.1.0"
 dependencies = [
+ "ctor",
  "eclat",
  "log",
  "ocl",
@@ -464,6 +466,7 @@ dependencies = [
 name = "eclat-backend-rust"
 version = "0.1.0"
 dependencies = [
+ "ctor",
  "eclat",
  "libloading",
  "log",

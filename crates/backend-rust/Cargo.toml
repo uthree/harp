@@ -9,3 +9,4 @@ eclat = { path = "../.." }
 log = { version = "0.4", features = ["std"] }
 libloading = "0.8"
 tempfile = "3"
+ctor = "0.2"
