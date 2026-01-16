@@ -5,7 +5,12 @@
 //!
 //! Run with: cargo run --example function_fitting
 
-use eclat::backend::set_device_str;
+// Link backend crates to trigger ctor auto-initialization
+#[cfg(target_os = "macos")]
+extern crate eclat_backend_metal;
+extern crate eclat_backend_c;
+
+use eclat::backend::{get_default_device_kind, set_device_str};
 use eclat::tensor::Tensor;
 use eclat::tensor::dim::D1;
 
@@ -13,19 +18,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Function Fitting Demo ===\n");
     println!("Learning: y = 2*x + 1\n");
 
-    // Initialize backend based on platform
-    #[cfg(target_os = "macos")]
-    {
-        eclat_backend_metal::init();
-        set_device_str("metal")?;
-        println!("Device: Metal GPU\n");
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        eclat_backend_c::init();
-        set_device_str("c")?;
-        println!("Device: C CPU\n");
-    }
+    // Auto-select the best available backend (backends are auto-initialized via ctor)
+    set_device_str("auto")?;
+    println!("Device: {}\n", get_default_device_kind());
 
     // ========================================================================
     // Generate training data: y = 2*x + 1

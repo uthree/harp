@@ -9,3 +9,4 @@ eclat = { path = "../.." }
 metal = "0.29"
 objc = "0.2"
 log = { version = "0.4", features = ["std"] }
+ctor = "0.2"

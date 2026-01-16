@@ -123,11 +123,17 @@ impl BackendRegistry for CBackendRegistry {
 /// executes it on the CPU. This requires a C compiler (clang/gcc/cl)
 /// to be available on the system.
 ///
-/// This should be called once at program startup. When using the `eclat` facade
-/// crate, this is done automatically via the `ctor` attribute.
+/// This is called automatically at program startup via the `ctor` attribute
+/// when this crate is linked.
 pub fn init() {
     // Register the backend
     eclat::backend::register_backend(Box::new(CBackendRegistry));
+}
+
+/// Automatic initialization at program startup
+#[ctor::ctor]
+fn auto_init() {
+    init();
 }
 
 #[cfg(test)]

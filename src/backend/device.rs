@@ -355,6 +355,11 @@ impl EclatDevice {
     /// - 無効なデバイスインデックス
     /// - バックエンドが利用できない
     pub fn new(device_str: &str) -> Result<Self, DeviceError> {
+        // "auto"の場合は自動選択
+        if device_str.to_lowercase() == "auto" {
+            return Self::auto();
+        }
+
         let (backend_str, index) = Self::parse_device_str(device_str)?;
         let kind = Self::parse_backend(backend_str)?;
         Self::create_for_kind(kind, index)

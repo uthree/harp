@@ -133,11 +133,17 @@ impl BackendRegistry for MetalBackendRegistry {
 /// This function registers the Metal backend with eclat-core, making it
 /// available for device selection via `EclatDevice::auto()` or `EclatDevice::metal()`.
 ///
-/// This should be called once at program startup. When using the `eclat` facade
-/// crate, this is done automatically via the `ctor` attribute.
+/// This is called automatically at program startup via the `ctor` attribute
+/// when this crate is linked.
 pub fn init() {
     // Register the backend
     eclat::backend::register_backend(Box::new(MetalBackendRegistry));
+}
+
+/// Automatic initialization at program startup
+#[ctor::ctor]
+fn auto_init() {
+    init();
 }
 
 #[cfg(test)]
