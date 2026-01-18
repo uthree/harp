@@ -80,8 +80,6 @@ impl Device for OpenMPDevice {
     fn is_available() -> bool {
         // OpenMP backend is available if we can actually compile a simple OpenMP program
         // This checks both compiler support and omp.h availability
-        use std::io::Write;
-
         let temp_dir = match tempfile::TempDir::new() {
             Ok(d) => d,
             Err(_) => return false,

@@ -218,8 +218,8 @@ impl CLikeRenderer for OpenMPRenderer {
         &mut self,
         var: &str,
         start: &AstNode,
-        stop: &AstNode,
         step: &AstNode,
+        stop: &AstNode,
         body: &AstNode,
         parallel: &ParallelInfo,
     ) -> String {
