@@ -37,6 +37,34 @@ pub fn compute_vjp(node: &GraphNode, grad_output: &GraphNode) -> VjpResult {
                 compute_elementwise_vjp(node, grad_output, sources, map)
             }
         }
+        GraphOp::Unfold {
+            input_shape,
+            axes,
+            sizes,
+            strides,
+            dilations,
+        } => {
+            // Unfold (gather) の VJP は fold (scatter-add)
+            // 複数の出力位置から同じ入力位置に勾配を累積する
+            let grad_input = grad_output.fold(input_shape, axes, sizes, strides, dilations);
+            VjpResult {
+                input_grads: vec![Some(grad_input)],
+            }
+        }
+        GraphOp::Scatter {
+            output_shape: _,
+            axes,
+            sizes,
+            strides,
+            dilations,
+        } => {
+            // Scatter (fold) の VJP は unfold
+            // fold の逆操作として、grad_output を unfold して元の形状に戻す
+            let grad_input = grad_output.unfold(axes, sizes, strides, dilations);
+            VjpResult {
+                input_grads: vec![Some(grad_input)],
+            }
+        }
     }
 }
 

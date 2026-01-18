@@ -8,7 +8,7 @@ use std::ops::{Add, Div, Mul, Neg, Sub};
 use crate::ast::TensorDType;
 use crate::graph::Expr;
 
-use super::dim::{DimAdd1, DimEq, DimSub1, Dimension};
+use super::dim::{DimAdd1, DimEq, DimSub1, Dimension, Dyn};
 use super::tensor::Tensor;
 
 // ============================================================================
@@ -364,6 +364,71 @@ impl<D: Dimension, T: TensorDType> Tensor<D, T> {
     pub fn flatten(&self) -> Tensor<super::dim::D1, T> {
         let numel = self.numel();
         self.reshape([numel])
+    }
+}
+
+// ============================================================================
+// Unfold / Fold Operations
+// ============================================================================
+
+impl<D: Dimension, T: TensorDType> Tensor<D, T> {
+    /// Unfold (sliding window extraction)
+    ///
+    /// Extracts sliding windows from the specified axes.
+    /// The output shape is: [preserved_dims..., output_positions..., window_dims...]
+    ///
+    /// # Arguments
+    /// * `axes` - Axes to unfold (must be sorted)
+    /// * `sizes` - Window size for each axis
+    /// * `strides` - Stride for each axis
+    /// * `dilations` - Dilation for each axis
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Input: [1, 3, 28, 28] (NCHW)
+    /// // Unfold H and W with 3x3 kernel, stride 1, dilation 1
+    /// let unfolded: Tensor<Dyn, f32> = x.unfold(&[2, 3], &[3, 3], &[1, 1], &[1, 1]);
+    /// // Output: [1, 3, 26, 26, 3, 3]
+    /// ```
+    pub fn unfold(
+        &self,
+        axes: &[usize],
+        sizes: &[usize],
+        strides: &[usize],
+        dilations: &[usize],
+    ) -> Tensor<Dyn, T> {
+        let graph = self.inner.graph.unfold(axes, sizes, strides, dilations);
+        Tensor::from_graph(graph)
+    }
+
+    /// Fold (inverse of unfold)
+    ///
+    /// Accumulates values from unfolded windows back to the original shape.
+    /// This is the inverse operation of unfold, using scatter-add semantics.
+    /// Overlapping windows are summed together.
+    ///
+    /// # Arguments
+    /// * `output_shape` - The target output shape
+    /// * `axes` - Axes that were unfolded
+    /// * `sizes` - Window size for each axis
+    /// * `strides` - Stride for each axis
+    /// * `dilations` - Dilation for each axis
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Reverse of unfold: [1, 3, 26, 26, 3, 3] -> [1, 3, 28, 28]
+    /// let folded: Tensor<Dyn, f32> = unfolded.fold(&[1, 3, 28, 28], &[2, 3], &[3, 3], &[1, 1], &[1, 1]);
+    /// ```
+    pub fn fold(
+        &self,
+        output_shape: &[usize],
+        axes: &[usize],
+        sizes: &[usize],
+        strides: &[usize],
+        dilations: &[usize],
+    ) -> Tensor<Dyn, T> {
+        let graph = self.inner.graph.fold(output_shape, axes, sizes, strides, dilations);
+        Tensor::from_graph(graph)
     }
 }
 
@@ -729,5 +794,82 @@ mod tests {
         let b: Tensor<D2, i32> = a.cast();
         assert_eq!(b.shape(), vec![32, 64]);
         assert_eq!(b.dtype(), DType::I32);
+    }
+
+    #[test]
+    fn test_unfold_2d() {
+        use crate::tensor::dim::D4;
+
+        // Input: [1, 3, 28, 28] (NCHW)
+        let x: Tensor<D4, f32> = Tensor::input([1, 3, 28, 28]);
+
+        // Unfold H and W axes with 3x3 kernel, stride 1, dilation 1
+        // Output: [1, 3, 26, 26, 3, 3]
+        let unfolded = x.unfold(&[2, 3], &[3, 3], &[1, 1], &[1, 1]);
+
+        // Expected output shape:
+        // - Preserved: N=1, C=3
+        // - Output positions: (28 - 3) / 1 + 1 = 26 for both H and W
+        // - Window: 3x3
+        assert_eq!(unfolded.shape(), vec![1, 3, 26, 26, 3, 3]);
+    }
+
+    #[test]
+    fn test_unfold_1d() {
+        // Input: [1, 64, 100] (N, C, L)
+        let x: Tensor<D3, f32> = Tensor::input([1, 64, 100]);
+
+        // Unfold L axis with kernel size 5, stride 2, dilation 1
+        // Output: [1, 64, 48, 5]
+        let unfolded = x.unfold(&[2], &[5], &[2], &[1]);
+
+        // Expected output shape:
+        // - Preserved: N=1, C=64
+        // - Output positions: (100 - 5) / 2 + 1 = 48
+        // - Window: 5
+        assert_eq!(unfolded.shape(), vec![1, 64, 48, 5]);
+    }
+
+    #[test]
+    fn test_unfold_with_dilation() {
+        use crate::tensor::dim::D4;
+
+        // Input: [1, 3, 28, 28]
+        let x: Tensor<D4, f32> = Tensor::input([1, 3, 28, 28]);
+
+        // Unfold with dilation 2
+        // effective_size = (3 - 1) * 2 + 1 = 5
+        // Output positions: (28 - 5) / 1 + 1 = 24
+        let unfolded = x.unfold(&[2, 3], &[3, 3], &[1, 1], &[2, 2]);
+        assert_eq!(unfolded.shape(), vec![1, 3, 24, 24, 3, 3]);
+    }
+
+    #[test]
+    fn test_fold() {
+        use crate::tensor::dim::D6;
+
+        // Simulating reverse of unfold
+        // Unfolded shape: [1, 3, 26, 26, 3, 3] (from 28x28 with 3x3 kernel, stride 1)
+        let x: Tensor<D6, f32> = Tensor::input([1, 3, 26, 26, 3, 3]);
+
+        // Fold back to original shape
+        let folded = x.fold(&[1, 3, 28, 28], &[2, 3], &[3, 3], &[1, 1], &[1, 1]);
+        assert_eq!(folded.shape(), vec![1, 3, 28, 28]);
+    }
+
+    #[test]
+    fn test_unfold_fold_shape_consistency() {
+        use crate::tensor::dim::D4;
+
+        // Test that unfold -> fold preserves the shape (not values, due to overlapping sums)
+        let x: Tensor<D4, f32> = Tensor::input([1, 3, 10, 10]);
+
+        // Unfold
+        let unfolded = x.unfold(&[2, 3], &[3, 3], &[1, 1], &[1, 1]);
+        assert_eq!(unfolded.shape(), vec![1, 3, 8, 8, 3, 3]);
+
+        // Fold back
+        let folded = unfolded.fold(&[1, 3, 10, 10], &[2, 3], &[3, 3], &[1, 1], &[1, 1]);
+        assert_eq!(folded.shape(), vec![1, 3, 10, 10]);
     }
 }

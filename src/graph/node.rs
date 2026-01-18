@@ -101,6 +101,42 @@ pub enum GraphOp {
         /// Optional reduction: (operation, axis)
         reduce: Option<(ReduceOp, usize)>,
     },
+
+    /// Unfold operation (sliding window extraction / gather)
+    ///
+    /// Extracts sliding windows from specified axes. This is a gather operation
+    /// where the same input element may be read multiple times.
+    /// The VJP of unfold is fold (scatter-add).
+    Unfold {
+        /// Original input shape (needed for VJP)
+        input_shape: Vec<Expr>,
+        /// Axes to unfold
+        axes: Vec<usize>,
+        /// Window sizes for each axis
+        sizes: Vec<Expr>,
+        /// Strides for each axis
+        strides: Vec<Expr>,
+        /// Dilations for each axis
+        dilations: Vec<Expr>,
+    },
+
+    /// Scatter-add operation (inverse of unfold/gather)
+    ///
+    /// Used to implement fold: accumulates values from unfolded windows back to the original shape.
+    /// Multiple input elements may map to the same output element (overlapping windows),
+    /// so atomic addition is used during lowering.
+    Scatter {
+        /// Output shape to scatter into
+        output_shape: Vec<Expr>,
+        /// Axes that were unfolded
+        axes: Vec<usize>,
+        /// Window sizes for each axis
+        sizes: Vec<Expr>,
+        /// Strides for each axis
+        strides: Vec<Expr>,
+        /// Dilations for each axis
+        dilations: Vec<Expr>,
+    },
 }
 
 // ============================================================================
@@ -328,6 +364,102 @@ impl GraphNode {
             vec![self.clone()],
             new_view,
             GraphOp::View(self.0.view.clone()),
+            self.0.dtype.clone(),
+            None,
+        )
+    }
+
+    /// Unfold (sliding window extraction)
+    ///
+    /// Extracts sliding windows from the specified axes, similar to PyTorch's unfold.
+    /// The output shape is: [preserved_dims..., output_positions..., window_dims...]
+    ///
+    /// # Arguments
+    /// * `axes` - Axes to unfold (must be sorted)
+    /// * `sizes` - Window size for each axis
+    /// * `strides` - Stride for each axis
+    /// * `dilations` - Dilation for each axis
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Input: [1, 3, 28, 28] (NCHW)
+    /// // Unfold H and W with 3x3 kernel, stride 1, dilation 1
+    /// let unfolded = x.unfold(&[2, 3], &[3, 3], &[1, 1], &[1, 1]);
+    /// // Output: [1, 3, 26, 26, 3, 3]
+    /// ```
+    pub fn unfold<E: Into<Expr> + Clone>(
+        &self,
+        axes: &[usize],
+        sizes: &[E],
+        strides: &[E],
+        dilations: &[E],
+    ) -> Self {
+        let sizes_expr: Vec<Expr> = sizes.iter().map(|s| s.clone().into()).collect();
+        let strides_expr: Vec<Expr> = strides.iter().map(|s| s.clone().into()).collect();
+        let dilations_expr: Vec<Expr> = dilations.iter().map(|d| d.clone().into()).collect();
+
+        let new_view = self
+            .0
+            .view
+            .clone()
+            .unfold(axes, &sizes_expr, &strides_expr, &dilations_expr);
+        GraphNode::new(
+            vec![self.clone()],
+            new_view,
+            GraphOp::Unfold {
+                input_shape: self.shape(),
+                axes: axes.to_vec(),
+                sizes: sizes_expr,
+                strides: strides_expr,
+                dilations: dilations_expr,
+            },
+            self.0.dtype.clone(),
+            None,
+        )
+    }
+
+    /// Fold (inverse of unfold)
+    ///
+    /// Accumulates values from unfolded windows back to the original shape.
+    /// This is the inverse operation of unfold, using scatter-add semantics.
+    /// Overlapping windows are summed together.
+    ///
+    /// # Arguments
+    /// * `output_shape` - The target output shape
+    /// * `axes` - Axes that were unfolded
+    /// * `sizes` - Window size for each axis
+    /// * `strides` - Stride for each axis
+    /// * `dilations` - Dilation for each axis
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Reverse of unfold: [1, 3, 26, 26, 3, 3] -> [1, 3, 28, 28]
+    /// let folded = unfolded.fold(&[1, 3, 28, 28], &[2, 3], &[3, 3], &[1, 1], &[1, 1]);
+    /// ```
+    pub fn fold<E: Into<Expr> + Clone>(
+        &self,
+        output_shape: &[E],
+        axes: &[usize],
+        sizes: &[E],
+        strides: &[E],
+        dilations: &[E],
+    ) -> Self {
+        let output_shape: Vec<Expr> = output_shape.iter().map(|s| s.clone().into()).collect();
+        let sizes: Vec<Expr> = sizes.iter().map(|s| s.clone().into()).collect();
+        let strides: Vec<Expr> = strides.iter().map(|s| s.clone().into()).collect();
+        let dilations: Vec<Expr> = dilations.iter().map(|d| d.clone().into()).collect();
+
+        let new_view = View::contiguous(output_shape.clone());
+        GraphNode::new(
+            vec![self.clone()],
+            new_view,
+            GraphOp::Scatter {
+                output_shape,
+                axes: axes.to_vec(),
+                sizes,
+                strides,
+                dilations,
+            },
             self.0.dtype.clone(),
             None,
         )

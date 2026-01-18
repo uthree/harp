@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 
 use crate::ast::{AstNode, DType, Literal, Mutability, VarDecl, VarKind};
-use crate::graph::{GraphNode, GraphOp, ReduceOp, collect_inputs, topological_sort};
+use crate::graph::{Expr, GraphNode, GraphOp, ReduceOp, View, collect_inputs, topological_sort};
 
 use super::fusion::AllFusions;
 use super::fusion::FusionPass;
@@ -30,6 +30,8 @@ enum KernelOpType {
     Reduce,
     /// Copy/View operation
     Copy,
+    /// Scatter operation (fold)
+    Scatter,
 }
 
 impl KernelOpType {
@@ -39,6 +41,7 @@ impl KernelOpType {
             KernelOpType::Elementwise => "E",
             KernelOpType::Reduce => "R",
             KernelOpType::Copy => "C",
+            KernelOpType::Scatter => "S",
         }
     }
 }
@@ -198,6 +201,20 @@ impl Lowerer {
                     self.lower_elementwise(node, &output_buf, map)
                 }
             }
+            GraphOp::Unfold { .. } => {
+                // Unfold is implemented as a view transformation
+                // The view already contains the correct index expression
+                self.lower_view(node, &output_buf)
+            }
+            GraphOp::Scatter {
+                output_shape,
+                axes,
+                sizes,
+                strides,
+                dilations,
+            } => {
+                self.lower_scatter(node, &output_buf, output_shape, axes, sizes, strides, dilations)
+            }
         }
     }
 
@@ -342,6 +359,122 @@ impl Lowerer {
             identity,
             combine_expr,
         );
+
+        self.make_kernel(&kernel_name, body, input_buffers, output_buffer)
+    }
+
+    /// Lower a Scatter operation (fold)
+    ///
+    /// Scatter-add accumulates values from unfolded windows back to the original shape.
+    /// This is implemented in two steps:
+    /// 1. Initialize output buffer to zero
+    /// 2. Iterate over input (unfolded) shape and atomic-add to output positions
+    #[allow(clippy::too_many_arguments)]
+    fn lower_scatter(
+        &mut self,
+        node: &GraphNode,
+        output_buf: &str,
+        output_shape: &[Expr],
+        axes: &[usize],
+        _sizes: &[Expr],
+        strides: &[Expr],
+        dilations: &[Expr],
+    ) -> AstNode {
+        use crate::ast::Scope;
+
+        let src = &node.sources()[0];
+        let src_shape = src.shape();
+        let dtype = node.dtype().clone();
+
+        // Generate kernel name
+        let kernel_name = self.generate_kernel_name(KernelOpType::Scatter, node);
+
+        // Collect buffer info
+        let input_buffers = self.collect_input_buffers(node);
+        let output_buffer = BufferInfo {
+            name: output_buf.to_string(),
+            dtype: dtype.clone(),
+            shape: output_shape.to_vec(),
+        };
+
+        // --- Step 1: Initialize output to zero ---
+        let output_view = View::contiguous(output_shape.to_vec());
+        let output_idx = self.index_gen().view_to_index(&output_view);
+        let zero = AstNode::Const(Literal::F32(0.0));
+        let zero_store = AstNode::Store {
+            ptr: Box::new(AstNode::Var(output_buf.to_string())),
+            offset: Box::new(output_idx),
+            value: Box::new(zero),
+        };
+        let init_loop = self.loop_gen.generate_loops(output_shape, zero_store);
+
+        // --- Step 2: Scatter-add from input to output ---
+        // Input shape: [preserved_dims..., out_positions..., window_dims...]
+        // We need to map each input element to its corresponding output position
+
+        let output_ndim = output_shape.len();
+        let num_unfolded = axes.len();
+        let num_preserved = output_ndim - num_unfolded;
+
+        // Load from source
+        let src_buf = self.get_buffer_name(src);
+        let src_idx = self.index_gen().view_to_index(src.view());
+        let load = AstNode::Load {
+            ptr: Box::new(AstNode::Var(src_buf)),
+            offset: Box::new(src_idx),
+            count: 1,
+            dtype: dtype.clone(),
+        };
+
+        // Compute destination index
+        // For each element in the unfolded tensor, we compute where it came from in the original
+        // input_idx[axis] = out_pos * stride + win_pos * dilation
+        let mut dst_idx = Expr::Const(0);
+        let mut dst_stride = Expr::Const(1);
+
+        // Process axes in reverse order for proper stride calculation
+        for axis in (0..output_ndim).rev() {
+            let axis_size = &output_shape[axis];
+
+            let coord = if let Some(unfold_i) = axes.iter().position(|&a| a == axis) {
+                // This axis was unfolded
+                // out_pos is at index (num_preserved + unfold_i) in src_shape
+                // win_pos is at index (num_preserved + num_unfolded + unfold_i) in src_shape
+                let out_pos_idx = num_preserved + unfold_i;
+                let win_pos_idx = num_preserved + num_unfolded + unfold_i;
+                let unfold_stride = &strides[unfold_i];
+                let dilation = &dilations[unfold_i];
+
+                // coord = out_pos * stride + win_pos * dilation
+                (Expr::Idx(out_pos_idx) * unfold_stride.clone()
+                    + Expr::Idx(win_pos_idx) * dilation.clone())
+                .simplify()
+            } else {
+                // Preserved axis - find its position in the src_shape
+                let preserved_idx = (0..axis).filter(|a| !axes.contains(a)).count();
+                Expr::Idx(preserved_idx)
+            };
+
+            dst_idx = (dst_idx + coord * dst_stride.clone()).simplify();
+            dst_stride = (dst_stride * axis_size.clone()).simplify();
+        }
+
+        // Atomic add to output
+        let dst_idx_ast: AstNode = dst_idx.into();
+        let atomic_add = AstNode::AtomicAdd {
+            ptr: Box::new(AstNode::Var(output_buf.to_string())),
+            offset: Box::new(dst_idx_ast),
+            value: Box::new(load),
+            dtype,
+        };
+
+        let scatter_loop = self.loop_gen.generate_loops(&src_shape, atomic_add);
+
+        // Combine init and scatter loops
+        let body = AstNode::Block {
+            statements: vec![init_loop, scatter_loop],
+            scope: Box::new(Scope::new()),
+        };
 
         self.make_kernel(&kernel_name, body, input_buffers, output_buffer)
     }
