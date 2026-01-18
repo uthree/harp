@@ -174,6 +174,7 @@ impl RuleBaseSuggester {
                 step,
                 stop,
                 body,
+                parallel,
             } => {
                 for new_start in self.apply_rule_at_all_positions(start, rule) {
                     results.push(AstNode::Range {
@@ -182,6 +183,7 @@ impl RuleBaseSuggester {
                         step: step.clone(),
                         stop: stop.clone(),
                         body: body.clone(),
+                        parallel: parallel.clone(),
                     });
                 }
                 for new_step in self.apply_rule_at_all_positions(step, rule) {
@@ -191,6 +193,7 @@ impl RuleBaseSuggester {
                         step: Box::new(new_step),
                         stop: stop.clone(),
                         body: body.clone(),
+                        parallel: parallel.clone(),
                     });
                 }
                 for new_stop in self.apply_rule_at_all_positions(stop, rule) {
@@ -200,6 +203,7 @@ impl RuleBaseSuggester {
                         step: step.clone(),
                         stop: Box::new(new_stop),
                         body: body.clone(),
+                        parallel: parallel.clone(),
                     });
                 }
                 for new_body in self.apply_rule_at_all_positions(body, rule) {
@@ -209,6 +213,7 @@ impl RuleBaseSuggester {
                         step: step.clone(),
                         stop: stop.clone(),
                         body: Box::new(new_body),
+                        parallel: parallel.clone(),
                     });
                 }
             }

@@ -577,6 +577,7 @@ impl VectorizationSuggester {
                 step,
                 stop,
                 body,
+                parallel,
             } => {
                 for vectorized_body in self.collect_vectorization_candidates(body) {
                     candidates.push(AstNode::Range {
@@ -585,6 +586,7 @@ impl VectorizationSuggester {
                         step: step.clone(),
                         stop: stop.clone(),
                         body: Box::new(vectorized_body),
+                        parallel: parallel.clone(),
                     });
                 }
             }

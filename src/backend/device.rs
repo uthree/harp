@@ -520,8 +520,9 @@ impl EclatDevice {
             "cuda" => Ok(DeviceKind::Cuda),
             "c" => Ok(DeviceKind::C),
             "rust" => Ok(DeviceKind::Rust),
+            "openmp" => Ok(DeviceKind::OpenMP),
             _ => Err(DeviceError::ParseError(format!(
-                "Unknown backend: '{}'. Valid options: metal, opencl, cuda, c, rust",
+                "Unknown backend: '{}'. Valid options: metal, opencl, cuda, c, rust, openmp",
                 s
             ))),
         }

@@ -451,12 +451,14 @@ impl VariableExpansionSuggester {
                 step,
                 stop,
                 body,
+                parallel,
             } => AstNode::Range {
                 var: var.clone(),
                 start: Box::new(Self::substitute_var(start, var_name, replacement)),
                 step: Box::new(Self::substitute_var(step, var_name, replacement)),
                 stop: Box::new(Self::substitute_var(stop, var_name, replacement)),
                 body: Box::new(Self::substitute_var(body, var_name, replacement)),
+                parallel: parallel.clone(),
             },
             // 関数呼び出し
             AstNode::Call { name, args } => AstNode::Call {
@@ -687,6 +689,7 @@ impl VariableExpansionSuggester {
                 step,
                 stop,
                 body,
+                parallel,
             } => {
                 // ループ本体内での展開を試みる
                 let child_candidates = self.collect_expansion_candidates(body);
@@ -697,6 +700,7 @@ impl VariableExpansionSuggester {
                         step: step.clone(),
                         stop: stop.clone(),
                         body: Box::new(child),
+                        parallel: parallel.clone(),
                     });
                 }
             }

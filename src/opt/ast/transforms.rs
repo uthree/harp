@@ -27,6 +27,7 @@ fn collect_var_names_recursive(ast: &AstNode, names: &mut HashSet<String>) {
             step,
             stop,
             body,
+            ..
         } => {
             names.insert(var.clone());
             collect_var_names_recursive(start, names);
@@ -208,6 +209,7 @@ pub fn inline_small_loop(loop_node: &AstNode, max_iterations: usize) -> Option<A
             step,
             stop,
             body,
+            ..
         } => {
             // Note: タイル化されたループの内側ループも展開対象にする
             // これにより、タイル化 + 内側ループ展開でアンロールと同等の効果が得られる
@@ -366,6 +368,7 @@ pub fn tile_loop(loop_node: &AstNode, tile_size: usize) -> Option<AstNode> {
             step,
             stop,
             body,
+            ..
         } => {
             // ステップが1の場合のみタイル化可能（簡易実装）
             let is_step_one = matches!(step.as_ref(), AstNode::Const(Literal::I64(1)));
@@ -492,6 +495,7 @@ pub fn tile_loop_with_guard(loop_node: &AstNode, tile_size: usize) -> Option<Ast
             step,
             stop,
             body,
+            ..
         } => {
             // ステップが1の場合のみタイル化可能（簡易実装）
             let is_step_one = matches!(step.as_ref(), AstNode::Const(Literal::I64(1)));
@@ -689,6 +693,7 @@ fn replace_var_in_ast(ast: &AstNode, var_name: &str, replacement: &AstNode) -> A
             step,
             stop,
             body,
+            parallel,
         } => {
             // ループ変数がシャドウイングされている場合は置き換えない
             if var == var_name {
@@ -700,6 +705,7 @@ fn replace_var_in_ast(ast: &AstNode, var_name: &str, replacement: &AstNode) -> A
                     step: Box::new(replace_var_in_ast(step, var_name, replacement)),
                     stop: Box::new(replace_var_in_ast(stop, var_name, replacement)),
                     body: Box::new(replace_var_in_ast(body, var_name, replacement)),
+                    parallel: parallel.clone(),
                 }
             }
         }

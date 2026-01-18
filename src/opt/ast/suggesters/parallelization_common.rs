@@ -276,6 +276,19 @@ impl LoopAnalyzer {
     pub fn external_writes(&self) -> &HashSet<String> {
         &self.external_writes
     }
+
+    /// リダクションを許容した並列化チェック（OpenMP用）
+    ///
+    /// Store操作のオフセットがループ変数に依存していることのみをチェックします。
+    /// 外部変数への書き込みはリダクションとして処理される前提です。
+    pub fn is_parallelizable_with_reduction(&self) -> bool {
+        // Storeがある場合、オフセットがループ変数に依存していなければNG（レースコンディション）
+        if self.has_stores && !self.stores_depend_on_loop_var {
+            log::trace!("Loop not parallelizable (OpenMP): stores do not depend on loop variable");
+            return false;
+        }
+        true
+    }
 }
 
 /// Rangeループが並列化可能かどうかを判定（基本条件）
@@ -467,6 +480,7 @@ pub fn substitute_var(ast: &AstNode, var_name: &str, replacement: &AstNode) -> A
             step,
             stop,
             body,
+            parallel,
         } => {
             // ループ変数が同じ名前の場合はシャドウイングされるので置換しない
             if var == var_name {
@@ -478,6 +492,7 @@ pub fn substitute_var(ast: &AstNode, var_name: &str, replacement: &AstNode) -> A
                     step: Box::new(substitute_var(step, var_name, replacement)),
                     stop: Box::new(substitute_var(stop, var_name, replacement)),
                     body: Box::new(substitute_var(body, var_name, replacement)),
+                    parallel: parallel.clone(),
                 }
             }
         }
@@ -723,6 +738,7 @@ impl FreeVariableCollector {
                 step,
                 stop,
                 body,
+                ..
             } => {
                 self.collect_recursive(start);
                 self.collect_recursive(step);

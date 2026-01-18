@@ -168,6 +168,7 @@ impl LoopFusionSuggester {
                 step,
                 stop,
                 body,
+                parallel,
             } => {
                 // ネストしたRangeのループ変数と衝突する場合はスキップ
                 if var == old_var {
@@ -179,6 +180,7 @@ impl LoopFusionSuggester {
                         step: Box::new(Self::substitute_loop_var(step, old_var, new_var)),
                         stop: Box::new(Self::substitute_loop_var(stop, old_var, new_var)),
                         body: Box::new(Self::substitute_loop_var(body, old_var, new_var)),
+                        parallel: parallel.clone(),
                     }
                 }
             }
@@ -270,6 +272,7 @@ impl LoopFusionSuggester {
                         step: step1,
                         stop: stop1,
                         body: body1,
+                        parallel: parallel1,
                     },
                     AstNode::Range {
                         var: var2,
@@ -277,6 +280,7 @@ impl LoopFusionSuggester {
                         step: step2,
                         stop: stop2,
                         body: body2,
+                        ..
                     },
                 ) = (&statements[i], &statements[i + 1])
                 {
@@ -303,6 +307,7 @@ impl LoopFusionSuggester {
                             step: step1.clone(),
                             stop: stop1.clone(),
                             body: Box::new(merged_body),
+                            parallel: parallel1.clone(),
                         };
 
                         new_statements.push(fused_range);
@@ -370,6 +375,7 @@ impl LoopFusionSuggester {
                 step,
                 stop,
                 body,
+                parallel,
             } => {
                 // ループ本体内で融合を試みる
                 self.try_fuse_in_ast(body).map(|new_body| AstNode::Range {
@@ -378,6 +384,7 @@ impl LoopFusionSuggester {
                     step: step.clone(),
                     stop: stop.clone(),
                     body: Box::new(new_body),
+                    parallel: parallel.clone(),
                 })
             }
 

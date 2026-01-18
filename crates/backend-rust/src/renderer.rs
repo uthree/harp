@@ -387,6 +387,7 @@ impl RustRenderer {
                 step,
                 stop,
                 body,
+                ..
             } => self.render_range_rust(var, start, step, stop, body),
             AstNode::If {
                 condition,

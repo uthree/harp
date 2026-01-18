@@ -454,7 +454,8 @@ pub trait CLikeRenderer {
                 step,
                 stop,
                 body,
-            } => self.render_range(var, start, step, stop, body),
+                parallel,
+            } => self.render_range(var, start, step, stop, body, parallel),
             AstNode::If {
                 condition,
                 then_body,
@@ -541,6 +542,7 @@ pub trait CLikeRenderer {
         step: &AstNode,
         stop: &AstNode,
         body: &AstNode,
+        _parallel: &crate::ast::ParallelInfo, // 将来のOpenMPサポート用
     ) -> String {
         let mut result = String::new();
         let loop_var_type = self.render_dtype_backend(&DType::I64);

@@ -276,12 +276,14 @@ impl CseSuggester {
                 step,
                 stop,
                 body,
+                parallel,
             } => AstNode::Range {
                 var: var.clone(),
                 start: Box::new(Self::substitute_expr(start, target, var_name)),
                 step: Box::new(Self::substitute_expr(step, target, var_name)),
                 stop: Box::new(Self::substitute_expr(stop, target, var_name)),
                 body: Box::new(Self::substitute_expr(body, target, var_name)),
+                parallel: parallel.clone(),
             },
             AstNode::Call { name, args } => AstNode::Call {
                 name: name.clone(),
@@ -446,6 +448,7 @@ impl CseSuggester {
                 step,
                 stop,
                 body,
+                parallel,
             } => {
                 // ループ本体内でCSEを試みる
                 self.try_cse_in_ast(body, temp_counter)
@@ -455,6 +458,7 @@ impl CseSuggester {
                         step: step.clone(),
                         stop: stop.clone(),
                         body: Box::new(new_body),
+                        parallel: parallel.clone(),
                     })
             }
 

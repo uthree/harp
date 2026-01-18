@@ -49,7 +49,7 @@ impl AstSuggester for CompositeSuggester {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{DType, Literal, Mutability, VarDecl, VarKind};
+    use crate::ast::{DType, Literal, Mutability, ParallelInfo, VarDecl, VarKind};
     use crate::opt::ast::rules::all_rules_with_search;
     use crate::opt::ast::suggesters::{
         FunctionInliningSuggester, LoopInliningSuggester, LoopTilingSuggester, RuleBaseSuggester,
@@ -76,6 +76,7 @@ mod tests {
             step: Box::new(AstNode::Const(Literal::I64(1))),
             stop: Box::new(AstNode::Const(Literal::I64(4))),
             body,
+            parallel: ParallelInfo::default(),
         };
 
         let suggestions = suggester.suggest(&loop_node);
@@ -121,6 +122,7 @@ mod tests {
             step: Box::new(AstNode::Const(Literal::I64(1))),
             stop: Box::new(AstNode::Const(Literal::I64(4))),
             body,
+            parallel: ParallelInfo::default(),
         };
 
         let suggestions = suggester.suggest(&loop_node);
@@ -145,6 +147,7 @@ mod tests {
             step: Box::new(AstNode::Const(Literal::I64(1))),
             stop: Box::new(AstNode::Const(Literal::I64(4))),
             body,
+            parallel: ParallelInfo::default(),
         };
 
         let suggestions = suggester.suggest(&loop_node);

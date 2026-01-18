@@ -181,7 +181,7 @@ pub fn all_rules_with_search() -> Vec<Rc<AstRewriteRule>> {
 mod tests {
     use super::*;
     use crate::ast::helper::{const_f32, const_int, exp2, idiv, log2, max, recip, rem, sqrt, var};
-    use crate::ast::{AstNode, Scope};
+    use crate::ast::{AstNode, ParallelInfo, Scope};
     use crate::opt::ast::AstOptimizer;
     use crate::opt::ast::RuleBaseOptimizer;
 
@@ -713,6 +713,7 @@ mod tests {
             step: Box::new(const_int(1)),
             stop: Box::new(const_int(64)),
             body: Box::new(store),
+            parallel: ParallelInfo::default(),
         };
 
         // Kernel内にRangeを配置（3D dispatch設定）

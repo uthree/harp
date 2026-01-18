@@ -3,7 +3,7 @@
 //! This module generates nested loop structures from shape information,
 //! creating the iteration pattern needed for tensor operations.
 
-use crate::ast::{AstNode, Literal, Scope};
+use crate::ast::{AstNode, Literal, ParallelInfo, Scope};
 use crate::graph::shape::Expr;
 
 use super::index_gen::IndexGenerator;
@@ -59,6 +59,7 @@ impl LoopGenerator {
                 stop: Box::new(stop),
                 step: Box::new(AstNode::Const(Literal::I64(1))),
                 body: Box::new(result),
+                parallel: ParallelInfo::default(),
             };
         }
 
@@ -91,6 +92,7 @@ impl LoopGenerator {
                 stop: Box::new(stop.clone()),
                 step: Box::new(AstNode::Const(Literal::I64(1))),
                 body: Box::new(inner_result),
+                parallel: ParallelInfo::default(),
             };
         }
 
@@ -101,6 +103,7 @@ impl LoopGenerator {
             stop: Box::new(reduce_bounds.1.clone()),
             step: Box::new(AstNode::Const(Literal::I64(1))),
             body: Box::new(inner_result),
+            parallel: ParallelInfo::default(),
         };
 
         // Combine pre, reduce loop, post using Block
@@ -118,6 +121,7 @@ impl LoopGenerator {
                 stop: Box::new(stop.clone()),
                 step: Box::new(AstNode::Const(Literal::I64(1))),
                 body: Box::new(result),
+                parallel: ParallelInfo::default(),
             };
         }
 

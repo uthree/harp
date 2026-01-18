@@ -1,5 +1,5 @@
 use super::AstCostEstimator;
-use crate::ast::{AstNode, VarKind};
+use crate::ast::{AstNode, ParallelKind, VarKind};
 use crate::opt::cost_utils::{log_sum_exp, log_sum_exp_iter};
 
 /// 簡単なコスト推定器
@@ -73,6 +73,12 @@ pub struct SimpleCostEstimator {
     /// ワークグループ間の並列化はグローバルメモリアクセスが必要で、オーバーヘッドが大きい
     /// 値が大きいほど非効率
     pub global_parallel_overhead: f32,
+    /// OpenMP並列化のオーバーヘッド（スレッドフォーク/ジョインのコスト）
+    pub openmp_parallel_overhead: f32,
+    /// OpenMPで有効なスレッド数（コスト削減の分母）
+    pub openmp_thread_count: f32,
+    /// リダクション1つあたりの追加オーバーヘッド
+    pub openmp_reduction_overhead: f32,
 }
 
 impl Default for SimpleCostEstimator {
@@ -93,6 +99,9 @@ impl Default for SimpleCostEstimator {
             gpu_memory_bandwidth_threshold: 10000.0,
             local_parallel_overhead: 2.0,
             global_parallel_overhead: 30.0,
+            openmp_parallel_overhead: 100.0,
+            openmp_thread_count: 8.0,
+            openmp_reduction_overhead: 10.0,
         }
     }
 }
@@ -190,6 +199,24 @@ impl SimpleCostEstimator {
     /// グローバル並列化オーバーヘッドを設定（対数スケール）
     pub fn with_global_parallel_overhead(mut self, overhead: f32) -> Self {
         self.global_parallel_overhead = overhead;
+        self
+    }
+
+    /// OpenMP並列化のオーバーヘッドを設定
+    pub fn with_openmp_parallel_overhead(mut self, overhead: f32) -> Self {
+        self.openmp_parallel_overhead = overhead;
+        self
+    }
+
+    /// OpenMPで有効なスレッド数を設定
+    pub fn with_openmp_thread_count(mut self, count: f32) -> Self {
+        self.openmp_thread_count = count;
+        self
+    }
+
+    /// OpenMPリダクションのオーバーヘッドを設定
+    pub fn with_openmp_reduction_overhead(mut self, overhead: f32) -> Self {
+        self.openmp_reduction_overhead = overhead;
         self
     }
 
@@ -435,6 +462,7 @@ impl AstCostEstimator for SimpleCostEstimator {
                 step,
                 stop,
                 body,
+                parallel,
                 ..
             } => {
                 // start, stop, stepが定数の場合は実際のループ回数を計算
@@ -482,7 +510,26 @@ impl AstCostEstimator for SimpleCostEstimator {
                     self.estimate(stop),
                     self.overhead_per_loop.ln(),
                 ]);
-                log_sum_exp(self.estimate(start), log_loop_count + per_iteration_cost)
+                let base_loop_cost =
+                    log_sum_exp(self.estimate(start), log_loop_count + per_iteration_cost);
+
+                // OpenMP並列化の場合はスピードアップとオーバーヘッドを適用
+                if parallel.is_parallel && parallel.kind == ParallelKind::OpenMP {
+                    let speedup = self.openmp_thread_count.ln();
+                    let overhead = self.openmp_parallel_overhead.ln();
+                    // リダクションがある場合は追加オーバーヘッド
+                    let reduction_overhead = if parallel.reductions.is_empty() {
+                        f32::NEG_INFINITY // log(0) = -inf、オーバーヘッドなし
+                    } else {
+                        (parallel.reductions.len() as f32 * self.openmp_reduction_overhead).ln()
+                    };
+                    // コスト = base - speedup + overhead + reduction_overhead
+                    // log_sum_exp で overhead と reduction_overhead を合成
+                    // reduction_overhead が NEG_INFINITY の場合、log_sum_exp は overhead を返す
+                    base_loop_cost - speedup + log_sum_exp(overhead, reduction_overhead)
+                } else {
+                    base_loop_cost
+                }
             }
             AstNode::Block { statements, .. } => {
                 let statements_cost = log_sum_exp_iter(statements.iter().map(|s| self.estimate(s)));
@@ -1300,6 +1347,127 @@ mod tests {
             "LocalId parallelization cost ({}) should be less than GroupId cost ({}) even with variable size",
             cost_local,
             cost_global
+        );
+    }
+
+    /// OpenMP並列化ループが非並列ループより低コストであることを確認
+    /// 十分な反復回数がある場合、並列化のスピードアップがオーバーヘッドを上回る
+    #[test]
+    fn test_openmp_parallel_loop_lower_cost() {
+        use crate::ast::ParallelInfo;
+
+        // 低オーバーヘッド設定でテスト（並列化の効果を確認するため）
+        // overhead < thread_count の場合に並列化が有利になる
+        let estimator = SimpleCostEstimator::new()
+            .with_openmp_parallel_overhead(4.0)
+            .with_openmp_thread_count(8.0);
+
+        // 非並列ループ
+        let loop_body = AstNode::Store {
+            ptr: Box::new(AstNode::Var("output".to_string())),
+            offset: Box::new(AstNode::Var("ridx0".to_string())),
+            value: Box::new(AstNode::Add(
+                Box::new(AstNode::Load {
+                    ptr: Box::new(AstNode::Var("input".to_string())),
+                    offset: Box::new(AstNode::Var("ridx0".to_string())),
+                    dtype: DType::F32,
+                    count: 1,
+                }),
+                Box::new(AstNode::Const(Literal::F32(1.0))),
+            )),
+        };
+
+        let sequential_loop = AstNode::Range {
+            var: "ridx0".to_string(),
+            start: Box::new(AstNode::Const(Literal::I64(0))),
+            stop: Box::new(AstNode::Const(Literal::I64(1000))),
+            step: Box::new(AstNode::Const(Literal::I64(1))),
+            body: Box::new(loop_body.clone()),
+            parallel: ParallelInfo::default(),
+        };
+
+        let parallel_loop = AstNode::Range {
+            var: "ridx0".to_string(),
+            start: Box::new(AstNode::Const(Literal::I64(0))),
+            stop: Box::new(AstNode::Const(Literal::I64(1000))),
+            step: Box::new(AstNode::Const(Literal::I64(1))),
+            body: Box::new(loop_body),
+            parallel: ParallelInfo {
+                is_parallel: true,
+                kind: ParallelKind::OpenMP,
+                reductions: vec![],
+            },
+        };
+
+        let cost_sequential = estimator.estimate(&sequential_loop);
+        let cost_parallel = estimator.estimate(&parallel_loop);
+
+        // OpenMP並列ループの方がコストが低いはず
+        assert!(
+            cost_parallel < cost_sequential,
+            "OpenMP parallel loop cost ({}) should be less than sequential ({}) for 1000 iterations",
+            cost_parallel,
+            cost_sequential
+        );
+    }
+
+    /// リダクション付きOpenMPループはリダクションなしより若干高コストであることを確認
+    #[test]
+    fn test_openmp_reduction_adds_overhead() {
+        use crate::ast::{ParallelInfo, ReductionOp};
+
+        let estimator = SimpleCostEstimator::new();
+
+        let loop_body = AstNode::Assign {
+            var: "sum".to_string(),
+            value: Box::new(AstNode::Add(
+                Box::new(AstNode::Var("sum".to_string())),
+                Box::new(AstNode::Load {
+                    ptr: Box::new(AstNode::Var("input".to_string())),
+                    offset: Box::new(AstNode::Var("ridx0".to_string())),
+                    dtype: DType::F32,
+                    count: 1,
+                }),
+            )),
+        };
+
+        // リダクションなし並列ループ
+        let parallel_no_reduction = AstNode::Range {
+            var: "ridx0".to_string(),
+            start: Box::new(AstNode::Const(Literal::I64(0))),
+            stop: Box::new(AstNode::Const(Literal::I64(1000))),
+            step: Box::new(AstNode::Const(Literal::I64(1))),
+            body: Box::new(loop_body.clone()),
+            parallel: ParallelInfo {
+                is_parallel: true,
+                kind: ParallelKind::OpenMP,
+                reductions: vec![],
+            },
+        };
+
+        // リダクション付き並列ループ
+        let parallel_with_reduction = AstNode::Range {
+            var: "ridx0".to_string(),
+            start: Box::new(AstNode::Const(Literal::I64(0))),
+            stop: Box::new(AstNode::Const(Literal::I64(1000))),
+            step: Box::new(AstNode::Const(Literal::I64(1))),
+            body: Box::new(loop_body),
+            parallel: ParallelInfo {
+                is_parallel: true,
+                kind: ParallelKind::OpenMP,
+                reductions: vec![("sum".to_string(), ReductionOp::Add)],
+            },
+        };
+
+        let cost_no_reduction = estimator.estimate(&parallel_no_reduction);
+        let cost_with_reduction = estimator.estimate(&parallel_with_reduction);
+
+        // リダクション付きの方が若干高コスト
+        assert!(
+            cost_with_reduction > cost_no_reduction,
+            "Parallel loop with reduction ({}) should have higher cost than without ({})",
+            cost_with_reduction,
+            cost_no_reduction
         );
     }
 }

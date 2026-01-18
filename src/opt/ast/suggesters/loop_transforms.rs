@@ -128,6 +128,7 @@ impl LoopTilingSuggester {
                 step,
                 stop,
                 body,
+                parallel,
             } => {
                 // ループ本体を再帰的に探索
                 for tiled_body in self.collect_tiling_candidates(body) {
@@ -137,6 +138,7 @@ impl LoopTilingSuggester {
                         step: step.clone(),
                         stop: stop.clone(),
                         body: Box::new(tiled_body),
+                        parallel: parallel.clone(),
                     });
                 }
             }
@@ -374,6 +376,7 @@ impl LoopInliningSuggester {
                 step,
                 stop,
                 body,
+                parallel,
             } => {
                 // ループ本体を再帰的に探索
                 for inlined_body in self.collect_inlining_candidates(body) {
@@ -383,6 +386,7 @@ impl LoopInliningSuggester {
                         step: step.clone(),
                         stop: stop.clone(),
                         body: Box::new(inlined_body),
+                        parallel: parallel.clone(),
                     });
                 }
             }
@@ -710,6 +714,7 @@ impl LoopInterchangeSuggester {
             step: outer_step,
             stop: outer_stop,
             body: outer_body,
+            parallel: outer_parallel,
         } = ast
         {
             // 外側ループの本体が内側ループの場合（直接）
@@ -719,6 +724,7 @@ impl LoopInterchangeSuggester {
                 step: inner_step,
                 stop: inner_stop,
                 body: inner_body,
+                parallel: inner_parallel,
             } = outer_body.as_ref()
             {
                 // ループを交換: 内側を外側に、外側を内側に
@@ -728,6 +734,7 @@ impl LoopInterchangeSuggester {
                     step: outer_step.clone(),
                     stop: outer_stop.clone(),
                     body: inner_body.clone(),
+                    parallel: outer_parallel.clone(),
                 };
 
                 let new_outer = AstNode::Range {
@@ -736,6 +743,7 @@ impl LoopInterchangeSuggester {
                     step: inner_step.clone(),
                     stop: inner_stop.clone(),
                     body: Box::new(new_inner),
+                    parallel: inner_parallel.clone(),
                 };
 
                 return Some(new_outer);
@@ -750,6 +758,7 @@ impl LoopInterchangeSuggester {
                     step: inner_step,
                     stop: inner_stop,
                     body: inner_body,
+                    parallel: inner_parallel,
                 } = &statements[0]
             {
                 // ループを交換: 内側を外側に、外側を内側に
@@ -759,6 +768,7 @@ impl LoopInterchangeSuggester {
                     step: outer_step.clone(),
                     stop: outer_stop.clone(),
                     body: inner_body.clone(),
+                    parallel: outer_parallel.clone(),
                 };
 
                 let new_outer_body = AstNode::Block {
@@ -772,6 +782,7 @@ impl LoopInterchangeSuggester {
                     step: inner_step.clone(),
                     stop: inner_stop.clone(),
                     body: Box::new(new_outer_body),
+                    parallel: inner_parallel.clone(),
                 };
 
                 return Some(new_outer);
@@ -811,6 +822,7 @@ impl LoopInterchangeSuggester {
                 step,
                 stop,
                 body,
+                parallel,
             } => {
                 // ループ本体を再帰的に探索（ただし直下の場合は上で処理済み）
                 for interchanged_body in self.collect_interchange_candidates(body) {
@@ -820,6 +832,7 @@ impl LoopInterchangeSuggester {
                         step: step.clone(),
                         stop: stop.clone(),
                         body: Box::new(interchanged_body),
+                        parallel: parallel.clone(),
                     });
                 }
             }

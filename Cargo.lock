@@ -463,6 +463,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "eclat-backend-openmp"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "ctor",
+ "eclat",
+ "libloading",
+ "log",
+ "tempfile",
+]
+
+[[package]]
 name = "eclat-backend-rust"
 version = "0.1.0"
 dependencies = [

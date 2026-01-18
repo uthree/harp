@@ -898,6 +898,7 @@ mod tests {
                 ],
                 scope: Box::new(loop_scope),
             }),
+            parallel: eclat::ast::ParallelInfo::default(),
         };
 
         let mut renderer = MetalRenderer::new();

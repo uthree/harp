@@ -300,6 +300,7 @@ impl ReductionTilingSuggester {
             step,
             stop,
             body: _,
+            ..
         } = range_node
         else {
             return None;
@@ -497,6 +498,7 @@ impl ReductionTilingSuggester {
                 step,
                 stop,
                 body,
+                parallel,
             } => {
                 for candidate in self.collect_candidates(body) {
                     candidates.push(AstNode::Range {
@@ -505,6 +507,7 @@ impl ReductionTilingSuggester {
                         step: step.clone(),
                         stop: stop.clone(),
                         body: Box::new(candidate),
+                        parallel: parallel.clone(),
                     });
                 }
             }

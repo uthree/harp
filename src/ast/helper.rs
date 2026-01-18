@@ -423,6 +423,7 @@ pub fn range(
         step: Box::new(step),
         stop: Box::new(stop),
         body: Box::new(body),
+        parallel: crate::ast::ParallelInfo::default(),
     }
 }
 

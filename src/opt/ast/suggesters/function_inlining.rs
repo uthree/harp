@@ -433,12 +433,13 @@ impl FunctionInliningSuggester {
             },
 
             // Range
-            AstNode::Range { var, .. } => AstNode::Range {
+            AstNode::Range { var, parallel, .. } => AstNode::Range {
                 var: var.clone(),
                 start: Box::new(children[0].clone()),
                 step: Box::new(children[1].clone()),
                 stop: Box::new(children[2].clone()),
                 body: Box::new(children[3].clone()),
+                parallel: parallel.clone(),
             },
 
             // If

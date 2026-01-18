@@ -65,6 +65,43 @@ impl AstKernelCallInfo {
     }
 }
 
+
+/// リダクション演算子
+#[derive(Clone, Debug, PartialEq)]
+pub enum ReductionOp {
+    /// 加算リダクション
+    Add,
+    /// 乗算リダクション
+    Mul,
+    /// 最大値リダクション
+    Max,
+    /// 最小値リダクション
+    Min,
+}
+
+/// ループの並列化種類
+#[derive(Clone, Debug, PartialEq, Default)]
+pub enum ParallelKind {
+    /// 逐次実行（デフォルト）
+    #[default]
+    Sequential,
+    /// OpenMP parallel for
+    OpenMP,
+    /// GPUスレッド並列
+    GpuThread,
+}
+
+/// ループの並列化情報
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct ParallelInfo {
+    /// 並列実行可能かどうか
+    pub is_parallel: bool,
+    /// 並列化の種類
+    pub kind: ParallelKind,
+    /// リダクション変数と演算子
+    pub reductions: Vec<(String, ReductionOp)>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum AstNode {
     // Pattern matching wildcard - パターンマッチング用ワイルドカード
@@ -187,11 +224,12 @@ pub enum AstNode {
 
     // Control flow - 制御構文
     Range {
-        var: String,         // ループ変数名
-        start: Box<AstNode>, // 開始値
-        step: Box<AstNode>,  // ステップ
-        stop: Box<AstNode>,  // 終了値
-        body: Box<AstNode>,  // ループ本体（Blockノード）
+        var: String,           // ループ変数名
+        start: Box<AstNode>,   // 開始値
+        step: Box<AstNode>,    // ステップ
+        stop: Box<AstNode>,    // 終了値
+        body: Box<AstNode>,    // ループ本体（Blockノード）
+        parallel: ParallelInfo, // 並列化情報
     },
 
     /// 条件分岐
@@ -507,12 +545,14 @@ impl AstNode {
                 step,
                 stop,
                 body,
+                parallel,
             } => AstNode::Range {
                 var: var.clone(),
                 start: Box::new(f(start)),
                 step: Box::new(f(step)),
                 stop: Box::new(f(stop)),
                 body: Box::new(f(body)),
+                parallel: parallel.clone(),
             },
             AstNode::If {
                 condition,
@@ -859,6 +899,7 @@ impl AstNode {
                 step,
                 stop,
                 body,
+                ..
             } => {
                 // start, step, stopを外側のスコープでチェック
                 start.check_scope(scope)?;

@@ -685,7 +685,7 @@ impl AstSuggester for LocalParallelizationSuggester {
 mod tests {
     use super::*;
     use crate::ast::{
-        DType, Mutability, VarDecl, VarKind,
+        DType, Mutability, ParallelInfo, VarDecl, VarKind,
         helper::{eq, load, store},
     };
 
@@ -702,6 +702,7 @@ mod tests {
             step: Box::new(const_int(1)),
             stop: Box::new(var("N")),
             body: Box::new(body),
+            parallel: ParallelInfo::default(),
         };
 
         AstNode::Function {
@@ -754,6 +755,7 @@ mod tests {
             step: Box::new(const_int(1)),
             stop: Box::new(var("N")),
             body: Box::new(if_node),
+            parallel: ParallelInfo::default(),
         };
 
         AstNode::Function {
@@ -777,6 +779,7 @@ mod tests {
             step: Box::new(const_int(1)),
             stop: Box::new(const_int(64)),
             body: Box::new(body),
+            parallel: ParallelInfo::default(),
         };
 
         let one = const_int(1);
@@ -840,6 +843,7 @@ mod tests {
             step: Box::new(const_int(1)),
             stop: Box::new(const_int(64)),
             body: Box::new(if_node),
+            parallel: ParallelInfo::default(),
         };
 
         let one = const_int(1);
@@ -1014,6 +1018,7 @@ mod tests {
             step: Box::new(const_int(1)),
             stop: Box::new(var("N")),
             body: Box::new(body),
+            parallel: ParallelInfo::default(),
         };
 
         let func = AstNode::Function {
@@ -1049,6 +1054,7 @@ mod tests {
             step: Box::new(const_int(1)),
             stop: Box::new(const_int(64)),
             body: Box::new(body),
+            parallel: ParallelInfo::default(),
         };
 
         let one = const_int(1);
@@ -1143,6 +1149,7 @@ mod tests {
             step: Box::new(const_int(1)),
             stop: Box::new(const_int(64)),
             body: Box::new(body),
+            parallel: ParallelInfo::default(),
         };
 
         let one = const_int(1);
