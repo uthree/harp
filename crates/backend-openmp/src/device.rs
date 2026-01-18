@@ -81,12 +81,12 @@ impl Device for OpenMPDevice {
         // OpenMP backend is available if we can actually compile a simple OpenMP program
         // This checks both compiler support and omp.h availability
         use std::io::Write;
-        
+
         let temp_dir = match tempfile::TempDir::new() {
             Ok(d) => d,
             Err(_) => return false,
         };
-        
+
         let source_path = temp_dir.path().join("test_omp.c");
         let test_code = r#"
 #include <omp.h>
@@ -99,28 +99,32 @@ int main() {
     return 0;
 }
 "#;
-        
+
         if std::fs::write(&source_path, test_code).is_err() {
             return false;
         }
-        
+
         let output_path = temp_dir.path().join("test_omp");
-        
+
         // Try to compile with OpenMP flags
         #[cfg(target_os = "macos")]
         let args = vec![
-            "-Xpreprocessor", "-fopenmp", "-lomp",
-            "-o", output_path.to_str().unwrap_or(""),
+            "-Xpreprocessor",
+            "-fopenmp",
+            "-lomp",
+            "-o",
+            output_path.to_str().unwrap_or(""),
             source_path.to_str().unwrap_or(""),
         ];
-        
+
         #[cfg(not(target_os = "macos"))]
         let args = vec![
             "-fopenmp",
-            "-o", output_path.to_str().unwrap_or(""),
+            "-o",
+            output_path.to_str().unwrap_or(""),
             source_path.to_str().unwrap_or(""),
         ];
-        
+
         std::process::Command::new("cc")
             .args(&args)
             .output()
@@ -148,9 +152,9 @@ int main() {
             DeviceFeature::HalfPrecision => false,
             DeviceFeature::DoublePrecision => true,
             DeviceFeature::LocalMemory => false,
-            DeviceFeature::AtomicOperations => true,  // OpenMP supports atomics
+            DeviceFeature::AtomicOperations => true, // OpenMP supports atomics
             DeviceFeature::SubgroupOperations => false,
-            DeviceFeature::ParallelKernel => true,    // OpenMP supports parallel execution
+            DeviceFeature::ParallelKernel => true, // OpenMP supports parallel execution
         }
     }
 

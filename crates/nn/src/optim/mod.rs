@@ -29,10 +29,10 @@
 //! optimizer.step().unwrap();
 //! ```
 
+mod adam;
 mod optimizer;
 mod sgd;
-mod adam;
 
-pub use optimizer::{get_param_data, OptimError, Optimizer, ParamData};
-pub use sgd::SGD;
 pub use adam::Adam;
+pub use optimizer::{OptimError, Optimizer, ParamData, get_param_data};
+pub use sgd::SGD;

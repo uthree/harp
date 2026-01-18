@@ -6,7 +6,7 @@
 //! - b: bias vector [out_features] (optional)
 
 use super::{Module, Parameter};
-use eclat::tensor::{Tensor, Dyn};
+use eclat::tensor::{Dyn, Tensor};
 
 /// A fully connected (linear) layer.
 ///
@@ -204,7 +204,7 @@ mod tests {
     fn test_linear_named_parameters() {
         let layer = Linear::new(10, 5, true);
         let named = layer.named_parameters();
-        
+
         assert_eq!(named.len(), 2);
         assert_eq!(named[0].0, "weight");
         assert_eq!(named[1].0, "bias");

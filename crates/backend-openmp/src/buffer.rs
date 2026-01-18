@@ -81,11 +81,7 @@ impl TypedBuffer for OpenMPBuffer {
     type Dev = OpenMPDevice;
     type Error = OpenMPBufferError;
 
-    fn allocate(
-        _device: &Self::Dev,
-        shape: Vec<usize>,
-        dtype: DType,
-    ) -> Result<Self, Self::Error> {
+    fn allocate(_device: &Self::Dev, shape: Vec<usize>, dtype: DType) -> Result<Self, Self::Error> {
         let num_elements: usize = shape.iter().product();
         let element_size = dtype.size_in_bytes();
         let byte_len = num_elements * element_size;

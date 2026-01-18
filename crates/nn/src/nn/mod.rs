@@ -24,12 +24,12 @@
 //! let mut optimizer = SGD::new(params, 0.01);
 //! ```
 
-mod parameter;
-mod module;
-mod linear;
 mod conv;
+mod linear;
+mod module;
+mod parameter;
 
-pub use parameter::{Parameter, ParameterError};
-pub use module::Module;
-pub use linear::Linear;
 pub use conv::{Conv1d, Conv2d, Conv3d};
+pub use linear::Linear;
+pub use module::Module;
+pub use parameter::{Parameter, ParameterError};

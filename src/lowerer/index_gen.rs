@@ -45,9 +45,7 @@ impl IndexGenerator {
     pub fn view_to_expr(&self, view: &View) -> Expr {
         match view {
             View::Linear {
-                strides,
-                offset,
-                ..
+                strides, offset, ..
             } => {
                 // Linear index: offset + sum(idx[i] * stride[i])
                 let mut result = offset.clone();

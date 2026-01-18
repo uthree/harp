@@ -53,9 +53,9 @@ impl CudaBuffer {
         }
 
         let stream = device.stream();
-        let data = stream
-            .alloc_zeros::<u8>(size_bytes)
-            .map_err(|e| CudaBufferError::AllocationError(format!("CUDA allocation failed: {}", e)))?;
+        let data = stream.alloc_zeros::<u8>(size_bytes).map_err(|e| {
+            CudaBufferError::AllocationError(format!("CUDA allocation failed: {}", e))
+        })?;
 
         Ok(Self {
             data,
@@ -71,7 +71,11 @@ impl CudaBuffer {
     }
 
     /// Copy data from host to device
-    pub fn copy_from_host(&mut self, device: &CudaDevice, data: &[u8]) -> Result<(), CudaBufferError> {
+    pub fn copy_from_host(
+        &mut self,
+        device: &CudaDevice,
+        data: &[u8],
+    ) -> Result<(), CudaBufferError> {
         if data.len() != self.size_bytes {
             return Err(CudaBufferError::SizeMismatch {
                 expected: self.size_bytes,
@@ -80,15 +84,19 @@ impl CudaBuffer {
         }
 
         let stream = device.stream();
-        stream
-            .memcpy_htod(&data, &mut self.data)
-            .map_err(|e| CudaBufferError::CopyError(format!("Host to device copy failed: {}", e)))?;
+        stream.memcpy_htod(&data, &mut self.data).map_err(|e| {
+            CudaBufferError::CopyError(format!("Host to device copy failed: {}", e))
+        })?;
 
         Ok(())
     }
 
     /// Copy data from device to host
-    pub fn copy_to_host(&self, device: &CudaDevice, data: &mut [u8]) -> Result<(), CudaBufferError> {
+    pub fn copy_to_host(
+        &self,
+        device: &CudaDevice,
+        data: &mut [u8],
+    ) -> Result<(), CudaBufferError> {
         if data.len() != self.size_bytes {
             return Err(CudaBufferError::SizeMismatch {
                 expected: self.size_bytes,
@@ -97,9 +105,9 @@ impl CudaBuffer {
         }
 
         let stream = device.stream();
-        stream
-            .memcpy_dtoh(&self.data, data)
-            .map_err(|e| CudaBufferError::CopyError(format!("Device to host copy failed: {}", e)))?;
+        stream.memcpy_dtoh(&self.data, data).map_err(|e| {
+            CudaBufferError::CopyError(format!("Device to host copy failed: {}", e))
+        })?;
 
         Ok(())
     }
@@ -114,7 +122,7 @@ impl CudaBuffer {
         _dtype: DType,
     ) -> Result<Self, CudaBufferError> {
         Err(CudaBufferError::AllocationError(
-            "CUDA runtime not available. Rebuild with --features cuda-runtime".to_string()
+            "CUDA runtime not available. Rebuild with --features cuda-runtime".to_string(),
         ))
     }
 
@@ -141,7 +149,10 @@ impl Buffer for CudaBuffer {
         Err("CudaBuffer::read_to_host requires device context".into())
     }
 
-    fn write_from_host(&mut self, _data: &[u8]) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    fn write_from_host(
+        &mut self,
+        _data: &[u8],
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Err("CudaBuffer::write_from_host requires device context".into())
     }
 
@@ -180,7 +191,11 @@ impl std::fmt::Display for CudaBufferError {
         match self {
             CudaBufferError::AllocationError(msg) => write!(f, "CUDA allocation error: {}", msg),
             CudaBufferError::SizeMismatch { expected, actual } => {
-                write!(f, "Size mismatch: expected {} bytes, got {}", expected, actual)
+                write!(
+                    f,
+                    "Size mismatch: expected {} bytes, got {}",
+                    expected, actual
+                )
             }
             CudaBufferError::CopyError(msg) => write!(f, "CUDA copy error: {}", msg),
         }

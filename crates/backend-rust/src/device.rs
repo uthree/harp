@@ -84,23 +84,23 @@ impl Device for RustDevice {
 
     fn supports_feature(&self, feature: DeviceFeature) -> bool {
         match feature {
-            DeviceFeature::FastMath => true,           // Rust has fast math intrinsics
-            DeviceFeature::HalfPrecision => false,     // No native half in std Rust
-            DeviceFeature::DoublePrecision => true,    // Rust supports f64
-            DeviceFeature::LocalMemory => false,       // No shared memory
-            DeviceFeature::AtomicOperations => false,  // Sequential execution
+            DeviceFeature::FastMath => true, // Rust has fast math intrinsics
+            DeviceFeature::HalfPrecision => false, // No native half in std Rust
+            DeviceFeature::DoublePrecision => true, // Rust supports f64
+            DeviceFeature::LocalMemory => false, // No shared memory
+            DeviceFeature::AtomicOperations => false, // Sequential execution
             DeviceFeature::SubgroupOperations => false, // No subgroups
-            DeviceFeature::ParallelKernel => false,    // No parallel kernel execution
+            DeviceFeature::ParallelKernel => false, // No parallel kernel execution
         }
     }
 
     fn supports_instruction(&self, instruction: DeviceInstruction) -> bool {
         match instruction {
-            DeviceInstruction::Fma => true,             // f32::mul_add / f64::mul_add
-            DeviceInstruction::Rsqrt => false,          // No native rsqrt in std Rust
+            DeviceInstruction::Fma => true,    // f32::mul_add / f64::mul_add
+            DeviceInstruction::Rsqrt => false, // No native rsqrt in std Rust
             DeviceInstruction::AtomicAddFloat => false, // Sequential execution
-            DeviceInstruction::NativeDiv => true,       // Native divide available
-            DeviceInstruction::NativeExpLog => true,    // exp/ln methods available
+            DeviceInstruction::NativeDiv => true, // Native divide available
+            DeviceInstruction::NativeExpLog => true, // exp/ln methods available
         }
     }
 }

@@ -437,7 +437,10 @@ impl<D: Dimension, T: TensorDType> Tensor<D, T> {
         strides: &[usize],
         dilations: &[usize],
     ) -> Tensor<Dyn, T> {
-        let graph = self.inner.graph.fold(output_shape, axes, sizes, strides, dilations);
+        let graph = self
+            .inner
+            .graph
+            .fold(output_shape, axes, sizes, strides, dilations);
         Tensor::from_graph(graph)
     }
 }
@@ -511,13 +514,11 @@ impl<T: TensorDType> Tensor<D3, T> {
     /// * `kernel_size` - K
     /// * `stride` - stride
     /// * `dilation` - dilation
-    pub fn unfold_1d(
-        &self,
-        kernel_size: usize,
-        stride: usize,
-        dilation: usize,
-    ) -> Tensor<D4, T> {
-        let graph = self.inner.graph.unfold(&[2], &[kernel_size], &[stride], &[dilation]);
+    pub fn unfold_1d(&self, kernel_size: usize, stride: usize, dilation: usize) -> Tensor<D4, T> {
+        let graph = self
+            .inner
+            .graph
+            .unfold(&[2], &[kernel_size], &[stride], &[dilation]);
         Tensor::from_graph(graph)
     }
 }

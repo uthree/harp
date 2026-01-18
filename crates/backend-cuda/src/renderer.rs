@@ -3,8 +3,8 @@
 //! Converts AST to CUDA kernel source code.
 
 use eclat::ast::{AstNode, DType};
-use eclat::backend::renderer::CLikeRenderer;
 use eclat::backend::Renderer;
+use eclat::backend::renderer::CLikeRenderer;
 
 /// CUDA kernel code wrapper type
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -434,10 +434,7 @@ impl CLikeRenderer for CudaRenderer {
         // CUDA doesn't have vload like OpenCL, use pointer cast
         let vec_size = dtype.chars().last().and_then(|c| c.to_digit(10));
         match vec_size {
-            Some(_n) => format!(
-                "*(({} *)(&{}[{}]))",
-                dtype, ptr_expr, offset_expr
-            ),
+            Some(_n) => format!("*(({} *)(&{}[{}]))", dtype, ptr_expr, offset_expr),
             None => format!("{}[{}]", ptr_expr, offset_expr),
         }
     }

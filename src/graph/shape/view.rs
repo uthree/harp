@@ -74,7 +74,11 @@ impl ViewBounds {
     /// 2つの bounds を AND で合成
     pub fn and(&self, other: &ViewBounds) -> Self {
         Self {
-            condition: self.condition.clone().and(other.condition.clone()).simplify(),
+            condition: self
+                .condition
+                .clone()
+                .and(other.condition.clone())
+                .simplify(),
             default_value: self.default_value, // self を優先
         }
     }
@@ -814,7 +818,9 @@ impl View {
     /// ```
     pub fn is_innermost_contiguous(&self) -> bool {
         match self {
-            View::Linear { strides, bounds, .. } => {
+            View::Linear {
+                strides, bounds, ..
+            } => {
                 // bounds がある場合は連続性を保証できない
                 if bounds.has_condition() {
                     return false;
@@ -1209,12 +1215,7 @@ impl View {
 
                 // bounds の変換
                 let new_bounds = Self::transform_bounds_for_unfold(
-                    &bounds,
-                    ndim,
-                    axes,
-                    &strides,
-                    &dilations,
-                    &axes_set,
+                    &bounds, ndim, axes, &strides, &dilations, &axes_set,
                 );
 
                 View::IndexExpr {
@@ -1310,12 +1311,7 @@ impl View {
 
                 // bounds の変換
                 let new_bounds = Self::transform_bounds_for_unfold(
-                    &bounds,
-                    ndim,
-                    axes,
-                    &strides,
-                    &dilations,
-                    &axes_set,
+                    &bounds, ndim, axes, &strides, &dilations, &axes_set,
                 );
 
                 View::IndexExpr {

@@ -77,7 +77,7 @@ impl CudaDevice {
     /// Create a new CUDA device (stub - always fails without cuda-runtime feature)
     pub fn new(_device_index: usize) -> Result<Self, CudaDeviceError> {
         Err(CudaDeviceError::InitializationError(
-            "CUDA runtime not available. Rebuild with --features cuda-runtime".to_string()
+            "CUDA runtime not available. Rebuild with --features cuda-runtime".to_string(),
         ))
     }
 
@@ -151,7 +151,9 @@ pub enum CudaDeviceError {
 impl std::fmt::Display for CudaDeviceError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CudaDeviceError::InitializationError(msg) => write!(f, "CUDA initialization error: {}", msg),
+            CudaDeviceError::InitializationError(msg) => {
+                write!(f, "CUDA initialization error: {}", msg)
+            }
             #[cfg(feature = "cuda-runtime")]
             CudaDeviceError::DriverError(e) => write!(f, "CUDA driver error: {}", e),
         }

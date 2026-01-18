@@ -56,7 +56,15 @@ pub struct Conv2d {
 impl Conv2d {
     /// Create a new Conv2d layer with default stride=1, padding=0, dilation=1, bias=true.
     pub fn new(in_channels: usize, out_channels: usize, kernel_size: (usize, usize)) -> Self {
-        Self::with_options(in_channels, out_channels, kernel_size, (1, 1), (0, 0), (1, 1), true)
+        Self::with_options(
+            in_channels,
+            out_channels,
+            kernel_size,
+            (1, 1),
+            (0, 0),
+            (1, 1),
+            true,
+        )
     }
 
     /// Create a new Conv2d layer with all options.
@@ -140,17 +148,17 @@ impl Conv2d {
         let padded = input.pad(&[(0, 0), (0, 0), (ph, ph), (pw, pw)]);
 
         // 2. unfold_2d: D4 -> D6 [N, C_in, H_out, W_out, kH, kW]
-        let unfolded: Tensor<D6, f32> =
-            padded.unfold_2d((kh, kw), (sh, sw), (dh, dw));
+        let unfolded: Tensor<D6, f32> = padded.unfold_2d((kh, kw), (sh, sw), (dh, dw));
 
         // 3. permute: [N, C_in, H_out, W_out, kH, kW] -> [N, H_out, W_out, C_in, kH, kW]
         let permuted: Tensor<D6, f32> = unfolded.permute(&[0, 2, 3, 1, 4, 5]);
 
         // 4. contiguous + reshape: D6 -> D3 [N, H_out*W_out, C_in*kH*kW]
         // Note: permute creates a non-contiguous view, so we need contiguous() before reshape()
-        let cols: Tensor<D3, f32> = permuted
-            .contiguous()
-            .reshape([batch, h_out * w_out, self.in_channels * kh * kw]);
+        let cols: Tensor<D3, f32> =
+            permuted
+                .contiguous()
+                .reshape([batch, h_out * w_out, self.in_channels * kh * kw]);
 
         // 5. Get weight and reshape: [C_out, C_in, kH, kW] -> [C_out, C_in*kH*kW]
         let weight = self.weight.tensor();
@@ -323,8 +331,11 @@ impl Conv1d {
         let weight_data: Vec<f32> = (0..weight_size)
             .map(|i| (i as f32 * 0.1).sin() * bound)
             .collect();
-        let weight =
-            Parameter::from_data("weight", &weight_data, &[out_channels, in_channels, kernel_size]);
+        let weight = Parameter::from_data(
+            "weight",
+            &weight_data,
+            &[out_channels, in_channels, kernel_size],
+        );
 
         // Initialize bias
         let bias = if bias {
@@ -529,7 +540,11 @@ pub struct Conv3d {
 
 impl Conv3d {
     /// Create a new Conv3d layer with default stride=1, padding=0, dilation=1, bias=true.
-    pub fn new(in_channels: usize, out_channels: usize, kernel_size: (usize, usize, usize)) -> Self {
+    pub fn new(
+        in_channels: usize,
+        out_channels: usize,
+        kernel_size: (usize, usize, usize),
+    ) -> Self {
         Self::with_options(
             in_channels,
             out_channels,
@@ -618,16 +633,17 @@ impl Conv3d {
         let padded = input.pad(&[(0, 0), (0, 0), (pd, pd), (ph, ph), (pw, pw)]);
 
         // 2. unfold_3d: D5 -> D8 [N, C_in, D_out, H_out, W_out, kD, kH, kW]
-        let unfolded: Tensor<D8, f32> =
-            padded.unfold_3d((kd, kh, kw), (sd, sh, sw), (dd, dh, dw));
+        let unfolded: Tensor<D8, f32> = padded.unfold_3d((kd, kh, kw), (sd, sh, sw), (dd, dh, dw));
 
         // 3. permute: [N, C_in, D_out, H_out, W_out, kD, kH, kW] -> [N, D_out, H_out, W_out, C_in, kD, kH, kW]
         let permuted: Tensor<D8, f32> = unfolded.permute(&[0, 2, 3, 4, 1, 5, 6, 7]);
 
         // 4. contiguous + reshape: D8 -> D3 [N, D_out*H_out*W_out, C_in*kD*kH*kW]
-        let cols: Tensor<D3, f32> = permuted
-            .contiguous()
-            .reshape([batch, d_out * h_out * w_out, self.in_channels * kd * kh * kw]);
+        let cols: Tensor<D3, f32> = permuted.contiguous().reshape([
+            batch,
+            d_out * h_out * w_out,
+            self.in_channels * kd * kh * kw,
+        ]);
 
         // 5. Get weight and reshape: [C_out, C_in, kD, kH, kW] -> [C_out, C_in*kD*kH*kW]
         let weight = self.weight.tensor();
@@ -849,7 +865,8 @@ mod tests {
         let params = conv.parameters();
         assert_eq!(params.len(), 2); // weight + bias
 
-        let conv_no_bias = Conv3d::with_options(3, 64, (3, 3, 3), (1, 1, 1), (0, 0, 0), (1, 1, 1), false);
+        let conv_no_bias =
+            Conv3d::with_options(3, 64, (3, 3, 3), (1, 1, 1), (0, 0, 0), (1, 1, 1), false);
         let params = conv_no_bias.parameters();
         assert_eq!(params.len(), 1); // weight only
     }

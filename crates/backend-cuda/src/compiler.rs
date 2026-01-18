@@ -4,8 +4,8 @@
 
 use crate::device::CudaDevice;
 use crate::kernel::CudaKernel;
-use eclat::backend::traits::Compiler;
 use eclat::backend::KernelConfig;
+use eclat::backend::traits::Compiler;
 use std::io::Write;
 use std::process::Command;
 use tempfile::TempDir;
@@ -78,8 +78,9 @@ impl CudaCompiler {
         let ptx_path = temp_dir.path().join(format!("{}.ptx", entry_point));
 
         // Write source code
-        let mut file = std::fs::File::create(&source_path)
-            .map_err(|e| CudaCompilerError::IoError(format!("Failed to create source file: {}", e)))?;
+        let mut file = std::fs::File::create(&source_path).map_err(|e| {
+            CudaCompilerError::IoError(format!("Failed to create source file: {}", e))
+        })?;
         file.write_all(source.as_bytes())
             .map_err(|e| CudaCompilerError::IoError(format!("Failed to write source: {}", e)))?;
 
@@ -90,11 +91,11 @@ impl CudaCompiler {
         // Run nvcc
         let output = Command::new("nvcc")
             .args(&[
-                "-ptx",                    // Generate PTX
-                self.optimization_flag(),  // Optimization level
+                "-ptx",                   // Generate PTX
+                self.optimization_flag(), // Optimization level
                 "-arch",
-                &self.arch,                // Target architecture
-                "--use_fast_math",         // Enable fast math
+                &self.arch,        // Target architecture
+                "--use_fast_math", // Enable fast math
                 "-o",
                 ptx_path.to_str().unwrap(),
                 source_path.to_str().unwrap(),
@@ -171,9 +172,13 @@ impl std::fmt::Display for CudaCompilerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CudaCompilerError::NvccNotFound(msg) => write!(f, "nvcc not found: {}", msg),
-            CudaCompilerError::CompilationError(msg) => write!(f, "CUDA compilation error: {}", msg),
+            CudaCompilerError::CompilationError(msg) => {
+                write!(f, "CUDA compilation error: {}", msg)
+            }
             CudaCompilerError::IoError(msg) => write!(f, "IO error: {}", msg),
-            CudaCompilerError::KernelCreationError(msg) => write!(f, "Kernel creation error: {}", msg),
+            CudaCompilerError::KernelCreationError(msg) => {
+                write!(f, "Kernel creation error: {}", msg)
+            }
         }
     }
 }

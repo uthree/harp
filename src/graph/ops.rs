@@ -4,8 +4,8 @@ use std::ops::{Add, Div, Mul, Neg, Sub};
 
 use crate::ast::{AstNode, DType};
 
-use super::node::{GraphNode, GraphOp};
 use super::Expr;
+use super::node::{GraphNode, GraphOp};
 
 // ============================================================================
 // Binary Operation Helper

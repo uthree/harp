@@ -29,10 +29,10 @@ pub use device::RustDevice;
 pub use kernel::RustKernel;
 pub use renderer::{RustCode, RustRenderer};
 
+use eclat::backend::Pipeline;
 use eclat::backend::device::{BackendRegistry, DeviceError};
 use eclat::backend::global::DeviceKind;
 use eclat::backend::traits::{Compiler, Device, TypedBuffer};
-use eclat::backend::Pipeline;
 use std::any::Any;
 use std::sync::Arc;
 
@@ -75,9 +75,7 @@ impl BackendRegistry for RustBackendRegistry {
         dtype: eclat::ast::DType,
     ) -> Result<Box<dyn eclat::backend::Buffer>, DeviceError> {
         let rust_device = device.downcast_ref::<RustDevice>().ok_or_else(|| {
-            DeviceError::InitializationError(
-                "Invalid device type: expected RustDevice".to_string(),
-            )
+            DeviceError::InitializationError("Invalid device type: expected RustDevice".to_string())
         })?;
 
         let buffer = RustBuffer::allocate(rust_device, shape, dtype).map_err(|e| {
@@ -94,9 +92,7 @@ impl BackendRegistry for RustBackendRegistry {
         signature: eclat::backend::KernelSignature,
     ) -> Result<Box<dyn eclat::backend::Kernel>, DeviceError> {
         let rust_device = device.downcast_ref::<RustDevice>().ok_or_else(|| {
-            DeviceError::InitializationError(
-                "Invalid device type: expected RustDevice".to_string(),
-            )
+            DeviceError::InitializationError("Invalid device type: expected RustDevice".to_string())
         })?;
 
         let renderer = RustRenderer::new();

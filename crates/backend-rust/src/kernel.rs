@@ -3,9 +3,9 @@
 //! This module provides kernel execution by loading compiled shared libraries.
 
 use crate::buffer::RustBuffer;
+use eclat::backend::KernelConfig;
 use eclat::backend::global::DeviceKind;
 use eclat::backend::traits::{Buffer, Kernel};
-use eclat::backend::KernelConfig;
 use libloading::{Library, Symbol};
 use std::any::Any;
 use std::error::Error;

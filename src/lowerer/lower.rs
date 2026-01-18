@@ -212,9 +212,15 @@ impl Lowerer {
                 sizes,
                 strides,
                 dilations,
-            } => {
-                self.lower_scatter(node, &output_buf, output_shape, axes, sizes, strides, dilations)
-            }
+            } => self.lower_scatter(
+                node,
+                &output_buf,
+                output_shape,
+                axes,
+                sizes,
+                strides,
+                dilations,
+            ),
         }
     }
 

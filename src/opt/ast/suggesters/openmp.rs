@@ -122,16 +122,16 @@ impl OpenMPParallelizationSuggester {
                 }
 
                 // ループ回数のチェック（最小回数が設定されている場合）
-                if let Some(min) = self.min_iterations {
-                    if let (Some(start_val), Some(stop_val)) =
-                        (Self::try_get_const_i64(start), Self::try_get_const_i64(stop))
-                    {
+                if let Some(min) = self.min_iterations
+                    && let (Some(start_val), Some(stop_val)) = (
+                        Self::try_get_const_i64(start),
+                        Self::try_get_const_i64(stop),
+                    ) {
                         let iterations = stop_val - start_val;
                         if iterations < min {
                             return None;
                         }
                     }
-                }
 
                 // ループ本体を分析
                 let mut analyzer = LoopAnalyzer::new(var);
@@ -217,23 +217,20 @@ impl OpenMPParallelizationSuggester {
         match body {
             AstNode::Assign { var, value } if var == var_name => {
                 // var = var + expr, var = expr + var
-                if let AstNode::Add(left, right) = value.as_ref() {
-                    if Self::is_var(left, var_name) || Self::is_var(right, var_name) {
+                if let AstNode::Add(left, right) = value.as_ref()
+                    && (Self::is_var(left, var_name) || Self::is_var(right, var_name)) {
                         return Some(ReductionOp::Add);
                     }
-                }
                 // var = var * expr, var = expr * var
-                if let AstNode::Mul(left, right) = value.as_ref() {
-                    if Self::is_var(left, var_name) || Self::is_var(right, var_name) {
+                if let AstNode::Mul(left, right) = value.as_ref()
+                    && (Self::is_var(left, var_name) || Self::is_var(right, var_name)) {
                         return Some(ReductionOp::Mul);
                     }
-                }
                 // var = max(var, expr), var = max(expr, var)
-                if let AstNode::Max(left, right) = value.as_ref() {
-                    if Self::is_var(left, var_name) || Self::is_var(right, var_name) {
+                if let AstNode::Max(left, right) = value.as_ref()
+                    && (Self::is_var(left, var_name) || Self::is_var(right, var_name)) {
                         return Some(ReductionOp::Max);
                     }
-                }
                 None
             }
             AstNode::Block { statements, .. } => {
@@ -252,11 +249,10 @@ impl OpenMPParallelizationSuggester {
                 if let Some(op) = self.find_reduction_pattern(then_body, var_name) {
                     return Some(op);
                 }
-                if let Some(else_b) = else_body {
-                    if let Some(op) = self.find_reduction_pattern(else_b, var_name) {
+                if let Some(else_b) = else_body
+                    && let Some(op) = self.find_reduction_pattern(else_b, var_name) {
                         return Some(op);
                     }
-                }
                 None
             }
             _ => None,
@@ -297,8 +293,8 @@ impl AstSuggester for OpenMPParallelizationSuggester {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::helper::{assign, const_int, load, range, store, var};
     use crate::ast::DType;
+    use crate::ast::helper::{assign, const_int, load, range, store, var};
 
     #[test]
     fn test_simple_parallel_for() {
@@ -328,10 +324,7 @@ mod tests {
     #[test]
     fn test_reduction_add() {
         // sum = 0; for i in 0..N { sum = sum + input[i] }
-        let body = assign(
-            "sum",
-            var("sum") + load(var("input"), var("i"), DType::F32),
-        );
+        let body = assign("sum", var("sum") + load(var("input"), var("i"), DType::F32));
         let loop_node = range("i", const_int(0), const_int(1), var("N"), body);
 
         let suggester = OpenMPParallelizationSuggester::new();
@@ -344,7 +337,10 @@ mod tests {
             assert!(parallel.is_parallel);
             assert_eq!(parallel.kind, ParallelKind::OpenMP);
             assert_eq!(parallel.reductions.len(), 1);
-            assert_eq!(parallel.reductions[0], ("sum".to_string(), ReductionOp::Add));
+            assert_eq!(
+                parallel.reductions[0],
+                ("sum".to_string(), ReductionOp::Add)
+            );
         } else {
             panic!("Expected Range node");
         }

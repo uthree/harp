@@ -4,7 +4,7 @@
 //! It provides a unified interface for parameter management and forward pass.
 
 use super::Parameter;
-use eclat::tensor::{Tensor, Dyn};
+use eclat::tensor::{Dyn, Tensor};
 
 /// Base trait for neural network modules.
 ///
@@ -79,7 +79,7 @@ pub trait Module {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eclat::tensor::{Tensor, Dyn};
+    use eclat::tensor::{Dyn, Tensor};
 
     // Simple test module for testing the trait
     struct DummyModule {

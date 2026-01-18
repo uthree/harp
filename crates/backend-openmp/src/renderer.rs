@@ -203,10 +203,7 @@ impl CLikeRenderer for OpenMPRenderer {
 
     fn render_atomic_add(&self, ptr: &str, offset: &str, value: &str, _dtype: &DType) -> String {
         // Use OpenMP atomic directive
-        format!(
-            "#pragma omp atomic\n{}[{}] += {}",
-            ptr, offset, value
-        )
+        format!("#pragma omp atomic\n{}[{}] += {}", ptr, offset, value)
     }
 
     fn render_atomic_max(&self, ptr: &str, offset: &str, value: &str, _dtype: &DType) -> String {
@@ -272,7 +269,7 @@ impl eclat::backend::pipeline::KernelSourceRenderer for OpenMPRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     use eclat::ast::Literal;
 
     #[test]

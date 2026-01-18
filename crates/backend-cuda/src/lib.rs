@@ -32,10 +32,10 @@ pub use device::CudaDevice;
 pub use kernel::CudaKernel;
 pub use renderer::{CudaCode, CudaRenderer};
 
+use eclat::backend::Pipeline;
 use eclat::backend::device::{BackendRegistry, DeviceError};
 use eclat::backend::global::DeviceKind;
 use eclat::backend::traits::Compiler;
-use eclat::backend::Pipeline;
 use std::any::Any;
 use std::sync::Arc;
 
@@ -89,9 +89,7 @@ impl BackendRegistry for CudaBackendRegistry {
         dtype: eclat::ast::DType,
     ) -> Result<Box<dyn eclat::backend::Buffer>, DeviceError> {
         let cuda_device = device.downcast_ref::<CudaDevice>().ok_or_else(|| {
-            DeviceError::InitializationError(
-                "Invalid device type: expected CudaDevice".to_string(),
-            )
+            DeviceError::InitializationError("Invalid device type: expected CudaDevice".to_string())
         })?;
 
         let buffer = CudaBuffer::allocate(cuda_device, shape, dtype).map_err(|e| {
@@ -108,9 +106,7 @@ impl BackendRegistry for CudaBackendRegistry {
         signature: eclat::backend::KernelSignature,
     ) -> Result<Box<dyn eclat::backend::Kernel>, DeviceError> {
         let cuda_device = device.downcast_ref::<CudaDevice>().ok_or_else(|| {
-            DeviceError::InitializationError(
-                "Invalid device type: expected CudaDevice".to_string(),
-            )
+            DeviceError::InitializationError("Invalid device type: expected CudaDevice".to_string())
         })?;
 
         let renderer = CudaRenderer::new();
@@ -214,8 +210,8 @@ mod tests {
 
         use eclat::backend::traits::Device;
         use eclat::backend::{clear_default_device, set_device_str};
-        use eclat::tensor::dim::{D1, D2};
         use eclat::tensor::Tensor;
+        use eclat::tensor::dim::{D1, D2};
 
         fn setup_cuda() -> bool {
             // Initialize CUDA backend

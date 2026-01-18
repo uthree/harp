@@ -6,8 +6,8 @@
 //! The generated code uses `extern "C"` ABI for compatibility with libloading.
 
 use eclat::ast::{AstNode, DType, Literal, ParallelInfo, ParallelKind, Scope, VarDecl};
-use eclat::backend::renderer::CLikeRenderer;
 use eclat::backend::Renderer;
+use eclat::backend::renderer::CLikeRenderer;
 
 /// Rust source code representation
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -309,8 +309,7 @@ impl RustRenderer {
                 }
             }
             AstNode::Call { name, args } => {
-                let arg_strs: Vec<String> =
-                    args.iter().map(|a| self.render_expr_rust(a)).collect();
+                let arg_strs: Vec<String> = args.iter().map(|a| self.render_expr_rust(a)).collect();
                 format!("{}({})", name, arg_strs.join(", "))
             }
             AstNode::Return { value } => {
@@ -406,8 +405,7 @@ impl RustRenderer {
                 format!("{}// barrier (no-op in Rust)", self.indent())
             }
             AstNode::Call { name, args } => {
-                let arg_strs: Vec<String> =
-                    args.iter().map(|a| self.render_expr_rust(a)).collect();
+                let arg_strs: Vec<String> = args.iter().map(|a| self.render_expr_rust(a)).collect();
                 format!("{}{}({});", self.indent(), name, arg_strs.join(", "))
             }
             _ => {
@@ -867,18 +865,9 @@ mod tests {
     #[test]
     fn test_render_literals() {
         let renderer = RustRenderer::new();
-        assert_eq!(
-            renderer.render_literal_rust(&Literal::F32(1.5)),
-            "1.5f32"
-        );
-        assert_eq!(
-            renderer.render_literal_rust(&Literal::I64(42)),
-            "42i64"
-        );
-        assert_eq!(
-            renderer.render_literal_rust(&Literal::Bool(true)),
-            "true"
-        );
+        assert_eq!(renderer.render_literal_rust(&Literal::F32(1.5)), "1.5f32");
+        assert_eq!(renderer.render_literal_rust(&Literal::I64(42)), "42i64");
+        assert_eq!(renderer.render_literal_rust(&Literal::Bool(true)), "true");
     }
 
     #[test]
@@ -942,7 +931,7 @@ mod tests {
     #[test]
     fn test_render_header_with_rayon() {
         let mut renderer = RustRenderer::new();
-        
+
         // Without rayon
         let header1 = renderer.render_header();
         assert!(!header1.contains("use rayon"));

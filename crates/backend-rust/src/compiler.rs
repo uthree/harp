@@ -2,10 +2,10 @@
 //!
 //! This module compiles Rust code to a shared library (cdylib) for runtime execution.
 
-use crate::kernel::RustKernel;
 use crate::RustDevice;
-use eclat::backend::traits::Compiler;
+use crate::kernel::RustKernel;
 use eclat::backend::KernelConfig;
+use eclat::backend::traits::Compiler;
 use std::error::Error;
 use std::fmt;
 use std::fs;

@@ -166,7 +166,8 @@ impl Parameter {
 
         // If tensor is realized, read from device
         if self.inner.tensor.borrow().is_realized() {
-            return self.inner
+            return self
+                .inner
                 .tensor
                 .borrow()
                 .to_vec()
@@ -179,7 +180,7 @@ impl Parameter {
         }
 
         Err(ParameterError::ExecutionError(
-            "Parameter has no data".to_string()
+            "Parameter has no data".to_string(),
         ))
     }
 
@@ -213,8 +214,7 @@ impl Parameter {
 
     /// Check if the parameter has initial data set.
     pub fn has_data(&self) -> bool {
-        self.inner.tensor.borrow().is_realized()
-            || self.inner.initial_data.borrow().is_some()
+        self.inner.tensor.borrow().is_realized() || self.inner.initial_data.borrow().is_some()
     }
 }
 
@@ -240,7 +240,11 @@ impl std::fmt::Display for ParameterError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ShapeMismatch { expected, got } => {
-                write!(f, "Shape mismatch: expected {} elements, got {}", expected, got)
+                write!(
+                    f,
+                    "Shape mismatch: expected {} elements, got {}",
+                    expected, got
+                )
             }
             Self::ExecutionError(msg) => write!(f, "Execution error: {}", msg),
         }

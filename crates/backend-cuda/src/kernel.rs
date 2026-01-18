@@ -5,9 +5,9 @@
 #[cfg(feature = "cuda-runtime")]
 use crate::buffer::CudaBuffer;
 use crate::device::CudaDevice;
+use eclat::backend::KernelConfig;
 use eclat::backend::global::DeviceKind;
 use eclat::backend::traits::{Buffer, Kernel};
-use eclat::backend::KernelConfig;
 use std::any::Any;
 use std::error::Error;
 use tempfile::TempDir;
@@ -62,12 +62,12 @@ impl CudaKernel {
             .map_err(|e| CudaKernelError::ModuleLoadError(format!("Failed to load PTX: {}", e)))?;
 
         // Get the kernel function
-        let function = module
-            .load_function(&config.entry_point)
-            .map_err(|e| CudaKernelError::FunctionNotFound(format!(
+        let function = module.load_function(&config.entry_point).map_err(|e| {
+            CudaKernelError::FunctionNotFound(format!(
                 "Function '{}' not found: {}",
                 config.entry_point, e
-            )))?;
+            ))
+        })?;
 
         Ok(Self {
             context,
@@ -89,7 +89,7 @@ impl CudaKernel {
         _config: KernelConfig,
     ) -> Result<Self, CudaKernelError> {
         Err(CudaKernelError::NotImplemented(
-            "CUDA runtime not available. Rebuild with --features cuda-runtime".to_string()
+            "CUDA runtime not available. Rebuild with --features cuda-runtime".to_string(),
         ))
     }
 }
@@ -178,10 +178,9 @@ impl Kernel for CudaKernel {
         let mut kernel_args: Vec<u64> = Vec::with_capacity(inputs.len() + outputs.len());
 
         for input in inputs {
-            let cuda_buf = input
-                .as_any()
-                .downcast_ref::<CudaBuffer>()
-                .ok_or_else(|| CudaKernelError::InvalidBuffer("Input buffer must be CudaBuffer".to_string()))?;
+            let cuda_buf = input.as_any().downcast_ref::<CudaBuffer>().ok_or_else(|| {
+                CudaKernelError::InvalidBuffer("Input buffer must be CudaBuffer".to_string())
+            })?;
             kernel_args.push(cuda_buf.as_device_ptr_u64());
         }
 
@@ -189,7 +188,9 @@ impl Kernel for CudaKernel {
             let cuda_buf = output
                 .as_any_mut()
                 .downcast_mut::<CudaBuffer>()
-                .ok_or_else(|| CudaKernelError::InvalidBuffer("Output buffer must be CudaBuffer".to_string()))?;
+                .ok_or_else(|| {
+                    CudaKernelError::InvalidBuffer("Output buffer must be CudaBuffer".to_string())
+                })?;
             kernel_args.push(cuda_buf.as_device_ptr_u64());
         }
 
@@ -212,16 +213,21 @@ impl Kernel for CudaKernel {
         unsafe {
             self.function
                 .launch_raw(launch_config, &mut arg_ptrs)
-                .map_err(|e| CudaKernelError::LaunchError(format!("Kernel launch failed: {}", e)))?;
+                .map_err(|e| {
+                    CudaKernelError::LaunchError(format!("Kernel launch failed: {}", e))
+                })?;
         }
 
         // Synchronize to ensure kernel completion
         let stream = self.context.default_stream();
-        stream
-            .synchronize()
-            .map_err(|e| CudaKernelError::LaunchError(format!("Stream synchronization failed: {}", e)))?;
+        stream.synchronize().map_err(|e| {
+            CudaKernelError::LaunchError(format!("Stream synchronization failed: {}", e))
+        })?;
 
-        log::debug!("Kernel '{}' completed successfully", self.config.entry_point);
+        log::debug!(
+            "Kernel '{}' completed successfully",
+            self.config.entry_point
+        );
 
         Ok(())
     }
@@ -235,7 +241,7 @@ impl Kernel for CudaKernel {
         _local_size: [usize; 3],
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         Err(Box::new(CudaKernelError::NotImplemented(
-            "CUDA runtime not available".to_string()
+            "CUDA runtime not available".to_string(),
         )))
     }
 

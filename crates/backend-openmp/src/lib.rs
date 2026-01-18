@@ -31,10 +31,10 @@ pub use renderer::OpenMPRenderer;
 // Re-export renderer types for convenience
 pub use eclat::backend::renderer::OptimizationLevel;
 
-use eclat::backend::Pipeline;
 use eclat::backend::device::{BackendRegistry, DeviceError};
 use eclat::backend::global::DeviceKind;
 use eclat::backend::traits::{Compiler, Device, TypedBuffer};
+use eclat::backend::Pipeline;
 use std::any::Any;
 use std::sync::Arc;
 
@@ -153,8 +153,8 @@ mod tests {
         use super::*;
 
         use eclat::backend::{clear_default_device, set_device_str};
-        use eclat::tensor::Tensor;
         use eclat::tensor::dim::D1;
+        use eclat::tensor::Tensor;
 
         fn setup_openmp() -> bool {
             // Initialize OpenMP backend

@@ -2,7 +2,7 @@
 //!
 //! Implements SGD with optional momentum.
 
-use super::{get_param_data, OptimError, Optimizer};
+use super::{OptimError, Optimizer, get_param_data};
 use crate::nn::Parameter;
 
 /// Stochastic Gradient Descent optimizer.

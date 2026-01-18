@@ -335,25 +335,26 @@ pub fn compile_ast_with_cache(
 
     // 4. ディスクキャッシュに保存（バイナリサポートがある場合）
     if entry.kernel.supports_binary_cache()
-        && let Some(binary) = entry.kernel.get_binary() {
-            let metadata = DiskCacheMetadata {
-                entry_point: entry.kernel.config().entry_point.clone(),
-                grid_size: entry.kernel.config().global_work_size,
-                local_size: entry.kernel.config().local_work_size,
-                device_name: kind.to_string(),
-                eclat_version: eclat_version().to_string(),
-            };
+        && let Some(binary) = entry.kernel.get_binary()
+    {
+        let metadata = DiskCacheMetadata {
+            entry_point: entry.kernel.config().entry_point.clone(),
+            grid_size: entry.kernel.config().global_work_size,
+            local_size: entry.kernel.config().local_work_size,
+            device_name: kind.to_string(),
+            eclat_version: eclat_version().to_string(),
+        };
 
-            if let Err(e) = save_binary(&disk_hash, &device_kind_str, &binary, &metadata) {
-                log::debug!("Failed to save disk cache: {}", e);
-            } else {
-                log::debug!(
-                    "Saved to disk cache: {} ({} bytes)",
-                    disk_hash,
-                    binary.len()
-                );
-            }
+        if let Err(e) = save_binary(&disk_hash, &device_kind_str, &binary, &metadata) {
+            log::debug!("Failed to save disk cache: {}", e);
+        } else {
+            log::debug!(
+                "Saved to disk cache: {} ({} bytes)",
+                disk_hash,
+                binary.len()
+            );
         }
+    }
 
     // 5. メモリキャッシュに挿入
     insert_cached_kernel(cache_key, entry.clone());

@@ -6,9 +6,9 @@
 //! Run with: cargo run --example function_fitting
 
 // Link backend crates to trigger ctor auto-initialization
+extern crate eclat_backend_c;
 #[cfg(target_os = "macos")]
 extern crate eclat_backend_metal;
-extern crate eclat_backend_c;
 
 use eclat::backend::{get_default_device_kind, set_device_str};
 use eclat::tensor::Tensor;

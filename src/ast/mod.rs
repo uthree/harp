@@ -65,7 +65,6 @@ impl AstKernelCallInfo {
     }
 }
 
-
 /// リダクション演算子
 #[derive(Clone, Debug, PartialEq)]
 pub enum ReductionOp {
@@ -226,11 +225,11 @@ pub enum AstNode {
 
     // Control flow - 制御構文
     Range {
-        var: String,           // ループ変数名
-        start: Box<AstNode>,   // 開始値
-        step: Box<AstNode>,    // ステップ
-        stop: Box<AstNode>,    // 終了値
-        body: Box<AstNode>,    // ループ本体（Blockノード）
+        var: String,            // ループ変数名
+        start: Box<AstNode>,    // 開始値
+        step: Box<AstNode>,     // ステップ
+        stop: Box<AstNode>,     // 終了値
+        body: Box<AstNode>,     // ループ本体（Blockノード）
         parallel: ParallelInfo, // 並列化情報
     },
 

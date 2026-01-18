@@ -456,11 +456,11 @@ impl GraphNode {
         let strides_expr: Vec<Expr> = strides.iter().map(|s| s.clone().into()).collect();
         let dilations_expr: Vec<Expr> = dilations.iter().map(|d| d.clone().into()).collect();
 
-        let new_view = self
-            .0
-            .view
-            .clone()
-            .unfold(axes, &sizes_expr, &strides_expr, &dilations_expr);
+        let new_view =
+            self.0
+                .view
+                .clone()
+                .unfold(axes, &sizes_expr, &strides_expr, &dilations_expr);
         GraphNode::new(
             vec![self.clone()],
             new_view,
