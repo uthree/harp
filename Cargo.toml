@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/backend-c", "crates/backend-opencl", "crates/backend-metal", "crates/backend-cuda", "crates/backend-rust", "crates/backend-openmp", "crates/nn"]
+members = ["crates/backend-c", "crates/backend-opencl", "crates/backend-metal", "crates/backend-cuda", "crates/backend-rust", "crates/backend-openmp", "crates/nn", "crates/dsl", "crates/cli"]
 
 [package]
 name = "eclat"
@@ -20,12 +20,6 @@ paste = "1.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
-# DSL parser
-pest = "2"
-pest_derive = "2"
-
-# CLI
-clap = { version = "4", features = ["derive"] }
 tempfile = "3.20"
 num-traits = "0.2.19"
 num-complex = "0.4.6"
@@ -49,7 +43,3 @@ path = "crates/backend-c"
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 eclat-backend-metal = { path = "crates/backend-metal" }
-
-[[bin]]
-name = "eclat-transpile"
-path = "src/bin/eclat-transpile.rs"

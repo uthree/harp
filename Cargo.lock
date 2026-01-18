@@ -474,7 +474,6 @@ dependencies = [
 name = "eclat"
 version = "0.1.0"
 dependencies = [
- "clap",
  "crossterm",
  "directories",
  "eclat-backend-c",
@@ -487,8 +486,6 @@ dependencies = [
  "num-complex",
  "num-traits 0.2.19",
  "paste",
- "pest",
- "pest_derive",
  "ratatui",
  "rstest",
  "serde",
@@ -565,6 +562,24 @@ dependencies = [
  "log",
  "rayon",
  "tempfile",
+]
+
+[[package]]
+name = "eclat-cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "eclat",
+ "eclat-dsl",
+]
+
+[[package]]
+name = "eclat-dsl"
+version = "0.1.0"
+dependencies = [
+ "eclat",
+ "pest",
+ "pest_derive",
 ]
 
 [[package]]
