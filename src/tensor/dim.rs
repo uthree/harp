@@ -92,6 +92,22 @@ impl Dimension for D6 {
     const NDIM: usize = 6;
 }
 
+/// 7-dimensional tensor.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct D7;
+
+impl Dimension for D7 {
+    const NDIM: usize = 7;
+}
+
+/// 8-dimensional tensor.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct D8;
+
+impl Dimension for D8 {
+    const NDIM: usize = 8;
+}
+
 /// Dynamic dimension (runtime-checked).
 ///
 /// Use this when the number of dimensions is not known at compile time

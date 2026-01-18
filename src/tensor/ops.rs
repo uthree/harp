@@ -473,7 +473,7 @@ impl<D: Dimension, T: TensorDType> Tensor<D, T> {
 // Specialized Unfold Operations (Static Dimension Types)
 // ============================================================================
 
-use super::dim::{D3, D4, D6};
+use super::dim::{D3, D4, D5, D6, D8};
 
 impl<T: TensorDType> Tensor<D4, T> {
     /// 2D Unfold for Conv2d (static dimension version)
@@ -518,6 +518,32 @@ impl<T: TensorDType> Tensor<D3, T> {
         dilation: usize,
     ) -> Tensor<D4, T> {
         let graph = self.inner.graph.unfold(&[2], &[kernel_size], &[stride], &[dilation]);
+        Tensor::from_graph(graph)
+    }
+}
+
+impl<T: TensorDType> Tensor<D5, T> {
+    /// 3D Unfold for Conv3d (static dimension version)
+    ///
+    /// Extracts sliding windows from D, H, and W axes.
+    /// Input: [N, C, D, H, W] -> Output: [N, C, D_out, H_out, W_out, kD, kH, kW]
+    ///
+    /// # Arguments
+    /// * `kernel_size` - (kD, kH, kW)
+    /// * `stride` - (stride_d, stride_h, stride_w)
+    /// * `dilation` - (dilation_d, dilation_h, dilation_w)
+    pub fn unfold_3d(
+        &self,
+        kernel_size: (usize, usize, usize),
+        stride: (usize, usize, usize),
+        dilation: (usize, usize, usize),
+    ) -> Tensor<D8, T> {
+        let graph = self.inner.graph.unfold(
+            &[2, 3, 4],
+            &[kernel_size.0, kernel_size.1, kernel_size.2],
+            &[stride.0, stride.1, stride.2],
+            &[dilation.0, dilation.1, dilation.2],
+        );
         Tensor::from_graph(graph)
     }
 }
