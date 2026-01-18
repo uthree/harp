@@ -14,6 +14,80 @@ pub enum PadValue {
     NegInf,
 }
 
+/// 境界条件
+///
+/// View の境界条件を表す構造体。条件式と境界外アクセス時のデフォルト値を保持します。
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ViewBounds {
+    /// 条件式（Expr::Bool(true) = 常に有効、マスクなし）
+    pub condition: Expr,
+    /// 条件がfalseの場合のデフォルト値
+    pub default_value: PadValue,
+}
+
+impl ViewBounds {
+    /// 新しい ViewBounds を作成
+    pub fn new(condition: Expr, default_value: PadValue) -> Self {
+        Self {
+            condition,
+            default_value,
+        }
+    }
+
+    /// マスクなし（常に有効）
+    pub fn none() -> Self {
+        Self {
+            condition: Expr::Bool(true),
+            default_value: PadValue::Zero, // 使われないが一貫性のため
+        }
+    }
+
+    /// 境界条件があるか（condition が常に true でない）
+    pub fn has_condition(&self) -> bool {
+        !self.condition.is_always_true()
+    }
+
+    /// Idx(i) を new_expr に置換
+    pub fn substitute_idx(&self, idx: usize, new_expr: Expr) -> Self {
+        Self {
+            condition: self.condition.clone().substitute_idx(idx, new_expr),
+            default_value: self.default_value,
+        }
+    }
+
+    /// Idx(shift以降) を +delta シフト
+    pub fn shift_indices(&self, threshold: usize, delta: isize) -> Self {
+        Self {
+            condition: self.condition.clone().shift_idx(threshold, delta),
+            default_value: self.default_value,
+        }
+    }
+
+    /// Idx変数を順列に従って並べ替える
+    pub fn permute_idx(&self, axes: &[usize]) -> Self {
+        Self {
+            condition: self.condition.clone().permute_idx(axes),
+            default_value: self.default_value,
+        }
+    }
+
+    /// 2つの bounds を AND で合成
+    pub fn and(&self, other: &ViewBounds) -> Self {
+        Self {
+            condition: self.condition.clone().and(other.condition.clone()).simplify(),
+            default_value: self.default_value, // self を優先
+        }
+    }
+
+    /// LoadIndexのsrc_indexをシフト
+    pub fn shift_load_index(&self, delta: isize) -> Self {
+        Self {
+            condition: self.condition.clone().shift_load_index(delta),
+            default_value: self.default_value,
+        }
+    }
+}
+
 impl PadValue {
     /// パディング値を浮動小数点数として取得
     pub fn as_f32(&self) -> f32 {
@@ -42,41 +116,15 @@ pub enum View {
         shape: Vec<Expr>,   // 論理的なテンソルのサイズ
         strides: Vec<Expr>, // 各次元の添え字の係数
         offset: Expr,       // オフセット
+        bounds: ViewBounds, // 境界条件（常に存在）
     },
 
     /// 任意の式でインデックスを計算する場合
     /// offsetはExprで直接計算される（Idx(0), Idx(1), ... を含む）
     IndexExpr {
-        shape: Vec<Expr>, // 論理的なテンソルのサイズ
-        index_expr: Expr, // インデックス計算式
-    },
-
-    /// 任意の条件付きマスクView
-    ///
-    /// 任意のExpr条件に基づいてinner Viewの値またはデフォルト値を返す。
-    /// Attention maskや三角行列マスク、スパースパターンなど任意の境界条件に使用可能。
-    ///
-    /// # 動作
-    /// - `condition`が非0（true）の場合: inner Viewの値を返す
-    /// - `condition`が0（false）の場合: `default_value`を返す
-    ///
-    /// # Example
-    /// ```text
-    /// // Attention mask (causal): ridx[0] <= ridx[1]
-    /// let mask = Expr::Idx(0).le(Expr::Idx(1));
-    /// View::Masked { inner, condition: mask, default_value: PadValue::NegInf }
-    ///
-    /// // Sparse (even indices only): ridx[0] % 2 == 0
-    /// let sparse = Expr::Idx(0).rem(2).eq_expr(0);
-    /// View::Masked { inner, condition: sparse, default_value: PadValue::Zero }
-    /// ```
-    Masked {
-        /// 内側のView（条件がtrueの場合に使用）
-        inner: Box<View>,
-        /// 条件式（Idx変数を含むExpr、非0ならinner、0ならdefault）
-        condition: Expr,
-        /// 条件がfalseの場合のデフォルト値
-        default_value: PadValue,
+        shape: Vec<Expr>,   // 論理的なテンソルのサイズ
+        index_expr: Expr,   // インデックス計算式
+        bounds: ViewBounds, // 境界条件（常に存在）
     },
 }
 
@@ -88,6 +136,7 @@ impl View {
                 shape,
                 strides: vec![],
                 offset: Expr::from(0),
+                bounds: ViewBounds::none(),
             };
         }
         let mut strides = vec![Expr::from(1); shape.len()];
@@ -98,6 +147,7 @@ impl View {
             shape,
             strides,
             offset: Expr::from(0),
+            bounds: ViewBounds::none(),
         }
     }
 
@@ -108,20 +158,15 @@ impl View {
     /// Viewの論理的な形状を返す
     ///
     /// 各バリアントの形状を返す。
-    /// Maskedの場合はinner Viewの形状を返す。
     pub fn shape(&self) -> Vec<Expr> {
         match self {
             View::Linear { shape, .. } | View::IndexExpr { shape, .. } => shape.clone(),
-            View::Masked { inner, .. } => inner.shape(),
         }
     }
 
-    /// 内側のViewの形状を返す（Maskedの場合に有用）
+    /// 内側のViewの形状を返す（形状を取得する別名）
     pub fn inner_shape(&self) -> Vec<Expr> {
-        match self {
-            View::Masked { inner, .. } => inner.shape(),
-            _ => self.shape(),
-        }
+        self.shape()
     }
 
     /// Linearバリアントかどうかを判定
@@ -132,15 +177,13 @@ impl View {
     /// ViewにLoadIndexが含まれているかどうかを判定
     ///
     /// IndexExpr Viewのindex_exprにLoadIndexが含まれている場合にtrueを返します。
-    /// Linear Viewは常にfalseを返します。
-    /// Masked Viewは内側のViewとcondition内のLoadIndexをチェックします。
+    /// Linear Viewはboundsの条件式内のLoadIndexをチェックします。
     pub fn contains_load_index(&self) -> bool {
         match self {
-            View::Linear { .. } => false,
-            View::IndexExpr { index_expr, .. } => index_expr.contains_load_index(),
-            View::Masked {
-                inner, condition, ..
-            } => inner.contains_load_index() || condition.contains_load_index(),
+            View::Linear { bounds, .. } => bounds.condition.contains_load_index(),
+            View::IndexExpr {
+                index_expr, bounds, ..
+            } => index_expr.contains_load_index() || bounds.condition.contains_load_index(),
         }
     }
 
@@ -148,13 +191,13 @@ impl View {
     ///
     /// Linear Viewを等価なIndexExpr形式に変換します。
     /// 既にIndexExprの場合はクローンを返します。
-    /// Masked Viewは条件分岐が必要なため変換できず、そのまま返します。
     pub fn to_index_expr(&self) -> View {
         match self {
             View::Linear {
                 shape,
                 strides,
                 offset,
+                bounds,
             } => {
                 // offset + Idx(0)*strides[0] + Idx(1)*strides[1] + ...
                 let mut expr = offset.clone();
@@ -164,11 +207,10 @@ impl View {
                 View::IndexExpr {
                     shape: shape.clone(),
                     index_expr: expr,
+                    bounds: bounds.clone(),
                 }
             }
             View::IndexExpr { .. } => self.clone(),
-            // Maskedは条件分岐が必要なためIndexExprに変換できない
-            View::Masked { .. } => self.clone(),
         }
     }
 
@@ -216,9 +258,13 @@ impl View {
             (
                 View::IndexExpr {
                     index_expr: outer_expr,
+                    bounds: outer_bounds,
                     ..
                 },
-                View::Linear { .. },
+                View::Linear {
+                    bounds: inner_bounds,
+                    ..
+                },
             ) => {
                 // outer_expr 内の Idx(i) を inner の対応する値で置換
                 // inner は Linear なので、Idx(i) -> inner_offset + sum(Idx(j) * inner_strides[j])
@@ -231,6 +277,7 @@ impl View {
                 View::IndexExpr {
                     shape: outer_shape,
                     index_expr: outer_expr.clone(),
+                    bounds: outer_bounds.and(inner_bounds),
                 }
             }
 
@@ -238,10 +285,12 @@ impl View {
             (
                 View::IndexExpr {
                     index_expr: outer_expr,
+                    bounds: outer_bounds,
                     ..
                 },
                 View::IndexExpr {
                     index_expr: _inner_expr,
+                    bounds: inner_bounds,
                     ..
                 },
             ) => {
@@ -260,31 +309,8 @@ impl View {
                 View::IndexExpr {
                     shape: outer_shape,
                     index_expr: outer_expr.clone(),
+                    bounds: outer_bounds.and(inner_bounds),
                 }
-            }
-
-            // Masked outer × any inner: Maskedの条件を保持
-            (
-                View::Masked {
-                    inner: masked_inner,
-                    condition,
-                    default_value,
-                },
-                inner_view,
-            ) => {
-                // innerとmasked_innerを合成
-                let composed_inner = Self::compose(masked_inner, inner_view);
-                View::Masked {
-                    inner: Box::new(composed_inner),
-                    condition: condition.clone(),
-                    default_value: *default_value,
-                }
-            }
-
-            // any × Masked: innerがMaskedの場合
-            (outer_view, View::Masked { .. }) => {
-                // innerがMaskedの場合も同様にouterを返す
-                outer_view.clone()
             }
         }
     }
@@ -294,19 +320,25 @@ impl View {
     /// View融合時にsrc配列がマージされる際に使用します。
     pub fn shift_load_index(&self, delta: isize) -> View {
         match self {
-            View::Linear { .. } => self.clone(),
-            View::IndexExpr { shape, index_expr } => View::IndexExpr {
+            View::Linear {
+                shape,
+                strides,
+                offset,
+                bounds,
+            } => View::Linear {
+                shape: shape.clone(),
+                strides: strides.clone(),
+                offset: offset.clone(),
+                bounds: bounds.shift_load_index(delta),
+            },
+            View::IndexExpr {
+                shape,
+                index_expr,
+                bounds,
+            } => View::IndexExpr {
                 shape: shape.clone(),
                 index_expr: index_expr.clone().shift_load_index(delta),
-            },
-            View::Masked {
-                inner,
-                condition,
-                default_value,
-            } => View::Masked {
-                inner: Box::new(inner.shift_load_index(delta)),
-                condition: condition.clone().shift_load_index(delta),
-                default_value: *default_value,
+                bounds: bounds.shift_load_index(delta),
             },
         }
     }
@@ -320,6 +352,7 @@ impl View {
                 shape,
                 strides,
                 offset,
+                bounds,
             } => {
                 let mut new_shape = vec![];
                 let mut new_strides = vec![];
@@ -331,9 +364,14 @@ impl View {
                     shape: new_shape,
                     strides: new_strides,
                     offset,
+                    bounds: bounds.permute_idx(&axes),
                 }
             }
-            View::IndexExpr { shape, index_expr } => {
+            View::IndexExpr {
+                shape,
+                index_expr,
+                bounds,
+            } => {
                 // shapeを並べ替え
                 let new_shape: Vec<Expr> = axes.iter().map(|&a| shape[a].clone()).collect();
                 // index_exprのIdx変数を並べ替え
@@ -341,21 +379,7 @@ impl View {
                 View::IndexExpr {
                     shape: new_shape,
                     index_expr: new_index_expr,
-                }
-            }
-            View::Masked {
-                inner,
-                condition,
-                default_value,
-            } => {
-                // 内側のViewをpermute
-                let new_inner = inner.permute(axes.clone());
-                // conditionのIdx変数も並べ替え
-                let new_condition = condition.permute_idx(&axes);
-                View::Masked {
-                    inner: Box::new(new_inner),
-                    condition: new_condition,
-                    default_value,
+                    bounds: bounds.permute_idx(&axes),
                 }
             }
         }
@@ -368,6 +392,7 @@ impl View {
                 shape,
                 strides,
                 offset,
+                bounds,
             } => {
                 let mut shape = shape.clone();
                 let mut strides = strides.clone();
@@ -377,11 +402,13 @@ impl View {
                     shape,
                     strides,
                     offset,
+                    bounds: bounds.shift_indices(axis, 1),
                 }
             }
             View::IndexExpr {
                 mut shape,
                 index_expr,
+                bounds,
             } => {
                 // shapeに1を挿入
                 shape.insert(axis, 1.into());
@@ -390,21 +417,7 @@ impl View {
                 View::IndexExpr {
                     shape,
                     index_expr: new_index_expr,
-                }
-            }
-            View::Masked {
-                inner,
-                condition,
-                default_value,
-            } => {
-                // 内側のViewをunsqueeze
-                let new_inner = inner.unsqueeze(axis);
-                // conditionのIdx(i) for i >= axis を Idx(i+1) にシフト
-                let new_condition = condition.shift_idx(axis, 1);
-                View::Masked {
-                    inner: Box::new(new_inner),
-                    condition: new_condition,
-                    default_value,
+                    bounds: bounds.shift_indices(axis, 1),
                 }
             }
         }
@@ -412,7 +425,6 @@ impl View {
 
     pub fn squeeze(self, axis: usize) -> Self {
         assert!(axis < self.ndim());
-        // Maskedの場合はmatch前にshapeを取得する必要がある
         let output_shape = self.shape();
         assert_eq!(
             output_shape[axis],
@@ -424,6 +436,7 @@ impl View {
                 mut shape,
                 mut strides,
                 offset,
+                bounds,
             } => {
                 shape.remove(axis);
                 strides.remove(axis);
@@ -431,11 +444,15 @@ impl View {
                     shape,
                     strides,
                     offset,
+                    bounds: bounds
+                        .substitute_idx(axis, Expr::from(0))
+                        .shift_indices(axis + 1, -1),
                 }
             }
             View::IndexExpr {
                 mut shape,
                 index_expr,
+                bounds,
             } => {
                 // shapeから削除
                 shape.remove(axis);
@@ -446,23 +463,9 @@ impl View {
                 View::IndexExpr {
                     shape,
                     index_expr: new_index_expr,
-                }
-            }
-            View::Masked {
-                inner,
-                condition,
-                default_value,
-            } => {
-                // 内側のViewをsqueeze
-                let new_inner = inner.squeeze(axis);
-                // conditionも更新: Idx(axis) を 0 に置換し、Idx(i) for i > axis を Idx(i-1) にシフト
-                let new_condition = condition
-                    .substitute_idx(axis, Expr::from(0))
-                    .shift_idx(axis + 1, -1);
-                View::Masked {
-                    inner: Box::new(new_inner),
-                    condition: new_condition,
-                    default_value,
+                    bounds: bounds
+                        .substitute_idx(axis, Expr::from(0))
+                        .shift_indices(axis + 1, -1),
                 }
             }
         }
@@ -491,6 +494,7 @@ impl View {
                 mut shape,
                 strides,
                 offset,
+                bounds,
             } => {
                 // Change shape[axis] to the new size
                 // Stride stays 0 (or whatever it was for size-1 axis)
@@ -499,29 +503,22 @@ impl View {
                     shape,
                     strides,
                     offset,
+                    bounds,
                 }
             }
             View::IndexExpr {
                 mut shape,
                 index_expr,
+                bounds,
             } => {
                 // Update shape, index_expr stays the same
                 // (Idx(axis) will iterate over [0, size) but index_expr ignores it
                 // since the original axis was size 1)
                 shape[axis] = size;
-                View::IndexExpr { shape, index_expr }
-            }
-            View::Masked {
-                inner,
-                condition,
-                default_value,
-            } => {
-                // Expand the inner view
-                let new_inner = inner.expand(axis, size);
-                View::Masked {
-                    inner: Box::new(new_inner),
-                    condition,
-                    default_value,
+                View::IndexExpr {
+                    shape,
+                    index_expr,
+                    bounds,
                 }
             }
         }
@@ -529,11 +526,13 @@ impl View {
 
     pub fn flip(self, axis: usize) -> Self {
         assert!(axis < self.ndim(), "axis out of bounds");
+        let shape_for_bounds = self.shape();
         match self {
             View::Linear {
                 shape,
                 mut strides,
                 offset,
+                bounds,
             } => {
                 // Flip axis by reversing the stride direction
                 // New offset = old_offset + (shape[axis] - 1) * strides[axis]
@@ -542,38 +541,29 @@ impl View {
                     + (shape[axis].clone() - Expr::from(1)) * strides[axis].clone())
                 .simplify();
                 strides[axis] = (-strides[axis].clone()).simplify();
+                // bounds の Idx(axis) も flip
+                let flipped_idx =
+                    (shape_for_bounds[axis].clone() - Expr::from(1) - Expr::Idx(axis)).simplify();
                 View::Linear {
                     shape,
                     strides,
                     offset: new_offset,
+                    bounds: bounds.substitute_idx(axis, flipped_idx),
                 }
             }
-            View::IndexExpr { shape, index_expr } => {
+            View::IndexExpr {
+                shape,
+                index_expr,
+                bounds,
+            } => {
                 // Idx(axis) を (shape[axis] - 1 - Idx(axis)) に置換
                 let flipped_idx =
                     (shape[axis].clone() - Expr::from(1) - Expr::Idx(axis)).simplify();
-                let new_index_expr = index_expr.substitute_idx(axis, flipped_idx);
+                let new_index_expr = index_expr.substitute_idx(axis, flipped_idx.clone());
                 View::IndexExpr {
                     shape,
                     index_expr: new_index_expr,
-                }
-            }
-            View::Masked {
-                inner,
-                condition,
-                default_value,
-            } => {
-                let shape = inner.shape();
-                // 内側のViewをflip
-                let new_inner = inner.flip(axis);
-                // conditionのIdx(axis)を (shape[axis] - 1 - Idx(axis)) に置換
-                let flipped_idx =
-                    (shape[axis].clone() - Expr::from(1) - Expr::Idx(axis)).simplify();
-                let new_condition = condition.substitute_idx(axis, flipped_idx);
-                View::Masked {
-                    inner: Box::new(new_inner),
-                    condition: new_condition,
-                    default_value,
+                    bounds: bounds.substitute_idx(axis, flipped_idx),
                 }
             }
         }
@@ -602,6 +592,7 @@ impl View {
                 mut shape,
                 mut strides,
                 offset,
+                bounds,
             } => {
                 shape[axis] = times;
                 strides[axis] = 0.into();
@@ -609,11 +600,13 @@ impl View {
                     shape,
                     strides,
                     offset,
+                    bounds,
                 }
             }
             View::IndexExpr {
                 mut shape,
                 index_expr,
+                bounds,
             } => {
                 // Idx(axis) を 0 に固定（常に同じ位置を参照）
                 // サイズ1の軸なので、Idx(axis)は常に0だが、明示的に置換
@@ -623,20 +616,7 @@ impl View {
                 View::IndexExpr {
                     shape,
                     index_expr: new_index_expr,
-                }
-            }
-            View::Masked {
-                inner,
-                condition,
-                default_value,
-            } => {
-                // 内側のViewをrepeat
-                let new_inner = inner.repeat(axis, times);
-                // conditionは変更不要（サイズ1なのでIdx(axis)は常に0）
-                View::Masked {
-                    inner: Box::new(new_inner),
-                    condition,
-                    default_value,
+                    bounds,
                 }
             }
         }
@@ -678,6 +658,7 @@ impl View {
                 shape,
                 strides,
                 offset,
+                bounds,
             } => {
                 let original_size = shape[axis].clone();
                 let new_size = (original_size.clone() * times).simplify();
@@ -699,12 +680,20 @@ impl View {
                     index_expr = (index_expr + idx * stride.clone()).simplify();
                 }
 
+                // bounds の Idx(axis) も cyclic に
+                let cyclic_idx = (Expr::Idx(axis) % original_size).simplify();
+
                 View::IndexExpr {
                     shape: new_shape,
                     index_expr,
+                    bounds: bounds.substitute_idx(axis, cyclic_idx),
                 }
             }
-            View::IndexExpr { shape, index_expr } => {
+            View::IndexExpr {
+                shape,
+                index_expr,
+                bounds,
+            } => {
                 let original_size = shape[axis].clone();
                 let new_size = (original_size.clone() * times).simplify();
 
@@ -714,28 +703,12 @@ impl View {
 
                 // Idx(axis)を Idx(axis) % original_size に置換
                 let cyclic_idx = (Expr::Idx(axis) % original_size).simplify();
-                let new_index_expr = index_expr.substitute_idx(axis, cyclic_idx);
+                let new_index_expr = index_expr.substitute_idx(axis, cyclic_idx.clone());
 
                 View::IndexExpr {
                     shape: new_shape,
                     index_expr: new_index_expr,
-                }
-            }
-            View::Masked {
-                inner,
-                condition,
-                default_value,
-            } => {
-                let original_size = inner.shape()[axis].clone();
-                // 内側のViewをtile
-                let new_inner = inner.tile(axis, times);
-                // conditionのIdx(axis)を Idx(axis) % original_size に置換
-                let cyclic_idx = (Expr::Idx(axis) % original_size).simplify();
-                let new_condition = condition.substitute_idx(axis, cyclic_idx);
-                View::Masked {
-                    inner: Box::new(new_inner),
-                    condition: new_condition,
-                    default_value,
+                    bounds: bounds.substitute_idx(axis, cyclic_idx),
                 }
             }
         }
@@ -756,7 +729,12 @@ impl View {
         );
 
         match self {
-            View::Linear { shape, offset, .. } => {
+            View::Linear {
+                shape,
+                offset,
+                bounds,
+                ..
+            } => {
                 // 要素数の一致を確認（シンボリック式の場合は実行時にチェックされる）
                 // ここでは定数の場合のみチェック
                 let old_numel = shape
@@ -776,13 +754,19 @@ impl View {
                     );
                 }
 
-                // 新しいshapeで連続したViewを作成（offsetは保持）
+                // 新しいshapeで連続したViewを作成（offsetとboundsは保持）
                 let mut reshaped = View::contiguous(new_shape);
                 if let View::Linear {
-                    offset: new_offset, ..
+                    offset: new_offset,
+                    bounds: new_bounds,
+                    ..
                 } = &mut reshaped
                 {
                     *new_offset = offset;
+                    // reshape では bounds の変換は複雑なため、
+                    // 条件がある場合は一旦そのまま継承（reshape後も同じ条件を適用）
+                    // 注: これは完全に正確ではない可能性があるが、contiguous view の場合は問題ない
+                    *new_bounds = bounds;
                 }
                 reshaped
             }
@@ -790,20 +774,20 @@ impl View {
                 // is_contiguous()がfalseを返すので、ここには到達しない
                 unreachable!("IndexExpr views are always non-contiguous")
             }
-            View::Masked { .. } => {
-                // is_contiguous()がfalseを返すので、ここには到達しない
-                unreachable!("Masked views are always non-contiguous")
-            }
         }
     }
 
     pub fn is_contiguous(&self) -> bool {
         match self {
-            View::Linear { shape, .. } => *self == View::contiguous(shape.clone()),
-            // IndexExprは常に非連続として扱う
+            View::Linear { shape, bounds, .. } => {
+                // bounds が none で、形状が contiguous と一致すれば連続
+                !bounds.has_condition() && {
+                    let contiguous = View::contiguous(shape.clone());
+                    *self == contiguous
+                }
+            }
+            // IndexExprは常に非連続として扱う（boundsがある場合も含む）
             View::IndexExpr { .. } => false,
-            // Maskedは条件チェックがあるため非連続
-            View::Masked { .. } => false,
         }
     }
 
@@ -830,7 +814,11 @@ impl View {
     /// ```
     pub fn is_innermost_contiguous(&self) -> bool {
         match self {
-            View::Linear { strides, .. } => {
+            View::Linear { strides, bounds, .. } => {
+                // bounds がある場合は連続性を保証できない
+                if bounds.has_condition() {
+                    return false;
+                }
                 if strides.is_empty() {
                     // 0次元テンソルは連続とみなす
                     true
@@ -839,16 +827,21 @@ impl View {
                     strides.last().map(|s| *s == Expr::from(1)).unwrap_or(true)
                 }
             }
-            // IndexExprは最内軸の連続性を保証できない
+            // IndexExprは最内軸の連続性を保証できない（boundsがある場合も含む）
             View::IndexExpr { .. } => false,
-            // Maskedは条件チェックがあるため連続性を保証できない
-            View::Masked { .. } => false,
         }
     }
 
-    /// Maskedバリアントかどうかを判定
-    pub fn is_masked(&self) -> bool {
-        matches!(self, View::Masked { .. })
+    /// 境界条件があるかどうかを判定
+    pub fn has_bounds(&self) -> bool {
+        self.bounds().has_condition()
+    }
+
+    /// 境界条件を取得
+    pub fn bounds(&self) -> &ViewBounds {
+        match self {
+            View::Linear { bounds, .. } | View::IndexExpr { bounds, .. } => bounds,
+        }
     }
 
     /// IndexExpr Viewを作成
@@ -867,6 +860,10 @@ impl View {
     ///     Expr::Idx(1) * Expr::from(4) + Expr::Idx(0),
     /// );
     /// ```
+    ///
+    /// # Note
+    /// 境界条件なしでIndexExprを作成します。境界条件が必要な場合は
+    /// `View::from_index_expr_with_bounds()` を使用してください。
     pub fn from_index_expr<E: Into<Expr> + Clone, I: IntoIterator<Item = E>>(
         shape: I,
         index_expr: impl Into<Expr>,
@@ -875,13 +872,28 @@ impl View {
         View::IndexExpr {
             shape,
             index_expr: index_expr.into(),
+            bounds: ViewBounds::none(),
         }
     }
 
-    /// Padded Viewを作成（内部でMaskedとIndexExprを使用）
+    /// 境界条件付きIndexExpr Viewを作成
+    pub fn from_index_expr_with_bounds<E: Into<Expr> + Clone, I: IntoIterator<Item = E>>(
+        shape: I,
+        index_expr: impl Into<Expr>,
+        bounds: ViewBounds,
+    ) -> Self {
+        let shape: Vec<Expr> = shape.into_iter().map(|e| e.into()).collect();
+        View::IndexExpr {
+            shape,
+            index_expr: index_expr.into(),
+            bounds,
+        }
+    }
+
+    /// Padded Viewを作成（IndexExpr + bounds を使用）
     ///
     /// 内側のViewの周囲にパディングを追加するViewを作成します。
-    /// 実装はIndexExpr（インデックス調整）とMasked（境界条件）の組み合わせです。
+    /// 実装はIndexExpr（インデックス調整）と bounds（境界条件）の組み合わせです。
     ///
     /// # Arguments
     /// * `inner` - 内側のView（パディング前のテンソルのView）
@@ -910,7 +922,7 @@ impl View {
         );
 
         let inner_shape = inner.shape().to_vec();
-        let ndim = inner_shape.len();
+        let _ndim = inner_shape.len();
 
         // 1. パディング後の形状を計算
         let padded_shape: Vec<Expr> = inner_shape
@@ -921,7 +933,7 @@ impl View {
 
         // 2. 境界条件を構築
         // 各軸で: Idx(i) >= before[i] && Idx(i) < before[i] + inner_shape[i]
-        let mut condition = Expr::Const(1); // 初期値: true
+        let mut condition = Expr::Bool(true); // 初期値: true
         for (i, ((before, _after), inner_size)) in
             padding.iter().zip(inner_shape.iter()).enumerate()
         {
@@ -935,7 +947,19 @@ impl View {
         }
         condition = condition.simplify();
 
-        // 3. パディング後のインデックスを元のオフセットにマッピングするインデックス式を構築
+        // 3. inner の既存の bounds と合成
+        let inner_bounds = inner.bounds().clone();
+        // inner の bounds の condition 内の Idx も調整する必要がある
+        let adjusted_inner_bounds = {
+            let mut cond = inner_bounds.condition.clone();
+            for (i, (before, _)) in padding.iter().enumerate() {
+                cond = cond.substitute_idx(i, Expr::Idx(i) - before.clone());
+            }
+            ViewBounds::new(cond.simplify(), inner_bounds.default_value)
+        };
+        let bounds = ViewBounds::new(condition, default_value).and(&adjusted_inner_bounds);
+
+        // 4. パディング後のインデックスを元のオフセットにマッピングするインデックス式を構築
         // adjusted_idx[i] = Idx(i) - before[i]
         let index_expr = match &inner {
             View::Linear {
@@ -956,54 +980,17 @@ impl View {
                 }
                 expr.simplify()
             }
-            View::Masked {
-                inner: masked_inner,
-                ..
-            } => {
-                // Masked: 内側のViewを取得してpaddedを適用
-                let inner_padded =
-                    View::padded((**masked_inner).clone(), padding.clone(), default_value);
-                match inner_padded {
-                    View::Masked {
-                        inner: inner_box, ..
-                    } => {
-                        if let View::IndexExpr { index_expr, .. } = *inner_box {
-                            index_expr
-                        } else {
-                            // フォールバック: 連続メモリとして扱う
-                            let mut expr = Expr::Const(0);
-                            let mut stride = Expr::Const(1);
-                            for i in (0..ndim).rev() {
-                                let (before, _) = &padding[i];
-                                expr = (expr + (Expr::Idx(i) - before.clone()) * stride.clone())
-                                    .simplify();
-                                if i > 0 {
-                                    stride = (stride * inner_shape[i].clone()).simplify();
-                                }
-                            }
-                            expr
-                        }
-                    }
-                    _ => unreachable!(),
-                }
-            }
         };
 
-        // 4. パディング後の形状を持つIndexExprを作成
-        let inner_view = View::IndexExpr {
+        // 5. パディング後の形状を持つIndexExprを返す（boundsに条件を含める）
+        View::IndexExpr {
             shape: padded_shape,
             index_expr,
-        };
-
-        // 5. Maskedでラップして返す
-        View::Masked {
-            inner: Box::new(inner_view),
-            condition,
-            default_value,
+            bounds,
         }
     }
 
-    /// Masked Viewを作成
+    /// 境界条件付きViewを作成
     ///
     /// 任意の条件式に基づいてinner Viewの値またはデフォルト値を返すViewを作成。
     /// Attention maskや三角行列マスクなどに使用。
@@ -1024,34 +1011,50 @@ impl View {
     /// let view = View::masked(inner, mask, PadValue::NegInf);
     /// ```
     pub fn masked(inner: View, condition: impl Into<Expr>, default_value: PadValue) -> Self {
-        View::Masked {
-            inner: Box::new(inner),
-            condition: condition.into(),
-            default_value,
+        let condition = condition.into();
+        let new_bounds = ViewBounds::new(condition, default_value);
+
+        match inner {
+            View::Linear {
+                shape,
+                strides,
+                offset,
+                bounds,
+            } => View::Linear {
+                shape,
+                strides,
+                offset,
+                bounds: new_bounds.and(&bounds),
+            },
+            View::IndexExpr {
+                shape,
+                index_expr,
+                bounds,
+            } => View::IndexExpr {
+                shape,
+                index_expr,
+                bounds: new_bounds.and(&bounds),
+            },
         }
     }
 
-    /// Maskedの場合、デフォルト値を返す
+    /// デフォルト値を返す（境界条件がある場合）
     pub fn default_value(&self) -> Option<PadValue> {
-        match self {
-            View::Masked { default_value, .. } => Some(*default_value),
-            _ => None,
+        let bounds = self.bounds();
+        if bounds.has_condition() {
+            Some(bounds.default_value)
+        } else {
+            None
         }
     }
 
-    /// Maskedの場合、内側のViewを返す
-    pub fn inner_view(&self) -> Option<&View> {
-        match self {
-            View::Masked { inner, .. } => Some(inner),
-            _ => None,
-        }
-    }
-
-    /// Maskedの場合、条件式を返す
+    /// 境界条件式を返す（bounds がある場合）
     pub fn condition(&self) -> Option<&Expr> {
-        match self {
-            View::Masked { condition, .. } => Some(condition),
-            _ => None,
+        let bounds = self.bounds();
+        if bounds.has_condition() {
+            Some(&bounds.condition)
+        } else {
+            None
         }
     }
 
@@ -1138,6 +1141,7 @@ impl View {
                 shape,
                 strides: original_strides,
                 offset,
+                bounds,
             } => {
                 // 出力形状を構築
                 // [preserved..., output_positions..., window_dims...]
@@ -1203,14 +1207,26 @@ impl View {
                     }
                 }
 
+                // bounds の変換
+                let new_bounds = Self::transform_bounds_for_unfold(
+                    &bounds,
+                    ndim,
+                    axes,
+                    &strides,
+                    &dilations,
+                    &axes_set,
+                );
+
                 View::IndexExpr {
                     shape: new_shape,
                     index_expr,
+                    bounds: new_bounds,
                 }
             }
             View::IndexExpr {
                 shape,
                 index_expr: original_index_expr,
+                bounds,
             } => {
                 // IndexExprに対するunfold
                 // より複雑なケース - 既存のindex_exprを変換する必要がある
@@ -1292,76 +1308,71 @@ impl View {
                     }
                 }
 
+                // bounds の変換
+                let new_bounds = Self::transform_bounds_for_unfold(
+                    &bounds,
+                    ndim,
+                    axes,
+                    &strides,
+                    &dilations,
+                    &axes_set,
+                );
+
                 View::IndexExpr {
                     shape: new_shape,
                     index_expr: new_index_expr.simplify(),
-                }
-            }
-            View::Masked {
-                inner,
-                condition,
-                default_value,
-            } => {
-                // Unfold the inner view first
-                let unfolded_inner = inner.unfold(axes, &sizes, &strides, &dilations);
-
-                // Transform the condition expression
-                // The index mapping is:
-                // - Original: Idx(0), Idx(1), ..., Idx(ndim-1)
-                // - After unfold:
-                //   - Preserved dims: indices 0..(ndim - num_unfolded)
-                //   - Output positions: indices (ndim - num_unfolded)..(ndim)
-                //   - Window positions: indices ndim..(ndim + num_unfolded)
-                //
-                // For each original Idx(i):
-                // - If i is preserved: maps to new preserved index
-                // - If i is unfolded: maps to out_pos * stride + win_pos * dilation
-                let num_preserved = ndim - num_unfolded;
-
-                // Build a mapping for index substitution
-                let mut new_condition = condition.clone();
-
-                // First, substitute temporary indices to avoid conflicts
-                // Then substitute to final values
-                let temp_offset = 1000; // Use large offset for temporary indices
-
-                // Calculate the mapping: original_idx -> (is_preserved, new_idx or unfold_info)
-                let mut preserved_count = 0;
-                for original_idx in 0..ndim {
-                    if axes_set.contains(&original_idx) {
-                        // This is an unfolded axis
-                        let unfold_i = axes.iter().position(|&a| a == original_idx).unwrap();
-                        let out_pos_idx = num_preserved + unfold_i;
-                        let win_pos_idx = num_preserved + num_unfolded + unfold_i;
-                        let unfold_stride = strides[unfold_i].clone();
-                        let dilation = dilations[unfold_i].clone();
-
-                        // Replace Idx(original_idx) with (Idx(out_pos_idx) * stride + Idx(win_pos_idx) * dilation)
-                        let replacement = (Expr::Idx(out_pos_idx) * unfold_stride
-                            + Expr::Idx(win_pos_idx) * dilation)
-                            .simplify();
-
-                        new_condition = new_condition
-                            .substitute_idx(original_idx, Expr::Idx(temp_offset + original_idx));
-                        new_condition =
-                            new_condition.substitute_idx(temp_offset + original_idx, replacement);
-                    } else {
-                        // This is a preserved axis - maps to new preserved index
-                        new_condition = new_condition
-                            .substitute_idx(original_idx, Expr::Idx(temp_offset + original_idx));
-                        new_condition = new_condition
-                            .substitute_idx(temp_offset + original_idx, Expr::Idx(preserved_count));
-                        preserved_count += 1;
-                    }
-                }
-
-                View::Masked {
-                    inner: Box::new(unfolded_inner),
-                    condition: new_condition.simplify(),
-                    default_value,
+                    bounds: new_bounds,
                 }
             }
         }
+    }
+
+    /// unfold 用の bounds 変換ヘルパー
+    fn transform_bounds_for_unfold(
+        bounds: &ViewBounds,
+        ndim: usize,
+        axes: &[usize],
+        strides: &[Expr],
+        dilations: &[Expr],
+        axes_set: &std::collections::HashSet<usize>,
+    ) -> ViewBounds {
+        if !bounds.has_condition() {
+            return ViewBounds::none();
+        }
+
+        let num_unfolded = axes.len();
+        let num_preserved = ndim - num_unfolded;
+        let temp_offset = 1000;
+
+        let mut new_condition = bounds.condition.clone();
+
+        let mut preserved_count = 0;
+        for original_idx in 0..ndim {
+            if axes_set.contains(&original_idx) {
+                let unfold_i = axes.iter().position(|&a| a == original_idx).unwrap();
+                let out_pos_idx = num_preserved + unfold_i;
+                let win_pos_idx = num_preserved + num_unfolded + unfold_i;
+                let unfold_stride = strides[unfold_i].clone();
+                let dilation = dilations[unfold_i].clone();
+
+                let replacement = (Expr::Idx(out_pos_idx) * unfold_stride
+                    + Expr::Idx(win_pos_idx) * dilation)
+                    .simplify();
+
+                new_condition = new_condition
+                    .substitute_idx(original_idx, Expr::Idx(temp_offset + original_idx));
+                new_condition =
+                    new_condition.substitute_idx(temp_offset + original_idx, replacement);
+            } else {
+                new_condition = new_condition
+                    .substitute_idx(original_idx, Expr::Idx(temp_offset + original_idx));
+                new_condition = new_condition
+                    .substitute_idx(temp_offset + original_idx, Expr::Idx(preserved_count));
+                preserved_count += 1;
+            }
+        }
+
+        ViewBounds::new(new_condition.simplify(), bounds.default_value)
     }
 }
 
@@ -1376,6 +1387,7 @@ mod tests {
             shape,
             strides,
             offset,
+            ..
         } = view
         else {
             panic!("Expected Linear view")
@@ -1392,6 +1404,7 @@ mod tests {
             shape,
             strides,
             offset,
+            ..
         } = view
         else {
             panic!("Expected Linear view")
@@ -1408,6 +1421,7 @@ mod tests {
             shape,
             strides,
             offset,
+            ..
         } = view
         else {
             panic!("Expected Linear view")
@@ -1424,6 +1438,7 @@ mod tests {
             shape,
             strides,
             offset,
+            ..
         } = view
         else {
             panic!("Expected Linear view")
@@ -1460,6 +1475,7 @@ mod tests {
             shape,
             strides,
             offset,
+            ..
         } = permuted
         else {
             panic!("Expected Linear view")
@@ -1492,6 +1508,7 @@ mod tests {
             shape,
             strides,
             offset,
+            ..
         } = unsqueezed
         else {
             panic!("Expected Linear view")
@@ -1532,6 +1549,7 @@ mod tests {
             shape,
             strides,
             offset,
+            ..
         } = squeezed
         else {
             panic!("Expected Linear view")
@@ -1559,6 +1577,7 @@ mod tests {
             shape,
             strides,
             offset,
+            ..
         } = expanded
         else {
             panic!("Expected Linear view")
@@ -1615,6 +1634,7 @@ mod tests {
             shape,
             strides,
             offset,
+            ..
         } = flipped
         else {
             panic!("Expected Linear view")
@@ -1636,6 +1656,7 @@ mod tests {
             shape,
             strides,
             offset,
+            ..
         } = expanded
         else {
             panic!("Expected Linear view")
@@ -1697,6 +1718,7 @@ mod tests {
             shape,
             strides,
             offset,
+            ..
         } = reshaped
         else {
             panic!("Expected Linear view")
@@ -1716,6 +1738,7 @@ mod tests {
             shape,
             strides,
             offset,
+            ..
         } = reshaped
         else {
             panic!("Expected Linear view")
@@ -1735,6 +1758,7 @@ mod tests {
             shape,
             strides,
             offset,
+            ..
         } = reshaped
         else {
             panic!("Expected Linear view")
@@ -2311,11 +2335,14 @@ mod tests {
         let inner = View::contiguous(vec![4, 4]);
         // Attention mask: idx0 <= idx1
         let condition = Expr::Idx(0).le(Expr::Idx(1));
-        let view = View::masked(inner, condition, PadValue::NegInf);
+        let view = View::masked(inner, condition.clone(), PadValue::NegInf);
 
-        assert!(view.is_masked());
+        assert!(view.has_bounds());
         assert!(!view.is_contiguous());
         assert_eq!(view.shape(), vec![Expr::from(4), Expr::from(4)]);
+        // Verify bounds are set correctly
+        assert_eq!(view.bounds().condition, condition);
+        assert_eq!(view.bounds().default_value, PadValue::NegInf);
     }
 
     #[test]
@@ -2348,14 +2375,11 @@ mod tests {
         // shape should be [6, 4]
         assert_eq!(permuted.shape(), vec![Expr::from(6), Expr::from(4)]);
         // condition should now reference the permuted indices
-        if let View::Masked { condition, .. } = permuted {
-            // After permute[1, 0]: idx0 -> idx1, idx1 -> idx0
-            // So the new condition should be idx1 < idx0
-            let expected = Expr::Idx(1).lt(Expr::Idx(0));
-            assert_eq!(condition, expected);
-        } else {
-            panic!("Expected Masked view");
-        }
+        // After permute[1, 0]: idx0 -> idx1, idx1 -> idx0
+        // So the new condition should be idx1 < idx0
+        let expected = Expr::Idx(1).lt(Expr::Idx(0));
+        assert_eq!(permuted.bounds().condition, expected);
+        assert_eq!(permuted.bounds().default_value, PadValue::Zero);
     }
 
     #[test]
@@ -2373,11 +2397,10 @@ mod tests {
             unsqueezed.shape(),
             vec![Expr::from(1), Expr::from(4), Expr::from(4)]
         );
-        if let View::Masked { condition, .. } = unsqueezed {
-            // After unsqueeze at 0: idx0 -> idx1, idx1 -> idx2
-            let expected = Expr::Idx(1).le(Expr::Idx(2));
-            assert_eq!(condition, expected);
-        }
+        // After unsqueeze at 0: idx0 -> idx1, idx1 -> idx2
+        let expected = Expr::Idx(1).le(Expr::Idx(2));
+        assert_eq!(unsqueezed.bounds().condition, expected);
+        assert_eq!(unsqueezed.bounds().default_value, PadValue::NegInf);
     }
 
     #[test]
@@ -2393,11 +2416,10 @@ mod tests {
         let squeezed = view.squeeze(0);
 
         assert_eq!(squeezed.shape(), vec![Expr::from(4), Expr::from(4)]);
-        if let View::Masked { condition, .. } = squeezed {
-            // After squeeze at 0: idx1 -> idx0, idx2 -> idx1
-            let expected = Expr::Idx(0).le(Expr::Idx(1));
-            assert_eq!(condition, expected);
-        }
+        // After squeeze at 0: idx1 -> idx0, idx2 -> idx1
+        let expected = Expr::Idx(0).le(Expr::Idx(1));
+        assert_eq!(squeezed.bounds().condition, expected);
+        assert_eq!(squeezed.bounds().default_value, PadValue::NegInf);
     }
 
     #[test]
@@ -2408,9 +2430,10 @@ mod tests {
         let condition = Expr::Idx(0).lt(Expr::Idx(1));
         let view = View::masked(inner, condition.clone(), PadValue::Zero);
 
-        assert_eq!(view.default_value(), Some(PadValue::Zero));
-        assert!(view.inner_view().is_some());
-        assert_eq!(view.condition(), Some(&condition));
+        // Use new bounds-based accessors
+        assert!(view.has_bounds());
+        assert_eq!(view.bounds().condition, condition);
+        assert_eq!(view.bounds().default_value, PadValue::Zero);
     }
 
     #[test]

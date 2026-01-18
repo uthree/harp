@@ -8,6 +8,10 @@ pub enum Expr {
     // 定数
     Const(i64),
 
+    // Boolリテラル（境界条件用）
+    // true = 常に有効、false = 常に無効
+    Bool(bool),
+
     // ループインデックス変数 (IndexExpr View用)
     // Idx(0) = ridx0, Idx(1) = ridx1, ...
     Idx(usize),
@@ -57,6 +61,7 @@ impl From<Expr> for crate::ast::AstNode {
         let expr = expr.simplify();
         match expr {
             Expr::Const(c) => AstNode::Const(Literal::I64(c)),
+            Expr::Bool(b) => AstNode::Const(Literal::I64(if b { 1 } else { 0 })),
             Expr::Idx(i) => {
                 // ループインデックス変数をridx変数に変換
                 AstNode::Var(format!("ridx{}", i))
@@ -140,6 +145,16 @@ impl Expr {
 
     pub fn is_one(&self) -> bool {
         matches!(self, Expr::Const(1))
+    }
+
+    /// Bool(true)かどうかを判定（境界条件なしの判定に使用）
+    pub fn is_always_true(&self) -> bool {
+        matches!(self, Expr::Bool(true))
+    }
+
+    /// Bool(false)かどうかを判定
+    pub fn is_always_false(&self) -> bool {
+        matches!(self, Expr::Bool(false))
     }
 
     /// 定数値を取得（定数の場合のみ）
@@ -231,6 +246,7 @@ impl Expr {
     pub fn evaluate(&self) -> Result<i64, String> {
         match self {
             Expr::Const(v) => Ok(*v),
+            Expr::Bool(b) => Ok(if *b { 1 } else { 0 }),
             Expr::Idx(i) => Err(format!("Cannot evaluate loop index Idx({})", i)),
             Expr::Add(l, r) => Ok(l.evaluate()? + r.evaluate()?),
             Expr::Sub(l, r) => Ok(l.evaluate()? - r.evaluate()?),
@@ -593,6 +609,9 @@ impl Expr {
                 let lhs = lhs.simplify();
                 let rhs = rhs.simplify();
                 match (&lhs, &rhs) {
+                    // Bool リテラルの最適化
+                    (Expr::Bool(true), e) | (e, Expr::Bool(true)) => e.clone(),
+                    (Expr::Bool(false), _) | (_, Expr::Bool(false)) => Expr::Bool(false),
                     // 定数畳み込み
                     (Expr::Const(0), _) | (_, Expr::Const(0)) => Expr::Const(0),
                     (Expr::Const(l), Expr::Const(r)) => {
@@ -611,6 +630,9 @@ impl Expr {
             Expr::Not(a) => {
                 let a = a.simplify();
                 match a {
+                    // Bool リテラルの最適化
+                    Expr::Bool(true) => Expr::Bool(false),
+                    Expr::Bool(false) => Expr::Bool(true),
                     // 定数畳み込み
                     Expr::Const(0) => Expr::Const(1),
                     Expr::Const(_) => Expr::Const(0),
@@ -803,6 +825,7 @@ impl fmt::Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Expr::Const(n) => write!(f, "{}", n),
+            Expr::Bool(b) => write!(f, "{}", b),
             Expr::Idx(i) => write!(f, "idx{}", i),
             Expr::Add(lhs, rhs) => {
                 // Add parentheses only when necessary

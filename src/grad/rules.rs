@@ -308,16 +308,9 @@ fn compute_view_vjp(
         }
 
         // For indexed views, need to invert the indexing
+        // Note: Views with bounds (masks) are also IndexExpr now
         View::IndexExpr { .. } => {
             // This is complex - for now, try to infer the inverse
-            let orig_shape = inputs[0].shape();
-            grad_output.reshape(orig_shape)
-        }
-
-        // Masked view
-        View::Masked { .. } => {
-            // Apply same mask to gradient
-            // For simplicity, treat as reshape
             let orig_shape = inputs[0].shape();
             grad_output.reshape(orig_shape)
         }

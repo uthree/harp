@@ -9,4 +9,4 @@ pub mod view;
 mod tests;
 
 pub use expr::Expr;
-pub use view::{PadValue, View};
+pub use view::{PadValue, View, ViewBounds};

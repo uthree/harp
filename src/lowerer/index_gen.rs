@@ -45,9 +45,9 @@ impl IndexGenerator {
     pub fn view_to_expr(&self, view: &View) -> Expr {
         match view {
             View::Linear {
-                shape: _,
                 strides,
                 offset,
+                ..
             } => {
                 // Linear index: offset + sum(idx[i] * stride[i])
                 let mut result = offset.clone();
@@ -58,17 +58,9 @@ impl IndexGenerator {
                 }
                 result
             }
-            View::IndexExpr {
-                shape: _,
-                index_expr,
-            } => {
+            View::IndexExpr { index_expr, .. } => {
                 // Use the index expression directly
                 index_expr.clone()
-            }
-            View::Masked { inner, .. } => {
-                // For masked views, return the inner index
-                // The masking is handled at load time
-                self.view_to_expr(inner)
             }
         }
     }
@@ -79,15 +71,15 @@ impl IndexGenerator {
         expr.into() // Uses From<Expr> for AstNode
     }
 
-    /// Check if view has a mask and return the mask condition
-    pub fn get_mask_condition(&self, view: &View) -> Option<(Expr, PadValue)> {
-        match view {
-            View::Masked {
-                condition,
-                default_value,
-                ..
-            } => Some((condition.clone(), *default_value)),
-            _ => None,
+    /// Check if view has bounds and return the bounds condition
+    ///
+    /// Returns the condition expression and default value if the view has bounds.
+    pub fn get_bounds(&self, view: &View) -> Option<(Expr, PadValue)> {
+        let bounds = view.bounds();
+        if bounds.has_condition() {
+            Some((bounds.condition.clone(), bounds.default_value))
+        } else {
+            None
         }
     }
 
