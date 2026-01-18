@@ -5,23 +5,73 @@ use std::ops::{Add, Div, Mul, Neg, Sub};
 use crate::ast::{AstNode, DType};
 
 use super::node::{GraphNode, GraphOp};
+use super::Expr;
 
 // ============================================================================
 // Binary Operation Helper
 // ============================================================================
 
-/// Common implementation for binary operations
+/// Compute broadcast shape and expand dimensions as needed.
+/// Returns (expanded_lhs, expanded_rhs) where both have the same shape.
+fn broadcast(lhs: &GraphNode, rhs: &GraphNode) -> (GraphNode, GraphNode) {
+    let lhs_shape = lhs.shape();
+    let rhs_shape = rhs.shape();
+
+    // If shapes are already equal, no broadcasting needed
+    if lhs_shape == rhs_shape {
+        return (lhs.clone(), rhs.clone());
+    }
+
+    // Align shapes: prepend dimensions of 1 to the shorter one
+    let lhs_ndim = lhs_shape.len();
+    let rhs_ndim = rhs_shape.len();
+    let max_ndim = lhs_ndim.max(rhs_ndim);
+
+    // Pad lhs with leading 1s
+    let mut lhs_node = lhs.clone();
+    for _ in 0..(max_ndim - lhs_ndim) {
+        lhs_node = lhs_node.unsqueeze(0);
+    }
+
+    // Pad rhs with leading 1s
+    let mut rhs_node = rhs.clone();
+    for _ in 0..(max_ndim - rhs_ndim) {
+        rhs_node = rhs_node.unsqueeze(0);
+    }
+
+    let lhs_shape = lhs_node.shape();
+    let rhs_shape = rhs_node.shape();
+
+    // Expand dimensions of size 1
+    for i in 0..max_ndim {
+        let lhs_dim = &lhs_shape[i];
+        let rhs_dim = &rhs_shape[i];
+
+        if lhs_dim != rhs_dim {
+            // One must be 1 for broadcasting to work
+            if *lhs_dim == Expr::Const(1) {
+                lhs_node = lhs_node.expand(i, rhs_dim.clone());
+            } else if *rhs_dim == Expr::Const(1) {
+                rhs_node = rhs_node.expand(i, lhs_dim.clone());
+            } else {
+                panic!(
+                    "Cannot broadcast shapes: {:?} and {:?} at dimension {}",
+                    lhs_shape, rhs_shape, i
+                );
+            }
+        }
+    }
+
+    (lhs_node, rhs_node)
+}
+
+/// Common implementation for binary operations with broadcasting support.
 fn binary_op<F>(lhs: &GraphNode, rhs: &GraphNode, combine: F) -> GraphNode
 where
     F: FnOnce(AstNode, AstNode) -> AstNode,
 {
-    // TODO: Add broadcasting support
-    // For now, assert shapes match
-    debug_assert_eq!(
-        lhs.shape(),
-        rhs.shape(),
-        "Shape mismatch in binary operation"
-    );
+    // Apply broadcasting
+    let (lhs_bc, rhs_bc) = broadcast(lhs, rhs);
 
     // Inputs are referenced as Wildcard("0") and Wildcard("1")
     let lhs_ref = AstNode::Wildcard("0".to_string());
@@ -30,13 +80,13 @@ where
     let combined = combine(lhs_ref, rhs_ref);
 
     GraphNode::new(
-        vec![lhs.clone(), rhs.clone()],
-        lhs.view().clone(),
+        vec![lhs_bc.clone(), rhs_bc.clone()],
+        lhs_bc.view().clone(),
         GraphOp::MapReduce {
             map: combined,
             reduce: None,
         },
-        lhs.dtype().clone(), // TODO: type promotion
+        lhs_bc.dtype().clone(), // TODO: type promotion
         None,
     )
 }

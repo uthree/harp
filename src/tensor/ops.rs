@@ -320,6 +320,16 @@ impl<D: Dimension, T: TensorDType> Tensor<D, T> {
         self.permute(&axes)
     }
 
+    /// Make the tensor contiguous in memory.
+    ///
+    /// After operations like `permute`, the tensor may have a non-contiguous
+    /// memory layout. `contiguous()` creates a copy with contiguous memory,
+    /// which is required before operations like `reshape`.
+    pub fn contiguous(&self) -> Tensor<D, T> {
+        let graph = self.inner.graph.contiguous();
+        Tensor::from_graph(graph)
+    }
+
     /// Expand a dimension of size 1 to the specified size.
     ///
     /// This performs broadcasting.
@@ -428,6 +438,86 @@ impl<D: Dimension, T: TensorDType> Tensor<D, T> {
         dilations: &[usize],
     ) -> Tensor<Dyn, T> {
         let graph = self.inner.graph.fold(output_shape, axes, sizes, strides, dilations);
+        Tensor::from_graph(graph)
+    }
+}
+
+// ============================================================================
+// Padding Operations
+// ============================================================================
+
+impl<D: Dimension, T: TensorDType> Tensor<D, T> {
+    /// Pad the tensor with a constant value
+    ///
+    /// Adds padding to each dimension. The padding is specified as a slice of
+    /// (before, after) tuples, one for each dimension.
+    ///
+    /// # Arguments
+    /// * `padding` - Padding for each dimension as (before, after)
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Input: [1, 3, 28, 28]
+    /// // Pad H and W with 1 on each side
+    /// let padded = x.pad(&[(0, 0), (0, 0), (1, 1), (1, 1)]);
+    /// // Output: [1, 3, 30, 30]
+    /// ```
+    pub fn pad(&self, padding: &[(usize, usize)]) -> Tensor<D, T> {
+        use crate::graph::shape::PadValue;
+        let graph = self.inner.graph.pad(padding, PadValue::Zero);
+        Tensor::from_graph(graph)
+    }
+}
+
+// ============================================================================
+// Specialized Unfold Operations (Static Dimension Types)
+// ============================================================================
+
+use super::dim::{D3, D4, D6};
+
+impl<T: TensorDType> Tensor<D4, T> {
+    /// 2D Unfold for Conv2d (static dimension version)
+    ///
+    /// Extracts sliding windows from H and W axes.
+    /// Input: [N, C, H, W] -> Output: [N, C, H_out, W_out, kH, kW]
+    ///
+    /// # Arguments
+    /// * `kernel_size` - (kH, kW)
+    /// * `stride` - (stride_h, stride_w)
+    /// * `dilation` - (dilation_h, dilation_w)
+    pub fn unfold_2d(
+        &self,
+        kernel_size: (usize, usize),
+        stride: (usize, usize),
+        dilation: (usize, usize),
+    ) -> Tensor<D6, T> {
+        let graph = self.inner.graph.unfold(
+            &[2, 3],
+            &[kernel_size.0, kernel_size.1],
+            &[stride.0, stride.1],
+            &[dilation.0, dilation.1],
+        );
+        Tensor::from_graph(graph)
+    }
+}
+
+impl<T: TensorDType> Tensor<D3, T> {
+    /// 1D Unfold for Conv1d (static dimension version)
+    ///
+    /// Extracts sliding windows from the L axis.
+    /// Input: [N, C, L] -> Output: [N, C, L_out, K]
+    ///
+    /// # Arguments
+    /// * `kernel_size` - K
+    /// * `stride` - stride
+    /// * `dilation` - dilation
+    pub fn unfold_1d(
+        &self,
+        kernel_size: usize,
+        stride: usize,
+        dilation: usize,
+    ) -> Tensor<D4, T> {
+        let graph = self.inner.graph.unfold(&[2], &[kernel_size], &[stride], &[dilation]);
         Tensor::from_graph(graph)
     }
 }

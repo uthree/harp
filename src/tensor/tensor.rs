@@ -278,6 +278,36 @@ impl<D: Dimension, T: TensorDType> Tensor<D, T> {
     }
 }
 
+impl<T: TensorDType> Tensor<super::dim::Dyn, T> {
+    /// Try to convert a dynamic dimension tensor to a static dimension tensor.
+    ///
+    /// Returns `Some` if the actual number of dimensions matches `D::NDIM`,
+    /// otherwise returns `None`.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let dyn_tensor: Tensor<Dyn, f32> = Tensor::dyn_input(&[1, 3, 32, 32]);
+    /// let d4_tensor: Option<Tensor<D4, f32>> = dyn_tensor.try_into_static();
+    /// ```
+    pub fn try_into_static<D: Dimension>(self) -> Option<Tensor<D, T>> {
+        if self.ndim() == D::NDIM {
+            Some(Tensor::from_graph(self.inner.graph.clone()))
+        } else {
+            None
+        }
+    }
+
+    /// Convert a dynamic dimension tensor to a static dimension tensor.
+    ///
+    /// # Panics
+    /// Panics if the actual number of dimensions doesn't match `D::NDIM`.
+    pub fn into_static<D: Dimension>(self) -> Tensor<D, T> {
+        let ndim = self.ndim();
+        self.try_into_static()
+            .unwrap_or_else(|| panic!("Expected {} dimensions, got {}", D::NDIM, ndim))
+    }
+}
+
 // ============================================================================
 // Debug Implementation
 // ============================================================================

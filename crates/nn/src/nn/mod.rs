@@ -27,7 +27,9 @@
 mod parameter;
 mod module;
 mod linear;
+mod conv;
 
 pub use parameter::{Parameter, ParameterError};
 pub use module::Module;
 pub use linear::Linear;
+pub use conv::{Conv1d, Conv2d};

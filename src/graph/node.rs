@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use crate::ast::{AstNode, DType, Literal};
 
-use super::shape::{Expr, View};
+use super::shape::{Expr, PadValue, View};
 
 // ============================================================================
 // ReduceOp
@@ -357,9 +357,67 @@ impl GraphNode {
         )
     }
 
+    /// Make the tensor contiguous in memory
+    ///
+    /// This copies data from a non-contiguous view into a contiguous layout.
+    /// Useful after operations like permute when you need to reshape.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let permuted = x.permute(&[0, 2, 1]); // non-contiguous
+    /// let contiguous = permuted.contiguous(); // contiguous copy
+    /// let reshaped = contiguous.reshape(...); // now reshape works
+    /// ```
+    pub fn contiguous(&self) -> Self {
+        // Create a contiguous view with the same shape
+        let new_view = View::contiguous(self.shape());
+
+        // Use identity map to copy data
+        let map = AstNode::Wildcard("0".to_string());
+
+        GraphNode::new(
+            vec![self.clone()],
+            new_view,
+            GraphOp::MapReduce { map, reduce: None },
+            self.0.dtype.clone(),
+            None,
+        )
+    }
+
     /// Repeat/broadcast a dimension
     pub fn repeat(&self, axis: usize, times: Expr) -> Self {
         let new_view = self.0.view.clone().repeat(axis, times);
+        GraphNode::new(
+            vec![self.clone()],
+            new_view,
+            GraphOp::View(self.0.view.clone()),
+            self.0.dtype.clone(),
+            None,
+        )
+    }
+
+    /// Pad the tensor with a constant value
+    ///
+    /// Adds padding to each dimension. The padding is specified as a slice of
+    /// (before, after) tuples, one for each dimension.
+    ///
+    /// # Arguments
+    /// * `padding` - Padding for each dimension as (before, after)
+    /// * `value` - Padding value (Zero, NegInf, or Custom)
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Input: [1, 3, 28, 28]
+    /// // Pad H and W with 1 on each side
+    /// let padded = x.pad(&[(0, 0), (0, 0), (1, 1), (1, 1)], PadValue::Zero);
+    /// // Output: [1, 3, 30, 30]
+    /// ```
+    pub fn pad<E: Into<Expr> + Clone>(&self, padding: &[(E, E)], value: PadValue) -> Self {
+        let padding_expr: Vec<(Expr, Expr)> = padding
+            .iter()
+            .map(|(before, after)| (before.clone().into(), after.clone().into()))
+            .collect();
+        let new_view = View::padded(self.0.view.clone(), padding_expr, value);
         GraphNode::new(
             vec![self.clone()],
             new_view,
