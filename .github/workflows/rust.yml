@@ -7,7 +7,7 @@ env:
 
 jobs:
     build_and_test:
-        name: Build and Test (Default)
+        name: Build and Test (Default, without OpenMP)
         runs-on: ubuntu-latest
         steps:
             - name: Checkout repository
@@ -22,10 +22,35 @@ jobs:
               uses: dtolnay/rust-toolchain@stable
 
             - name: Build workspace
-              run: cargo build --workspace --exclude eclat-backend-opencl --exclude eclat-backend-metal --exclude eclat-backend-cuda --exclude eclat-backend-rust --exclude eclat-nn
+              run: cargo build --workspace --exclude eclat-backend-opencl --exclude eclat-backend-metal --exclude eclat-backend-cuda --exclude eclat-backend-rust --exclude eclat-nn --exclude eclat-backend-openmp
 
             - name: Run tests
-              run: cargo test --workspace --exclude eclat-backend-opencl --exclude eclat-backend-metal --exclude eclat-backend-cuda --exclude eclat-backend-rust --exclude eclat-nn
+              run: cargo test --workspace --exclude eclat-backend-opencl --exclude eclat-backend-metal --exclude eclat-backend-cuda --exclude eclat-backend-rust --exclude eclat-nn --exclude eclat-backend-openmp
+
+    openmp_backend_integration_test:
+        name: OpenMP Backend Integration Test
+        runs-on: ubuntu-latest
+        env:
+            # Prevent libgomp spin-wait issues during process cleanup
+            GOMP_SPINCOUNT: "0"
+            OMP_WAIT_POLICY: passive
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Install dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y build-essential
+
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@stable
+
+            - name: Build OpenMP backend
+              run: cargo build -p eclat-backend-openmp --verbose
+
+            - name: Run OpenMP backend integration tests
+              run: cargo test -p eclat-backend-openmp --verbose -- --test-threads=1
 
     c_backend_integration_test:
         name: C Backend Integration Test
