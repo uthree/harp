@@ -10,6 +10,7 @@ use eclat::backend::KernelConfig;
 use libloading::{Library, Symbol};
 use std::any::Any;
 use std::error::Error;
+use std::mem::ManuallyDrop;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -18,12 +19,19 @@ use tempfile::TempDir;
 type KernelFn = unsafe extern "C" fn();
 
 /// Internal state of OpenMPKernel (shared via Arc)
+///
+/// Note: We use ManuallyDrop for library and temp_dir to prevent cleanup issues.
+/// On Linux, dlclose() on OpenMP libraries can cause SIGSEGV during thread cleanup
+/// in libgomp. By leaking the library, we avoid the crash at the cost of minor
+/// memory/file leaks that are cleaned up when the process exits.
 struct OpenMPKernelInner {
     /// Temporary directory containing the compiled library (kept alive)
+    /// Wrapped in ManuallyDrop to prevent deletion while library might still be in use
     #[allow(dead_code)]
-    temp_dir: TempDir,
+    temp_dir: ManuallyDrop<TempDir>,
     /// Loaded library
-    library: Library,
+    /// Wrapped in ManuallyDrop to avoid dlclose() which crashes libgomp on Linux
+    library: ManuallyDrop<Library>,
 }
 
 // Safety: OpenMPKernelInner can be sent between threads as the library is self-contained
@@ -75,7 +83,10 @@ impl OpenMPKernel {
         }
 
         Ok(Self {
-            inner: Arc::new(OpenMPKernelInner { temp_dir, library }),
+            inner: Arc::new(OpenMPKernelInner {
+                temp_dir: ManuallyDrop::new(temp_dir),
+                library: ManuallyDrop::new(library),
+            }),
             config,
         })
     }
