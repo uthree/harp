@@ -14,11 +14,23 @@ use std::io::{self, Read, Write};
 
 use clap::{Parser, ValueEnum};
 
-use eclat::ast::AstNode;
-use eclat::backend::renderer::{GenericRenderer, Renderer};
+use eclat::ast::{AstNode, ParallelInfo, ParallelKind};
+use eclat::backend::renderer::Renderer;
 use eclat::lowerer::Lowerer;
-use eclat::opt::ast::{AstOptimizer, RuleBaseOptimizer};
+use eclat::opt::ast::{
+    AstOptimizer, AstSuggester, BeamSearchOptimizer, CompositeSuggester,
+    FunctionInliningSuggester, GroupParallelizationSuggester, LoopFusionSuggester,
+    LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester,
+    RuleBaseSuggester,
+};
 use eclat::opt::ast::rules::all_algebraic_rules;
+use eclat_backend_c::CRenderer;
+use eclat_backend_cuda::CudaRenderer;
+use eclat_backend_opencl::OpenCLRenderer;
+use eclat_backend_openmp::OpenMPRenderer;
+use eclat_backend_rust::RustRenderer;
+#[cfg(target_os = "macos")]
+use eclat_backend_metal::MetalRenderer;
 use eclat_dsl::{GraphBuilder, parse_program};
 
 /// Eclat DSL Transpiler
@@ -198,14 +210,41 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("Optimizing AST (level {})...", args.opt_level);
         }
 
-        let rules = all_algebraic_rules();
-        let max_iterations = match args.opt_level {
-            1 => 10,
-            2 => 50,
-            3 => 100,
-            _ => 10,
+        // Configure optimization based on level and backend
+        let (beam_width, max_steps) = match args.opt_level {
+            1 => (4, 50),
+            2 => (8, 100),
+            3 => (16, 200),
+            _ => (4, 50),
         };
-        let mut optimizer = RuleBaseOptimizer::new(rules).with_max_iterations(max_iterations);
+
+        // Build suggesters based on backend capabilities
+        let rules = all_algebraic_rules();
+        let mut suggesters: Vec<Box<dyn AstSuggester>> = vec![
+            // Rule-based (algebraic transformations, constant folding)
+            Box::new(RuleBaseSuggester::new(rules)),
+            // Loop transformations
+            Box::new(LoopTilingSuggester::new()),
+            Box::new(LoopInliningSuggester::new()),
+            Box::new(LoopInterchangeSuggester::new()),
+            Box::new(LoopFusionSuggester::new()),
+            Box::new(FunctionInliningSuggester::with_default_limit()),
+        ];
+
+        // Add parallelization suggester for GPU backends
+        let is_gpu_backend = matches!(
+            args.backend,
+            Backend::Cuda | Backend::Metal | Backend::Opencl
+        );
+        if is_gpu_backend {
+            suggesters.push(Box::new(GroupParallelizationSuggester::new()));
+        }
+
+        let suggester = CompositeSuggester::new(suggesters);
+        let mut optimizer = BeamSearchOptimizer::new(suggester)
+            .with_beam_width(beam_width)
+            .with_max_steps(max_steps)
+            .without_progress();
 
         all_asts = all_asts
             .into_iter()
@@ -213,6 +252,17 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 let optimized = optimizer.optimize(ast);
                 (name, optimized)
             })
+            .collect();
+    }
+
+    // Mark outermost loops as parallel for OpenMP backend
+    if args.backend == Backend::Openmp {
+        if args.verbose {
+            eprintln!("Marking loops for OpenMP parallelization...");
+        }
+        all_asts = all_asts
+            .into_iter()
+            .map(|(name, ast)| (name, mark_parallel_for_openmp(ast)))
             .collect();
     }
 
@@ -281,58 +331,64 @@ fn render_to_backend(asts: &[(String, AstNode)], backend: Backend) -> Result<Str
     ));
 
     match backend {
-        Backend::C | Backend::Openmp => {
-            // Use GenericRenderer for C-like code
-            let renderer = GenericRenderer::new();
+        Backend::C => {
+            let renderer = CRenderer::new();
             for (name, ast) in asts {
                 output.push_str(&format!("// Graph: {}\n", name));
                 let code = renderer.render(ast);
-                output.push_str(&code);
+                output.push_str(code.as_str());
+                output.push_str("\n\n");
+            }
+        }
+        Backend::Openmp => {
+            let renderer = OpenMPRenderer::new();
+            for (name, ast) in asts {
+                output.push_str(&format!("// Graph: {}\n", name));
+                let code = renderer.render(ast);
+                output.push_str(code.as_str());
                 output.push_str("\n\n");
             }
         }
         Backend::Cuda => {
-            // CUDA uses similar rendering with different headers
-            output.push_str("#include <cuda_runtime.h>\n");
-            output.push_str("#include <math.h>\n\n");
-            let renderer = GenericRenderer::new();
+            let renderer = CudaRenderer::new();
             for (name, ast) in asts {
                 output.push_str(&format!("// Graph: {}\n", name));
                 let code = renderer.render(ast);
-                output.push_str(&code);
+                output.push_str(code.as_str());
                 output.push_str("\n\n");
             }
         }
         Backend::Metal => {
-            output.push_str("#include <metal_stdlib>\n");
-            output.push_str("using namespace metal;\n\n");
-            let renderer = GenericRenderer::new();
-            for (name, ast) in asts {
-                output.push_str(&format!("// Graph: {}\n", name));
-                let code = renderer.render(ast);
-                output.push_str(&code);
-                output.push_str("\n\n");
+            #[cfg(target_os = "macos")]
+            {
+                let renderer = MetalRenderer::new();
+                for (name, ast) in asts {
+                    output.push_str(&format!("// Graph: {}\n", name));
+                    let code = renderer.render(ast);
+                    output.push_str(code.as_str());
+                    output.push_str("\n\n");
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                return Err("Metal backend is only available on macOS".to_string());
             }
         }
         Backend::Opencl => {
-            output.push_str("// OpenCL kernel\n\n");
-            let renderer = GenericRenderer::new();
+            let renderer = OpenCLRenderer::new();
             for (name, ast) in asts {
                 output.push_str(&format!("// Graph: {}\n", name));
                 let code = renderer.render(ast);
-                output.push_str(&code);
+                output.push_str(code.as_str());
                 output.push_str("\n\n");
             }
         }
         Backend::Rust => {
-            output.push_str("// Rust code\n\n");
-            let renderer = GenericRenderer::new();
+            let renderer = RustRenderer::new();
             for (name, ast) in asts {
                 output.push_str(&format!("// Graph: {}\n", name));
                 let code = renderer.render(ast);
-                // Note: GenericRenderer produces C-like code, not idiomatic Rust
-                // A proper Rust renderer would need different implementation
-                output.push_str(&code);
+                output.push_str(code.as_str());
                 output.push_str("\n\n");
             }
         }
@@ -349,4 +405,81 @@ fn write_output(path: &str, content: &str) -> io::Result<()> {
         fs::write(path, content)?;
     }
     Ok(())
+}
+
+/// Mark outermost loops as parallel for OpenMP
+fn mark_parallel_for_openmp(ast: AstNode) -> AstNode {
+    mark_parallel_recursive(ast, true)
+}
+
+fn mark_parallel_recursive(ast: AstNode, is_outermost: bool) -> AstNode {
+    match ast {
+        AstNode::Program { functions, execution_waves } => {
+            let functions = functions
+                .into_iter()
+                .map(|f| mark_parallel_recursive(f, true))
+                .collect();
+            AstNode::Program { functions, execution_waves }
+        }
+        AstNode::Kernel {
+            name,
+            params,
+            return_type,
+            body,
+            default_grid_size,
+            default_thread_group_size,
+        } => AstNode::Kernel {
+            name,
+            params,
+            return_type,
+            body: Box::new(mark_parallel_recursive(*body, true)),
+            default_grid_size,
+            default_thread_group_size,
+        },
+        AstNode::Range {
+            var,
+            start,
+            step,
+            stop,
+            body,
+            parallel,
+        } => {
+            // Mark outermost loop as parallel, inner loops stay sequential
+            let new_parallel = if is_outermost {
+                ParallelInfo {
+                    is_parallel: true,
+                    kind: ParallelKind::OpenMP,
+                    reductions: parallel.reductions,
+                }
+            } else {
+                parallel
+            };
+            AstNode::Range {
+                var,
+                start,
+                step,
+                stop,
+                body: Box::new(mark_parallel_recursive(*body, false)),
+                parallel: new_parallel,
+            }
+        }
+        AstNode::Block { statements, scope } => {
+            let statements = statements
+                .into_iter()
+                .map(|s| mark_parallel_recursive(s, is_outermost))
+                .collect();
+            AstNode::Block { statements, scope }
+        }
+        AstNode::If {
+            condition,
+            then_body,
+            else_body,
+        } => AstNode::If {
+            condition,
+            then_body: Box::new(mark_parallel_recursive(*then_body, false)),
+            else_body: else_body.map(|e| Box::new(mark_parallel_recursive(*e, false))),
+        },
+        // Other nodes pass through unchanged
+        other => other,
+    }
 }

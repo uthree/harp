@@ -570,6 +570,12 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "eclat",
+ "eclat-backend-c",
+ "eclat-backend-cuda",
+ "eclat-backend-metal",
+ "eclat-backend-opencl",
+ "eclat-backend-openmp",
+ "eclat-backend-rust",
  "eclat-dsl",
 ]
 

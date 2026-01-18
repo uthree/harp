@@ -342,8 +342,9 @@ impl Lowerer {
             shape: node.shape().clone(),
         };
 
-        // Output index excludes the reduced dimension (simplified: just use ridx0)
-        let output_idx = self.index_gen().view_to_index(node.view());
+        // Output index for reduce: substitute the reduce axis index with 0
+        // since the output dimension at the reduce axis has size 1
+        let output_idx = self.index_gen().view_to_reduce_output_index(node.view(), axis);
 
         // Identity value
         let identity = self.reduce_identity(&reduce_op, node.dtype());
@@ -355,6 +356,9 @@ impl Lowerer {
         let acc_var = AstNode::Var("acc".to_string());
         let combine_expr = reduce_op.combine(acc_var, load_expr);
 
+        // Get the output dtype for the accumulator
+        let acc_dtype = node.dtype();
+
         // Generate reduce loop structure
         let body = self.loop_gen.generate_reduce(
             &src_shape,
@@ -362,6 +366,7 @@ impl Lowerer {
             AstNode::Var(output_buf.to_string()),
             output_idx,
             "acc",
+            acc_dtype,
             identity,
             combine_expr,
         );

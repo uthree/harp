@@ -98,6 +98,18 @@ impl IndexGenerator {
             })
             .collect()
     }
+
+    /// Convert a View to an index expression for reduce output
+    ///
+    /// For reduce operations, the reduced dimension's index should be 0
+    /// (since the output size is 1 in that dimension).
+    /// This substitutes Idx(reduce_axis) with Const(0).
+    pub fn view_to_reduce_output_index(&self, view: &View, reduce_axis: usize) -> AstNode {
+        let expr = self.view_to_expr(view);
+        // Substitute the reduce axis index with 0
+        let fixed_expr = expr.substitute_idx(reduce_axis, Expr::Const(0)).simplify();
+        fixed_expr.into()
+    }
 }
 
 #[cfg(test)]

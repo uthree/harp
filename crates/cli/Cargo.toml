@@ -11,4 +11,12 @@ path = "src/main.rs"
 [dependencies]
 eclat = { path = "../.." }
 eclat-dsl = { path = "../dsl" }
+eclat-backend-c = { path = "../backend-c" }
+eclat-backend-cuda = { path = "../backend-cuda" }
+eclat-backend-opencl = { path = "../backend-opencl" }
+eclat-backend-openmp = { path = "../backend-openmp" }
+eclat-backend-rust = { path = "../backend-rust" }
 clap = { version = "4", features = ["derive"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+eclat-backend-metal = { path = "../backend-metal" }

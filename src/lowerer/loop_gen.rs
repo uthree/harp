@@ -3,8 +3,9 @@
 //! This module generates nested loop structures from shape information,
 //! creating the iteration pattern needed for tensor operations.
 
-use crate::ast::{AstNode, Literal, ParallelInfo, Scope};
+use crate::ast::{AstNode, Literal, Mutability, ParallelInfo, Scope};
 use crate::graph::shape::Expr;
+use crate::DType;
 
 use super::index_gen::IndexGenerator;
 
@@ -69,6 +70,8 @@ impl LoopGenerator {
     /// Generate loops with a specific axis marked for reduction
     ///
     /// The reduction axis will have its loop variable available for accumulation.
+    /// The `acc_var` and `acc_dtype` parameters are used to declare the accumulator
+    /// variable in the reduce block's scope.
     pub fn generate_loops_with_reduce(
         &self,
         shape: &[Expr],
@@ -76,6 +79,8 @@ impl LoopGenerator {
         pre_reduce: AstNode,
         reduce_body: AstNode,
         post_reduce: AstNode,
+        acc_var: &str,
+        acc_dtype: &DType,
     ) -> AstNode {
         let bounds = self.index_gen.shape_to_bounds(shape);
 
@@ -106,10 +111,16 @@ impl LoopGenerator {
             parallel: ParallelInfo::default(),
         };
 
+        // Create scope with acc variable declared
+        let mut scope = Scope::new();
+        scope
+            .declare(acc_var.to_string(), acc_dtype.clone(), Mutability::Mutable)
+            .expect("Failed to declare acc variable in reduce scope");
+
         // Combine pre, reduce loop, post using Block
         let reduce_block = AstNode::Block {
             statements: vec![pre_reduce, reduce_loop, post_reduce],
-            scope: Box::new(Scope::new()),
+            scope: Box::new(scope),
         };
 
         // Build outer loops
@@ -156,6 +167,7 @@ impl LoopGenerator {
     /// For shape [N, M] with reduce on axis 1:
     /// ```text
     /// for ridx0 in 0..N:
+    ///     float acc;
     ///     acc = identity
     ///     for ridx1 in 0..M:
     ///         acc = combine(acc, input[idx])
@@ -168,6 +180,7 @@ impl LoopGenerator {
         output_ptr: AstNode,
         output_idx: AstNode,
         acc_var: &str,
+        acc_dtype: &DType,
         identity: AstNode,
         combine_expr: AstNode,
     ) -> AstNode {
@@ -187,7 +200,7 @@ impl LoopGenerator {
             value: Box::new(AstNode::Var(acc_var.to_string())),
         };
 
-        self.generate_loops_with_reduce(shape, reduce_axis, pre, reduce_body, post)
+        self.generate_loops_with_reduce(shape, reduce_axis, pre, reduce_body, post, acc_var, acc_dtype)
     }
 }
 
@@ -233,7 +246,7 @@ mod tests {
         );
 
         let ast =
-            loop_gen.generate_reduce(&shape, 1, output_ptr, output_idx, "acc", identity, combine);
+            loop_gen.generate_reduce(&shape, 1, output_ptr, output_idx, "acc", &DType::F32, identity, combine);
 
         // Should be a Range containing a Block
         assert!(matches!(ast, AstNode::Range { .. }));
