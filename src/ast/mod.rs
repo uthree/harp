@@ -89,6 +89,8 @@ pub enum ParallelKind {
     OpenMP,
     /// GPUスレッド並列
     GpuThread,
+    /// Rayon parallel iterator (Rust backend)
+    Rayon,
 }
 
 /// ループの並列化情報

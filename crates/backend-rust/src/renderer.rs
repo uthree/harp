@@ -5,7 +5,7 @@
 //!
 //! The generated code uses `extern "C"` ABI for compatibility with libloading.
 
-use eclat::ast::{AstNode, DType, Literal, Scope, VarDecl};
+use eclat::ast::{AstNode, DType, Literal, ParallelInfo, ParallelKind, Scope, VarDecl};
 use eclat::backend::renderer::CLikeRenderer;
 use eclat::backend::Renderer;
 
@@ -75,12 +75,17 @@ impl std::fmt::Display for RustCode {
 #[derive(Debug, Clone, Default)]
 pub struct RustRenderer {
     indent_level: usize,
+    /// Flag indicating whether rayon is needed in the generated code
+    needs_rayon: bool,
 }
 
 impl RustRenderer {
     /// Create a new RustRenderer
     pub fn new() -> Self {
-        Self { indent_level: 0 }
+        Self {
+            indent_level: 0,
+            needs_rayon: false,
+        }
     }
 
     /// Render a Rust literal
@@ -387,8 +392,8 @@ impl RustRenderer {
                 step,
                 stop,
                 body,
-                ..
-            } => self.render_range_rust(var, start, step, stop, body),
+                parallel,
+            } => self.render_range_rust(var, start, step, stop, body, parallel),
             AstNode::If {
                 condition,
                 then_body,
@@ -453,6 +458,7 @@ impl RustRenderer {
         step: &AstNode,
         stop: &AstNode,
         body: &AstNode,
+        parallel: &ParallelInfo,
     ) -> String {
         let mut result = String::new();
 
@@ -465,35 +471,79 @@ impl RustRenderer {
                 | AstNode::Const(Literal::U32(1))
         );
 
-        if step_is_one {
-            // for var in start..stop { }
-            result.push_str(&format!(
-                "{}for {} in {}..{} {{\n",
-                self.indent(),
-                var,
-                self.render_expr_rust(start),
-                self.render_expr_rust(stop)
-            ));
-        } else {
-            // for var in (start..stop).step_by(step as usize) { }
-            result.push_str(&format!(
-                "{}for {} in ({}..{}).step_by({} as usize) {{\n",
-                self.indent(),
-                var,
-                self.render_expr_rust(start),
-                self.render_expr_rust(stop),
-                self.render_expr_rust(step)
-            ));
-        }
+        let start_str = self.render_expr_rust(start);
+        let stop_str = self.render_expr_rust(stop);
+        let step_str = self.render_expr_rust(step);
 
-        self.inc_indent();
-        let body_str = self.render_statement_rust(body);
-        result.push_str(&body_str);
-        if !body_str.ends_with('\n') {
-            result.push('\n');
+        // Check if this is a parallel Rayon loop
+        let use_rayon = parallel.is_parallel
+            && (parallel.kind == ParallelKind::Rayon || parallel.kind == ParallelKind::OpenMP);
+
+        if use_rayon {
+            // Use Rayon parallel iterator
+            self.needs_rayon = true;
+
+            if step_is_one {
+                // (start..stop).into_par_iter().for_each(|var| { ... });
+                result.push_str(&format!(
+                    "{}({}..{}).into_par_iter().for_each(|{}| {{\n",
+                    self.indent(),
+                    start_str,
+                    stop_str,
+                    var
+                ));
+            } else {
+                // (start..stop).into_par_iter().step_by(step).for_each(|var| { ... });
+                result.push_str(&format!(
+                    "{}({}..{}).into_par_iter().step_by({} as usize).for_each(|{}| {{\n",
+                    self.indent(),
+                    start_str,
+                    stop_str,
+                    step_str,
+                    var
+                ));
+            }
+
+            self.inc_indent();
+            let body_str = self.render_statement_rust(body);
+            result.push_str(&body_str);
+            if !body_str.ends_with('\n') {
+                result.push('\n');
+            }
+            self.dec_indent();
+            result.push_str(&format!("{}}});", self.indent()));
+        } else {
+            // Sequential loop
+            if step_is_one {
+                // for var in start..stop { }
+                result.push_str(&format!(
+                    "{}for {} in {}..{} {{\n",
+                    self.indent(),
+                    var,
+                    start_str,
+                    stop_str
+                ));
+            } else {
+                // for var in (start..stop).step_by(step as usize) { }
+                result.push_str(&format!(
+                    "{}for {} in ({}..{}).step_by({} as usize) {{\n",
+                    self.indent(),
+                    var,
+                    start_str,
+                    stop_str,
+                    step_str
+                ));
+            }
+
+            self.inc_indent();
+            let body_str = self.render_statement_rust(body);
+            result.push_str(&body_str);
+            if !body_str.ends_with('\n') {
+                result.push('\n');
+            }
+            self.dec_indent();
+            result.push_str(&format!("{}}}", self.indent()));
         }
-        self.dec_indent();
-        result.push_str(&format!("{}}}", self.indent()));
         result
     }
 
@@ -547,16 +597,17 @@ impl RustRenderer {
             panic!("Expected AstNode::Program");
         };
 
-        let mut result = String::new();
-
-        // Header
-        result.push_str(&self.render_header());
-
-        // Render functions
+        // First render functions (this may set needs_rayon)
+        let mut functions_code = String::new();
         for func in functions {
-            result.push_str(&self.render_function_node_rust(func));
-            result.push('\n');
+            functions_code.push_str(&self.render_function_node_rust(func));
+            functions_code.push('\n');
         }
+
+        // Now build the final result with header (can now check needs_rayon)
+        let mut result = String::new();
+        result.push_str(&self.render_header());
+        result.push_str(&functions_code);
 
         result
     }
@@ -682,7 +733,8 @@ impl CLikeRenderer for RustRenderer {
     }
 
     fn render_header(&self) -> String {
-        r#"// Generated Rust code by Eclat
+        let mut header = String::from(
+            r#"// Generated Rust code by Eclat
 // This code is compiled as cdylib for dynamic loading
 
 #![allow(unused_unsafe)]
@@ -690,8 +742,15 @@ impl CLikeRenderer for RustRenderer {
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
-"#
-        .to_string()
+"#,
+        );
+
+        // Add rayon import if parallel loops are used
+        if self.needs_rayon {
+            header.push_str("use rayon::prelude::*;\n\n");
+        }
+
+        header
     }
 
     fn render_function_qualifier(&self, _is_kernel: bool) -> String {
@@ -832,5 +891,65 @@ mod tests {
 
         let string: String = code.into();
         assert_eq!(string, "fn main() {}");
+    }
+
+    #[test]
+    fn test_render_parallel_range() {
+        let mut renderer = RustRenderer::new();
+
+        // Sequential range
+        let seq_parallel = ParallelInfo {
+            is_parallel: false,
+            kind: ParallelKind::Sequential,
+            reductions: vec![],
+        };
+        let seq_code = renderer.render_range_rust(
+            "i",
+            &AstNode::Const(Literal::I64(0)),
+            &AstNode::Const(Literal::I64(1)),
+            &AstNode::Const(Literal::I64(100)),
+            &AstNode::Block {
+                statements: vec![],
+                scope: Box::new(Scope::default()),
+            },
+            &seq_parallel,
+        );
+        assert!(seq_code.contains("for i in 0i64..100i64"));
+        assert!(!seq_code.contains("into_par_iter"));
+
+        // Parallel range with Rayon
+        let par_parallel = ParallelInfo {
+            is_parallel: true,
+            kind: ParallelKind::Rayon,
+            reductions: vec![],
+        };
+        let par_code = renderer.render_range_rust(
+            "i",
+            &AstNode::Const(Literal::I64(0)),
+            &AstNode::Const(Literal::I64(1)),
+            &AstNode::Const(Literal::I64(100)),
+            &AstNode::Block {
+                statements: vec![],
+                scope: Box::new(Scope::default()),
+            },
+            &par_parallel,
+        );
+        assert!(par_code.contains("into_par_iter"));
+        assert!(par_code.contains("for_each"));
+        assert!(renderer.needs_rayon);
+    }
+
+    #[test]
+    fn test_render_header_with_rayon() {
+        let mut renderer = RustRenderer::new();
+        
+        // Without rayon
+        let header1 = renderer.render_header();
+        assert!(!header1.contains("use rayon"));
+
+        // With rayon
+        renderer.needs_rayon = true;
+        let header2 = renderer.render_header();
+        assert!(header2.contains("use rayon::prelude::*"));
     }
 }
