@@ -35,6 +35,8 @@ pub struct TypeSpec {
 /// Data type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DType {
+    F16,
+    BF16,
     F32,
     F64,
     I32,
@@ -47,6 +49,8 @@ pub enum DType {
 impl fmt::Display for DType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            DType::F16 => write!(f, "f16"),
+            DType::BF16 => write!(f, "bf16"),
             DType::F32 => write!(f, "f32"),
             DType::F64 => write!(f, "f64"),
             DType::I32 => write!(f, "i32"),

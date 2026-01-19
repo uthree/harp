@@ -209,6 +209,36 @@ pub trait CLikeRenderer {
                     }
                 }
             }
+            Literal::F16(v) => {
+                // F16はf32に変換してキャスト
+                let f = v.to_f32();
+                if f.is_nan() {
+                    "(half)NAN".to_string()
+                } else if f.is_infinite() {
+                    if f.is_sign_positive() {
+                        "(half)INFINITY".to_string()
+                    } else {
+                        "(half)(-INFINITY)".to_string()
+                    }
+                } else {
+                    format!("(half){}f", f)
+                }
+            }
+            Literal::BF16(v) => {
+                // BF16はf32に変換してキャスト
+                let f = v.to_f32();
+                if f.is_nan() {
+                    "(bfloat)NAN".to_string()
+                } else if f.is_infinite() {
+                    if f.is_sign_positive() {
+                        "(bfloat)INFINITY".to_string()
+                    } else {
+                        "(bfloat)(-INFINITY)".to_string()
+                    }
+                } else {
+                    format!("(bfloat){}f", f)
+                }
+            }
             Literal::Complex32(re, im) => {
                 // Complex32は構造体リテラルとしてレンダリング
                 format!("(complex32){{{}f, {}f}}", re, im)
@@ -949,6 +979,8 @@ impl CLikeRenderer for GenericRenderer {
             DType::U16 => "unsigned short".to_string(),
             DType::U32 => "unsigned int".to_string(),
             DType::U64 => "unsigned long long".to_string(),
+            DType::F16 => "_Float16".to_string(),
+            DType::BF16 => "__bf16".to_string(),
             DType::F32 => "float".to_string(),
             DType::F64 => "double".to_string(),
             DType::Complex32 => "complex32".to_string(),

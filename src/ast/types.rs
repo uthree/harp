@@ -1,5 +1,6 @@
 //! データ型とリテラルの定義
 
+use half::{bf16, f16};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
@@ -151,6 +152,32 @@ impl TensorDType for u64 {
     }
 }
 
+impl TensorDType for f16 {
+    const DTYPE: DType = DType::F16;
+    fn to_literal(value: Self) -> Literal {
+        Literal::F16(value)
+    }
+    fn zero() -> Self {
+        f16::ZERO
+    }
+    fn one() -> Self {
+        f16::ONE
+    }
+}
+
+impl TensorDType for bf16 {
+    const DTYPE: DType = DType::BF16;
+    fn to_literal(value: Self) -> Literal {
+        Literal::BF16(value)
+    }
+    fn zero() -> Self {
+        bf16::ZERO
+    }
+    fn one() -> Self {
+        bf16::ONE
+    }
+}
+
 impl TensorDType for f32 {
     const DTYPE: DType = DType::F32;
     fn to_literal(value: Self) -> Literal {
@@ -203,6 +230,8 @@ pub enum DType {
     U64,
 
     // Floating point
+    F16,
+    BF16,
     F32,
     F64,
 
@@ -241,6 +270,8 @@ pub enum Literal {
     U64(u64),
 
     // Floating point
+    F16(f16),
+    BF16(bf16),
     F32(f32),
     F64(f64),
 
@@ -307,6 +338,18 @@ impl From<u64> for Literal {
     }
 }
 
+impl From<f16> for Literal {
+    fn from(value: f16) -> Self {
+        Literal::F16(value)
+    }
+}
+
+impl From<bf16> for Literal {
+    fn from(value: bf16) -> Self {
+        Literal::BF16(value)
+    }
+}
+
 impl From<f32> for Literal {
     fn from(value: f32) -> Self {
         Literal::F32(value)
@@ -349,6 +392,8 @@ impl Literal {
             Literal::U16(_) => DType::U16,
             Literal::U32(_) => DType::U32,
             Literal::U64(_) => DType::U64,
+            Literal::F16(_) => DType::F16,
+            Literal::BF16(_) => DType::BF16,
             Literal::F32(_) => DType::F32,
             Literal::F64(_) => DType::F64,
             Literal::Complex32(_, _) => DType::Complex32,
@@ -419,6 +464,8 @@ impl Literal {
     /// 浮動小数点リテラルを f64 として取得
     pub fn as_f64(&self) -> Option<f64> {
         match self {
+            Literal::F16(v) => Some(v.to_f64()),
+            Literal::BF16(v) => Some(v.to_f64()),
             Literal::F32(v) => Some(*v as f64),
             Literal::F64(v) => Some(*v),
             _ => None,
@@ -437,6 +484,8 @@ impl Literal {
             Literal::U16(v) => *v == 0,
             Literal::U32(v) => *v == 0,
             Literal::U64(v) => *v == 0,
+            Literal::F16(v) => *v == f16::ZERO,
+            Literal::BF16(v) => *v == bf16::ZERO,
             Literal::F32(v) => *v == 0.0,
             Literal::F64(v) => *v == 0.0,
             Literal::Complex32(re, im) => *re == 0.0 && *im == 0.0,
@@ -456,6 +505,8 @@ impl Literal {
             Literal::U16(v) => *v == 1,
             Literal::U32(v) => *v == 1,
             Literal::U64(v) => *v == 1,
+            Literal::F16(v) => *v == f16::ONE,
+            Literal::BF16(v) => *v == bf16::ONE,
             Literal::F32(v) => *v == 1.0,
             Literal::F64(v) => *v == 1.0,
             Literal::Complex32(re, im) => *re == 1.0 && *im == 0.0,
@@ -475,7 +526,7 @@ impl DType {
             DType::Void => 0,
             DType::Bool => 1,
             DType::I8 | DType::U8 => 1,
-            DType::I16 | DType::U16 => 2,
+            DType::I16 | DType::U16 | DType::F16 | DType::BF16 => 2,
             DType::I32 | DType::U32 | DType::F32 => 4,
             DType::I64 | DType::U64 | DType::F64 => 8,
             DType::Complex32 => 8,                      // 2 * f32
@@ -547,7 +598,7 @@ impl DType {
 
     /// Check if this is a floating point type
     pub fn is_float(&self) -> bool {
-        matches!(self, DType::F32 | DType::F64)
+        matches!(self, DType::F16 | DType::BF16 | DType::F32 | DType::F64)
     }
 
     /// Check if this is a complex type
@@ -600,7 +651,7 @@ impl DType {
         match self {
             DType::Bool => Some(1),
             DType::I8 | DType::U8 => Some(8),
-            DType::I16 | DType::U16 => Some(16),
+            DType::I16 | DType::U16 | DType::F16 | DType::BF16 => Some(16),
             DType::I32 | DType::U32 | DType::F32 => Some(32),
             DType::I64 | DType::U64 | DType::F64 => Some(64),
             DType::Complex32 => Some(64),  // 2 * 32 bits
@@ -622,6 +673,8 @@ impl DType {
             DType::U16 => Some(Literal::U16(0)),
             DType::U32 => Some(Literal::U32(0)),
             DType::U64 => Some(Literal::U64(0)),
+            DType::F16 => Some(Literal::F16(f16::ZERO)),
+            DType::BF16 => Some(Literal::BF16(bf16::ZERO)),
             DType::F32 => Some(Literal::F32(0.0)),
             DType::F64 => Some(Literal::F64(0.0)),
             DType::Complex32 => Some(Literal::Complex32(0.0, 0.0)),
@@ -642,6 +695,8 @@ impl DType {
             DType::U16 => Some(Literal::U16(1)),
             DType::U32 => Some(Literal::U32(1)),
             DType::U64 => Some(Literal::U64(1)),
+            DType::F16 => Some(Literal::F16(f16::ONE)),
+            DType::BF16 => Some(Literal::BF16(bf16::ONE)),
             DType::F32 => Some(Literal::F32(1.0)),
             DType::F64 => Some(Literal::F64(1.0)),
             DType::Complex32 => Some(Literal::Complex32(1.0, 0.0)),

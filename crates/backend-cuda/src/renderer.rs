@@ -228,6 +228,8 @@ impl CLikeRenderer for CudaRenderer {
             DType::U16 => "unsigned short".to_string(),
             DType::U32 => "unsigned int".to_string(),
             DType::U64 => "unsigned long long".to_string(),
+            DType::F16 => "__half".to_string(),
+            DType::BF16 => "__nv_bfloat16".to_string(),
             DType::F32 => "float".to_string(),
             DType::F64 => "double".to_string(),
             DType::Int => "int".to_string(), // Index type: 32-bit for GPU efficiency

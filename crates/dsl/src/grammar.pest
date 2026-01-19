@@ -14,7 +14,7 @@ param      = { ident ~ ":" ~ type_spec }
 type_spec = { dtype ~ shape }
 shape     = { "[" ~ dim ~ ("," ~ dim)* ~ "]" }
 dim       = { integer | ident }
-dtype     = { "f32" | "f64" | "i32" | "i64" | "u32" | "u64" | "bool" }
+dtype     = { "f16" | "bf16" | "f32" | "f64" | "i32" | "i64" | "u32" | "u64" | "bool" }
 
 // Graph body
 body       = { statement* ~ return_stmt }

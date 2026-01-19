@@ -142,6 +142,12 @@ impl RustRenderer {
                     }
                 }
             }
+            Literal::F16(v) => {
+                format!("half::f16::from_f32({}f32)", v.to_f32())
+            }
+            Literal::BF16(v) => {
+                format!("half::bf16::from_f32({}f32)", v.to_f32())
+            }
             Literal::Complex32(re, im) => {
                 format!("/* complex32({}, {}) */", re, im)
             }
@@ -704,6 +710,8 @@ impl CLikeRenderer for RustRenderer {
             DType::U16 => "u16".to_string(),
             DType::U32 => "u32".to_string(),
             DType::U64 => "u64".to_string(),
+            DType::F16 => "half::f16".to_string(),
+            DType::BF16 => "half::bf16".to_string(),
             DType::F32 => "f32".to_string(),
             DType::F64 => "f64".to_string(),
             DType::Int => "i64".to_string(),

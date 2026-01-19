@@ -88,6 +88,8 @@ fn parse_type_spec(pair: Pair<Rule>) -> DslResult<TypeSpec> {
 
 fn parse_dtype(pair: Pair<Rule>) -> DslResult<DType> {
     match pair.as_str() {
+        "f16" => Ok(DType::F16),
+        "bf16" => Ok(DType::BF16),
         "f32" => Ok(DType::F32),
         "f64" => Ok(DType::F64),
         "i32" => Ok(DType::I32),

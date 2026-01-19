@@ -237,6 +237,8 @@ impl CLikeRenderer for OpenCLRenderer {
             DType::U16 => "ushort".to_string(),
             DType::U32 => "uint".to_string(),
             DType::U64 => "ulong".to_string(),
+            DType::F16 => "half".to_string(),
+            DType::BF16 => "ushort".to_string(), // BF16 not natively supported, use ushort
             DType::F32 => "float".to_string(),
             DType::F64 => "double".to_string(),
             DType::Int => "int".to_string(), // Index type: 32-bit for GPU efficiency

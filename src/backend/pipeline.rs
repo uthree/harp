@@ -461,6 +461,8 @@ fn evaluate_ast_expr(ast: &AstNode, shape_vars: &HashMap<String, i64>) -> i64 {
             Literal::U16(n) => *n as i64,
             Literal::U32(n) => *n as i64,
             Literal::U64(n) => *n as i64,
+            Literal::F16(f) => f.to_f64() as i64,
+            Literal::BF16(f) => f.to_f64() as i64,
             Literal::F32(f) => *f as i64,
             Literal::F64(f) => *f as i64,
             Literal::Bool(b) => {
@@ -563,6 +565,8 @@ impl DispatchSizeExpr {
                 Literal::U16(n) => Self::Const(*n as i64),
                 Literal::U32(n) => Self::Const(*n as i64),
                 Literal::U64(n) => Self::Const(*n as i64),
+                Literal::F16(f) => Self::Const(f.to_f64() as i64),
+                Literal::BF16(f) => Self::Const(f.to_f64() as i64),
                 Literal::F32(f) => Self::Const(*f as i64),
                 Literal::F64(f) => Self::Const(*f as i64),
                 Literal::Bool(b) => Self::Const(if *b { 1 } else { 0 }),

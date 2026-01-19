@@ -132,6 +132,8 @@ impl CLikeRenderer for OpenMPRenderer {
             DType::U16 => "unsigned short".to_string(),
             DType::U32 => "unsigned int".to_string(),
             DType::U64 => "unsigned long long".to_string(),
+            DType::F16 => "_Float16".to_string(),
+            DType::BF16 => "__bf16".to_string(),
             DType::F32 => "float".to_string(),
             DType::F64 => "double".to_string(),
             DType::Int => "long long".to_string(),

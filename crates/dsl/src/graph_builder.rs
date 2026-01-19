@@ -420,6 +420,8 @@ impl GraphBuilder {
     fn get_positional_dtype(&self, args: &[FuncArg], index: usize) -> DslResult<AstDType> {
         match args.get(index) {
             Some(FuncArg::Positional(DslExpr::Var(name))) => match name.as_str() {
+                "f16" => Ok(AstDType::F16),
+                "bf16" => Ok(AstDType::BF16),
                 "f32" => Ok(AstDType::F32),
                 "f64" => Ok(AstDType::F64),
                 "i32" => Ok(AstDType::I32),
@@ -525,6 +527,8 @@ pub struct BuiltGraph {
 /// Convert DSL DType to AST DType
 fn convert_dtype(dtype: &DType) -> AstDType {
     match dtype {
+        DType::F16 => AstDType::F16,
+        DType::BF16 => AstDType::BF16,
         DType::F32 => AstDType::F32,
         DType::F64 => AstDType::F64,
         DType::I32 => AstDType::I32,
