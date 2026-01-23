@@ -8,6 +8,10 @@ description = "CLI tools for Eclat transpiler"
 name = "eclat-transpile"
 path = "src/main.rs"
 
+[features]
+default = []
+viz = ["eclat/viz"]
+
 [dependencies]
 eclat = { path = "../.." }
 eclat-dsl = { path = "../dsl" }

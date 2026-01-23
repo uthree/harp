@@ -7,6 +7,7 @@
 //!   eclat-transpile softmax.ecl -o softmax.c -b c
 //!   eclat-transpile model.ecl -o model.cu -b cuda
 //!   eclat-transpile model.ecl -o model.c -D batch=32
+//!   eclat-transpile model.ecl -o model.c --viz  # Interactive optimization viewer
 
 use std::collections::HashMap;
 use std::fs;
@@ -17,11 +18,14 @@ use clap::{Parser, ValueEnum};
 use eclat::ast::{AstNode, ParallelInfo, ParallelKind};
 use eclat::backend::renderer::Renderer;
 use eclat::lowerer::Lowerer;
+#[cfg(feature = "viz")]
+use eclat::opt::ast::history::OptimizationHistory;
+#[cfg(not(feature = "viz"))]
+use eclat::opt::ast::AstOptimizer;
 use eclat::opt::ast::{
-    AstOptimizer, AstSuggester, BeamSearchOptimizer, CompositeSuggester,
-    FunctionInliningSuggester, GroupParallelizationSuggester, LoopFusionSuggester,
-    LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester,
-    RuleBaseSuggester,
+    AstSuggester, BeamSearchOptimizer, CompositeSuggester, FunctionInliningSuggester,
+    GroupParallelizationSuggester, LoopFusionSuggester, LoopInliningSuggester,
+    LoopInterchangeSuggester, LoopTilingSuggester, RuleBaseSuggester,
 };
 use eclat::opt::ast::rules::all_algebraic_rules;
 use eclat_backend_c::CRenderer;
@@ -75,6 +79,11 @@ struct Args {
     /// Verbose output
     #[arg(short, long)]
     verbose: bool,
+
+    /// Visualize optimization history (requires --features viz)
+    #[cfg(feature = "viz")]
+    #[arg(long)]
+    viz: bool,
 }
 
 /// Target backend
@@ -205,6 +214,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Apply optimization if opt_level > 0
+    #[cfg(feature = "viz")]
+    let mut all_histories: Vec<OptimizationHistory> = Vec::new();
+
     if args.opt_level > 0 {
         if args.verbose {
             eprintln!("Optimizing AST (level {})...", args.opt_level);
@@ -246,13 +258,28 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             .with_max_steps(max_steps)
             .without_progress();
 
-        all_asts = all_asts
-            .into_iter()
-            .map(|(name, ast)| {
-                let optimized = optimizer.optimize(ast);
-                (name, optimized)
-            })
-            .collect();
+        #[cfg(feature = "viz")]
+        {
+            all_asts = all_asts
+                .into_iter()
+                .map(|(name, ast)| {
+                    let (optimized, history) = optimizer.optimize_with_history(ast);
+                    all_histories.push(history);
+                    (name, optimized)
+                })
+                .collect();
+        }
+
+        #[cfg(not(feature = "viz"))]
+        {
+            all_asts = all_asts
+                .into_iter()
+                .map(|(name, ast)| {
+                    let optimized = optimizer.optimize(ast);
+                    (name, optimized)
+                })
+                .collect();
+        }
     }
 
     // Mark outermost loops as parallel for OpenMP backend
@@ -264,6 +291,22 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             .into_iter()
             .map(|(name, ast)| (name, mark_parallel_for_openmp(ast)))
             .collect();
+    }
+
+    // Launch visualization TUI if --viz flag is set
+    #[cfg(feature = "viz")]
+    if args.viz {
+        if all_histories.is_empty() {
+            eprintln!("warning: No optimization history to visualize (opt_level may be 0)");
+        } else {
+            // Merge all histories into one (for now, just use the first one)
+            // TODO: Support multi-graph visualization
+            let history = all_histories.remove(0);
+            if args.verbose {
+                eprintln!("Launching optimization visualizer...");
+            }
+            launch_viz(history, args.backend)?;
+        }
     }
 
     if args.dump_ast {
@@ -482,4 +525,40 @@ fn mark_parallel_recursive(ast: AstNode, is_outermost: bool) -> AstNode {
         // Other nodes pass through unchanged
         other => other,
     }
+}
+
+/// Launch optimization visualization TUI
+#[cfg(feature = "viz")]
+fn launch_viz(history: OptimizationHistory, backend: Backend) -> Result<(), Box<dyn std::error::Error>> {
+    use eclat::viz;
+
+    match backend {
+        Backend::C => {
+            viz::run_with_renderer(history, CRenderer::new())?;
+        }
+        Backend::Openmp => {
+            viz::run_with_renderer(history, OpenMPRenderer::new())?;
+        }
+        Backend::Cuda => {
+            viz::run_with_renderer(history, CudaRenderer::new())?;
+        }
+        Backend::Metal => {
+            #[cfg(target_os = "macos")]
+            {
+                viz::run_with_renderer(history, MetalRenderer::new())?;
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                return Err("Metal backend is only available on macOS".into());
+            }
+        }
+        Backend::Opencl => {
+            viz::run_with_renderer(history, OpenCLRenderer::new())?;
+        }
+        Backend::Rust => {
+            viz::run_with_renderer(history, RustRenderer::new())?;
+        }
+    }
+
+    Ok(())
 }
