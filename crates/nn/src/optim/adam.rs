@@ -4,8 +4,8 @@
 //!
 //! Reference: Kingma, D. P., & Ba, J. (2014). Adam: A Method for Stochastic Optimization.
 
-use super::{OptimError, Optimizer, get_param_data};
-use crate::nn::Parameter;
+use super::{get_param_data, OptimError, Optimizer};
+use crate::nn::ParameterBase;
 
 /// Adam optimizer.
 ///
@@ -31,7 +31,7 @@ use crate::nn::Parameter;
 /// ```
 pub struct Adam {
     /// Parameters to optimize
-    params: Vec<Parameter>,
+    params: Vec<Box<dyn ParameterBase>>,
     /// Learning rate
     lr: f32,
     /// Exponential decay rates for moment estimates (β1, β2)
@@ -52,7 +52,7 @@ impl Adam {
     /// # Arguments
     /// * `params` - Parameters to optimize
     /// * `lr` - Learning rate (typically 0.001)
-    pub fn new(params: Vec<Parameter>, lr: f32) -> Self {
+    pub fn new(params: Vec<Box<dyn ParameterBase>>, lr: f32) -> Self {
         Self::with_betas(params, lr, (0.9, 0.999), 1e-8)
     }
 
@@ -63,7 +63,12 @@ impl Adam {
     /// * `lr` - Learning rate
     /// * `betas` - Exponential decay rates (β1, β2) for moment estimates
     /// * `eps` - Small constant for numerical stability
-    pub fn with_betas(params: Vec<Parameter>, lr: f32, betas: (f32, f32), eps: f32) -> Self {
+    pub fn with_betas(
+        params: Vec<Box<dyn ParameterBase>>,
+        lr: f32,
+        betas: (f32, f32),
+        eps: f32,
+    ) -> Self {
         // Initialize moment buffers to zeros
         let m: Vec<Vec<f32>> = params.iter().map(|p| vec![0.0; p.numel()]).collect();
         let v: Vec<Vec<f32>> = params.iter().map(|p| vec![0.0; p.numel()]).collect();
@@ -106,7 +111,7 @@ impl Optimizer for Adam {
         let bias_correction2 = 1.0 - beta2.powi(self.t as i32);
 
         for (i, param) in self.params.iter().enumerate() {
-            let data = get_param_data(param)?;
+            let data = get_param_data(param.as_ref())?;
             let param_data = data.param_data;
             let grad_data = data.grad_data;
 
@@ -169,10 +174,13 @@ impl std::fmt::Debug for Adam {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::nn::Parameter;
+    use eclat::tensor::dim::D2;
 
     #[test]
     fn test_adam_creation() {
-        let params = vec![Parameter::new("test", &[2, 3])];
+        let params: Vec<Box<dyn ParameterBase>> =
+            vec![Box::new(Parameter::<D2>::new("test", &[2, 3]))];
         let adam = Adam::new(params, 0.001);
 
         assert_eq!(adam.learning_rate(), 0.001);
@@ -183,7 +191,8 @@ mod tests {
 
     #[test]
     fn test_adam_with_betas() {
-        let params = vec![Parameter::new("test", &[2, 3])];
+        let params: Vec<Box<dyn ParameterBase>> =
+            vec![Box::new(Parameter::<D2>::new("test", &[2, 3]))];
         let adam = Adam::with_betas(params, 0.002, (0.8, 0.99), 1e-7);
 
         assert_eq!(adam.learning_rate(), 0.002);
@@ -193,7 +202,8 @@ mod tests {
 
     #[test]
     fn test_adam_set_learning_rate() {
-        let params = vec![Parameter::new("test", &[2, 3])];
+        let params: Vec<Box<dyn ParameterBase>> =
+            vec![Box::new(Parameter::<D2>::new("test", &[2, 3]))];
         let mut adam = Adam::new(params, 0.001);
 
         adam.set_learning_rate(0.0001);

@@ -1,15 +1,13 @@
 //! Module Trait
 //!
 //! The `Module` trait is the base trait for all neural network layers.
-//! It provides a unified interface for parameter management and forward pass.
+//! It provides a unified interface for parameter management.
 
-use super::Parameter;
-use eclat::tensor::{Dyn, Tensor};
+use super::ParameterBase;
 
 /// Base trait for neural network modules.
 ///
 /// All neural network layers implement this trait, providing:
-/// - Forward pass computation
 /// - Parameter enumeration
 /// - Training mode control
 ///
@@ -28,22 +26,13 @@ use eclat::tensor::{Dyn, Tensor};
 /// layer.train(true);
 /// ```
 pub trait Module {
-    /// Perform the forward pass.
-    ///
-    /// # Arguments
-    /// * `input` - Input tensor with dynamic dimensions
-    ///
-    /// # Returns
-    /// Output tensor after applying this module's transformation.
-    fn forward(&self, input: &Tensor<Dyn, f32>) -> Tensor<Dyn, f32>;
-
     /// Returns all learnable parameters of this module (including submodules).
-    fn parameters(&self) -> Vec<Parameter>;
+    fn parameters(&self) -> Vec<Box<dyn ParameterBase>>;
 
     /// Returns named parameters as (name, parameter) pairs.
     ///
     /// The names include hierarchical prefixes for nested modules.
-    fn named_parameters(&self) -> Vec<(String, Parameter)> {
+    fn named_parameters(&self) -> Vec<(String, Box<dyn ParameterBase>)> {
         self.parameters()
             .into_iter()
             .map(|p| (p.name().to_string(), p))
@@ -79,11 +68,12 @@ pub trait Module {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eclat::tensor::{Dyn, Tensor};
+    use crate::nn::Parameter;
+    use eclat::tensor::dim::D2;
 
     // Simple test module for testing the trait
     struct DummyModule {
-        param: Parameter,
+        param: Parameter<D2>,
         training: bool,
     }
 
@@ -97,13 +87,8 @@ mod tests {
     }
 
     impl Module for DummyModule {
-        fn forward(&self, input: &Tensor<Dyn, f32>) -> Tensor<Dyn, f32> {
-            // Identity function for testing
-            Tensor::from_graph(input.graph().clone())
-        }
-
-        fn parameters(&self) -> Vec<Parameter> {
-            vec![self.param.clone()]
+        fn parameters(&self) -> Vec<Box<dyn ParameterBase>> {
+            vec![Box::new(self.param.clone())]
         }
 
         fn train(&mut self, mode: bool) {

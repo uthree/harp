@@ -2,9 +2,9 @@
 //!
 //! Implements Conv1d, Conv2d, and Conv3d using unfold (im2col) approach.
 
-use super::{Module, Parameter};
+use super::{Module, Parameter, ParameterBase};
 use eclat::tensor::dim::{D1, D2, D3, D4, D5, D6, D8};
-use eclat::tensor::{Dyn, Tensor};
+use eclat::tensor::Tensor;
 
 // ============================================================================
 // Conv2d
@@ -34,9 +34,9 @@ use eclat::tensor::{Dyn, Tensor};
 /// ```
 pub struct Conv2d {
     /// Weight parameter [out_channels, in_channels, kH, kW]
-    weight: Parameter,
+    weight: Parameter<D4>,
     /// Bias parameter [out_channels] (optional)
-    bias: Option<Parameter>,
+    bias: Option<Parameter<D1>>,
     /// Number of input channels
     in_channels: usize,
     /// Number of output channels
@@ -97,7 +97,7 @@ impl Conv2d {
         let weight_data: Vec<f32> = (0..weight_size)
             .map(|i| (i as f32 * 0.1).sin() * bound)
             .collect();
-        let weight =
+        let weight: Parameter<D4> =
             Parameter::from_data("weight", &weight_data, &[out_channels, in_channels, kh, kw]);
 
         // Initialize bias
@@ -184,7 +184,7 @@ impl Conv2d {
         // 8. Add bias if present
         match &self.bias {
             Some(bias) => {
-                let bias_tensor: Tensor<D1, f32> = bias.tensor().reshape([self.out_channels]);
+                let bias_tensor = bias.tensor();
                 // bias: [C_out] -> [1, C_out, 1, 1]
                 let bias_expanded: Tensor<D4, f32> =
                     bias_tensor.unsqueeze(0).unsqueeze(2).unsqueeze(3);
@@ -226,24 +226,19 @@ impl Conv2d {
 }
 
 impl Module for Conv2d {
-    fn forward(&self, input: &Tensor<Dyn, f32>) -> Tensor<Dyn, f32> {
-        // Convert Dyn to D4, forward, then back to Dyn
-        let input_d4: Tensor<D4, f32> = input.clone().into_static();
-        self.forward_d4(&input_d4).into_dyn()
-    }
-
-    fn parameters(&self) -> Vec<Parameter> {
-        let mut params = vec![self.weight.clone()];
+    fn parameters(&self) -> Vec<Box<dyn ParameterBase>> {
+        let mut params: Vec<Box<dyn ParameterBase>> = vec![Box::new(self.weight.clone())];
         if let Some(ref b) = self.bias {
-            params.push(b.clone());
+            params.push(Box::new(b.clone()));
         }
         params
     }
 
-    fn named_parameters(&self) -> Vec<(String, Parameter)> {
-        let mut params = vec![("weight".to_string(), self.weight.clone())];
+    fn named_parameters(&self) -> Vec<(String, Box<dyn ParameterBase>)> {
+        let mut params: Vec<(String, Box<dyn ParameterBase>)> =
+            vec![("weight".to_string(), Box::new(self.weight.clone()))];
         if let Some(ref b) = self.bias {
-            params.push(("bias".to_string(), b.clone()));
+            params.push(("bias".to_string(), Box::new(b.clone())));
         }
         params
     }
@@ -287,9 +282,9 @@ impl std::fmt::Debug for Conv2d {
 /// - `L_out = (L + 2*padding - dilation*(kernel_size-1) - 1) / stride + 1`
 pub struct Conv1d {
     /// Weight parameter [out_channels, in_channels, K]
-    weight: Parameter,
+    weight: Parameter<D3>,
     /// Bias parameter [out_channels] (optional)
-    bias: Option<Parameter>,
+    bias: Option<Parameter<D1>>,
     /// Number of input channels
     in_channels: usize,
     /// Number of output channels
@@ -331,7 +326,7 @@ impl Conv1d {
         let weight_data: Vec<f32> = (0..weight_size)
             .map(|i| (i as f32 * 0.1).sin() * bound)
             .collect();
-        let weight = Parameter::from_data(
+        let weight: Parameter<D3> = Parameter::from_data(
             "weight",
             &weight_data,
             &[out_channels, in_channels, kernel_size],
@@ -420,7 +415,7 @@ impl Conv1d {
         // 9. Add bias if present
         match &self.bias {
             Some(bias) => {
-                let bias_tensor: Tensor<D1, f32> = bias.tensor().reshape([self.out_channels]);
+                let bias_tensor = bias.tensor();
                 // bias: [C_out] -> [1, C_out, 1]
                 let bias_expanded: Tensor<D3, f32> = bias_tensor.unsqueeze(0).unsqueeze(2);
                 &output + &bias_expanded
@@ -446,23 +441,19 @@ impl Conv1d {
 }
 
 impl Module for Conv1d {
-    fn forward(&self, input: &Tensor<Dyn, f32>) -> Tensor<Dyn, f32> {
-        let input_d3: Tensor<D3, f32> = input.clone().into_static();
-        self.forward_d3(&input_d3).into_dyn()
-    }
-
-    fn parameters(&self) -> Vec<Parameter> {
-        let mut params = vec![self.weight.clone()];
+    fn parameters(&self) -> Vec<Box<dyn ParameterBase>> {
+        let mut params: Vec<Box<dyn ParameterBase>> = vec![Box::new(self.weight.clone())];
         if let Some(ref b) = self.bias {
-            params.push(b.clone());
+            params.push(Box::new(b.clone()));
         }
         params
     }
 
-    fn named_parameters(&self) -> Vec<(String, Parameter)> {
-        let mut params = vec![("weight".to_string(), self.weight.clone())];
+    fn named_parameters(&self) -> Vec<(String, Box<dyn ParameterBase>)> {
+        let mut params: Vec<(String, Box<dyn ParameterBase>)> =
+            vec![("weight".to_string(), Box::new(self.weight.clone()))];
         if let Some(ref b) = self.bias {
-            params.push(("bias".to_string(), b.clone()));
+            params.push(("bias".to_string(), Box::new(b.clone())));
         }
         params
     }
@@ -519,9 +510,9 @@ impl std::fmt::Debug for Conv1d {
 /// ```
 pub struct Conv3d {
     /// Weight parameter [out_channels, in_channels, kD, kH, kW]
-    weight: Parameter,
+    weight: Parameter<D5>,
     /// Bias parameter [out_channels] (optional)
-    bias: Option<Parameter>,
+    bias: Option<Parameter<D1>>,
     /// Number of input channels
     in_channels: usize,
     /// Number of output channels
@@ -577,7 +568,7 @@ impl Conv3d {
         let weight_data: Vec<f32> = (0..weight_size)
             .map(|i| (i as f32 * 0.1).sin() * bound)
             .collect();
-        let weight = Parameter::from_data(
+        let weight: Parameter<D5> = Parameter::from_data(
             "weight",
             &weight_data,
             &[out_channels, in_channels, kd, kh, kw],
@@ -670,7 +661,7 @@ impl Conv3d {
         // 8. Add bias if present
         match &self.bias {
             Some(bias) => {
-                let bias_tensor: Tensor<D1, f32> = bias.tensor().reshape([self.out_channels]);
+                let bias_tensor = bias.tensor();
                 // bias: [C_out] -> [1, C_out, 1, 1, 1]
                 let bias_expanded: Tensor<D5, f32> = bias_tensor
                     .unsqueeze(0)
@@ -715,24 +706,19 @@ impl Conv3d {
 }
 
 impl Module for Conv3d {
-    fn forward(&self, input: &Tensor<Dyn, f32>) -> Tensor<Dyn, f32> {
-        // Convert Dyn to D5, forward, then back to Dyn
-        let input_d5: Tensor<D5, f32> = input.clone().into_static();
-        self.forward_d5(&input_d5).into_dyn()
-    }
-
-    fn parameters(&self) -> Vec<Parameter> {
-        let mut params = vec![self.weight.clone()];
+    fn parameters(&self) -> Vec<Box<dyn ParameterBase>> {
+        let mut params: Vec<Box<dyn ParameterBase>> = vec![Box::new(self.weight.clone())];
         if let Some(ref b) = self.bias {
-            params.push(b.clone());
+            params.push(Box::new(b.clone()));
         }
         params
     }
 
-    fn named_parameters(&self) -> Vec<(String, Parameter)> {
-        let mut params = vec![("weight".to_string(), self.weight.clone())];
+    fn named_parameters(&self) -> Vec<(String, Box<dyn ParameterBase>)> {
+        let mut params: Vec<(String, Box<dyn ParameterBase>)> =
+            vec![("weight".to_string(), Box::new(self.weight.clone()))];
         if let Some(ref b) = self.bias {
-            params.push(("bias".to_string(), b.clone()));
+            params.push(("bias".to_string(), Box::new(b.clone())));
         }
         params
     }

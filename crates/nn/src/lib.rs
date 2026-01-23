@@ -10,13 +10,13 @@
 //! # Example
 //!
 //! ```ignore
-//! use eclat_nn::nn::{Module, Linear, Parameter};
+//! use eclat_nn::nn::{Module, Linear, Parameter, ParameterBase};
 //! use eclat_nn::optim::{Optimizer, SGD, Adam};
 //!
 //! // Create a layer
 //! let layer = Linear::new(10, 5, true);
 //!
-//! // Get parameters
+//! // Get parameters (as Box<dyn ParameterBase>)
 //! let params = layer.parameters();
 //!
 //! // Create optimizer
@@ -32,5 +32,5 @@ pub mod nn;
 pub mod optim;
 
 // Re-export commonly used types
-pub use nn::{Conv1d, Conv2d, Conv3d, Linear, Module, Parameter, ParameterError};
+pub use nn::{Conv1d, Conv2d, Conv3d, Linear, Module, Parameter, ParameterBase, ParameterError};
 pub use optim::{Adam, OptimError, Optimizer, SGD};

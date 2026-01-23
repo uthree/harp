@@ -2,6 +2,8 @@
 //!
 //! Base trait for all optimization algorithms.
 
+use crate::nn::{ParameterBase, ParameterError};
+
 /// Base trait for optimizers.
 ///
 /// All optimizers implement this trait, providing:
@@ -80,8 +82,6 @@ impl std::fmt::Display for OptimError {
 
 impl std::error::Error for OptimError {}
 
-use crate::nn::Parameter;
-
 /// Data extracted from a parameter for optimization.
 pub struct ParamData {
     /// Current parameter values
@@ -97,10 +97,10 @@ pub struct ParamData {
 /// 2. Realizes the gradient tensor
 /// 3. Extracts gradient and parameter data as vectors
 /// 4. Validates that shapes match
-pub fn get_param_data(param: &Parameter) -> Result<ParamData, OptimError> {
+pub fn get_param_data(param: &dyn ParameterBase) -> Result<ParamData, OptimError> {
     // Get gradient
     let grad = param
-        .grad()
+        .grad_dyn()
         .ok_or_else(|| OptimError::NoGradient(param.name().to_string()))?;
 
     // Realize gradient and get data
@@ -113,7 +113,7 @@ pub fn get_param_data(param: &Parameter) -> Result<ParamData, OptimError> {
     // Get current parameter data
     let param_data = param
         .to_vec()
-        .map_err(|e| OptimError::ExecutionError(e.to_string()))?;
+        .map_err(|e: ParameterError| OptimError::ExecutionError(e.to_string()))?;
 
     // Check shapes match
     if grad_data.len() != param_data.len() {

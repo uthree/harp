@@ -5,8 +5,9 @@
 //! - W: weight matrix [out_features, in_features]
 //! - b: bias vector [out_features] (optional)
 
-use super::{Module, Parameter};
-use eclat::tensor::{Dyn, Tensor};
+use super::{Module, Parameter, ParameterBase};
+use eclat::tensor::dim::{D1, D2};
+use eclat::tensor::Tensor;
 
 /// A fully connected (linear) layer.
 ///
@@ -16,14 +17,14 @@ use eclat::tensor::{Dyn, Tensor};
 ///
 /// ```ignore
 /// use eclat_nn::nn::{Module, Linear};
-/// use eclat::tensor::{Tensor, Dyn};
+/// use eclat::tensor::{Tensor, dim::D2};
 ///
 /// // Create a layer with 10 inputs, 5 outputs, and bias
 /// let layer = Linear::new(10, 5, true);
 ///
-/// // Forward pass
-/// let input: Tensor<Dyn, f32> = Tensor::dyn_input(&[32, 10]); // batch=32, features=10
-/// let output = layer.forward(&input);  // [32, 5]
+/// // Forward pass with static dimensions
+/// let input: Tensor<D2, f32> = Tensor::input([32, 10]); // batch=32, features=10
+/// let output = layer.forward_d2(&input);  // [32, 5]
 ///
 /// // Get parameters for optimization
 /// let params = layer.parameters();
@@ -31,9 +32,9 @@ use eclat::tensor::{Dyn, Tensor};
 /// ```
 pub struct Linear {
     /// Weight parameter [out_features, in_features]
-    weight: Parameter,
+    weight: Parameter<D2>,
     /// Bias parameter [out_features] (optional)
-    bias: Option<Parameter>,
+    bias: Option<Parameter<D1>>,
     /// Input features
     in_features: usize,
     /// Output features
@@ -63,7 +64,8 @@ impl Linear {
                 (i as f32 * 0.1).sin() * bound
             })
             .collect();
-        let weight = Parameter::from_data("weight", &weight_data, &[out_features, in_features]);
+        let weight: Parameter<D2> =
+            Parameter::from_data("weight", &weight_data, &[out_features, in_features]);
 
         // Initialize bias (zeros)
         let bias = if bias {
@@ -82,29 +84,7 @@ impl Linear {
         }
     }
 
-    /// Get the input features count.
-    pub fn in_features(&self) -> usize {
-        self.in_features
-    }
-
-    /// Get the output features count.
-    pub fn out_features(&self) -> usize {
-        self.out_features
-    }
-
-    /// Get a reference to the weight parameter.
-    pub fn weight(&self) -> &Parameter {
-        &self.weight
-    }
-
-    /// Get a reference to the bias parameter, if present.
-    pub fn bias(&self) -> Option<&Parameter> {
-        self.bias.as_ref()
-    }
-}
-
-impl Module for Linear {
-    /// Compute y = xW^T + b
+    /// Compute y = xW^T + b with static 2D dimensions.
     ///
     /// # Arguments
     /// * `input` - Input tensor of shape [batch, in_features]
@@ -118,7 +98,7 @@ impl Module for Linear {
     /// 2. weight^T: [K, O] -> [1, K, O]
     /// 3. broadcast multiply: [B, K, 1] * [1, K, O] -> [B, K, O]
     /// 4. sum over K: [B, K, O] -> [B, O]
-    fn forward(&self, input: &Tensor<Dyn, f32>) -> Tensor<Dyn, f32> {
+    pub fn forward_d2(&self, input: &Tensor<D2, f32>) -> Tensor<D2, f32> {
         // Get weight tensor and transpose it: [O, K] -> [K, O]
         let weight = self.weight.tensor();
         let weight_t = weight.permute(&[1, 0]); // [K, O]
@@ -139,24 +119,49 @@ impl Module for Linear {
         match &self.bias {
             Some(bias) => {
                 let bias_tensor = bias.tensor();
-                &y + &*bias_tensor
+                // bias: [O] -> [1, O]
+                let bias_expanded = bias_tensor.unsqueeze(0);
+                &y + &bias_expanded
             }
             None => y,
         }
     }
 
-    fn parameters(&self) -> Vec<Parameter> {
-        let mut params = vec![self.weight.clone()];
+    /// Get the input features count.
+    pub fn in_features(&self) -> usize {
+        self.in_features
+    }
+
+    /// Get the output features count.
+    pub fn out_features(&self) -> usize {
+        self.out_features
+    }
+
+    /// Get a reference to the weight parameter.
+    pub fn weight(&self) -> &Parameter<D2> {
+        &self.weight
+    }
+
+    /// Get a reference to the bias parameter, if present.
+    pub fn bias(&self) -> Option<&Parameter<D1>> {
+        self.bias.as_ref()
+    }
+}
+
+impl Module for Linear {
+    fn parameters(&self) -> Vec<Box<dyn ParameterBase>> {
+        let mut params: Vec<Box<dyn ParameterBase>> = vec![Box::new(self.weight.clone())];
         if let Some(ref b) = self.bias {
-            params.push(b.clone());
+            params.push(Box::new(b.clone()));
         }
         params
     }
 
-    fn named_parameters(&self) -> Vec<(String, Parameter)> {
-        let mut params = vec![("weight".to_string(), self.weight.clone())];
+    fn named_parameters(&self) -> Vec<(String, Box<dyn ParameterBase>)> {
+        let mut params: Vec<(String, Box<dyn ParameterBase>)> =
+            vec![("weight".to_string(), Box::new(self.weight.clone()))];
         if let Some(ref b) = self.bias {
-            params.push(("bias".to_string(), b.clone()));
+            params.push(("bias".to_string(), Box::new(b.clone())));
         }
         params
     }
@@ -218,5 +223,13 @@ mod tests {
 
         let layer_no_bias = Linear::new(10, 5, false);
         assert_eq!(layer_no_bias.num_parameters(), 50);
+    }
+
+    #[test]
+    fn test_linear_forward_d2() {
+        let layer = Linear::new(10, 5, true);
+        let input: Tensor<D2, f32> = Tensor::input([4, 10]);
+        let output = layer.forward_d2(&input);
+        assert_eq!(output.shape(), vec![4, 5]);
     }
 }

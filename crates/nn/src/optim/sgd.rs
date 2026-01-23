@@ -2,8 +2,8 @@
 //!
 //! Implements SGD with optional momentum.
 
-use super::{OptimError, Optimizer, get_param_data};
-use crate::nn::Parameter;
+use super::{get_param_data, OptimError, Optimizer};
+use crate::nn::ParameterBase;
 
 /// Stochastic Gradient Descent optimizer.
 ///
@@ -26,7 +26,7 @@ use crate::nn::Parameter;
 /// ```
 pub struct SGD {
     /// Parameters to optimize
-    params: Vec<Parameter>,
+    params: Vec<Box<dyn ParameterBase>>,
     /// Learning rate
     lr: f32,
     /// Momentum factor (0 = no momentum)
@@ -41,7 +41,7 @@ impl SGD {
     /// # Arguments
     /// * `params` - Parameters to optimize
     /// * `lr` - Learning rate
-    pub fn new(params: Vec<Parameter>, lr: f32) -> Self {
+    pub fn new(params: Vec<Box<dyn ParameterBase>>, lr: f32) -> Self {
         Self::with_momentum(params, lr, 0.0)
     }
 
@@ -51,7 +51,7 @@ impl SGD {
     /// * `params` - Parameters to optimize
     /// * `lr` - Learning rate
     /// * `momentum` - Momentum factor (typically 0.9)
-    pub fn with_momentum(params: Vec<Parameter>, lr: f32, momentum: f32) -> Self {
+    pub fn with_momentum(params: Vec<Box<dyn ParameterBase>>, lr: f32, momentum: f32) -> Self {
         // Initialize velocity buffers to zeros
         let velocity: Vec<Vec<f32>> = params.iter().map(|p| vec![0.0; p.numel()]).collect();
 
@@ -72,7 +72,7 @@ impl SGD {
 impl Optimizer for SGD {
     fn step(&mut self) -> Result<(), OptimError> {
         for (i, param) in self.params.iter().enumerate() {
-            let data = get_param_data(param)?;
+            let data = get_param_data(param.as_ref())?;
             let param_data = data.param_data;
             let grad_data = data.grad_data;
 
@@ -130,10 +130,13 @@ impl std::fmt::Debug for SGD {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::nn::Parameter;
+    use eclat::tensor::dim::D2;
 
     #[test]
     fn test_sgd_creation() {
-        let params = vec![Parameter::new("test", &[2, 3])];
+        let params: Vec<Box<dyn ParameterBase>> =
+            vec![Box::new(Parameter::<D2>::new("test", &[2, 3]))];
         let sgd = SGD::new(params, 0.01);
 
         assert_eq!(sgd.learning_rate(), 0.01);
@@ -142,7 +145,8 @@ mod tests {
 
     #[test]
     fn test_sgd_with_momentum() {
-        let params = vec![Parameter::new("test", &[2, 3])];
+        let params: Vec<Box<dyn ParameterBase>> =
+            vec![Box::new(Parameter::<D2>::new("test", &[2, 3]))];
         let sgd = SGD::with_momentum(params, 0.01, 0.9);
 
         assert_eq!(sgd.learning_rate(), 0.01);
@@ -151,7 +155,8 @@ mod tests {
 
     #[test]
     fn test_sgd_set_learning_rate() {
-        let params = vec![Parameter::new("test", &[2, 3])];
+        let params: Vec<Box<dyn ParameterBase>> =
+            vec![Box::new(Parameter::<D2>::new("test", &[2, 3]))];
         let mut sgd = SGD::new(params, 0.01);
 
         sgd.set_learning_rate(0.001);

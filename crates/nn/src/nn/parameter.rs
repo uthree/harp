@@ -3,46 +3,81 @@
 //! `Parameter` wraps a tensor and automatically enables gradient tracking.
 //! It is designed for use with the `Module` trait and optimizers.
 
-use eclat::tensor::{Tensor, dim::Dyn};
+use eclat::tensor::dim::{Dimension, Dyn};
+use eclat::tensor::Tensor;
 use std::cell::{Ref, RefCell};
+use std::marker::PhantomData;
 use std::rc::Rc;
 
+/// Base trait for parameters that can be used by optimizers.
+///
+/// This trait allows optimizers to work with parameters of any dimension
+/// through dynamic dispatch.
+pub trait ParameterBase {
+    /// Get the parameter name.
+    fn name(&self) -> &str;
+
+    /// Get the parameter shape.
+    fn shape(&self) -> &[usize];
+
+    /// Get the number of elements in the parameter.
+    fn numel(&self) -> usize;
+
+    /// Get the gradient as a dynamic tensor, if computed.
+    fn grad_dyn(&self) -> Option<Tensor<Dyn, f32>>;
+
+    /// Clear the gradient of this parameter.
+    fn zero_grad(&self);
+
+    /// Update the parameter data.
+    fn update_data(&self, new_data: &[f32]) -> Result<(), ParameterError>;
+
+    /// Get the parameter data as a vector.
+    fn to_vec(&self) -> Result<Vec<f32>, ParameterError>;
+}
+
 /// Internal state of a parameter
-struct ParameterInner {
+struct ParameterInner<D: Dimension> {
     /// Parameter name (for debugging and state_dict)
     name: String,
     /// The underlying tensor with gradient tracking enabled
-    tensor: RefCell<Tensor<Dyn, f32>>,
+    tensor: RefCell<Tensor<D, f32>>,
     /// Shape of the parameter
     shape: Vec<usize>,
     /// Initial data (stored until device is available)
     initial_data: RefCell<Option<Vec<f32>>>,
+    /// Phantom data for dimension type
+    _dim: PhantomData<D>,
 }
 
 /// A learnable parameter for neural network modules.
 ///
-/// `Parameter` is a wrapper around `Tensor<Dyn, f32>` that:
+/// `Parameter<D>` is a wrapper around `Tensor<D, f32>` that:
 /// - Automatically enables gradient tracking
 /// - Provides a named interface for parameter management
 /// - Supports sharing via `Rc` for efficient cloning
+///
+/// # Type Parameter
+/// - `D`: The dimension type (D1, D2, D3, D4, D5, or Dyn)
 ///
 /// # Example
 ///
 /// ```ignore
 /// use eclat_nn::nn::Parameter;
+/// use eclat::tensor::dim::D2;
 ///
-/// // Create a parameter with shape [10, 5]
-/// let weight = Parameter::new("weight", &[10, 5]);
+/// // Create a 2D parameter with shape [10, 5]
+/// let weight: Parameter<D2> = Parameter::new("weight", &[10, 5]);
 ///
-/// // Initialize with specific data
-/// let bias = Parameter::from_data("bias", &[0.0; 5], &[5]);
+/// // Create a 1D parameter with specific data
+/// let bias: Parameter<D1> = Parameter::from_data("bias", &[0.0; 5], &[5]);
 /// ```
 #[derive(Clone)]
-pub struct Parameter {
-    inner: Rc<ParameterInner>,
+pub struct Parameter<D: Dimension> {
+    inner: Rc<ParameterInner<D>>,
 }
 
-impl Parameter {
+impl<D: Dimension> Parameter<D> {
     /// Create a new parameter with the given name and shape.
     ///
     /// The parameter is initialized with zeros and gradient tracking is enabled.
@@ -72,8 +107,8 @@ impl Parameter {
             numel
         );
 
-        // Create tensor with dynamic dimensions
-        let tensor = Tensor::<Dyn, f32>::dyn_input(shape);
+        // Create tensor with the specified dimension type
+        let tensor: Tensor<D, f32> = Tensor::<Dyn, f32>::dyn_input(shape).into_static();
         tensor.requires_grad_(true);
 
         // Store initial data for lazy initialization (will be set when device is available)
@@ -83,6 +118,7 @@ impl Parameter {
                 tensor: RefCell::new(tensor),
                 shape: shape.to_vec(),
                 initial_data: RefCell::new(Some(data.to_vec())),
+                _dim: PhantomData,
             }),
         }
     }
@@ -103,13 +139,18 @@ impl Parameter {
     }
 
     /// Get a reference to the underlying tensor.
-    pub fn tensor(&self) -> Ref<'_, Tensor<Dyn, f32>> {
+    pub fn tensor(&self) -> Ref<'_, Tensor<D, f32>> {
         self.inner.tensor.borrow()
     }
 
     /// Get the gradient of this parameter, if computed.
-    pub fn grad(&self) -> Option<Tensor<Dyn, f32>> {
+    pub fn grad(&self) -> Option<Tensor<D, f32>> {
         self.inner.tensor.borrow().grad()
+    }
+
+    /// Get the gradient as a dynamic tensor, if computed.
+    pub fn grad_dyn(&self) -> Option<Tensor<Dyn, f32>> {
+        self.inner.tensor.borrow().grad().map(|g| g.into_dyn())
     }
 
     /// Clear the gradient of this parameter.
@@ -139,7 +180,8 @@ impl Parameter {
         // If device is available, transfer to device
         if has_default_device() {
             // Create a new tensor with the updated data
-            let new_tensor = Tensor::<Dyn, f32>::dyn_input(&self.inner.shape);
+            let new_tensor: Tensor<D, f32> =
+                Tensor::<Dyn, f32>::dyn_input(&self.inner.shape).into_static();
             new_tensor.requires_grad_(true);
             new_tensor
                 .set_data(new_data)
@@ -218,7 +260,38 @@ impl Parameter {
     }
 }
 
-impl std::fmt::Debug for Parameter {
+/// Implement ParameterBase for all Parameter<D> types
+impl<D: Dimension> ParameterBase for Parameter<D> {
+    fn name(&self) -> &str {
+        Parameter::name(self)
+    }
+
+    fn shape(&self) -> &[usize] {
+        Parameter::shape(self)
+    }
+
+    fn numel(&self) -> usize {
+        Parameter::numel(self)
+    }
+
+    fn grad_dyn(&self) -> Option<Tensor<Dyn, f32>> {
+        Parameter::grad_dyn(self)
+    }
+
+    fn zero_grad(&self) {
+        Parameter::zero_grad(self)
+    }
+
+    fn update_data(&self, new_data: &[f32]) -> Result<(), ParameterError> {
+        Parameter::update_data(self, new_data)
+    }
+
+    fn to_vec(&self) -> Result<Vec<f32>, ParameterError> {
+        Parameter::to_vec(self)
+    }
+}
+
+impl<D: Dimension> std::fmt::Debug for Parameter<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Parameter")
             .field("name", &self.inner.name)
@@ -256,10 +329,11 @@ impl std::error::Error for ParameterError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use eclat::tensor::dim::D2;
 
     #[test]
     fn test_parameter_new() {
-        let p = Parameter::new("test", &[3, 4]);
+        let p: Parameter<D2> = Parameter::new("test", &[3, 4]);
         assert_eq!(p.name(), "test");
         assert_eq!(p.shape(), &[3, 4]);
         assert_eq!(p.numel(), 12);
@@ -268,7 +342,7 @@ mod tests {
     #[test]
     fn test_parameter_from_data() {
         let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
-        let p = Parameter::from_data("weight", &data, &[2, 3]);
+        let p: Parameter<D2> = Parameter::from_data("weight", &data, &[2, 3]);
         assert_eq!(p.name(), "weight");
         assert_eq!(p.shape(), &[2, 3]);
         assert_eq!(p.numel(), 6);
@@ -276,7 +350,7 @@ mod tests {
 
     #[test]
     fn test_parameter_clone_shares_data() {
-        let p1 = Parameter::new("shared", &[2, 2]);
+        let p1: Parameter<D2> = Parameter::new("shared", &[2, 2]);
         let p2 = p1.clone();
 
         // Both should have the same name and shape
@@ -291,6 +365,16 @@ mod tests {
     #[should_panic(expected = "Data length")]
     fn test_parameter_from_data_wrong_size() {
         let data = vec![1.0, 2.0, 3.0];
-        let _ = Parameter::from_data("bad", &data, &[2, 3]); // 6 != 3
+        let _: Parameter<D2> = Parameter::from_data("bad", &data, &[2, 3]); // 6 != 3
+    }
+
+    #[test]
+    fn test_parameter_base_trait() {
+        let p: Parameter<D2> = Parameter::new("test", &[3, 4]);
+        let base: &dyn ParameterBase = &p;
+
+        assert_eq!(base.name(), "test");
+        assert_eq!(base.shape(), &[3, 4]);
+        assert_eq!(base.numel(), 12);
     }
 }
