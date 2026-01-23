@@ -1,32 +1,32 @@
-//! アプリケーション状態
+//! Application state
 
-use crate::ast::AstNode;
-use crate::ast::renderer::render_ast_with;
-use crate::backend::renderer::{CLikeRenderer, GenericRenderer};
-use crate::opt::ast::history::{OptimizationHistory, OptimizationSnapshot};
+use eclat::ast::AstNode;
+use eclat::ast::renderer::render_ast_with;
+use eclat::backend::renderer::{CLikeRenderer, GenericRenderer};
+use eclat::opt::ast::history::{OptimizationHistory, OptimizationSnapshot};
 
 use super::highlight::CodeHighlighter;
 
-/// 可視化アプリケーションの状態（ジェネリックレンダラー対応）
+/// Visualization application state (generic renderer support)
 pub struct App<R: CLikeRenderer + Clone = GenericRenderer> {
-    /// 最適化履歴
+    /// Optimization history
     history: OptimizationHistory,
-    /// 現在表示中のステップ
+    /// Current step being displayed
     current_step: usize,
-    /// 現在選択中の候補（0=選択された候補、1+=代替候補）
+    /// Currently selected candidate (0=selected, 1+=alternatives)
     selected_candidate: usize,
-    /// コードハイライター
+    /// Code highlighter
     highlighter: CodeHighlighter,
-    /// 終了フラグ
+    /// Quit flag
     should_quit: bool,
-    /// コードレンダラー
+    /// Code renderer
     renderer: R,
-    /// コードのスクロール位置
+    /// Code scroll offset
     scroll_offset: u16,
 }
 
 impl App<GenericRenderer> {
-    /// 新しいアプリケーションを作成（デフォルトレンダラー）
+    /// Create a new application (default renderer)
     pub fn new(history: OptimizationHistory) -> Self {
         Self {
             history,
@@ -41,7 +41,7 @@ impl App<GenericRenderer> {
 }
 
 impl<R: CLikeRenderer + Clone> App<R> {
-    /// カスタムレンダラーでアプリケーションを作成
+    /// Create an application with a custom renderer
     pub fn with_renderer(history: OptimizationHistory, renderer: R) -> Self {
         Self {
             history,
@@ -54,27 +54,27 @@ impl<R: CLikeRenderer + Clone> App<R> {
         }
     }
 
-    /// 現在のステップ番号を取得
+    /// Get current step number
     pub fn current_step(&self) -> usize {
         self.current_step
     }
 
-    /// 総ステップ数を取得
+    /// Get total number of steps
     pub fn total_steps(&self) -> usize {
         self.history.len()
     }
 
-    /// 選択中の候補インデックスを取得
+    /// Get selected candidate index
     pub fn selected_candidate(&self) -> usize {
         self.selected_candidate
     }
 
-    /// 現在のステップのスナップショットを取得
+    /// Get current step's snapshot
     pub fn current_snapshot(&self) -> Option<&OptimizationSnapshot> {
         self.history.get(self.current_step)
     }
 
-    /// 現在選択中のASTを取得
+    /// Get currently selected AST
     pub fn current_ast(&self) -> Option<&AstNode> {
         let snapshot = self.current_snapshot()?;
         if self.selected_candidate == 0 {
@@ -87,7 +87,7 @@ impl<R: CLikeRenderer + Clone> App<R> {
         }
     }
 
-    /// 現在のASTをソースコードにレンダリング
+    /// Render current AST to source code
     pub fn render_current_code(&self) -> String {
         match self.current_ast() {
             Some(ast) => render_ast_with(ast, &self.renderer),
@@ -95,13 +95,13 @@ impl<R: CLikeRenderer + Clone> App<R> {
         }
     }
 
-    /// 現在のコードをハイライト（行ごとのスパン）
+    /// Highlight current code (spans per line)
     pub fn highlight_current_code(&self) -> Vec<Vec<(ratatui::style::Style, String)>> {
         let code = self.render_current_code();
         self.highlighter.highlight(&code)
     }
 
-    /// 現在のステップの候補数を取得（選択された候補 + 代替候補）
+    /// Get number of candidates for current step (selected + alternatives)
     pub fn candidate_count(&self) -> usize {
         match self.current_snapshot() {
             Some(snapshot) => 1 + snapshot.alternatives.len(),
@@ -109,7 +109,7 @@ impl<R: CLikeRenderer + Clone> App<R> {
         }
     }
 
-    /// 次のステップへ
+    /// Go to next step
     pub fn next_step(&mut self) {
         if self.current_step + 1 < self.history.len() {
             self.current_step += 1;
@@ -118,7 +118,7 @@ impl<R: CLikeRenderer + Clone> App<R> {
         }
     }
 
-    /// 前のステップへ
+    /// Go to previous step
     pub fn prev_step(&mut self) {
         if self.current_step > 0 {
             self.current_step -= 1;
@@ -127,7 +127,7 @@ impl<R: CLikeRenderer + Clone> App<R> {
         }
     }
 
-    /// 次の候補を選択
+    /// Select next candidate
     pub fn next_candidate(&mut self) {
         let count = self.candidate_count();
         if count > 0 && self.selected_candidate + 1 < count {
@@ -136,7 +136,7 @@ impl<R: CLikeRenderer + Clone> App<R> {
         }
     }
 
-    /// 前の候補を選択
+    /// Select previous candidate
     pub fn prev_candidate(&mut self) {
         if self.selected_candidate > 0 {
             self.selected_candidate -= 1;
@@ -144,32 +144,32 @@ impl<R: CLikeRenderer + Clone> App<R> {
         }
     }
 
-    /// 終了フラグを取得
+    /// Get quit flag
     pub fn should_quit(&self) -> bool {
         self.should_quit
     }
 
-    /// 終了フラグを設定
+    /// Set quit flag
     pub fn quit(&mut self) {
         self.should_quit = true;
     }
 
-    /// コードのスクロール位置を取得
+    /// Get code scroll offset
     pub fn scroll_offset(&self) -> u16 {
         self.scroll_offset
     }
 
-    /// コードを下にスクロール
+    /// Scroll code down
     pub fn scroll_down(&mut self) {
         self.scroll_offset = self.scroll_offset.saturating_add(1);
     }
 
-    /// コードを上にスクロール
+    /// Scroll code up
     pub fn scroll_up(&mut self) {
         self.scroll_offset = self.scroll_offset.saturating_sub(1);
     }
 
-    /// 履歴への参照を取得
+    /// Get reference to history
     pub fn history(&self) -> &OptimizationHistory {
         &self.history
     }

@@ -1,6 +1,7 @@
-//! 最適化履歴可視化モジュール
+//! Visualization tools for Eclat optimization history
 //!
-//! ratatuiを使用してターミナルUIで最適化の履歴を可視化する。
+//! This crate provides a TUI (Terminal User Interface) for visualizing
+//! the optimization history of Eclat's AST optimizer.
 
 mod app;
 mod events;
@@ -9,7 +10,6 @@ mod ui;
 
 pub use app::App;
 pub use highlight::CodeHighlighter;
-// run_with_renderer is a public function defined in this module
 
 use std::io::{self, IsTerminal};
 
@@ -23,15 +23,15 @@ use crossterm::{
 };
 use ratatui::prelude::*;
 
-use crate::backend::renderer::{CLikeRenderer, GenericRenderer};
-use crate::opt::ast::history::OptimizationHistory;
+use eclat::backend::renderer::{CLikeRenderer, GenericRenderer};
+use eclat::opt::ast::history::OptimizationHistory;
 
-/// TUI実行時のエラー
+/// TUI runtime error
 #[derive(Debug)]
 pub enum VizError {
-    /// ターミナルがインタラクティブでない
+    /// Terminal is not interactive
     NotATty,
-    /// IOエラー
+    /// IO error
     Io(io::Error),
 }
 
@@ -55,18 +55,18 @@ impl From<io::Error> for VizError {
     }
 }
 
-/// 最適化履歴を可視化するTUIを起動（デフォルトレンダラー）
+/// Launch TUI to visualize optimization history (default renderer)
 ///
 /// # Arguments
-/// * `history` - 表示する最適化履歴
+/// * `history` - Optimization history to display
 ///
 /// # Returns
-/// * `Result<(), VizError>` - 成功時はOk、エラー時はErr
+/// * `Result<(), VizError>` - Ok on success, Err on failure
 ///
 /// # Example
 /// ```ignore
 /// use eclat::opt::ast::history::OptimizationHistory;
-/// use eclat::viz::run;
+/// use eclat_viz::run;
 ///
 /// let history = OptimizationHistory::new();
 /// // ... add snapshots to history ...
@@ -76,20 +76,20 @@ pub fn run(history: OptimizationHistory) -> Result<(), VizError> {
     run_with_renderer(history, GenericRenderer::new())
 }
 
-/// カスタムレンダラーで最適化履歴を可視化するTUIを起動
+/// Launch TUI to visualize optimization history with a custom renderer
 ///
 /// # Arguments
-/// * `history` - 表示する最適化履歴
-/// * `renderer` - 使用するレンダラー（例：OpenCLRenderer）
+/// * `history` - Optimization history to display
+/// * `renderer` - Renderer to use (e.g., OpenCLRenderer)
 ///
 /// # Returns
-/// * `Result<(), VizError>` - 成功時はOk、エラー時はErr
+/// * `Result<(), VizError>` - Ok on success, Err on failure
 ///
 /// # Example
 /// ```ignore
 /// use eclat::opt::ast::history::OptimizationHistory;
-/// use eclat::renderer::opencl::OpenCLRenderer;
-/// use eclat::viz::run_with_renderer;
+/// use eclat_backend_opencl::OpenCLRenderer;
+/// use eclat_viz::run_with_renderer;
 ///
 /// let history = OptimizationHistory::new();
 /// let renderer = OpenCLRenderer::new();
@@ -99,13 +99,13 @@ pub fn run_with_renderer<R>(history: OptimizationHistory, renderer: R) -> Result
 where
     R: CLikeRenderer + Clone + 'static,
 {
-    // stdoutがTTYかチェック
+    // Check if stdout is a TTY
     let stdout = io::stdout();
     if stdout.is_terminal() {
-        // stdoutがTTYの場合は直接使用
+        // If stdout is a TTY, use it directly
         run_with_stdout_generic(history, renderer)
     } else {
-        // stdoutがTTYでない場合は/dev/ttyを試す（Unix系のみ）
+        // If stdout is not a TTY, try /dev/tty (Unix only)
         #[cfg(unix)]
         {
             run_with_tty_generic(history, renderer)
@@ -117,7 +117,7 @@ where
     }
 }
 
-/// stdoutを使用してTUIを実行（ジェネリック）
+/// Run TUI using stdout (generic)
 fn run_with_stdout_generic<R>(history: OptimizationHistory, renderer: R) -> Result<(), VizError>
 where
     R: CLikeRenderer + Clone + 'static,
@@ -142,7 +142,7 @@ where
     result
 }
 
-/// /dev/ttyを使用してTUIを実行（Unix系のみ、ジェネリック）
+/// Run TUI using /dev/tty (Unix only, generic)
 #[cfg(unix)]
 fn run_with_tty_generic<R>(history: OptimizationHistory, renderer: R) -> Result<(), VizError>
 where
@@ -178,7 +178,7 @@ where
     result
 }
 
-/// メインループ（ジェネリック）
+/// Main loop (generic)
 fn run_app<B: Backend, R: CLikeRenderer + Clone>(
     terminal: &mut Terminal<B>,
     app: &mut App<R>,

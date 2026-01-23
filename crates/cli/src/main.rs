@@ -18,8 +18,6 @@ use clap::{Parser, ValueEnum};
 use eclat::ast::{AstNode, ParallelInfo, ParallelKind};
 use eclat::backend::renderer::Renderer;
 use eclat::lowerer::Lowerer;
-#[cfg(feature = "viz")]
-use eclat::opt::ast::history::OptimizationHistory;
 #[cfg(not(feature = "viz"))]
 use eclat::opt::ast::AstOptimizer;
 use eclat::opt::ast::{
@@ -215,7 +213,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     // Apply optimization if opt_level > 0
     #[cfg(feature = "viz")]
-    let mut all_histories: Vec<OptimizationHistory> = Vec::new();
+    let mut all_histories: Vec<eclat::opt::ast::history::OptimizationHistory> = Vec::new();
 
     if args.opt_level > 0 {
         if args.verbose {
@@ -529,23 +527,24 @@ fn mark_parallel_recursive(ast: AstNode, is_outermost: bool) -> AstNode {
 
 /// Launch optimization visualization TUI
 #[cfg(feature = "viz")]
-fn launch_viz(history: OptimizationHistory, backend: Backend) -> Result<(), Box<dyn std::error::Error>> {
-    use eclat::viz;
-
+fn launch_viz(
+    history: eclat::opt::ast::history::OptimizationHistory,
+    backend: Backend,
+) -> Result<(), Box<dyn std::error::Error>> {
     match backend {
         Backend::C => {
-            viz::run_with_renderer(history, CRenderer::new())?;
+            eclat_viz::run_with_renderer(history, CRenderer::new())?;
         }
         Backend::Openmp => {
-            viz::run_with_renderer(history, OpenMPRenderer::new())?;
+            eclat_viz::run_with_renderer(history, OpenMPRenderer::new())?;
         }
         Backend::Cuda => {
-            viz::run_with_renderer(history, CudaRenderer::new())?;
+            eclat_viz::run_with_renderer(history, CudaRenderer::new())?;
         }
         Backend::Metal => {
             #[cfg(target_os = "macos")]
             {
-                viz::run_with_renderer(history, MetalRenderer::new())?;
+                eclat_viz::run_with_renderer(history, MetalRenderer::new())?;
             }
             #[cfg(not(target_os = "macos"))]
             {
@@ -553,10 +552,10 @@ fn launch_viz(history: OptimizationHistory, backend: Backend) -> Result<(), Box<
             }
         }
         Backend::Opencl => {
-            viz::run_with_renderer(history, OpenCLRenderer::new())?;
+            eclat_viz::run_with_renderer(history, OpenCLRenderer::new())?;
         }
         Backend::Rust => {
-            viz::run_with_renderer(history, RustRenderer::new())?;
+            eclat_viz::run_with_renderer(history, RustRenderer::new())?;
         }
     }
 

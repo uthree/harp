@@ -1,4 +1,4 @@
-//! UI描画ロジック
+//! UI drawing logic
 
 use ratatui::{
     Frame,
@@ -8,19 +8,19 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, Paragraph},
 };
 
-use crate::backend::renderer::CLikeRenderer;
+use eclat::backend::renderer::CLikeRenderer;
 
 use super::app::App;
 
-/// メイン描画関数
+/// Main draw function
 pub fn draw<R: CLikeRenderer + Clone>(frame: &mut Frame, app: &App<R>) {
-    // レイアウト: 上部=メインエリア、下部=ステータスバー
+    // Layout: top=main area, bottom=status bar
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(0), Constraint::Length(3)])
         .split(frame.area());
 
-    // メインエリア: 左=コード、右=候補リスト
+    // Main area: left=code, right=candidates list
     let main_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
@@ -31,11 +31,11 @@ pub fn draw<R: CLikeRenderer + Clone>(frame: &mut Frame, app: &App<R>) {
     draw_status_bar(frame, app, chunks[1]);
 }
 
-/// コードパネルを描画
+/// Draw code panel
 fn draw_code_panel<R: CLikeRenderer + Clone>(frame: &mut Frame, app: &App<R>, area: Rect) {
     let highlighted = app.highlight_current_code();
 
-    // 行ごとにLineを作成
+    // Create Line for each line
     let lines: Vec<Line> = highlighted
         .into_iter()
         .map(|line_spans| {
@@ -67,14 +67,14 @@ fn draw_code_panel<R: CLikeRenderer + Clone>(frame: &mut Frame, app: &App<R>, ar
     frame.render_widget(paragraph, area);
 }
 
-/// 候補リストパネルを描画
+/// Draw candidates panel
 fn draw_candidates_panel<R: CLikeRenderer + Clone>(frame: &mut Frame, app: &App<R>, area: Rect) {
     let snapshot = app.current_snapshot();
 
     let items: Vec<ListItem> = if let Some(snapshot) = snapshot {
         let mut items = Vec::new();
 
-        // 選択された候補（rank 0）
+        // Selected candidate (rank 0)
         let selected_style = if app.selected_candidate() == 0 {
             Style::default()
                 .fg(Color::Yellow)
@@ -101,7 +101,7 @@ fn draw_candidates_panel<R: CLikeRenderer + Clone>(frame: &mut Frame, app: &App<
             ),
         ])));
 
-        // 代替候補
+        // Alternative candidates
         for (i, alt) in snapshot.alternatives.iter().enumerate() {
             let alt_style = if app.selected_candidate() == i + 1 {
                 Style::default()
@@ -146,7 +146,7 @@ fn draw_candidates_panel<R: CLikeRenderer + Clone>(frame: &mut Frame, app: &App<
     frame.render_widget(list, area);
 }
 
-/// ステータスバーを描画
+/// Draw status bar
 fn draw_status_bar<R: CLikeRenderer + Clone>(frame: &mut Frame, app: &App<R>, area: Rect) {
     let snapshot = app.current_snapshot();
 

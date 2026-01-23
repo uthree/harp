@@ -13,16 +13,11 @@
 //! - **opt**: Optimization passes for AST transformations
 //! - **backend**: Backend trait definitions and pipeline
 //! - **lowerer**: Graph to AST lowering
-//! - **viz**: Visualization tools (optional, feature: viz)
-//!
 //! Backend implementations are provided as separate crates:
 //! - **eclat-backend-c**: C code generation backend
 //! - **eclat-backend-opencl**: OpenCL GPU backend
 //! - **eclat-backend-metal**: Metal GPU backend (macOS only)
-//!
-//! # Feature Flags
-//!
-//! - `viz`: Enable visualization tools
+//! - **eclat-viz**: Visualization tools for optimization history
 //!
 //! # Quick Start
 //!
@@ -57,10 +52,6 @@ pub mod tensor;
 
 // Re-export shape module at top level for convenience
 pub use graph::shape;
-
-// Optional visualization module
-#[cfg(feature = "viz")]
-pub mod viz;
 
 // ============================================================================
 // Re-exports

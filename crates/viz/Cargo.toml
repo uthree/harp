@@ -1,0 +1,11 @@
+[package]
+name = "eclat-viz"
+version = "0.1.0"
+edition = "2024"
+description = "Visualization tools for Eclat optimization history"
+
+[dependencies]
+eclat = { path = "../.." }
+ratatui = "0.29"
+crossterm = "0.28"
+syntect = { version = "5.2", default-features = false, features = ["default-syntaxes", "default-themes", "regex-fancy"] }

@@ -1,28 +1,28 @@
-//! キーボードイベント処理
+//! Keyboard event handling
 
 use std::io;
 use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 
-/// ユーザーアクション
+/// User action
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
-    /// 終了
+    /// Quit
     Quit,
-    /// 次のステップへ
+    /// Go to next step
     NextStep,
-    /// 前のステップへ
+    /// Go to previous step
     PrevStep,
-    /// 次の候補を選択
+    /// Select next candidate
     NextCandidate,
-    /// 前の候補を選択
+    /// Select previous candidate
     PrevCandidate,
 }
 
-/// イベントを処理してアクションを返す
+/// Handle events and return action
 ///
-/// 100msのタイムアウトでイベントをポーリング
+/// Polls events with 100ms timeout
 pub fn handle_events() -> io::Result<Option<Action>> {
     if event::poll(Duration::from_millis(100))?
         && let Event::Key(key) = event::read()?
@@ -32,22 +32,22 @@ pub fn handle_events() -> io::Result<Option<Action>> {
     Ok(None)
 }
 
-/// キーイベントをアクションに変換
+/// Convert key event to action
 fn handle_key_event(key: KeyEvent) -> Option<Action> {
-    // Ctrl+C で終了
+    // Ctrl+C to quit
     if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
         return Some(Action::Quit);
     }
 
     match key.code {
-        // 終了
+        // Quit
         KeyCode::Char('q') | KeyCode::Esc => Some(Action::Quit),
 
-        // ステップ移動（左右キー / h,l）
+        // Step navigation (left/right keys or h,l)
         KeyCode::Left | KeyCode::Char('h') => Some(Action::PrevStep),
         KeyCode::Right | KeyCode::Char('l') => Some(Action::NextStep),
 
-        // 候補選択（上下キー / j,k）
+        // Candidate selection (up/down keys or j,k)
         KeyCode::Up | KeyCode::Char('k') => Some(Action::PrevCandidate),
         KeyCode::Down | KeyCode::Char('j') => Some(Action::NextCandidate),
 

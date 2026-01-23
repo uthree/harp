@@ -1,4 +1,4 @@
-//! シンタックスハイライト
+//! Syntax highlighting
 
 use ratatui::style::{Color, Modifier, Style};
 use syntect::easy::HighlightLines;
@@ -6,14 +6,14 @@ use syntect::highlighting::{FontStyle, ThemeSet};
 use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
 
-/// コードハイライター
+/// Code highlighter
 pub struct CodeHighlighter {
     syntax_set: SyntaxSet,
     theme_set: ThemeSet,
 }
 
 impl CodeHighlighter {
-    /// 新しいハイライターを作成
+    /// Create a new highlighter
     pub fn new() -> Self {
         Self {
             syntax_set: SyntaxSet::load_defaults_newlines(),
@@ -21,11 +21,11 @@ impl CodeHighlighter {
         }
     }
 
-    /// コードをハイライトして行ごとのスタイル付き文字列を返す
+    /// Highlight code and return styled strings per line
     ///
-    /// 戻り値: 各行のスパンのベクタ（外側のVecが行、内側のVecがその行のスパン）
+    /// Returns: Vector of lines, each containing spans for that line
     pub fn highlight(&self, code: &str) -> Vec<Vec<(Style, String)>> {
-        // C言語のシンタックスを使用（最もC-likeに近い）
+        // Use C syntax (most C-like)
         let syntax = self
             .syntax_set
             .find_syntax_by_extension("c")
@@ -42,7 +42,7 @@ impl CodeHighlighter {
                 Ok(ranges) => {
                     for (style, text) in ranges {
                         let ratatui_style = convert_syntect_style(&style);
-                        // 改行文字を除去（ratatuiのLineは改行を含まない）
+                        // Remove newline character (ratatui Line doesn't include newlines)
                         let text = text.trim_end_matches('\n').to_string();
                         if !text.is_empty() {
                             line_spans.push((ratatui_style, text));
@@ -50,7 +50,7 @@ impl CodeHighlighter {
                     }
                 }
                 Err(_) => {
-                    // ハイライトに失敗した場合はプレーンテキストとして追加
+                    // On highlight failure, add as plain text
                     let text = line.trim_end_matches('\n').to_string();
                     if !text.is_empty() {
                         line_spans.push((Style::default(), text));
@@ -70,7 +70,7 @@ impl Default for CodeHighlighter {
     }
 }
 
-/// syntectのスタイルをratatuiのスタイルに変換
+/// Convert syntect style to ratatui style
 fn convert_syntect_style(style: &syntect::highlighting::Style) -> Style {
     let fg = Color::Rgb(style.foreground.r, style.foreground.g, style.foreground.b);
 
@@ -104,7 +104,7 @@ mod tests {
         let highlighter = CodeHighlighter::new();
         let code = "int x = 42;";
         let result = highlighter.highlight(code);
-        // 1行のコード
+        // 1 line of code
         assert_eq!(result.len(), 1);
         assert!(!result[0].is_empty());
     }
@@ -114,9 +114,9 @@ mod tests {
         let highlighter = CodeHighlighter::new();
         let code = "void foo() {\n    int x = 1;\n}\n";
         let result = highlighter.highlight(code);
-        // 3行（void foo() {, int x = 1;, }）
+        // 3 lines (void foo() {, int x = 1;, })
         assert_eq!(result.len(), 3);
-        // 最初の行にスパンがある
+        // First line has spans
         assert!(!result[0].is_empty());
     }
 }
