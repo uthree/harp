@@ -35,174 +35,38 @@ pub trait TensorDType: Clone + Debug + Send + Sync + 'static {
     fn one() -> Self;
 }
 
-impl TensorDType for bool {
-    const DTYPE: DType = DType::Bool;
-    fn to_literal(value: Self) -> Literal {
-        Literal::Bool(value)
-    }
-    fn zero() -> Self {
-        false
-    }
-    fn one() -> Self {
-        true
-    }
+// Macro for implementing TensorDType for numeric types
+macro_rules! impl_tensor_dtype {
+    // For types with simple zero/one literals (integers)
+    ($ty:ty, $dtype:ident, $lit:ident, $zero:expr, $one:expr) => {
+        impl TensorDType for $ty {
+            const DTYPE: DType = DType::$dtype;
+            fn to_literal(value: Self) -> Literal {
+                Literal::$lit(value)
+            }
+            fn zero() -> Self {
+                $zero
+            }
+            fn one() -> Self {
+                $one
+            }
+        }
+    };
 }
 
-impl TensorDType for i8 {
-    const DTYPE: DType = DType::I8;
-    fn to_literal(value: Self) -> Literal {
-        Literal::I8(value)
-    }
-    fn zero() -> Self {
-        0
-    }
-    fn one() -> Self {
-        1
-    }
-}
-
-impl TensorDType for i16 {
-    const DTYPE: DType = DType::I16;
-    fn to_literal(value: Self) -> Literal {
-        Literal::I16(value)
-    }
-    fn zero() -> Self {
-        0
-    }
-    fn one() -> Self {
-        1
-    }
-}
-
-impl TensorDType for i32 {
-    const DTYPE: DType = DType::I32;
-    fn to_literal(value: Self) -> Literal {
-        Literal::I32(value)
-    }
-    fn zero() -> Self {
-        0
-    }
-    fn one() -> Self {
-        1
-    }
-}
-
-impl TensorDType for i64 {
-    const DTYPE: DType = DType::I64;
-    fn to_literal(value: Self) -> Literal {
-        Literal::I64(value)
-    }
-    fn zero() -> Self {
-        0
-    }
-    fn one() -> Self {
-        1
-    }
-}
-
-impl TensorDType for u8 {
-    const DTYPE: DType = DType::U8;
-    fn to_literal(value: Self) -> Literal {
-        Literal::U8(value)
-    }
-    fn zero() -> Self {
-        0
-    }
-    fn one() -> Self {
-        1
-    }
-}
-
-impl TensorDType for u16 {
-    const DTYPE: DType = DType::U16;
-    fn to_literal(value: Self) -> Literal {
-        Literal::U16(value)
-    }
-    fn zero() -> Self {
-        0
-    }
-    fn one() -> Self {
-        1
-    }
-}
-
-impl TensorDType for u32 {
-    const DTYPE: DType = DType::U32;
-    fn to_literal(value: Self) -> Literal {
-        Literal::U32(value)
-    }
-    fn zero() -> Self {
-        0
-    }
-    fn one() -> Self {
-        1
-    }
-}
-
-impl TensorDType for u64 {
-    const DTYPE: DType = DType::U64;
-    fn to_literal(value: Self) -> Literal {
-        Literal::U64(value)
-    }
-    fn zero() -> Self {
-        0
-    }
-    fn one() -> Self {
-        1
-    }
-}
-
-impl TensorDType for f16 {
-    const DTYPE: DType = DType::F16;
-    fn to_literal(value: Self) -> Literal {
-        Literal::F16(value)
-    }
-    fn zero() -> Self {
-        f16::ZERO
-    }
-    fn one() -> Self {
-        f16::ONE
-    }
-}
-
-impl TensorDType for bf16 {
-    const DTYPE: DType = DType::BF16;
-    fn to_literal(value: Self) -> Literal {
-        Literal::BF16(value)
-    }
-    fn zero() -> Self {
-        bf16::ZERO
-    }
-    fn one() -> Self {
-        bf16::ONE
-    }
-}
-
-impl TensorDType for f32 {
-    const DTYPE: DType = DType::F32;
-    fn to_literal(value: Self) -> Literal {
-        Literal::F32(value)
-    }
-    fn zero() -> Self {
-        0.0
-    }
-    fn one() -> Self {
-        1.0
-    }
-}
-
-impl TensorDType for f64 {
-    const DTYPE: DType = DType::F64;
-    fn to_literal(value: Self) -> Literal {
-        Literal::F64(value)
-    }
-    fn zero() -> Self {
-        0.0
-    }
-    fn one() -> Self {
-        1.0
-    }
-}
+impl_tensor_dtype!(bool, Bool, Bool, false, true);
+impl_tensor_dtype!(i8, I8, I8, 0, 1);
+impl_tensor_dtype!(i16, I16, I16, 0, 1);
+impl_tensor_dtype!(i32, I32, I32, 0, 1);
+impl_tensor_dtype!(i64, I64, I64, 0, 1);
+impl_tensor_dtype!(u8, U8, U8, 0, 1);
+impl_tensor_dtype!(u16, U16, U16, 0, 1);
+impl_tensor_dtype!(u32, U32, U32, 0, 1);
+impl_tensor_dtype!(u64, U64, U64, 0, 1);
+impl_tensor_dtype!(f16, F16, F16, f16::ZERO, f16::ONE);
+impl_tensor_dtype!(bf16, BF16, BF16, bf16::ZERO, bf16::ONE);
+impl_tensor_dtype!(f32, F32, F32, 0.0, 1.0);
+impl_tensor_dtype!(f64, F64, F64, 0.0, 1.0);
 
 // ============================================================================
 // DType enum
@@ -284,83 +148,34 @@ pub enum Literal {
 // Conversion from numeric types to Literal
 // ============================================================================
 
-impl From<bool> for Literal {
-    fn from(value: bool) -> Self {
-        Literal::Bool(value)
-    }
+// Macro for implementing From<T> for Literal
+macro_rules! impl_from_for_literal {
+    ($($ty:ty => $variant:ident),* $(,)?) => {
+        $(
+            impl From<$ty> for Literal {
+                fn from(value: $ty) -> Self {
+                    Literal::$variant(value)
+                }
+            }
+        )*
+    };
 }
 
-impl From<i8> for Literal {
-    fn from(value: i8) -> Self {
-        Literal::I8(value)
-    }
-}
-
-impl From<i16> for Literal {
-    fn from(value: i16) -> Self {
-        Literal::I16(value)
-    }
-}
-
-impl From<i32> for Literal {
-    fn from(value: i32) -> Self {
-        Literal::I32(value)
-    }
-}
-
-impl From<i64> for Literal {
-    fn from(value: i64) -> Self {
-        Literal::I64(value)
-    }
-}
-
-impl From<u8> for Literal {
-    fn from(value: u8) -> Self {
-        Literal::U8(value)
-    }
-}
-
-impl From<u16> for Literal {
-    fn from(value: u16) -> Self {
-        Literal::U16(value)
-    }
-}
-
-impl From<u32> for Literal {
-    fn from(value: u32) -> Self {
-        Literal::U32(value)
-    }
-}
-
-impl From<u64> for Literal {
-    fn from(value: u64) -> Self {
-        Literal::U64(value)
-    }
-}
-
-impl From<f16> for Literal {
-    fn from(value: f16) -> Self {
-        Literal::F16(value)
-    }
-}
-
-impl From<bf16> for Literal {
-    fn from(value: bf16) -> Self {
-        Literal::BF16(value)
-    }
-}
-
-impl From<f32> for Literal {
-    fn from(value: f32) -> Self {
-        Literal::F32(value)
-    }
-}
-
-impl From<f64> for Literal {
-    fn from(value: f64) -> Self {
-        Literal::F64(value)
-    }
-}
+impl_from_for_literal!(
+    bool => Bool,
+    i8 => I8,
+    i16 => I16,
+    i32 => I32,
+    i64 => I64,
+    u8 => U8,
+    u16 => U16,
+    u32 => U32,
+    u64 => U64,
+    f16 => F16,
+    bf16 => BF16,
+    f32 => F32,
+    f64 => F64,
+);
 
 impl From<usize> for Literal {
     fn from(value: usize) -> Self {
@@ -811,5 +626,15 @@ mod tests {
         assert_eq!(DType::I32.one(), Some(Literal::I32(1)));
         assert_eq!(DType::F64.zero(), Some(Literal::F64(0.0)));
         assert_eq!(DType::F64.one(), Some(Literal::F64(1.0)));
+    }
+
+    #[test]
+    fn test_tensor_dtype_trait() {
+        assert_eq!(f32::DTYPE, DType::F32);
+        assert_eq!(i32::DTYPE, DType::I32);
+        assert_eq!(f32::zero(), 0.0);
+        assert_eq!(f32::one(), 1.0);
+        assert_eq!(i32::zero(), 0);
+        assert_eq!(i32::one(), 1);
     }
 }

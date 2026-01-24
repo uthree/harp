@@ -59,8 +59,8 @@ pub use graph::shape;
 
 // Core types
 pub use ast::{DType, TensorDType};
-pub use half::{bf16, f16};
 pub use backend::{Buffer, Compiler, Device, Kernel, KernelConfig, Pipeline, Renderer};
+pub use half::{bf16, f16};
 
 // ============================================================================
 // Prelude

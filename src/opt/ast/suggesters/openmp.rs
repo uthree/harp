@@ -126,12 +126,13 @@ impl OpenMPParallelizationSuggester {
                     && let (Some(start_val), Some(stop_val)) = (
                         Self::try_get_const_i64(start),
                         Self::try_get_const_i64(stop),
-                    ) {
-                        let iterations = stop_val - start_val;
-                        if iterations < min {
-                            return None;
-                        }
+                    )
+                {
+                    let iterations = stop_val - start_val;
+                    if iterations < min {
+                        return None;
                     }
+                }
 
                 // ループ本体を分析
                 let mut analyzer = LoopAnalyzer::new(var);
@@ -218,19 +219,22 @@ impl OpenMPParallelizationSuggester {
             AstNode::Assign { var, value } if var == var_name => {
                 // var = var + expr, var = expr + var
                 if let AstNode::Add(left, right) = value.as_ref()
-                    && (Self::is_var(left, var_name) || Self::is_var(right, var_name)) {
-                        return Some(ReductionOp::Add);
-                    }
+                    && (Self::is_var(left, var_name) || Self::is_var(right, var_name))
+                {
+                    return Some(ReductionOp::Add);
+                }
                 // var = var * expr, var = expr * var
                 if let AstNode::Mul(left, right) = value.as_ref()
-                    && (Self::is_var(left, var_name) || Self::is_var(right, var_name)) {
-                        return Some(ReductionOp::Mul);
-                    }
+                    && (Self::is_var(left, var_name) || Self::is_var(right, var_name))
+                {
+                    return Some(ReductionOp::Mul);
+                }
                 // var = max(var, expr), var = max(expr, var)
                 if let AstNode::Max(left, right) = value.as_ref()
-                    && (Self::is_var(left, var_name) || Self::is_var(right, var_name)) {
-                        return Some(ReductionOp::Max);
-                    }
+                    && (Self::is_var(left, var_name) || Self::is_var(right, var_name))
+                {
+                    return Some(ReductionOp::Max);
+                }
                 None
             }
             AstNode::Block { statements, .. } => {
@@ -250,9 +254,10 @@ impl OpenMPParallelizationSuggester {
                     return Some(op);
                 }
                 if let Some(else_b) = else_body
-                    && let Some(op) = self.find_reduction_pattern(else_b, var_name) {
-                        return Some(op);
-                    }
+                    && let Some(op) = self.find_reduction_pattern(else_b, var_name)
+                {
+                    return Some(op);
+                }
                 None
             }
             _ => None,

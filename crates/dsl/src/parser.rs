@@ -1,7 +1,7 @@
 //! DSL Parser implementation using pest
 
-use pest::iterators::Pair;
 use pest::Parser;
+use pest::iterators::Pair;
 use pest_derive::Parser;
 
 use crate::ast::*;
@@ -13,8 +13,8 @@ pub struct DslParser;
 
 /// Parse a DSL source string into a DslProgram
 pub fn parse_program(source: &str) -> DslResult<DslProgram> {
-    let pairs = DslParser::parse(Rule::program, source)
-        .map_err(|e| DslError::ParseError(e.to_string()))?;
+    let pairs =
+        DslParser::parse(Rule::program, source).map_err(|e| DslError::ParseError(e.to_string()))?;
 
     let mut graphs = Vec::new();
 
@@ -375,7 +375,9 @@ program {
         assert!(result.is_ok());
         let program = result.unwrap();
         let params = &program.graphs[0].params;
-        assert!(matches!(&params[0].type_spec.shape[0], ShapeDim::Dynamic(name) if name == "batch"));
+        assert!(
+            matches!(&params[0].type_spec.shape[0], ShapeDim::Dynamic(name) if name == "batch")
+        );
         assert!(matches!(&params[0].type_spec.shape[1], ShapeDim::Dynamic(name) if name == "n"));
     }
 

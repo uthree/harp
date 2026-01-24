@@ -67,11 +67,7 @@ impl GraphBuilder {
 
     /// Build all graphs from a DslProgram
     pub fn build_program(&self, program: &DslProgram) -> DslResult<Vec<BuiltGraph>> {
-        program
-            .graphs
-            .iter()
-            .map(|g| self.build_graph(g))
-            .collect()
+        program.graphs.iter().map(|g| self.build_graph(g)).collect()
     }
 
     /// Resolve a shape to concrete Expr values
@@ -80,12 +76,11 @@ impl GraphBuilder {
             .iter()
             .map(|dim| match dim {
                 ShapeDim::Static(n) => Ok(Expr::Const(*n)),
-                ShapeDim::Dynamic(name) => {
-                    self.dynamic_dims
-                        .get(name)
-                        .map(|&v| Expr::Const(v))
-                        .ok_or_else(|| DslError::UnresolvedDynamicDim(name.clone()))
-                }
+                ShapeDim::Dynamic(name) => self
+                    .dynamic_dims
+                    .get(name)
+                    .map(|&v| Expr::Const(v))
+                    .ok_or_else(|| DslError::UnresolvedDynamicDim(name.clone())),
             })
             .collect()
     }

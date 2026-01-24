@@ -3,8 +3,8 @@
 //! `Parameter` wraps a tensor and automatically enables gradient tracking.
 //! It is designed for use with the `Module` trait and optimizers.
 
-use eclat::tensor::dim::{Dimension, Dyn};
 use eclat::tensor::Tensor;
+use eclat::tensor::dim::{Dimension, Dyn};
 use std::cell::{Ref, RefCell};
 use std::marker::PhantomData;
 use std::rc::Rc;

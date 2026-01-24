@@ -344,7 +344,9 @@ impl Lowerer {
 
         // Output index for reduce: substitute the reduce axis index with 0
         // since the output dimension at the reduce axis has size 1
-        let output_idx = self.index_gen().view_to_reduce_output_index(node.view(), axis);
+        let output_idx = self
+            .index_gen()
+            .view_to_reduce_output_index(node.view(), axis);
 
         // Identity value
         let identity = self.reduce_identity(&reduce_op, node.dtype());

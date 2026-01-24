@@ -4,7 +4,7 @@
 //!
 //! Reference: Kingma, D. P., & Ba, J. (2014). Adam: A Method for Stochastic Optimization.
 
-use super::{get_param_data, OptimError, Optimizer};
+use super::{OptimError, Optimizer, get_param_data};
 use crate::nn::ParameterBase;
 
 /// Adam optimizer.

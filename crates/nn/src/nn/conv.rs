@@ -3,8 +3,8 @@
 //! Implements Conv1d, Conv2d, and Conv3d using unfold (im2col) approach.
 
 use super::{Module, Parameter, ParameterBase};
-use eclat::tensor::dim::{D1, D2, D3, D4, D5, D6, D8};
 use eclat::tensor::Tensor;
+use eclat::tensor::dim::{D1, D2, D3, D4, D5, D6, D8};
 
 // ============================================================================
 // Conv2d

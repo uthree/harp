@@ -6,8 +6,8 @@
 //! - b: bias vector [out_features] (optional)
 
 use super::{Module, Parameter, ParameterBase};
-use eclat::tensor::dim::{D1, D2};
 use eclat::tensor::Tensor;
+use eclat::tensor::dim::{D1, D2};
 
 /// A fully connected (linear) layer.
 ///

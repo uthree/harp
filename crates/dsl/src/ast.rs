@@ -98,15 +98,9 @@ pub enum DslExpr {
         rhs: Box<DslExpr>,
     },
     /// Unary operation
-    UnaryOp {
-        op: UnaryOp,
-        operand: Box<DslExpr>,
-    },
+    UnaryOp { op: UnaryOp, operand: Box<DslExpr> },
     /// Function call
-    FuncCall {
-        name: String,
-        args: Vec<FuncArg>,
-    },
+    FuncCall { name: String, args: Vec<FuncArg> },
 }
 
 /// Binary operators

@@ -3,9 +3,9 @@
 //! This module generates nested loop structures from shape information,
 //! creating the iteration pattern needed for tensor operations.
 
+use crate::DType;
 use crate::ast::{AstNode, Literal, Mutability, ParallelInfo, Scope};
 use crate::graph::shape::Expr;
-use crate::DType;
 
 use super::index_gen::IndexGenerator;
 
@@ -200,7 +200,15 @@ impl LoopGenerator {
             value: Box::new(AstNode::Var(acc_var.to_string())),
         };
 
-        self.generate_loops_with_reduce(shape, reduce_axis, pre, reduce_body, post, acc_var, acc_dtype)
+        self.generate_loops_with_reduce(
+            shape,
+            reduce_axis,
+            pre,
+            reduce_body,
+            post,
+            acc_var,
+            acc_dtype,
+        )
     }
 }
 
@@ -245,8 +253,16 @@ mod tests {
             Box::new(AstNode::Var("val".to_string())),
         );
 
-        let ast =
-            loop_gen.generate_reduce(&shape, 1, output_ptr, output_idx, "acc", &DType::F32, identity, combine);
+        let ast = loop_gen.generate_reduce(
+            &shape,
+            1,
+            output_ptr,
+            output_idx,
+            "acc",
+            &DType::F32,
+            identity,
+            combine,
+        );
 
         // Should be a Range containing a Block
         assert!(matches!(ast, AstNode::Range { .. }));
