@@ -20,19 +20,19 @@ use eclat::backend::renderer::Renderer;
 use eclat::lowerer::Lowerer;
 #[cfg(not(feature = "viz"))]
 use eclat::opt::ast::AstOptimizer;
+use eclat::opt::ast::rules::all_algebraic_rules;
 use eclat::opt::ast::{
     AstSuggester, BeamSearchOptimizer, CompositeSuggester, FunctionInliningSuggester,
-    GroupParallelizationSuggester, LoopFusionSuggester, LoopInliningSuggester,
-    LoopInterchangeSuggester, LoopTilingSuggester, RuleBaseSuggester,
+    GroupParallelizationSuggester, LocalParallelizationSuggester, LoopFusionSuggester,
+    LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester, RuleBaseSuggester,
 };
-use eclat::opt::ast::rules::all_algebraic_rules;
 use eclat_backend_c::CRenderer;
 use eclat_backend_cuda::CudaRenderer;
+#[cfg(target_os = "macos")]
+use eclat_backend_metal::MetalRenderer;
 use eclat_backend_opencl::OpenCLRenderer;
 use eclat_backend_openmp::OpenMPRenderer;
 use eclat_backend_rust::RustRenderer;
-#[cfg(target_os = "macos")]
-use eclat_backend_metal::MetalRenderer;
 use eclat_dsl::{GraphBuilder, parse_program};
 
 /// Eclat DSL Transpiler
@@ -248,6 +248,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         );
         if is_gpu_backend {
             suggesters.push(Box::new(GroupParallelizationSuggester::new()));
+            suggesters.push(Box::new(LocalParallelizationSuggester::new()));
         }
 
         let suggester = CompositeSuggester::new(suggesters);
@@ -325,7 +326,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     // Render to backend code
     if args.verbose {
-        eprintln!("Rendering to {} code...", format!("{:?}", args.backend).to_lowercase());
+        eprintln!(
+            "Rendering to {} code...",
+            format!("{:?}", args.backend).to_lowercase()
+        );
     }
 
     let code = render_to_backend(&all_asts, args.backend)?;
@@ -346,10 +350,7 @@ fn parse_defines(defines: &[String]) -> Result<HashMap<String, i64>, String> {
     for def in defines {
         let parts: Vec<&str> = def.splitn(2, '=').collect();
         if parts.len() != 2 {
-            return Err(format!(
-                "Invalid definition '{}': expected NAME=VALUE",
-                def
-            ));
+            return Err(format!("Invalid definition '{}': expected NAME=VALUE", def));
         }
         let name = parts[0].trim().to_string();
         let value: i64 = parts[1]
@@ -455,12 +456,18 @@ fn mark_parallel_for_openmp(ast: AstNode) -> AstNode {
 
 fn mark_parallel_recursive(ast: AstNode, is_outermost: bool) -> AstNode {
     match ast {
-        AstNode::Program { functions, execution_waves } => {
+        AstNode::Program {
+            functions,
+            execution_waves,
+        } => {
             let functions = functions
                 .into_iter()
                 .map(|f| mark_parallel_recursive(f, true))
                 .collect();
-            AstNode::Program { functions, execution_waves }
+            AstNode::Program {
+                functions,
+                execution_waves,
+            }
         }
         AstNode::Kernel {
             name,
