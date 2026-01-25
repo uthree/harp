@@ -210,6 +210,110 @@ impl LoopGenerator {
             acc_dtype,
         )
     }
+
+    /// Generate a cumulative scan loop pattern
+    ///
+    /// For shape [N, M] with scan on axis 1:
+    /// ```text
+    /// for ridx0 in 0..N:
+    ///     float acc = identity;
+    ///     for ridx1 in 0..M:
+    ///         acc = combine(acc, input[ridx0, ridx1])
+    ///         output[ridx0, ridx1] = acc  // Store at each position
+    /// ```
+    ///
+    /// Unlike reduce, scan writes to every output position (same shape as input).
+    pub fn generate_scan(
+        &self,
+        shape: &[Expr],
+        scan_axis: usize,
+        output_ptr: AstNode,
+        output_idx: AstNode,
+        acc_var: &str,
+        acc_dtype: &DType,
+        identity: AstNode,
+        combine_expr: AstNode,
+    ) -> AstNode {
+        let bounds = self.index_gen.shape_to_bounds(shape);
+
+        // Split loops into outer (before scan), scan, and inner (after scan)
+        let (outer_bounds, rest) = bounds.split_at(scan_axis);
+        let (scan_bounds, inner_bounds) = rest.split_first().unwrap();
+
+        // Scan body: update accumulator, then store to output
+        let update_acc = AstNode::Assign {
+            var: acc_var.to_string(),
+            value: Box::new(combine_expr),
+        };
+
+        let store_acc = AstNode::Store {
+            ptr: Box::new(output_ptr),
+            offset: Box::new(output_idx),
+            value: Box::new(AstNode::Var(acc_var.to_string())),
+        };
+
+        // Block: first update acc, then store result
+        let scan_body = AstNode::Block {
+            statements: vec![update_acc, store_acc],
+            scope: Box::new(Scope::new()),
+        };
+
+        // Build inner loops (if any, after scan axis)
+        let mut inner_result = scan_body;
+        for (var, stop) in inner_bounds.iter().rev() {
+            inner_result = AstNode::Range {
+                var: var.clone(),
+                start: Box::new(AstNode::Const(Literal::I64(0))),
+                stop: Box::new(stop.clone()),
+                step: Box::new(AstNode::Const(Literal::I64(1))),
+                body: Box::new(inner_result),
+                parallel: ParallelInfo::default(),
+            };
+        }
+
+        // Scan axis loop
+        let scan_loop = AstNode::Range {
+            var: scan_bounds.0.clone(),
+            start: Box::new(AstNode::Const(Literal::I64(0))),
+            stop: Box::new(scan_bounds.1.clone()),
+            step: Box::new(AstNode::Const(Literal::I64(1))),
+            body: Box::new(inner_result),
+            parallel: ParallelInfo::default(),
+        };
+
+        // Initialize accumulator
+        let init_acc = AstNode::Assign {
+            var: acc_var.to_string(),
+            value: Box::new(identity),
+        };
+
+        // Create scope with acc variable declared
+        let mut scope = Scope::new();
+        scope
+            .declare(acc_var.to_string(), acc_dtype.clone(), Mutability::Mutable)
+            .expect("Failed to declare acc variable in scan scope");
+
+        // Combine init and scan loop in a block
+        let scan_block = AstNode::Block {
+            statements: vec![init_acc, scan_loop],
+            scope: Box::new(scope),
+        };
+
+        // Build outer loops
+        let mut result = scan_block;
+        for (var, stop) in outer_bounds.iter().rev() {
+            result = AstNode::Range {
+                var: var.clone(),
+                start: Box::new(AstNode::Const(Literal::I64(0))),
+                stop: Box::new(stop.clone()),
+                step: Box::new(AstNode::Const(Literal::I64(1))),
+                body: Box::new(result),
+                parallel: ParallelInfo::default(),
+            };
+        }
+
+        result
+    }
 }
 
 #[cfg(test)]

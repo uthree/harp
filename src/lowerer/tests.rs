@@ -90,3 +90,63 @@ fn test_loop_generation() {
     // Should be nested Range structures
     assert!(matches!(loops, crate::ast::AstNode::Range { .. }));
 }
+
+#[test]
+fn test_scan_lowering() {
+    // Test cumulative sum lowering
+    let x = input(vec![Expr::Const(32), Expr::Const(64)], DType::F32);
+    let cumsum_result = x.cumsum(1).with_name("cumsum_result");
+
+    let mut lowerer = Lowerer::new();
+    let program = lowerer.lower(&[cumsum_result]);
+
+    assert!(matches!(program, crate::ast::AstNode::Program { .. }));
+}
+
+#[test]
+fn test_scan_shape_preservation() {
+    // Verify that scan preserves shape (unlike reduce)
+    let x = input(vec![Expr::Const(8), Expr::Const(16)], DType::F32);
+
+    // cumsum should preserve shape
+    let y = x.cumsum(0);
+    assert_eq!(y.shape(), vec![Expr::Const(8), Expr::Const(16)]);
+
+    // cumprod should preserve shape
+    let z = x.cumprod(1);
+    assert_eq!(z.shape(), vec![Expr::Const(8), Expr::Const(16)]);
+
+    // cummax should preserve shape
+    let w = x.cummax(0);
+    assert_eq!(w.shape(), vec![Expr::Const(8), Expr::Const(16)]);
+}
+
+#[test]
+fn test_scan_loop_generation() {
+    use crate::ast::Literal;
+
+    let loop_gen = LoopGenerator::new();
+    let shape = vec![Expr::Const(4), Expr::Const(8)];
+
+    let output_ptr = crate::ast::AstNode::Var("output".to_string());
+    let output_idx = crate::ast::AstNode::Var("idx".to_string());
+    let identity = crate::ast::AstNode::Const(Literal::F32(0.0));
+    let combine = crate::ast::AstNode::Add(
+        Box::new(crate::ast::AstNode::Var("acc".to_string())),
+        Box::new(crate::ast::AstNode::Var("val".to_string())),
+    );
+
+    let scan_loops = loop_gen.generate_scan(
+        &shape,
+        1, // scan along axis 1
+        output_ptr,
+        output_idx,
+        "acc",
+        &DType::F32,
+        identity,
+        combine,
+    );
+
+    // Should be nested Range structures
+    assert!(matches!(scan_loops, crate::ast::AstNode::Range { .. }));
+}

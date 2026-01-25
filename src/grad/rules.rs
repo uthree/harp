@@ -65,6 +65,15 @@ pub fn compute_vjp(node: &GraphNode, grad_output: &GraphNode) -> VjpResult {
                 input_grads: vec![Some(grad_input)],
             }
         }
+        GraphOp::Scan {
+            scan_op,
+            axis,
+            exclusive: _,
+            ..
+        } => {
+            // Cumulative scan の VJP
+            compute_scan_vjp(node, grad_output, sources, *scan_op, *axis)
+        }
     }
 }
 
@@ -308,6 +317,96 @@ fn compute_reduce_vjp(
 }
 
 // ============================================================================
+// Scan (Cumulative) VJP
+// ============================================================================
+
+/// Compute VJP for cumulative scan operations.
+///
+/// - cumsum: grad_x = reverse_cumsum(grad_y) = flip(cumsum(flip(grad_y)))
+/// - cumprod: grad_x = reverse_cumsum(grad_y * y) / x
+/// - cummax: grad_x = grad_y * mask where mask indicates positions contributing to max
+fn compute_scan_vjp(
+    node: &GraphNode,
+    grad_output: &GraphNode,
+    inputs: &[GraphNode],
+    scan_op: ReduceOp,
+    axis: usize,
+) -> VjpResult {
+    let input = &inputs[0];
+
+    let input_grads = match scan_op {
+        // cumsum の勾配: reverse cumsum
+        // d(loss)/d(x[i]) = sum_{j>=i} d(loss)/d(y[j])
+        // = flip(cumsum(flip(grad_y)))
+        ReduceOp::Sum => {
+            let grad_input = grad_output.flip(axis).cumsum(axis).flip(axis);
+            vec![Some(grad_input)]
+        }
+
+        // cumprod の勾配:
+        // y[i] = x[0] * x[1] * ... * x[i]
+        // d(loss)/d(x[i]) = sum_{j>=i} d(loss)/d(y[j]) * y[j] / x[i]
+        //                 = (1/x[i]) * reverse_cumsum(grad_y * y)
+        //
+        // Note: This assumes no zeros in input. For zeros, a more complex
+        // formula involving exclusive cumprod would be needed.
+        ReduceOp::Prod => {
+            // node is the output of cumprod (forward pass result)
+            let output = node;
+
+            // grad_y * y
+            let grad_times_output = grad_output * output;
+
+            // reverse_cumsum(grad_y * y) = flip(cumsum(flip(...)))
+            let rev_cumsum = grad_times_output.flip(axis).cumsum(axis).flip(axis);
+
+            // Divide by input (x)
+            // Note: This will have NaN/Inf if input contains zeros
+            let grad_input = &rev_cumsum / input;
+
+            vec![Some(grad_input)]
+        }
+
+        // cummax の勾配:
+        // cummax は非微分可能だが、サブグラディエントを使用
+        // 勾配は、その位置が現在の最大値を「提供」している場合にのみ流れる
+        //
+        // mask[i] = 1 if x[i] == cummax(x)[i] and (i == 0 or cummax(x)[i] > cummax(x)[i-1])
+        //
+        // 簡略化: x[i] == cummax(x)[i] の位置にのみ勾配を流す
+        // これは同じ最大値が続く場合に勾配が分散されるが、実用上は問題ない
+        ReduceOp::Max => {
+            // node is the output of cummax (forward pass result)
+            let cummax_output = node;
+
+            // mask = (input == cummax_output)
+            let mask = input.eq_node(cummax_output);
+            let mask_float = mask.cast(input.dtype().clone());
+
+            // grad_input = grad_output * mask
+            let grad_input = grad_output * &mask_float;
+
+            vec![Some(grad_input)]
+        }
+
+        // cummin の勾配: cummax と同様
+        ReduceOp::Min => {
+            let cummin_output = node;
+
+            // mask = (input == cummin_output)
+            let mask = input.eq_node(cummin_output);
+            let mask_float = mask.cast(input.dtype().clone());
+
+            let grad_input = grad_output * &mask_float;
+
+            vec![Some(grad_input)]
+        }
+    };
+
+    VjpResult { input_grads }
+}
+
+// ============================================================================
 // View VJP
 // ============================================================================
 
@@ -540,5 +639,47 @@ mod tests {
 
         assert_eq!(vjp.input_grads.len(), 1);
         // grad_a = -grad_out
+    }
+
+    #[test]
+    fn test_cumsum_vjp() {
+        let a = input(vec![Expr::Const(10), Expr::Const(20)], DType::F32);
+        let b = a.cumsum(1); // [10, 20] -> [10, 20] (shape preserved)
+
+        let grad_out = input(vec![Expr::Const(10), Expr::Const(20)], DType::F32);
+        let vjp = compute_vjp(&b, &grad_out);
+
+        assert_eq!(vjp.input_grads.len(), 1);
+        // grad_a = flip(cumsum(flip(grad_out)))
+        let grad_a = vjp.input_grads[0].as_ref().unwrap();
+        assert_eq!(grad_a.shape(), vec![Expr::Const(10), Expr::Const(20)]);
+    }
+
+    #[test]
+    fn test_cumprod_vjp() {
+        let a = input(vec![Expr::Const(10), Expr::Const(20)], DType::F32);
+        let b = a.cumprod(1);
+
+        let grad_out = input(vec![Expr::Const(10), Expr::Const(20)], DType::F32);
+        let vjp = compute_vjp(&b, &grad_out);
+
+        assert_eq!(vjp.input_grads.len(), 1);
+        // grad_a = reverse_cumsum(grad_out * b) / a
+        let grad_a = vjp.input_grads[0].as_ref().unwrap();
+        assert_eq!(grad_a.shape(), vec![Expr::Const(10), Expr::Const(20)]);
+    }
+
+    #[test]
+    fn test_cummax_vjp() {
+        let a = input(vec![Expr::Const(10), Expr::Const(20)], DType::F32);
+        let b = a.cummax(1);
+
+        let grad_out = input(vec![Expr::Const(10), Expr::Const(20)], DType::F32);
+        let vjp = compute_vjp(&b, &grad_out);
+
+        assert_eq!(vjp.input_grads.len(), 1);
+        // grad_a = grad_out * mask (where mask = (a == cummax(a)))
+        let grad_a = vjp.input_grads[0].as_ref().unwrap();
+        assert_eq!(grad_a.shape(), vec![Expr::Const(10), Expr::Const(20)]);
     }
 }

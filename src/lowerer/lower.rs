@@ -32,6 +32,8 @@ enum KernelOpType {
     Copy,
     /// Scatter operation (fold)
     Scatter,
+    /// Cumulative scan operation
+    Scan,
 }
 
 impl KernelOpType {
@@ -42,6 +44,7 @@ impl KernelOpType {
             KernelOpType::Reduce => "R",
             KernelOpType::Copy => "C",
             KernelOpType::Scatter => "S",
+            KernelOpType::Scan => "P",  // P for Prefix scan
         }
     }
 }
@@ -221,6 +224,12 @@ impl Lowerer {
                 strides,
                 dilations,
             ),
+            GraphOp::Scan {
+                map,
+                scan_op,
+                axis,
+                exclusive,
+            } => self.lower_scan(node, &output_buf, map, *scan_op, *axis, *exclusive),
         }
     }
 
@@ -488,6 +497,67 @@ impl Lowerer {
             statements: vec![init_loop, scatter_loop],
             scope: Box::new(Scope::new()),
         };
+
+        self.make_kernel(&kernel_name, body, input_buffers, output_buffer)
+    }
+
+    /// Lower a Scan (cumulative) operation
+    ///
+    /// Generates a sequential scan kernel that computes cumulative values along an axis.
+    /// For cumsum: output[i] = sum(input[0..=i])
+    /// The output has the same shape as the input.
+    #[allow(clippy::too_many_arguments)]
+    fn lower_scan(
+        &mut self,
+        node: &GraphNode,
+        output_buf: &str,
+        map: &AstNode,
+        scan_op: ReduceOp,
+        axis: usize,
+        _exclusive: bool, // Reserved for future use
+    ) -> AstNode {
+        // Use source shape for iteration (output shape is the same)
+        let src = &node.sources()[0];
+        let src_shape = src.shape();
+
+        // Generate kernel name
+        let kernel_name = self.generate_kernel_name(KernelOpType::Scan, node);
+
+        // Collect buffer info
+        let input_buffers = self.collect_input_buffers(node);
+        let output_buffer = BufferInfo {
+            name: output_buf.to_string(),
+            dtype: node.dtype().clone(),
+            shape: node.shape().clone(), // Same as input shape
+        };
+
+        // Output index: same indexing as input (shape is preserved)
+        let output_idx = self.index_gen().view_to_index(node.view());
+
+        // Identity value for the scan operation
+        let identity = self.reduce_identity(&scan_op, node.dtype());
+
+        // Substitute Wildcards in map expression
+        let load_expr = self.substitute_wildcards(node, map);
+
+        // Combine expression: acc = scan_op(acc, val)
+        let acc_var = AstNode::Var("acc".to_string());
+        let combine_expr = scan_op.combine(acc_var, load_expr);
+
+        // Get the output dtype for the accumulator
+        let acc_dtype = node.dtype();
+
+        // Generate scan loop structure
+        let body = self.loop_gen.generate_scan(
+            &src_shape,
+            axis,
+            AstNode::Var(output_buf.to_string()),
+            output_idx,
+            "acc",
+            acc_dtype,
+            identity,
+            combine_expr,
+        );
 
         self.make_kernel(&kernel_name, body, input_buffers, output_buffer)
     }

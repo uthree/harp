@@ -246,6 +246,81 @@ impl<D: Dimension + DimSub1, T: TensorDType> Tensor<D, T> {
 }
 
 // ============================================================================
+// Cumulative Operations (Scan)
+// ============================================================================
+
+impl<D: Dimension, T: TensorDType> Tensor<D, T> {
+    /// Cumulative sum along an axis.
+    ///
+    /// Returns a tensor of the same shape where each element is the sum of all
+    /// previous elements (inclusive) along the specified axis.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // cumsum([1, 2, 3, 4]) = [1, 3, 6, 10]
+    /// let x: Tensor<D1, f32> = ...;
+    /// let y = x.cumsum(0);
+    /// ```
+    pub fn cumsum(&self, axis: usize) -> Self {
+        assert!(
+            axis < self.ndim(),
+            "Axis {} out of bounds for {}D tensor",
+            axis,
+            self.ndim()
+        );
+        let graph = self.inner.graph.cumsum(axis);
+        Tensor::from_graph(graph)
+    }
+
+    /// Cumulative product along an axis.
+    ///
+    /// Returns a tensor of the same shape where each element is the product of all
+    /// previous elements (inclusive) along the specified axis.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // cumprod([1, 2, 3, 4]) = [1, 2, 6, 24]
+    /// let x: Tensor<D1, f32> = ...;
+    /// let y = x.cumprod(0);
+    /// ```
+    pub fn cumprod(&self, axis: usize) -> Self {
+        assert!(
+            axis < self.ndim(),
+            "Axis {} out of bounds for {}D tensor",
+            axis,
+            self.ndim()
+        );
+        let graph = self.inner.graph.cumprod(axis);
+        Tensor::from_graph(graph)
+    }
+
+    /// Cumulative maximum along an axis.
+    ///
+    /// Returns a tensor of the same shape where each element is the maximum of all
+    /// previous elements (inclusive) along the specified axis.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // cummax([3, 1, 4, 1]) = [3, 3, 4, 4]
+    /// let x: Tensor<D1, f32> = ...;
+    /// let y = x.cummax(0);
+    /// ```
+    pub fn cummax(&self, axis: usize) -> Self {
+        assert!(
+            axis < self.ndim(),
+            "Axis {} out of bounds for {}D tensor",
+            axis,
+            self.ndim()
+        );
+        let graph = self.inner.graph.cummax(axis);
+        Tensor::from_graph(graph)
+    }
+}
+
+// ============================================================================
 // Shape Operations
 // ============================================================================
 
@@ -988,5 +1063,67 @@ mod tests {
         // Fold back
         let folded = unfolded.fold(&[1, 3, 10, 10], &[2, 3], &[3, 3], &[1, 1], &[1, 1]);
         assert_eq!(folded.shape(), vec![1, 3, 10, 10]);
+    }
+
+    // ========================================================================
+    // Cumulative Operations Tests
+    // ========================================================================
+
+    #[test]
+    fn test_cumsum() {
+        use crate::tensor::dim::{D1, D2};
+
+        // 1D cumsum
+        let x: Tensor<D1, f32> = Tensor::input([5]);
+        let y = x.cumsum(0);
+        assert_eq!(y.shape(), vec![5]); // Same shape as input
+
+        // 2D cumsum along axis 0
+        let x2: Tensor<D2, f32> = Tensor::input([3, 4]);
+        let y2 = x2.cumsum(0);
+        assert_eq!(y2.shape(), vec![3, 4]);
+
+        // 2D cumsum along axis 1
+        let y3 = x2.cumsum(1);
+        assert_eq!(y3.shape(), vec![3, 4]);
+    }
+
+    #[test]
+    fn test_cumprod() {
+        use crate::tensor::dim::{D1, D2};
+
+        // 1D cumprod
+        let x: Tensor<D1, f32> = Tensor::input([5]);
+        let y = x.cumprod(0);
+        assert_eq!(y.shape(), vec![5]);
+
+        // 2D cumprod
+        let x2: Tensor<D2, f32> = Tensor::input([3, 4]);
+        let y2 = x2.cumprod(1);
+        assert_eq!(y2.shape(), vec![3, 4]);
+    }
+
+    #[test]
+    fn test_cummax() {
+        use crate::tensor::dim::{D1, D2};
+
+        // 1D cummax
+        let x: Tensor<D1, f32> = Tensor::input([5]);
+        let y = x.cummax(0);
+        assert_eq!(y.shape(), vec![5]);
+
+        // 2D cummax
+        let x2: Tensor<D2, f32> = Tensor::input([3, 4]);
+        let y2 = x2.cummax(0);
+        assert_eq!(y2.shape(), vec![3, 4]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Axis 2 out of bounds")]
+    fn test_cumsum_invalid_axis() {
+        use crate::tensor::dim::D2;
+
+        let x: Tensor<D2, f32> = Tensor::input([3, 4]);
+        let _ = x.cumsum(2); // Should panic: axis 2 doesn't exist
     }
 }

@@ -137,6 +137,24 @@ pub enum GraphOp {
         /// Dilations for each axis
         dilations: Vec<Expr>,
     },
+
+    /// Cumulative scan operation (prefix sum/prod/max)
+    ///
+    /// Computes cumulative values along an axis. Unlike reduction,
+    /// the output has the same shape as the input.
+    /// - cumsum([1,2,3,4]) = [1,3,6,10]
+    /// - cumprod([1,2,3,4]) = [1,2,6,24]
+    /// - cummax([3,1,4,1]) = [3,3,4,4]
+    Scan {
+        /// Element-wise operation before scan
+        map: AstNode,
+        /// Scan operation type (Sum, Prod, Max)
+        scan_op: ReduceOp,
+        /// Axis to scan along
+        axis: usize,
+        /// If true, output[i] excludes input[i] (exclusive scan)
+        exclusive: bool,
+    },
 }
 
 // ============================================================================
@@ -563,6 +581,53 @@ impl GraphNode {
             GraphOp::MapReduce {
                 map,
                 reduce: Some((op, axis)),
+            },
+            self.0.dtype.clone(),
+            None,
+        )
+    }
+
+    // ========================================================================
+    // Cumulative Operations (Scan)
+    // ========================================================================
+
+    /// Cumulative sum along an axis
+    ///
+    /// cumsum([1, 2, 3, 4]) = [1, 3, 6, 10]
+    pub fn cumsum(&self, axis: usize) -> Self {
+        self.scan(ReduceOp::Sum, axis, false)
+    }
+
+    /// Cumulative product along an axis
+    ///
+    /// cumprod([1, 2, 3, 4]) = [1, 2, 6, 24]
+    pub fn cumprod(&self, axis: usize) -> Self {
+        self.scan(ReduceOp::Prod, axis, false)
+    }
+
+    /// Cumulative max along an axis
+    ///
+    /// cummax([3, 1, 4, 1]) = [3, 3, 4, 4]
+    pub fn cummax(&self, axis: usize) -> Self {
+        self.scan(ReduceOp::Max, axis, false)
+    }
+
+    /// Generic cumulative scan along an axis
+    fn scan(&self, scan_op: ReduceOp, axis: usize, exclusive: bool) -> Self {
+        // Output shape is same as input shape
+        let new_view = View::contiguous(self.shape());
+
+        // Identity map: Wildcard("0") (just pass through the input)
+        let map = AstNode::Wildcard("0".to_string());
+
+        GraphNode::new(
+            vec![self.clone()],
+            new_view,
+            GraphOp::Scan {
+                map,
+                scan_op,
+                axis,
+                exclusive,
             },
             self.0.dtype.clone(),
             None,
