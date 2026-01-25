@@ -1,9 +1,11 @@
 //! ビームサーチ最適化器
 
+use std::cmp::Ordering;
+
 use super::{BeamEntry, CandidateInfo};
 use crate::ast::AstNode;
+use crate::opt::ast::estimator::SimpleCostEstimator;
 use crate::opt::ast::history::{AlternativeCandidate, OptimizationHistory, OptimizationSnapshot};
-use crate::opt::ast::selector::{AstCostSelector, AstSelector};
 use crate::opt::ast::{AstCostEstimator, AstOptimizer, AstSuggester};
 use crate::opt::progress::{
     FinishInfo, IndicatifProgress, NoOpProgress, ProgressState, SearchProgress,
@@ -19,25 +21,24 @@ use std::time::Instant;
 /// - 最大ステップ数(`max_steps`)に達した
 /// - Suggesterから新しい提案がなくなった（これ以上最適化できない）
 ///
-/// # 候補選択
+/// # コスト評価
 ///
-/// `AstSelector`により候補選択・コスト評価を行います。
-/// デフォルトは`AstCostSelector`（SimpleCostEstimatorでコスト計算、上位n件を選択）。
-/// `RuntimeSelector`を使用すると、静的コストで足切り後に実行時間を計測して選択します。
+/// `AstCostEstimator`によりコスト評価を行います。
+/// デフォルトは`SimpleCostEstimator`（静的コスト計算）。
 ///
 /// # プログレス表示
 ///
 /// 型パラメータ`P`で`SearchProgress`トレイトを実装したプログレス表示器を指定できます。
 /// デフォルトは`IndicatifProgress`（Cargoスタイルのプログレスバー）。
 /// テスト時などプログレス表示が不要な場合は`without_progress()`で無効化できます。
-pub struct BeamSearchOptimizer<S, Sel = AstCostSelector, P = IndicatifProgress>
+pub struct BeamSearchOptimizer<S, E = SimpleCostEstimator, P = IndicatifProgress>
 where
     S: AstSuggester,
-    Sel: AstSelector,
+    E: AstCostEstimator,
     P: SearchProgress,
 {
     suggester: S,
-    selector: Sel,
+    estimator: E,
     beam_width: usize,
     max_steps: usize,
     progress: Option<P>,
@@ -47,18 +48,17 @@ where
     max_no_improvement_steps: Option<usize>,
 }
 
-impl<S> BeamSearchOptimizer<S, AstCostSelector, IndicatifProgress>
+impl<S> BeamSearchOptimizer<S, SimpleCostEstimator, IndicatifProgress>
 where
     S: AstSuggester,
 {
     /// 新しいビームサーチ最適化器を作成
     ///
-    /// デフォルトでは`AstCostSelector`と`IndicatifProgress`を使用します。
-    /// コスト評価はSelector自身が行います。
+    /// デフォルトでは`SimpleCostEstimator`と`IndicatifProgress`を使用します。
     pub fn new(suggester: S) -> Self {
         Self {
             suggester,
-            selector: AstCostSelector::new(),
+            estimator: SimpleCostEstimator::new(),
             beam_width: 10,
             max_steps: 10000,
             progress: if cfg!(debug_assertions) {
@@ -73,35 +73,23 @@ where
     }
 }
 
-impl<S, Sel, P> BeamSearchOptimizer<S, Sel, P>
+impl<S, E, P> BeamSearchOptimizer<S, E, P>
 where
     S: AstSuggester,
-    Sel: AstSelector,
+    E: AstCostEstimator,
     P: SearchProgress,
 {
-    /// カスタム選択器を設定
+    /// カスタムコスト推定器を設定
     ///
-    /// デフォルトの`AstCostSelector`の代わりに、
-    /// `RuntimeSelector`などのカスタム選択器を使用できます。
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// use eclat::opt::{RuntimeSelector, BeamSearchOptimizer};
-    ///
-    /// let selector = RuntimeSelector::new(renderer, compiler, signature, buffer_factory)
-    ///     .with_pre_filter_count(10);
-    ///
-    /// let optimizer = BeamSearchOptimizer::new(suggester)
-    ///     .with_selector(selector);
-    /// ```
-    pub fn with_selector<NewSel>(self, selector: NewSel) -> BeamSearchOptimizer<S, NewSel, P>
+    /// デフォルトの`SimpleCostEstimator`の代わりに、
+    /// カスタム推定器を使用できます。
+    pub fn with_estimator<NewE>(self, estimator: NewE) -> BeamSearchOptimizer<S, NewE, P>
     where
-        NewSel: AstSelector,
+        NewE: AstCostEstimator,
     {
         BeamSearchOptimizer {
             suggester: self.suggester,
-            selector,
+            estimator,
             beam_width: self.beam_width,
             max_steps: self.max_steps,
             progress: self.progress,
@@ -130,22 +118,10 @@ where
     /// カスタムプログレス表示器を設定
     ///
     /// デフォルトの`IndicatifProgress`の代わりに、カスタム実装を使用できます。
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// use eclat::opt::progress::{IndicatifProgress, SearchProgress};
-    ///
-    /// let optimizer = BeamSearchOptimizer::new(suggester)
-    ///     .with_progress(IndicatifProgress::new());
-    /// ```
-    pub fn with_progress<P2: SearchProgress>(
-        self,
-        progress: P2,
-    ) -> BeamSearchOptimizer<S, Sel, P2> {
+    pub fn with_progress<P2: SearchProgress>(self, progress: P2) -> BeamSearchOptimizer<S, E, P2> {
         BeamSearchOptimizer {
             suggester: self.suggester,
-            selector: self.selector,
+            estimator: self.estimator,
             beam_width: self.beam_width,
             max_steps: self.max_steps,
             progress: Some(progress),
@@ -158,10 +134,10 @@ where
     /// プログレス表示を無効化
     ///
     /// テスト時や高速実行が必要な場合に使用します。
-    pub fn without_progress(self) -> BeamSearchOptimizer<S, Sel, NoOpProgress> {
+    pub fn without_progress(self) -> BeamSearchOptimizer<S, E, NoOpProgress> {
         BeamSearchOptimizer {
             suggester: self.suggester,
-            selector: self.selector,
+            estimator: self.estimator,
             beam_width: self.beam_width,
             max_steps: self.max_steps,
             progress: None,
@@ -196,23 +172,35 @@ where
         self.max_no_improvement_steps = steps;
         self
     }
+
+    /// 候補をコストでソートして上位N件を返す
+    ///
+    /// 返り値は (AST, コスト, 元のインデックス) のタプル
+    fn select_top_n(&self, candidates: Vec<AstNode>, n: usize) -> Vec<(AstNode, f32, usize)> {
+        let mut with_cost_and_index: Vec<(AstNode, f32, usize)> = candidates
+            .into_iter()
+            .enumerate()
+            .map(|(idx, c)| {
+                let cost = self.estimator.estimate(&c);
+                (c, cost, idx)
+            })
+            .collect();
+        with_cost_and_index.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
+        with_cost_and_index.into_iter().take(n).collect()
+    }
 }
 
-impl<S, Sel, P> BeamSearchOptimizer<S, Sel, P>
+impl<S, E, P> BeamSearchOptimizer<S, E, P>
 where
     S: AstSuggester,
-    Sel: AstSelector,
+    E: AstCostEstimator,
     P: SearchProgress,
 {
     /// 履歴を記録しながら最適化を実行
     ///
-    /// コスト評価はSelectorが行います。履歴記録用のコストはSelectorから返される値を使用します。
+    /// コスト評価はEstimatorが行います。履歴記録用のコストはEstimatorから返される値を使用します。
     pub fn optimize_with_history(&mut self, ast: AstNode) -> (AstNode, OptimizationHistory) {
-        use crate::opt::ast::estimator::SimpleCostEstimator;
         use crate::opt::log_capture;
-
-        // 履歴記録用の静的コスト推定器
-        let static_estimator = SimpleCostEstimator::new();
 
         // 時間計測を開始
         let start_time = Instant::now();
@@ -234,8 +222,8 @@ where
             path: vec![],
         }];
 
-        // 初期状態を記録（静的コストを使用）
-        let initial_cost = static_estimator.estimate(&ast);
+        // 初期状態を記録
+        let initial_cost = self.estimator.estimate(&ast);
         info!("Initial AST cost: {:.2e}", initial_cost);
         let initial_logs = if self.collect_logs {
             log_capture::get_captured_logs()
@@ -327,7 +315,8 @@ where
                     if node_count > max_nodes {
                         trace!(
                             "Rejecting candidate with {} nodes (max: {})",
-                            node_count, max_nodes
+                            node_count,
+                            max_nodes
                         );
                         false
                     } else {
@@ -370,17 +359,14 @@ where
                 .map(|(_, name, desc, path)| (name.clone(), desc.clone(), path.clone()))
                 .collect();
 
-            // 候補のASTだけを取り出してSelectorに渡す
+            // 候補のASTだけを取り出してコスト計算
             let candidates: Vec<AstNode> = candidates_with_info
                 .into_iter()
                 .map(|(ast, _, _, _)| ast)
                 .collect();
 
-            // Selectorで全候補のコストを計算してソート（上位全件取得）
-            // select_with_indicesを使用してインデックスを保持
-            let all_with_cost_and_index = self
-                .selector
-                .select_with_indices(candidates, num_candidates);
+            // 全候補のコストを計算してソート（上位全件取得）
+            let all_with_cost_and_index = self.select_top_n(candidates, num_candidates);
 
             // ビーム用に上位beam_width個を取得
             let selected: Vec<_> = all_with_cost_and_index
@@ -608,10 +594,10 @@ where
     }
 }
 
-impl<S, Sel, P> AstOptimizer for BeamSearchOptimizer<S, Sel, P>
+impl<S, E, P> AstOptimizer for BeamSearchOptimizer<S, E, P>
 where
     S: AstSuggester,
-    Sel: AstSelector,
+    E: AstCostEstimator,
     P: SearchProgress,
 {
     fn optimize(&mut self, ast: AstNode) -> AstNode {

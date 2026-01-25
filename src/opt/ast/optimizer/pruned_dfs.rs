@@ -1,9 +1,11 @@
 //! 枝刈り付き深さ優先探索最適化器
 
+use std::cmp::Ordering;
+
 use super::BeamEntry;
 use crate::ast::AstNode;
+use crate::opt::ast::estimator::SimpleCostEstimator;
 use crate::opt::ast::history::{OptimizationHistory, OptimizationSnapshot};
-use crate::opt::ast::selector::{AstCostSelector, AstSelector};
 use crate::opt::ast::{AstCostEstimator, AstOptimizer, AstSuggester};
 use crate::opt::progress::{
     FinishInfo, IndicatifProgress, NoOpProgress, ProgressState, SearchProgress,
@@ -24,14 +26,14 @@ use std::time::Instant;
 /// - 最大ステップ数(`max_steps`)に達した
 /// - Suggesterから新しい提案がなくなった
 /// - コスト改善がない状態が続いた（`max_no_improvement_steps`）
-pub struct PrunedDfsOptimizer<S, Sel = AstCostSelector, P = IndicatifProgress>
+pub struct PrunedDfsOptimizer<S, E = SimpleCostEstimator, P = IndicatifProgress>
 where
     S: AstSuggester,
-    Sel: AstSelector,
+    E: AstCostEstimator,
     P: SearchProgress,
 {
     suggester: S,
-    selector: Sel,
+    estimator: E,
     /// 各ノードで探索する子候補の最大数（枝刈り幅）
     prune_width: usize,
     max_steps: usize,
@@ -41,7 +43,7 @@ where
     max_no_improvement_steps: Option<usize>,
 }
 
-impl<S> PrunedDfsOptimizer<S, AstCostSelector, IndicatifProgress>
+impl<S> PrunedDfsOptimizer<S, SimpleCostEstimator, IndicatifProgress>
 where
     S: AstSuggester,
 {
@@ -49,7 +51,7 @@ where
     pub fn new(suggester: S) -> Self {
         Self {
             suggester,
-            selector: AstCostSelector::new(),
+            estimator: SimpleCostEstimator::new(),
             prune_width: 10,
             max_steps: 10000,
             progress: if cfg!(debug_assertions) {
@@ -64,20 +66,20 @@ where
     }
 }
 
-impl<S, Sel, P> PrunedDfsOptimizer<S, Sel, P>
+impl<S, E, P> PrunedDfsOptimizer<S, E, P>
 where
     S: AstSuggester,
-    Sel: AstSelector,
+    E: AstCostEstimator,
     P: SearchProgress,
 {
-    /// カスタム選択器を設定
-    pub fn with_selector<NewSel>(self, selector: NewSel) -> PrunedDfsOptimizer<S, NewSel, P>
+    /// カスタムコスト推定器を設定
+    pub fn with_estimator<NewE>(self, estimator: NewE) -> PrunedDfsOptimizer<S, NewE, P>
     where
-        NewSel: AstSelector,
+        NewE: AstCostEstimator,
     {
         PrunedDfsOptimizer {
             suggester: self.suggester,
-            selector,
+            estimator,
             prune_width: self.prune_width,
             max_steps: self.max_steps,
             progress: self.progress,
@@ -100,10 +102,10 @@ where
     }
 
     /// カスタムプログレス表示器を設定
-    pub fn with_progress<P2: SearchProgress>(self, progress: P2) -> PrunedDfsOptimizer<S, Sel, P2> {
+    pub fn with_progress<P2: SearchProgress>(self, progress: P2) -> PrunedDfsOptimizer<S, E, P2> {
         PrunedDfsOptimizer {
             suggester: self.suggester,
-            selector: self.selector,
+            estimator: self.estimator,
             prune_width: self.prune_width,
             max_steps: self.max_steps,
             progress: Some(progress),
@@ -114,10 +116,10 @@ where
     }
 
     /// プログレス表示を無効化
-    pub fn without_progress(self) -> PrunedDfsOptimizer<S, Sel, NoOpProgress> {
+    pub fn without_progress(self) -> PrunedDfsOptimizer<S, E, NoOpProgress> {
         PrunedDfsOptimizer {
             suggester: self.suggester,
-            selector: self.selector,
+            estimator: self.estimator,
             prune_width: self.prune_width,
             max_steps: self.max_steps,
             progress: None,
@@ -144,20 +146,31 @@ where
         self.collect_logs = collect;
         self
     }
+
+    /// 候補をコストでソートして上位N件を返す
+    fn select_top_n(&self, candidates: Vec<AstNode>, n: usize) -> Vec<(AstNode, f32, usize)> {
+        let mut with_cost_and_index: Vec<(AstNode, f32, usize)> = candidates
+            .into_iter()
+            .enumerate()
+            .map(|(idx, c)| {
+                let cost = self.estimator.estimate(&c);
+                (c, cost, idx)
+            })
+            .collect();
+        with_cost_and_index.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
+        with_cost_and_index.into_iter().take(n).collect()
+    }
 }
 
-impl<S, Sel, P> PrunedDfsOptimizer<S, Sel, P>
+impl<S, E, P> PrunedDfsOptimizer<S, E, P>
 where
     S: AstSuggester,
-    Sel: AstSelector,
+    E: AstCostEstimator,
     P: SearchProgress,
 {
     /// 履歴を記録しながら最適化を実行
     pub fn optimize_with_history(&mut self, ast: AstNode) -> (AstNode, OptimizationHistory) {
-        use crate::opt::ast::estimator::SimpleCostEstimator;
-
         let start_time = Instant::now();
-        let static_estimator = SimpleCostEstimator::new();
 
         info!(
             "AST pruned DFS optimization started (prune_width={}, max_steps={}, max_nodes={:?})",
@@ -172,7 +185,7 @@ where
             path: vec![],
         }];
 
-        let initial_cost = static_estimator.estimate(&ast);
+        let initial_cost = self.estimator.estimate(&ast);
         info!("Initial AST cost: {:.2e}", initial_cost);
 
         // 初期状態を記録
@@ -251,14 +264,12 @@ where
             let num_candidates = filtered_candidates.len();
             trace!("Found {} candidates at step {}", num_candidates, step);
 
-            // ASTのみを取り出してSelectorでソート
+            // ASTのみを取り出してコスト計算・ソート
             let candidates: Vec<AstNode> = filtered_candidates
                 .iter()
                 .map(|(ast, _, _, _)| ast.clone())
                 .collect();
-            let sorted = self
-                .selector
-                .select_with_indices(candidates, num_candidates);
+            let sorted = self.select_top_n(candidates, num_candidates);
 
             // 最良の候補でグローバルベストを更新
             if let Some((best_ast, best_cost, best_idx)) = sorted.first() {
@@ -348,10 +359,10 @@ where
     }
 }
 
-impl<S, Sel, P> AstOptimizer for PrunedDfsOptimizer<S, Sel, P>
+impl<S, E, P> AstOptimizer for PrunedDfsOptimizer<S, E, P>
 where
     S: AstSuggester,
-    Sel: AstSelector,
+    E: AstCostEstimator,
     P: SearchProgress,
 {
     fn optimize(&mut self, ast: AstNode) -> AstNode {

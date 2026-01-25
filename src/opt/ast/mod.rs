@@ -2,7 +2,6 @@ pub mod estimator;
 pub mod history;
 pub mod optimizer;
 pub mod rules;
-pub mod selector;
 pub mod suggesters;
 pub mod transforms;
 
@@ -71,7 +70,6 @@ pub use history::{AlternativeCandidate, OptimizationHistory, OptimizationSnapsho
 pub use optimizer::{
     BeamSearchOptimizer, PrunedBfsOptimizer, PrunedDfsOptimizer, RuleBaseOptimizer,
 };
-pub use selector::{AstCostSelector, AstMultiStageSelector, AstSelector};
 pub use suggesters::{
     CompositeSuggester, CseSuggester, FunctionInliningSuggester, GroupParallelizationSuggester,
     LocalParallelizationSuggester, LoopFusionSuggester, LoopInliningSuggester,
