@@ -28,6 +28,7 @@
 //! ```
 
 pub mod cache;
+pub mod compile;
 pub mod device;
 pub mod executor;
 pub mod global;
@@ -77,6 +78,9 @@ pub use device::{
     BackendRegistry, DeviceError, EclatDevice, allocate_buffer_on_device, compile_ast_on_device,
     register_backend,
 };
+
+// Re-export compilation pipeline
+pub use compile::{CompilationPipeline, OptimizationConfig, mark_parallel_for_openmp};
 
 /// カーネルのシグネチャ（入出力バッファの形状情報）
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -15,17 +15,9 @@ use std::io::{self, Read, Write};
 
 use clap::{Parser, ValueEnum};
 
-use eclat::ast::{AstNode, ParallelInfo, ParallelKind};
+use eclat::ast::AstNode;
 use eclat::backend::renderer::Renderer;
-use eclat::lowerer::Lowerer;
-#[cfg(not(feature = "viz"))]
-use eclat::opt::ast::AstOptimizer;
-use eclat::opt::ast::rules::all_algebraic_rules;
-use eclat::opt::ast::{
-    AstSuggester, BeamSearchOptimizer, CompositeSuggester, FunctionInliningSuggester,
-    GroupParallelizationSuggester, LocalParallelizationSuggester, LoopFusionSuggester,
-    LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester, RuleBaseSuggester,
-};
+use eclat::backend::{CompilationPipeline, DeviceKind, OptimizationConfig, mark_parallel_for_openmp};
 use eclat_backend_c::CRenderer;
 use eclat_backend_cuda::CudaRenderer;
 #[cfg(target_os = "macos")]
@@ -111,6 +103,17 @@ impl Backend {
             Backend::Opencl => "cl",
             Backend::Rust => "rs",
             Backend::Openmp => "c",
+        }
+    }
+
+    fn to_device_kind(&self) -> DeviceKind {
+        match self {
+            Backend::C => DeviceKind::C,
+            Backend::Cuda => DeviceKind::Cuda,
+            Backend::Metal => DeviceKind::Metal,
+            Backend::Opencl => DeviceKind::OpenCL,
+            Backend::Rust => DeviceKind::Rust,
+            Backend::Openmp => DeviceKind::OpenMP,
         }
     }
 }
@@ -199,6 +202,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    // Create compilation pipeline
+    let device_kind = args.backend.to_device_kind();
+    let opt_config = OptimizationConfig::level(args.opt_level);
+    let pipeline = CompilationPipeline::new(device_kind)
+        .with_optimization(opt_config);
+
     // Lower to AST
     if args.verbose {
         eprintln!("Lowering to AST...");
@@ -206,8 +215,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut all_asts = Vec::new();
     for graph in &built_graphs {
-        let mut lowerer = Lowerer::new();
-        let ast = lowerer.lower(&[graph.output.clone()]);
+        let ast = pipeline.lower(&[graph.output.clone()]);
         all_asts.push((graph.name.clone(), ast));
     }
 
@@ -220,49 +228,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("Optimizing AST (level {})...", args.opt_level);
         }
 
-        // Configure optimization based on level and backend
-        let (beam_width, max_steps) = match args.opt_level {
-            1 => (4, 50),
-            2 => (8, 100),
-            3 => (16, 200),
-            _ => (4, 50),
-        };
-
-        // Build suggesters based on backend capabilities
-        let rules = all_algebraic_rules();
-        let mut suggesters: Vec<Box<dyn AstSuggester>> = vec![
-            // Rule-based (algebraic transformations, constant folding)
-            Box::new(RuleBaseSuggester::new(rules)),
-            // Loop transformations
-            Box::new(LoopTilingSuggester::new()),
-            Box::new(LoopInliningSuggester::new()),
-            Box::new(LoopInterchangeSuggester::new()),
-            Box::new(LoopFusionSuggester::new()),
-            Box::new(FunctionInliningSuggester::with_default_limit()),
-        ];
-
-        // Add parallelization suggester for GPU backends
-        let is_gpu_backend = matches!(
-            args.backend,
-            Backend::Cuda | Backend::Metal | Backend::Opencl
-        );
-        if is_gpu_backend {
-            suggesters.push(Box::new(GroupParallelizationSuggester::new()));
-            suggesters.push(Box::new(LocalParallelizationSuggester::new()));
-        }
-
-        let suggester = CompositeSuggester::new(suggesters);
-        let mut optimizer = BeamSearchOptimizer::new(suggester)
-            .with_beam_width(beam_width)
-            .with_max_steps(max_steps)
-            .without_progress();
-
         #[cfg(feature = "viz")]
         {
             all_asts = all_asts
                 .into_iter()
                 .map(|(name, ast)| {
-                    let (optimized, history) = optimizer.optimize_with_history(ast);
+                    let (optimized, history) = pipeline.optimize_with_history(ast);
                     all_histories.push(history);
                     (name, optimized)
                 })
@@ -274,7 +245,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             all_asts = all_asts
                 .into_iter()
                 .map(|(name, ast)| {
-                    let optimized = optimizer.optimize(ast);
+                    let optimized = pipeline.optimize(ast);
                     (name, optimized)
                 })
                 .collect();
@@ -449,88 +420,6 @@ fn write_output(path: &str, content: &str) -> io::Result<()> {
     Ok(())
 }
 
-/// Mark outermost loops as parallel for OpenMP
-fn mark_parallel_for_openmp(ast: AstNode) -> AstNode {
-    mark_parallel_recursive(ast, true)
-}
-
-fn mark_parallel_recursive(ast: AstNode, is_outermost: bool) -> AstNode {
-    match ast {
-        AstNode::Program {
-            functions,
-            execution_waves,
-        } => {
-            let functions = functions
-                .into_iter()
-                .map(|f| mark_parallel_recursive(f, true))
-                .collect();
-            AstNode::Program {
-                functions,
-                execution_waves,
-            }
-        }
-        AstNode::Kernel {
-            name,
-            params,
-            return_type,
-            body,
-            default_grid_size,
-            default_thread_group_size,
-        } => AstNode::Kernel {
-            name,
-            params,
-            return_type,
-            body: Box::new(mark_parallel_recursive(*body, true)),
-            default_grid_size,
-            default_thread_group_size,
-        },
-        AstNode::Range {
-            var,
-            start,
-            step,
-            stop,
-            body,
-            parallel,
-        } => {
-            // Mark outermost loop as parallel, inner loops stay sequential
-            let new_parallel = if is_outermost {
-                ParallelInfo {
-                    is_parallel: true,
-                    kind: ParallelKind::OpenMP,
-                    reductions: parallel.reductions,
-                }
-            } else {
-                parallel
-            };
-            AstNode::Range {
-                var,
-                start,
-                step,
-                stop,
-                body: Box::new(mark_parallel_recursive(*body, false)),
-                parallel: new_parallel,
-            }
-        }
-        AstNode::Block { statements, scope } => {
-            let statements = statements
-                .into_iter()
-                .map(|s| mark_parallel_recursive(s, is_outermost))
-                .collect();
-            AstNode::Block { statements, scope }
-        }
-        AstNode::If {
-            condition,
-            then_body,
-            else_body,
-        } => AstNode::If {
-            condition,
-            then_body: Box::new(mark_parallel_recursive(*then_body, false)),
-            else_body: else_body.map(|e| Box::new(mark_parallel_recursive(*e, false))),
-        },
-        // Other nodes pass through unchanged
-        other => other,
-    }
-}
 
 /// Launch optimization visualization TUI
 #[cfg(feature = "viz")]

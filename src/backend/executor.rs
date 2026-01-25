@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 
+use crate::backend::compile::CompilationPipeline;
 use crate::backend::traits::Buffer;
 use crate::graph::{GraphInner, GraphNode, collect_inputs};
 
@@ -152,7 +153,6 @@ pub fn execute_graph(
     use crate::ast::AstNode;
     use crate::backend::DeviceKind;
     use crate::backend::global::{allocate_buffer_on_default_device, get_default_device_kind};
-    use crate::lowerer::Lowerer;
 
     // 1. Check device is set
     let device_kind = get_default_device_kind();
@@ -164,9 +164,10 @@ pub fn execute_graph(
         return Ok(ExecutionResult::new());
     }
 
-    // 2. Lower graph to AST
-    let mut lowerer = Lowerer::new();
-    let program = lowerer.lower(roots);
+    // 2. Lower and optimize graph using CompilationPipeline
+    let pipeline = CompilationPipeline::from_default_device();
+    let (ast, lowerer) = pipeline.lower_with_lowerer(roots);
+    let program = pipeline.optimize(ast);
 
     // 3. Extract kernel info from the program
     let kernels = match &program {
