@@ -240,8 +240,8 @@ impl CompilationPipeline {
     ) -> (AstNode, crate::opt::ast::history::OptimizationHistory) {
         if self.opt_config.level == 0 {
             return (
-                ast.clone(),
-                crate::opt::ast::history::OptimizationHistory::new(ast),
+                ast,
+                crate::opt::ast::history::OptimizationHistory::new(),
             );
         }
 

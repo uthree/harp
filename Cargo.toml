@@ -8,6 +8,10 @@ version = "0.1.0"
 edition = "2024"
 description = "Eclat: A transpiler for AI accelerators"
 
+[features]
+default = []
+viz = []
+
 [dependencies]
 # Core dependencies
 directories = "5"

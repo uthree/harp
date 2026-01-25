@@ -10,7 +10,7 @@ path = "src/main.rs"
 
 [features]
 default = []
-viz = ["dep:eclat-viz"]
+viz = ["dep:eclat-viz", "eclat/viz"]
 
 [dependencies]
 eclat = { path = "../.." }
