@@ -115,6 +115,8 @@ pub struct Lowerer {
     kernels: Vec<AstNode>,
     /// Loop generator
     loop_gen: LoopGenerator,
+    /// Consumer count for each node (used for View inlining decisions)
+    consumer_counts: HashMap<*const crate::graph::GraphInner, usize>,
 }
 
 impl Default for Lowerer {
@@ -134,12 +136,92 @@ impl Lowerer {
             shape_map: HashMap::new(),
             kernels: Vec::new(),
             loop_gen: LoopGenerator::new(),
+            consumer_counts: HashMap::new(),
         }
     }
 
     /// Get the index generator
     pub fn index_gen(&self) -> &IndexGenerator {
         self.loop_gen.index_gen()
+    }
+
+    // =========================================================================
+    // View inlining support
+    // =========================================================================
+
+    /// Count consumers for each node in the graph
+    ///
+    /// Used to determine if a View can be inlined (single consumer = safe to inline)
+    fn count_consumers(nodes: &[GraphNode]) -> HashMap<*const crate::graph::GraphInner, usize> {
+        use std::collections::HashSet;
+
+        let mut counts: HashMap<*const crate::graph::GraphInner, usize> = HashMap::new();
+        let mut visited = HashSet::new();
+
+        fn traverse(
+            node: &GraphNode,
+            counts: &mut HashMap<*const crate::graph::GraphInner, usize>,
+            visited: &mut HashSet<*const crate::graph::GraphInner>,
+        ) {
+            let ptr = std::rc::Rc::as_ptr(&node.0);
+            if visited.contains(&ptr) {
+                return;
+            }
+            visited.insert(ptr);
+
+            for src in node.sources() {
+                let src_ptr = std::rc::Rc::as_ptr(&src.0);
+                *counts.entry(src_ptr).or_insert(0) += 1;
+                traverse(&src, counts, visited);
+            }
+        }
+
+        for node in nodes {
+            traverse(node, &mut counts, &mut visited);
+        }
+
+        counts
+    }
+
+    /// Get the consumer count for a node
+    fn consumer_count(&self, node: &GraphNode) -> usize {
+        let ptr = std::rc::Rc::as_ptr(&node.0);
+        self.consumer_counts.get(&ptr).copied().unwrap_or(0)
+    }
+
+    /// Check if a View node can be inlined into its consumer
+    ///
+    /// A View can be inlined if:
+    /// 1. It has at most one consumer
+    /// 2. It has sources (not an external input)
+    /// Multiple consumers require a buffer to avoid redundant computation.
+    fn can_inline_view(&self, view_node: &GraphNode) -> bool {
+        // External inputs or nodes without sources cannot be inlined
+        if view_node.is_external() || view_node.sources().is_empty() {
+            return false;
+        }
+        self.consumer_count(view_node) <= 1
+    }
+
+    /// Resolve a chain of View operations to find the actual data source
+    ///
+    /// Returns (actual_source, composed_view) where:
+    /// - actual_source: The first non-View node (or View that can't be inlined)
+    /// - composed_view: The combined View transformation from actual_source to the original node
+    fn resolve_view_chain(&self, node: &GraphNode) -> (GraphNode, View) {
+        match node.op() {
+            GraphOp::View(_) if self.can_inline_view(node) => {
+                // View can be inlined: recursively resolve source
+                let (inner_src, inner_view) = self.resolve_view_chain(&node.sources()[0]);
+                // Compose: node's view applied to inner_view
+                let composed = View::compose(node.view(), &inner_view);
+                (inner_src, composed)
+            }
+            _ => {
+                // Not a View or can't be inlined: this is our actual source
+                (node.clone(), node.view().clone())
+            }
+        }
     }
 
     /// Generate a new unique buffer name
@@ -224,6 +306,9 @@ impl Lowerer {
         // Get topological order
         let sorted = topological_sort(&fused);
 
+        // Compute consumer counts for View inlining decisions
+        self.consumer_counts = Self::count_consumers(&sorted);
+
         // Identify external inputs
         let inputs = collect_inputs(&fused);
         for input in &inputs {
@@ -233,8 +318,9 @@ impl Lowerer {
         // Generate kernels for each non-input node
         for node in sorted {
             if !node.is_external() {
-                let kernel = self.lower_node(&node)?;
-                self.kernels.push(kernel);
+                if let Some(kernel) = self.lower_node(&node)? {
+                    self.kernels.push(kernel);
+                }
             }
         }
 
@@ -246,12 +332,19 @@ impl Lowerer {
     }
 
     /// Lower a single graph node to a Kernel AST
-    fn lower_node(&mut self, node: &GraphNode) -> LoweringResult<AstNode> {
+    ///
+    /// Returns `Ok(None)` for View nodes that can be inlined into consumers.
+    fn lower_node(&mut self, node: &GraphNode) -> LoweringResult<Option<AstNode>> {
+        // Check if this View can be inlined (skip kernel generation)
+        if matches!(node.op(), GraphOp::View(_)) && self.can_inline_view(node) {
+            return Ok(None);
+        }
+
         let output_buf = self.get_buffer_name(node);
 
         let result = match node.op() {
             GraphOp::View(_view) => {
-                // View operation: just copy with index transformation
+                // View operation that cannot be inlined: generate copy kernel
                 self.lower_view(node, &output_buf)
             }
             GraphOp::MapReduce { map, reduce } => {
@@ -289,31 +382,32 @@ impl Lowerer {
             } => self.lower_scan(node, &output_buf, map, *scan_op, *axis, *exclusive),
         };
 
-        Ok(result)
+        Ok(Some(result))
     }
 
     /// Collect buffer info for input sources (deduplicated)
-    fn collect_input_buffers(&self, node: &GraphNode) -> Vec<BufferInfo> {
+    ///
+    /// Resolves View chains to use the actual source buffers.
+    fn collect_input_buffers(&mut self, node: &GraphNode) -> Vec<BufferInfo> {
         let mut seen = std::collections::HashSet::new();
-        node.sources()
-            .iter()
-            .filter_map(|src| {
-                let name = {
-                    let ptr = std::rc::Rc::as_ptr(&src.0);
-                    self.buffer_map.get(&ptr).cloned().unwrap_or_default()
-                };
-                // Only include if we haven't seen this buffer name before
-                if seen.insert(name.clone()) {
-                    Some(BufferInfo {
-                        name,
-                        dtype: self.get_buffer_dtype(src),
-                        shape: src.shape().clone(),
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect()
+        let mut result = Vec::new();
+
+        for src in node.sources() {
+            // Resolve View chain to get actual source
+            let (actual_src, _) = self.resolve_view_chain(&src);
+            let name = self.get_buffer_name(&actual_src);
+
+            // Only include if we haven't seen this buffer name before
+            if seen.insert(name.clone()) {
+                result.push(BufferInfo {
+                    name,
+                    dtype: self.get_buffer_dtype(&actual_src),
+                    shape: actual_src.shape().clone(),
+                });
+            }
+        }
+
+        result
     }
 
     /// Prepare kernel context (common setup for all kernel-lowering methods)
@@ -725,13 +819,17 @@ impl Lowerer {
     /// Substitute Wildcard nodes with Load operations
     ///
     /// Creates a mapping from wildcard IDs ("0", "1", ...) to Load operations
-    /// for each source, then uses AstNode::substitute for the actual replacement.
+    /// for each source. Resolves View chains to load directly from the actual
+    /// source with composed index expressions.
     fn substitute_wildcards(&mut self, node: &GraphNode, expr: &AstNode) -> AstNode {
         let mut mappings = std::collections::HashMap::new();
 
         for (i, src) in node.sources().iter().enumerate() {
-            let src_buf = self.get_buffer_name(src);
-            let idx = self.index_gen().view_to_index(src.view());
+            // Resolve View chain to get actual source and composed view
+            let (actual_src, view_for_indexing) = self.resolve_view_chain(src);
+
+            let src_buf = self.get_buffer_name(&actual_src);
+            let idx = self.index_gen().view_to_index(&view_for_indexing);
             let load = AstNode::Load {
                 ptr: Box::new(AstNode::Var(src_buf)),
                 offset: Box::new(idx),
@@ -977,6 +1075,109 @@ mod tests {
                     "Expected 'seq_len' shape variable"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn test_view_mapreduce_fusion() {
+        // Test that View operations are fused into MapReduce operations
+        // expand(unsqueeze(x)) + y should not generate separate View kernels
+
+        let x = input(vec![Expr::Const(4), Expr::Const(8)], DType::F32).with_name("x");
+        let y = input(vec![Expr::Const(4), Expr::Const(8), Expr::Const(16)], DType::F32).with_name("y");
+
+        // Create expanded tensor through unsqueeze + expand
+        // [4, 8] → [4, 8, 1] → [4, 8, 16]
+        let expanded = x.unsqueeze(2).expand(2, Expr::Const(16));
+
+        // Elementwise operation: expanded + y (each view is used once)
+        let result = &expanded + &y;
+
+        let mut lowerer = Lowerer::new();
+        let program = lowerer.lower(&[result]).expect("Lowering should succeed");
+
+        // Verify: should have only 1 kernel (the elementwise operation)
+        // The View operations (unsqueeze, expand) should be inlined
+        if let AstNode::Program { functions, .. } = &program {
+            assert_eq!(
+                functions.len(),
+                1,
+                "View operations should be fused into MapReduce, expected 1 kernel but got {}",
+                functions.len()
+            );
+
+            // Verify the kernel is an elementwise operation (E_)
+            if let AstNode::Kernel { name, .. } = &functions[0] {
+                let kernel_name = name.as_ref().unwrap();
+                assert!(
+                    kernel_name.starts_with("E_"),
+                    "Expected elementwise kernel, got: {}",
+                    kernel_name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_view_mapreduce_fusion_with_reduction() {
+        // Test View→MapReduce fusion with reduction: expand → mul → sum
+        // This simulates a common matmul pattern
+
+        let a = input(vec![Expr::Const(4), Expr::Const(8)], DType::F32).with_name("a");
+        let b = input(vec![Expr::Const(8), Expr::Const(16)], DType::F32).with_name("b");
+
+        // Expand a: [4, 8] → [4, 8, 1] → [4, 8, 16]
+        let a_exp = a.unsqueeze(2).expand(2, Expr::Const(16));
+
+        // Expand b: [8, 16] → [1, 8, 16] → [4, 8, 16]
+        let b_exp = b.unsqueeze(0).expand(0, Expr::Const(4));
+
+        // Multiply and reduce (matmul-like operation)
+        let prod = &a_exp * &b_exp;
+        let result = prod.sum(1); // [4, 16]
+
+        let mut lowerer = Lowerer::new();
+        let program = lowerer.lower(&[result]).expect("Lowering should succeed");
+
+        // Should have 2 kernels: elementwise mul and reduce
+        // The 4 View operations should all be inlined
+        if let AstNode::Program { functions, .. } = &program {
+            assert!(
+                functions.len() <= 2,
+                "View operations should be fused, expected at most 2 kernels but got {}",
+                functions.len()
+            );
+        }
+    }
+
+    #[test]
+    fn test_view_not_inlined_with_multiple_consumers() {
+        // Test that Views with multiple consumers are NOT inlined
+        // They require a buffer because the result is used multiple times
+
+        let x = input(vec![Expr::Const(4), Expr::Const(8)], DType::F32).with_name("x");
+
+        // Create expanded tensor
+        let expanded = x.unsqueeze(2);
+
+        // Use expanded tensor in two different operations
+        let a = &expanded + &expanded; // consumer 1
+        let b = &expanded * &expanded; // consumer 2
+
+        // Combine results
+        let result = &a + &b;
+
+        let mut lowerer = Lowerer::new();
+        let program = lowerer.lower(&[result]).expect("Lowering should succeed");
+
+        // With multiple consumers, View should get its own kernel
+        if let AstNode::Program { functions, .. } = &program {
+            // Should have at least 2 kernels (View + combined elementwise ops)
+            // The exact number depends on fusion, but View cannot be fully inlined
+            assert!(
+                functions.len() >= 2,
+                "View with multiple consumers should not be fully inlined"
+            );
         }
     }
 }
