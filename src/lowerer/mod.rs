@@ -28,4 +28,4 @@ mod tests;
 pub use fusion::{FusionPass, fuse_elementwise_reduce, fuse_views};
 pub use index_gen::IndexGenerator;
 pub use loop_gen::LoopGenerator;
-pub use lower::Lowerer;
+pub use lower::{Lowerer, LoweringError, LoweringResult};

@@ -192,7 +192,11 @@ impl CompilationPipeline {
     /// This is the first stage of compilation. It converts the computation
     /// graph into an AST representation suitable for optimization and code
     /// generation.
-    pub fn lower(&self, roots: &[GraphNode]) -> AstNode {
+    ///
+    /// # Errors
+    ///
+    /// Returns `LoweringError` if lowering fails.
+    pub fn lower(&self, roots: &[GraphNode]) -> crate::lowerer::LoweringResult<AstNode> {
         let mut lowerer = Lowerer::new();
         lowerer.lower(roots)
     }
@@ -200,10 +204,14 @@ impl CompilationPipeline {
     /// Lower GraphNode DAG to AST, returning the Lowerer for buffer name lookups
     ///
     /// Use this when you need to map between GraphNode and buffer names.
-    pub fn lower_with_lowerer(&self, roots: &[GraphNode]) -> (AstNode, Lowerer) {
+    ///
+    /// # Errors
+    ///
+    /// Returns `LoweringError` if lowering fails.
+    pub fn lower_with_lowerer(&self, roots: &[GraphNode]) -> crate::lowerer::LoweringResult<(AstNode, Lowerer)> {
         let mut lowerer = Lowerer::new();
-        let ast = lowerer.lower(roots);
-        (ast, lowerer)
+        let ast = lowerer.lower(roots)?;
+        Ok((ast, lowerer))
     }
 
     /// Optimize AST using beam search
@@ -419,7 +427,7 @@ mod tests {
         let z = &x + &y;
 
         let pipeline = CompilationPipeline::new(DeviceKind::C);
-        let ast = pipeline.lower(&[z]);
+        let ast = pipeline.lower(&[z]).expect("Lowering should succeed");
 
         assert!(matches!(ast, AstNode::Program { .. }));
     }
@@ -430,7 +438,7 @@ mod tests {
         let y = &x * &x;
 
         let pipeline = CompilationPipeline::new(DeviceKind::C).with_opt_level(1);
-        let ast = pipeline.lower(&[y]);
+        let ast = pipeline.lower(&[y]).expect("Lowering should succeed");
         let optimized = pipeline.optimize(ast);
 
         assert!(matches!(optimized, AstNode::Program { .. }));

@@ -99,7 +99,7 @@ fn demo_graph_lowering(m: i64, k: i64, n: i64) {
     // Lower to AST
     println!("Lowering to AST...");
     let mut lowerer = Lowerer::new();
-    let program = lowerer.lower(&[c]);
+    let program = lowerer.lower(&[c]).expect("Lowering should succeed");
 
     println!("Generated Program:");
     print_program_structure(&program);

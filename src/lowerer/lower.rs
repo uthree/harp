@@ -4,6 +4,7 @@
 //! computation graph nodes into executable AST kernels.
 
 use std::collections::HashMap;
+use std::fmt;
 
 use crate::ast::{AstNode, DType, Literal, Mutability, VarDecl, VarKind};
 use crate::graph::{Expr, GraphNode, GraphOp, ReduceOp, View, collect_inputs, topological_sort};
@@ -13,12 +14,61 @@ use super::fusion::FusionPass;
 use super::index_gen::IndexGenerator;
 use super::loop_gen::LoopGenerator;
 
+/// Errors that can occur during lowering
+#[derive(Debug, Clone)]
+pub enum LoweringError {
+    /// Buffer not found for a graph node
+    BufferNotFound { node_info: String },
+    /// Invalid wildcard ID in expression
+    InvalidWildcardId { id: String },
+    /// Unsupported operation type
+    UnsupportedOperation { op_name: String },
+    /// Shape mismatch during lowering
+    ShapeMismatch { expected: String, actual: String },
+    /// Internal error (unexpected state)
+    InternalError { message: String },
+}
+
+impl fmt::Display for LoweringError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LoweringError::BufferNotFound { node_info } => {
+                write!(f, "Buffer not found for node: {}", node_info)
+            }
+            LoweringError::InvalidWildcardId { id } => {
+                write!(f, "Invalid wildcard ID: {}", id)
+            }
+            LoweringError::UnsupportedOperation { op_name } => {
+                write!(f, "Unsupported operation: {}", op_name)
+            }
+            LoweringError::ShapeMismatch { expected, actual } => {
+                write!(f, "Shape mismatch: expected {}, got {}", expected, actual)
+            }
+            LoweringError::InternalError { message } => {
+                write!(f, "Internal error: {}", message)
+            }
+        }
+    }
+}
+
+impl std::error::Error for LoweringError {}
+
+/// Result type for lowering operations
+pub type LoweringResult<T> = Result<T, LoweringError>;
+
 /// Buffer information for kernel parameters
 #[derive(Clone, Debug)]
 struct BufferInfo {
     name: String,
     dtype: DType,
     shape: Vec<crate::graph::Expr>,
+}
+
+/// Context for kernel generation (reduces code duplication)
+struct KernelContext {
+    kernel_name: String,
+    input_buffers: Vec<BufferInfo>,
+    output_buffer: BufferInfo,
 }
 
 /// Kernel operation type for naming (tinygrad-style)
@@ -160,7 +210,14 @@ impl Lowerer {
     /// 2. Topologically sorts nodes
     /// 3. Generates a kernel for each non-input node
     /// 4. Wraps everything in a Program node
-    pub fn lower(&mut self, roots: &[GraphNode]) -> AstNode {
+    ///
+    /// # Errors
+    ///
+    /// Returns `LoweringError` if:
+    /// - An unsupported operation is encountered
+    /// - Buffer lookup fails
+    /// - Shape validation fails
+    pub fn lower(&mut self, roots: &[GraphNode]) -> LoweringResult<AstNode> {
         // Apply fusion passes
         let fused = AllFusions.apply(roots);
 
@@ -176,23 +233,23 @@ impl Lowerer {
         // Generate kernels for each non-input node
         for node in sorted {
             if !node.is_external() {
-                let kernel = self.lower_node(&node);
+                let kernel = self.lower_node(&node)?;
                 self.kernels.push(kernel);
             }
         }
 
         // Create Program node
-        AstNode::Program {
+        Ok(AstNode::Program {
             functions: self.kernels.clone(),
             execution_waves: vec![], // TODO: dependency analysis
-        }
+        })
     }
 
     /// Lower a single graph node to a Kernel AST
-    fn lower_node(&mut self, node: &GraphNode) -> AstNode {
+    fn lower_node(&mut self, node: &GraphNode) -> LoweringResult<AstNode> {
         let output_buf = self.get_buffer_name(node);
 
-        match node.op() {
+        let result = match node.op() {
             GraphOp::View(_view) => {
                 // View operation: just copy with index transformation
                 self.lower_view(node, &output_buf)
@@ -230,7 +287,9 @@ impl Lowerer {
                 axis,
                 exclusive,
             } => self.lower_scan(node, &output_buf, map, *scan_op, *axis, *exclusive),
-        }
+        };
+
+        Ok(result)
     }
 
     /// Collect buffer info for input sources (deduplicated)
@@ -257,26 +316,46 @@ impl Lowerer {
             .collect()
     }
 
+    /// Prepare kernel context (common setup for all kernel-lowering methods)
+    fn prepare_kernel_context(
+        &mut self,
+        node: &GraphNode,
+        output_buf: &str,
+        op_type: KernelOpType,
+        output_shape: Option<&[Expr]>,
+    ) -> KernelContext {
+        let input_buffers = self.collect_input_buffers(node);
+        let output_buffer = BufferInfo {
+            name: output_buf.to_string(),
+            dtype: node.dtype().clone(),
+            shape: output_shape
+                .map(|s| s.to_vec())
+                .unwrap_or_else(|| node.shape().clone()),
+        };
+        let kernel_name = self.generate_kernel_name(op_type, node);
+        KernelContext {
+            kernel_name,
+            input_buffers,
+            output_buffer,
+        }
+    }
+
+    /// Finalize kernel by wrapping body with make_kernel
+    fn finalize_kernel(&mut self, ctx: KernelContext, body: AstNode) -> AstNode {
+        self.make_kernel(&ctx.kernel_name, body, ctx.input_buffers, ctx.output_buffer)
+    }
+
     /// Lower a View operation
     fn lower_view(&mut self, node: &GraphNode, output_buf: &str) -> AstNode {
+        let ctx = self.prepare_kernel_context(node, output_buf, KernelOpType::Copy, None);
+
         let shape = node.shape();
         let output_idx = self.index_gen().view_to_index(node.view());
-
-        // Generate tinygrad-style kernel name
-        let kernel_name = self.generate_kernel_name(KernelOpType::Copy, node);
 
         // Get source buffer and index
         let src = &node.sources()[0];
         let src_buf = self.get_buffer_name(src);
         let src_idx = self.index_gen().view_to_index(src.view());
-
-        // Collect buffer info
-        let input_buffers = self.collect_input_buffers(node);
-        let output_buffer = BufferInfo {
-            name: output_buf.to_string(),
-            dtype: node.dtype().clone(),
-            shape: node.shape().clone(),
-        };
 
         // Load from source, store to output
         let load = AstNode::Load {
@@ -294,24 +373,15 @@ impl Lowerer {
 
         let body = self.loop_gen.generate_loops(&shape, store);
 
-        self.make_kernel(&kernel_name, body, input_buffers, output_buffer)
+        self.finalize_kernel(ctx, body)
     }
 
     /// Lower an elementwise (MapReduce with reduce=None) operation
     fn lower_elementwise(&mut self, node: &GraphNode, output_buf: &str, map: &AstNode) -> AstNode {
+        let ctx = self.prepare_kernel_context(node, output_buf, KernelOpType::Elementwise, None);
+
         let shape = node.shape();
         let output_idx = self.index_gen().view_to_index(node.view());
-
-        // Generate tinygrad-style kernel name
-        let kernel_name = self.generate_kernel_name(KernelOpType::Elementwise, node);
-
-        // Collect buffer info
-        let input_buffers = self.collect_input_buffers(node);
-        let output_buffer = BufferInfo {
-            name: output_buf.to_string(),
-            dtype: node.dtype().clone(),
-            shape: node.shape().clone(),
-        };
 
         // Substitute Wildcards with Load operations
         let element_expr = self.substitute_wildcards(node, map);
@@ -324,7 +394,7 @@ impl Lowerer {
 
         let body = self.loop_gen.generate_loops(&shape, store);
 
-        self.make_kernel(&kernel_name, body, input_buffers, output_buffer)
+        self.finalize_kernel(ctx, body)
     }
 
     /// Lower a reduction operation
@@ -336,20 +406,11 @@ impl Lowerer {
         reduce_op: ReduceOp,
         axis: usize,
     ) -> AstNode {
+        let ctx = self.prepare_kernel_context(node, output_buf, KernelOpType::Reduce, None);
+
         // Use source shape for iteration (before reduction)
         let src = &node.sources()[0];
         let src_shape = src.shape();
-
-        // Generate tinygrad-style kernel name
-        let kernel_name = self.generate_kernel_name(KernelOpType::Reduce, node);
-
-        // Collect buffer info
-        let input_buffers = self.collect_input_buffers(node);
-        let output_buffer = BufferInfo {
-            name: output_buf.to_string(),
-            dtype: node.dtype().clone(),
-            shape: node.shape().clone(),
-        };
 
         // Output index for reduce: substitute the reduce axis index with 0
         // since the output dimension at the reduce axis has size 1
@@ -382,7 +443,7 @@ impl Lowerer {
             combine_expr,
         );
 
-        self.make_kernel(&kernel_name, body, input_buffers, output_buffer)
+        self.finalize_kernel(ctx, body)
     }
 
     /// Lower a Scatter operation (fold)
@@ -404,20 +465,11 @@ impl Lowerer {
     ) -> AstNode {
         use crate::ast::Scope;
 
+        let ctx = self.prepare_kernel_context(node, output_buf, KernelOpType::Scatter, Some(output_shape));
+
         let src = &node.sources()[0];
         let src_shape = src.shape();
         let dtype = node.dtype().clone();
-
-        // Generate kernel name
-        let kernel_name = self.generate_kernel_name(KernelOpType::Scatter, node);
-
-        // Collect buffer info
-        let input_buffers = self.collect_input_buffers(node);
-        let output_buffer = BufferInfo {
-            name: output_buf.to_string(),
-            dtype: dtype.clone(),
-            shape: output_shape.to_vec(),
-        };
 
         // --- Step 1: Initialize output to zero ---
         let output_view = View::contiguous(output_shape.to_vec());
@@ -498,7 +550,7 @@ impl Lowerer {
             scope: Box::new(Scope::new()),
         };
 
-        self.make_kernel(&kernel_name, body, input_buffers, output_buffer)
+        self.finalize_kernel(ctx, body)
     }
 
     /// Lower a Scan (cumulative) operation
@@ -516,20 +568,11 @@ impl Lowerer {
         axis: usize,
         _exclusive: bool, // Reserved for future use
     ) -> AstNode {
+        let ctx = self.prepare_kernel_context(node, output_buf, KernelOpType::Scan, None);
+
         // Use source shape for iteration (output shape is the same)
         let src = &node.sources()[0];
         let src_shape = src.shape();
-
-        // Generate kernel name
-        let kernel_name = self.generate_kernel_name(KernelOpType::Scan, node);
-
-        // Collect buffer info
-        let input_buffers = self.collect_input_buffers(node);
-        let output_buffer = BufferInfo {
-            name: output_buf.to_string(),
-            dtype: node.dtype().clone(),
-            shape: node.shape().clone(), // Same as input shape
-        };
 
         // Output index: same indexing as input (shape is preserved)
         let output_idx = self.index_gen().view_to_index(node.view());
@@ -559,7 +602,7 @@ impl Lowerer {
             combine_expr,
         );
 
-        self.make_kernel(&kernel_name, body, input_buffers, output_buffer)
+        self.finalize_kernel(ctx, body)
     }
 
     /// Collect symbolic shape variables from shapes
@@ -680,69 +723,25 @@ impl Lowerer {
     }
 
     /// Substitute Wildcard nodes with Load operations
+    ///
+    /// Creates a mapping from wildcard IDs ("0", "1", ...) to Load operations
+    /// for each source, then uses AstNode::substitute for the actual replacement.
     fn substitute_wildcards(&mut self, node: &GraphNode, expr: &AstNode) -> AstNode {
-        match expr {
-            AstNode::Wildcard(id) => {
-                // Parse the wildcard ID to get source index
-                let src_idx: usize = id.parse().unwrap_or(0);
-                if src_idx < node.sources().len() {
-                    let src = &node.sources()[src_idx];
-                    let src_buf = self.get_buffer_name(src);
-                    let idx = self.index_gen().view_to_index(src.view());
+        let mut mappings = std::collections::HashMap::new();
 
-                    AstNode::Load {
-                        ptr: Box::new(AstNode::Var(src_buf)),
-                        offset: Box::new(idx),
-                        count: 1,
-                        dtype: src.dtype().clone(),
-                    }
-                } else {
-                    expr.clone()
-                }
-            }
-            // Recursively substitute in compound expressions
-            AstNode::Add(a, b) => AstNode::Add(
-                Box::new(self.substitute_wildcards(node, a)),
-                Box::new(self.substitute_wildcards(node, b)),
-            ),
-            AstNode::Mul(a, b) => AstNode::Mul(
-                Box::new(self.substitute_wildcards(node, a)),
-                Box::new(self.substitute_wildcards(node, b)),
-            ),
-            AstNode::Max(a, b) => AstNode::Max(
-                Box::new(self.substitute_wildcards(node, a)),
-                Box::new(self.substitute_wildcards(node, b)),
-            ),
-            AstNode::Recip(a) => AstNode::Recip(Box::new(self.substitute_wildcards(node, a))),
-            AstNode::Sqrt(a) => AstNode::Sqrt(Box::new(self.substitute_wildcards(node, a))),
-            AstNode::Log2(a) => AstNode::Log2(Box::new(self.substitute_wildcards(node, a))),
-            AstNode::Exp2(a) => AstNode::Exp2(Box::new(self.substitute_wildcards(node, a))),
-            AstNode::Sin(a) => AstNode::Sin(Box::new(self.substitute_wildcards(node, a))),
-            AstNode::Floor(a) => AstNode::Floor(Box::new(self.substitute_wildcards(node, a))),
-            AstNode::Cast(a, dtype) => {
-                AstNode::Cast(Box::new(self.substitute_wildcards(node, a)), dtype.clone())
-            }
-            AstNode::Lt(a, b) => AstNode::Lt(
-                Box::new(self.substitute_wildcards(node, a)),
-                Box::new(self.substitute_wildcards(node, b)),
-            ),
-            AstNode::And(a, b) => AstNode::And(
-                Box::new(self.substitute_wildcards(node, a)),
-                Box::new(self.substitute_wildcards(node, b)),
-            ),
-            AstNode::Not(a) => AstNode::Not(Box::new(self.substitute_wildcards(node, a))),
-            AstNode::Select {
-                cond,
-                then_val,
-                else_val,
-            } => AstNode::Select {
-                cond: Box::new(self.substitute_wildcards(node, cond)),
-                then_val: Box::new(self.substitute_wildcards(node, then_val)),
-                else_val: Box::new(self.substitute_wildcards(node, else_val)),
-            },
-            // For other node types, return as-is
-            _ => expr.clone(),
+        for (i, src) in node.sources().iter().enumerate() {
+            let src_buf = self.get_buffer_name(src);
+            let idx = self.index_gen().view_to_index(src.view());
+            let load = AstNode::Load {
+                ptr: Box::new(AstNode::Var(src_buf)),
+                offset: Box::new(idx),
+                count: 1,
+                dtype: src.dtype().clone(),
+            };
+            mappings.insert(i.to_string(), load);
         }
+
+        expr.substitute(&mappings)
     }
 
     /// Get the identity value for a reduction operation
@@ -855,7 +854,7 @@ mod tests {
         let y = (&x + &x).with_name("y");
 
         let mut lowerer = Lowerer::new();
-        let program = lowerer.lower(&[y]);
+        let program = lowerer.lower(&[y]).expect("Lowering should succeed");
 
         assert!(matches!(program, AstNode::Program { .. }));
     }
@@ -866,7 +865,7 @@ mod tests {
         let y = x.sum(1).with_name("y");
 
         let mut lowerer = Lowerer::new();
-        let program = lowerer.lower(&[y]);
+        let program = lowerer.lower(&[y]).expect("Lowering should succeed");
 
         assert!(matches!(program, AstNode::Program { .. }));
     }
@@ -880,7 +879,7 @@ mod tests {
         let c = (&a + &b).sum(1).with_name("c");
 
         let mut lowerer = Lowerer::new();
-        let program = lowerer.lower(&[c]);
+        let program = lowerer.lower(&[c]).expect("Lowering should succeed");
 
         assert!(matches!(program, AstNode::Program { functions, .. } if !functions.is_empty()));
     }
@@ -923,7 +922,7 @@ mod tests {
         let y = (&x + &x).with_name("y");
 
         let mut lowerer = Lowerer::new();
-        let program = lowerer.lower(&[y]);
+        let program = lowerer.lower(&[y]).expect("Lowering should succeed");
 
         // Verify program was generated
         assert!(matches!(program, AstNode::Program { .. }));
@@ -953,7 +952,7 @@ mod tests {
         let y = x.sum(1).with_name("y");
 
         let mut lowerer = Lowerer::new();
-        let program = lowerer.lower(&[y]);
+        let program = lowerer.lower(&[y]).expect("Lowering should succeed");
 
         // Verify program was generated
         assert!(matches!(program, AstNode::Program { .. }));

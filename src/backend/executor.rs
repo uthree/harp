@@ -166,7 +166,9 @@ pub fn execute_graph(
 
     // 2. Lower and optimize graph using CompilationPipeline
     let pipeline = CompilationPipeline::from_default_device();
-    let (ast, lowerer) = pipeline.lower_with_lowerer(roots);
+    let (ast, lowerer) = pipeline
+        .lower_with_lowerer(roots)
+        .map_err(|e| ExecutionError::Internal(format!("Lowering failed: {}", e)))?;
     let program = pipeline.optimize(ast);
 
     // 3. Extract kernel info from the program
