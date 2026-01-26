@@ -69,7 +69,19 @@ impl LoopGenerator {
 
     /// Generate loops with a specific axis marked for reduction
     ///
-    /// The reduction axis will have its loop variable available for accumulation.
+    /// The reduction axis loop is placed innermost to enable parallelization
+    /// of outer loops (which iterate over independent output elements).
+    ///
+    /// For shape [M, K, N] with reduce on axis 1 (K):
+    /// ```text
+    /// for ridx0 in 0..M:       // outer (parallelizable)
+    ///     for ridx2 in 0..N:   // inner (parallelizable)
+    ///         float acc = identity;
+    ///         for ridx1 in 0..K:   // reduce (innermost, sequential)
+    ///             acc = combine(acc, input[ridx0, ridx1, ridx2])
+    ///         output[ridx0, ridx2] = acc
+    /// ```
+    ///
     /// The `acc_var` and `acc_dtype` parameters are used to declare the accumulator
     /// variable in the reduce block's scope.
     pub fn generate_loops_with_reduce(
@@ -88,26 +100,13 @@ impl LoopGenerator {
         let (outer_bounds, rest) = bounds.split_at(reduce_axis);
         let (reduce_bounds, inner_bounds) = rest.split_first().unwrap();
 
-        // Build inner loops (if any)
-        let mut inner_result = reduce_body;
-        for (var, stop) in inner_bounds.iter().rev() {
-            inner_result = AstNode::Range {
-                var: var.clone(),
-                start: Box::new(AstNode::Const(Literal::I64(0))),
-                stop: Box::new(stop.clone()),
-                step: Box::new(AstNode::Const(Literal::I64(1))),
-                body: Box::new(inner_result),
-                parallel: ParallelInfo::default(),
-            };
-        }
-
-        // Build reduction loop with pre/post
+        // Build reduction loop (innermost)
         let reduce_loop = AstNode::Range {
             var: reduce_bounds.0.clone(),
             start: Box::new(AstNode::Const(Literal::I64(0))),
             stop: Box::new(reduce_bounds.1.clone()),
             step: Box::new(AstNode::Const(Literal::I64(1))),
-            body: Box::new(inner_result),
+            body: Box::new(reduce_body),
             parallel: ParallelInfo::default(),
         };
 
@@ -123,8 +122,20 @@ impl LoopGenerator {
             scope: Box::new(scope),
         };
 
-        // Build outer loops
+        // Build inner loops (after reduce axis) - these wrap the reduce block
         let mut result = reduce_block;
+        for (var, stop) in inner_bounds.iter().rev() {
+            result = AstNode::Range {
+                var: var.clone(),
+                start: Box::new(AstNode::Const(Literal::I64(0))),
+                stop: Box::new(stop.clone()),
+                step: Box::new(AstNode::Const(Literal::I64(1))),
+                body: Box::new(result),
+                parallel: ParallelInfo::default(),
+            };
+        }
+
+        // Build outer loops (before reduce axis)
         for (var, stop) in outer_bounds.iter().rev() {
             result = AstNode::Range {
                 var: var.clone(),
