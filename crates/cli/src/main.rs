@@ -206,7 +206,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create compilation pipeline
     let device_kind = args.backend.to_device_kind();
-    let opt_config = OptimizationConfig::level(args.opt_level);
+    // Show progress bar when output is not stdout (to avoid mixing with code output)
+    let show_progress = args.output != "-" && args.opt_level > 0;
+    let opt_config = if show_progress {
+        OptimizationConfig::level(args.opt_level).with_progress()
+    } else {
+        OptimizationConfig::level(args.opt_level)
+    };
     let pipeline = CompilationPipeline::new(device_kind).with_optimization(opt_config);
 
     // Lower to AST
