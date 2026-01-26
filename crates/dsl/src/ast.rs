@@ -12,6 +12,9 @@ pub struct DslProgram {
 #[derive(Debug, Clone)]
 pub struct GraphDef {
     pub name: String,
+    /// Shape variables declared with `graph<Var1, Var2, ...>` syntax
+    /// These are symbolic dimensions that will be resolved at runtime
+    pub shape_vars: Vec<String>,
     pub params: Vec<ParamDecl>,
     pub return_type: TypeSpec,
     pub body: Vec<Statement>,

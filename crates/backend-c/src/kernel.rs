@@ -97,6 +97,20 @@ impl CKernel {
         input_ptrs: &[*const u8],
         output_ptrs: &[*mut u8],
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // TODO: Support shape variables for dynamic shapes
+        // Currently, C backend only supports buffer arguments.
+        // To support shape variables (i64 parameters), we would need to:
+        // 1. Use libffi for dynamic function calls, or
+        // 2. Extend Fn1-Fn6 to include i64 parameters
+        // For now, shape variables are ignored and this will fail at runtime
+        // if the kernel depends on dynamic shape values.
+        if !self.config.shape_vars.is_empty() {
+            log::warn!(
+                "C backend: shape variables not yet supported, kernel may fail: {:?}",
+                self.config.shape_vars.keys().collect::<Vec<_>>()
+            );
+        }
+
         // Build the argument list: inputs first, then outputs
         let mut args: Vec<*mut u8> = Vec::with_capacity(input_ptrs.len() + output_ptrs.len());
 

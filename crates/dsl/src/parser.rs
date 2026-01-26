@@ -37,7 +37,17 @@ pub fn parse_program(source: &str) -> DslResult<DslProgram> {
 fn parse_graph_def(pair: Pair<Rule>) -> DslResult<GraphDef> {
     let mut inner = pair.into_inner();
 
-    let name = inner.next().unwrap().as_str().to_string();
+    // Parse optional shape variable list: graph<batch, seq_len> name(...)
+    let mut shape_vars = Vec::new();
+    let mut next_pair = inner.next().unwrap();
+
+    if next_pair.as_rule() == Rule::shape_var_list {
+        shape_vars = parse_shape_var_list(next_pair);
+        next_pair = inner.next().unwrap();
+    }
+
+    // Parse graph name
+    let name = next_pair.as_str().to_string();
 
     // Parse params (may be empty)
     let mut params = Vec::new();
@@ -57,11 +67,19 @@ fn parse_graph_def(pair: Pair<Rule>) -> DslResult<GraphDef> {
 
     Ok(GraphDef {
         name,
+        shape_vars,
         params,
         return_type,
         body,
         return_expr,
     })
+}
+
+/// Parse shape variable list: <var1, var2, ...>
+fn parse_shape_var_list(pair: Pair<Rule>) -> Vec<String> {
+    pair.into_inner()
+        .map(|p| p.as_str().to_string())
+        .collect()
 }
 
 fn parse_param_list(pair: Pair<Rule>) -> DslResult<Vec<ParamDecl>> {
@@ -431,5 +449,52 @@ program {
             DslExpr::UnaryOp { op, .. } => assert_eq!(*op, UnaryOp::Neg),
             _ => panic!("expected unary op"),
         }
+    }
+
+    #[test]
+    fn test_parse_shape_var_list() {
+        let source = r#"
+program {
+    graph<batch, seq_len> attention(x: f32[batch, seq_len, 64]) -> f32[batch, seq_len, 64] {
+        return x;
+    }
+}
+"#;
+        let result = parse_program(source);
+        assert!(result.is_ok());
+        let program = result.unwrap();
+        assert_eq!(program.graphs.len(), 1);
+        assert_eq!(program.graphs[0].name, "attention");
+        assert_eq!(program.graphs[0].shape_vars, vec!["batch", "seq_len"]);
+    }
+
+    #[test]
+    fn test_parse_single_shape_var() {
+        let source = r#"
+program {
+    graph<N> vector_add(a: f32[N], b: f32[N]) -> f32[N] {
+        return a + b;
+    }
+}
+"#;
+        let result = parse_program(source);
+        assert!(result.is_ok());
+        let program = result.unwrap();
+        assert_eq!(program.graphs[0].shape_vars, vec!["N"]);
+    }
+
+    #[test]
+    fn test_parse_no_shape_vars() {
+        let source = r#"
+program {
+    graph static_add(a: f32[16, 32], b: f32[16, 32]) -> f32[16, 32] {
+        return a + b;
+    }
+}
+"#;
+        let result = parse_program(source);
+        assert!(result.is_ok());
+        let program = result.unwrap();
+        assert!(program.graphs[0].shape_vars.is_empty());
     }
 }

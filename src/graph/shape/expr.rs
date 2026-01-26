@@ -51,6 +51,12 @@ pub enum Expr {
         src_index: usize,
         offset_expr: Box<Self>,
     },
+
+    /// シンボリック変数（動的shape用）
+    ///
+    /// 実行時に値が決定される変数。カーネルパラメータとして渡される。
+    /// 例: `Sym("batch_size")` は実行時にバッチサイズとして渡される。
+    Sym(String),
 }
 
 impl From<Expr> for crate::ast::AstNode {
@@ -89,6 +95,7 @@ impl From<Expr> for crate::ast::AstNode {
                 // ここでは直接変換できないのでpanic
                 panic!("LoadIndex cannot be directly converted to AstNode; use Lowering instead")
             }
+            Expr::Sym(name) => AstNode::Var(name),
         }
     }
 }
@@ -111,7 +118,8 @@ impl TryFrom<&crate::ast::AstNode> for Expr {
                 {
                     return Ok(Expr::Idx(idx));
                 }
-                Err("Variable expressions are not supported; only loop indices (ridxN) are allowed")
+                // その他の変数はシンボリック変数として扱う
+                Ok(Expr::Sym(name.clone()))
             }
             AstNode::Add(l, r) => {
                 let left = Expr::try_from(l.as_ref())?;
@@ -277,6 +285,10 @@ impl Expr {
             Expr::LoadIndex { src_index, .. } => Err(format!(
                 "Cannot evaluate LoadIndex(src_index={}): requires runtime buffer access",
                 src_index
+            )),
+            Expr::Sym(name) => Err(format!(
+                "Cannot evaluate symbolic variable '{}': value determined at runtime",
+                name
             )),
         }
     }
@@ -918,6 +930,7 @@ impl fmt::Display for Expr {
             Expr::Not(a) => {
                 write!(f, "!({})", a)
             }
+            Expr::Sym(name) => write!(f, "{}", name),
         }
     }
 }

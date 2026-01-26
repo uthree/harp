@@ -245,10 +245,22 @@ pub fn execute_graph(
         {
             let entry_point = kernel_name.clone().unwrap_or_else(|| "kernel".to_string());
 
-            // Extract input and output buffer names
-            let (input_params, output_params): (Vec<_>, Vec<_>) = params
+            // Extract buffer parameters only (Ptr type)
+            // Non-buffer parameters (LocalId, GroupId, shape vars) are handled separately
+            let is_buffer_param =
+                |p: &&crate::ast::VarDecl| matches!(p.dtype, crate::ast::DType::Ptr(_));
+
+            let input_params: Vec<_> = params
                 .iter()
-                .partition(|p| matches!(p.mutability, crate::ast::Mutability::Immutable));
+                .filter(|p| matches!(p.mutability, crate::ast::Mutability::Immutable))
+                .filter(is_buffer_param)
+                .collect();
+
+            let output_params: Vec<_> = params
+                .iter()
+                .filter(|p| matches!(p.mutability, crate::ast::Mutability::Mutable))
+                .filter(is_buffer_param)
+                .collect();
 
             // Build kernel inputs
             let mut kernel_inputs: Vec<&dyn Buffer> = Vec::new();

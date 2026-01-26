@@ -795,3 +795,114 @@ fn test_comparison_display() {
     );
     assert_eq!(format!("{}", !Expr::Idx(0)), "!(idx0)");
 }
+
+// =============================================================================
+// Expr::Sym (動的shape) テスト
+// =============================================================================
+
+#[test]
+fn test_sym_creation() {
+    let sym = Expr::Sym("batch".to_string());
+    assert_eq!(sym, Expr::Sym("batch".to_string()));
+}
+
+#[test]
+fn test_sym_to_astnode() {
+    use crate::ast::AstNode;
+
+    let sym = Expr::Sym("n".to_string());
+    let ast: AstNode = sym.into();
+
+    match ast {
+        AstNode::Var(name) => assert_eq!(name, "n"),
+        _ => panic!("Expected Var node with name 'n'"),
+    }
+}
+
+#[test]
+fn test_sym_arithmetic() {
+    // Sym("n") * 4
+    let sym = Expr::Sym("n".to_string());
+    let expr = sym * Expr::Const(4);
+
+    if let Expr::Mul(left, right) = expr {
+        assert!(matches!(*left, Expr::Sym(_)));
+        assert_eq!(*right, Expr::Const(4));
+    } else {
+        panic!("Expected Mul node");
+    }
+}
+
+#[test]
+fn test_sym_evaluate_error() {
+    let sym = Expr::Sym("batch".to_string());
+    let result = sym.evaluate();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("batch"));
+}
+
+#[test]
+fn test_sym_simplify() {
+    // Sym should be preserved through simplify
+    let sym = Expr::Sym("n".to_string());
+    assert_eq!(sym.clone().simplify(), sym);
+
+    // Sym * 1 = Sym
+    let expr = Expr::Sym("n".to_string()) * Expr::Const(1);
+    assert_eq!(expr.simplify(), Expr::Sym("n".to_string()));
+
+    // Sym * 0 = 0
+    let expr = Expr::Sym("n".to_string()) * Expr::Const(0);
+    assert_eq!(expr.simplify(), Expr::Const(0));
+}
+
+#[test]
+fn test_sym_as_const() {
+    let sym = Expr::Sym("batch".to_string());
+    assert_eq!(sym.as_const(), None);
+}
+
+#[test]
+fn test_sym_display() {
+    let sym = Expr::Sym("batch_size".to_string());
+    assert_eq!(format!("{}", sym), "batch_size");
+
+    // Complex expression with Sym
+    let expr = Expr::Sym("batch".to_string()) * Expr::Const(64);
+    assert_eq!(format!("{}", expr), "batch * 64");
+}
+
+#[test]
+fn test_sym_to_astnode_complex() {
+    use crate::ast::AstNode;
+
+    // (batch * 64) + idx0
+    let expr = Expr::Sym("batch".to_string()) * Expr::Const(64) + Expr::Idx(0);
+    let ast: AstNode = expr.into();
+
+    // Should produce Add(Mul(Var("batch"), Const(64)), Var("ridx0"))
+    match ast {
+        AstNode::Add(left, right) => {
+            match *left {
+                AstNode::Mul(l, r) => {
+                    assert!(matches!(*l, AstNode::Var(ref name) if name == "batch"));
+                    // 64 as i64
+                    assert!(matches!(*r, AstNode::Const(crate::ast::Literal::I64(64))));
+                }
+                _ => panic!("Expected Mul node"),
+            }
+            assert!(matches!(*right, AstNode::Var(ref name) if name == "ridx0"));
+        }
+        _ => panic!("Expected Add node"),
+    }
+}
+
+#[test]
+fn test_sym_from_astnode() {
+    use crate::ast::AstNode;
+
+    // AstNode::Var that is not ridxN should become Sym
+    let ast = AstNode::Var("batch_size".to_string());
+    let expr = Expr::try_from(&ast).unwrap();
+    assert_eq!(expr, Expr::Sym("batch_size".to_string()));
+}

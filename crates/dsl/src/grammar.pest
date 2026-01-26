@@ -4,8 +4,11 @@
 program = { SOI ~ "program" ~ "{" ~ graph_def* ~ "}" ~ EOI }
 
 graph_def = {
-    "graph" ~ ident ~ "(" ~ param_list? ~ ")" ~ "->" ~ type_spec ~ "{" ~ body ~ "}"
+    "graph" ~ shape_var_list? ~ ident ~ "(" ~ param_list? ~ ")" ~ "->" ~ type_spec ~ "{" ~ body ~ "}"
 }
+
+// Shape variable list for dynamic shapes: graph<batch, seq_len> name(...)
+shape_var_list = { "<" ~ ident ~ ("," ~ ident)* ~ ">" }
 
 param_list = { param ~ ("," ~ param)* }
 param      = { ident ~ ":" ~ type_spec }

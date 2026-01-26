@@ -44,7 +44,7 @@ impl KernelOpType {
             KernelOpType::Reduce => "R",
             KernelOpType::Copy => "C",
             KernelOpType::Scatter => "S",
-            KernelOpType::Scan => "P",  // P for Prefix scan
+            KernelOpType::Scan => "P", // P for Prefix scan
         }
     }
 }
@@ -562,6 +562,50 @@ impl Lowerer {
         self.make_kernel(&kernel_name, body, input_buffers, output_buffer)
     }
 
+    /// Collect symbolic shape variables from shapes
+    ///
+    /// Extracts all `Expr::Sym` variables from the given shapes and returns
+    /// them as a sorted, deduplicated list.
+    fn collect_shape_vars(shapes: &[&[Expr]]) -> Vec<String> {
+        use std::collections::HashSet;
+
+        fn collect_from_expr(expr: &Expr, vars: &mut HashSet<String>) {
+            match expr {
+                Expr::Sym(name) => {
+                    vars.insert(name.clone());
+                }
+                Expr::Add(l, r)
+                | Expr::Sub(l, r)
+                | Expr::Mul(l, r)
+                | Expr::Div(l, r)
+                | Expr::Rem(l, r)
+                | Expr::Lt(l, r)
+                | Expr::And(l, r) => {
+                    collect_from_expr(l, vars);
+                    collect_from_expr(r, vars);
+                }
+                Expr::Not(a) => {
+                    collect_from_expr(a, vars);
+                }
+                Expr::LoadIndex { offset_expr, .. } => {
+                    collect_from_expr(offset_expr, vars);
+                }
+                Expr::Const(_) | Expr::Bool(_) | Expr::Idx(_) => {}
+            }
+        }
+
+        let mut vars = HashSet::new();
+        for shape in shapes {
+            for expr in *shape {
+                collect_from_expr(expr, &mut vars);
+            }
+        }
+
+        let mut result: Vec<_> = vars.into_iter().collect();
+        result.sort(); // Ensure deterministic order
+        result
+    }
+
     /// Create a Kernel AST node with buffer parameters
     fn make_kernel(
         &self,
@@ -575,6 +619,14 @@ impl Lowerer {
         // Compute grid size from output shape
         // Grid size is the total number of elements to process
         let grid_size = self.shape_to_grid_size(&output_buffer.shape);
+
+        // Collect shape variables from all buffer shapes
+        let all_shapes: Vec<&[Expr]> = input_buffers
+            .iter()
+            .map(|b| b.shape.as_slice())
+            .chain(std::iter::once(output_buffer.shape.as_slice()))
+            .collect();
+        let shape_vars = Self::collect_shape_vars(&all_shapes);
 
         // Create parameters for input buffers
         let mut params: Vec<VarDecl> = input_buffers
@@ -594,6 +646,16 @@ impl Lowerer {
             mutability: Mutability::Mutable,
             kind: VarKind::Normal,
         });
+
+        // Add shape variable parameters (after buffer parameters)
+        for var_name in shape_vars {
+            params.push(VarDecl {
+                name: var_name,
+                dtype: DType::I64,
+                mutability: Mutability::Immutable,
+                kind: VarKind::Normal,
+            });
+        }
 
         AstNode::Kernel {
             name: Some(name.to_string()),
@@ -821,5 +883,101 @@ mod tests {
         let program = lowerer.lower(&[c]);
 
         assert!(matches!(program, AstNode::Program { functions, .. } if !functions.is_empty()));
+    }
+
+    #[test]
+    fn test_collect_shape_vars() {
+        // Test with no shape vars
+        let shapes: Vec<&[Expr]> = vec![&[Expr::Const(32), Expr::Const(64)]];
+        let vars = Lowerer::collect_shape_vars(&shapes);
+        assert!(vars.is_empty());
+
+        // Test with single shape var
+        let shape1 = [Expr::Sym("batch".to_string()), Expr::Const(64)];
+        let shapes: Vec<&[Expr]> = vec![shape1.as_slice()];
+        let vars = Lowerer::collect_shape_vars(&shapes);
+        assert_eq!(vars, vec!["batch".to_string()]);
+
+        // Test with multiple shape vars (should be sorted)
+        let shape2 = [
+            Expr::Sym("batch".to_string()),
+            Expr::Sym("seq_len".to_string()),
+        ];
+        let shapes: Vec<&[Expr]> = vec![shape2.as_slice()];
+        let vars = Lowerer::collect_shape_vars(&shapes);
+        assert_eq!(vars, vec!["batch".to_string(), "seq_len".to_string()]);
+
+        // Test deduplication across multiple shapes
+        let shape_a = [Expr::Sym("batch".to_string()), Expr::Const(64)];
+        let shape_b = [Expr::Sym("batch".to_string()), Expr::Const(128)];
+        let shapes: Vec<&[Expr]> = vec![shape_a.as_slice(), shape_b.as_slice()];
+        let vars = Lowerer::collect_shape_vars(&shapes);
+        assert_eq!(vars, vec!["batch".to_string()]);
+    }
+
+    #[test]
+    fn test_lower_dynamic_shape_elementwise() {
+        // Create tensor with dynamic batch dimension
+        let batch = Expr::Sym("batch".to_string());
+        let x = input(vec![batch.clone(), Expr::Const(64)], DType::F32).with_name("x");
+        let y = (&x + &x).with_name("y");
+
+        let mut lowerer = Lowerer::new();
+        let program = lowerer.lower(&[y]);
+
+        // Verify program was generated
+        assert!(matches!(program, AstNode::Program { .. }));
+
+        // Extract kernel and check for shape variable parameter
+        if let AstNode::Program { functions, .. } = program {
+            assert!(!functions.is_empty());
+            let kernel = &functions[0];
+            if let AstNode::Kernel { params, .. } = kernel {
+                // Should have: input buffer, output buffer, and "batch" shape var
+                let batch_param = params.iter().find(|p| p.name == "batch");
+                assert!(
+                    batch_param.is_some(),
+                    "Expected 'batch' shape variable parameter"
+                );
+                assert_eq!(batch_param.unwrap().dtype, DType::I64);
+            }
+        }
+    }
+
+    #[test]
+    fn test_lower_dynamic_shape_reduction() {
+        // Create tensor with dynamic shape
+        let batch = Expr::Sym("batch".to_string());
+        let seq_len = Expr::Sym("seq_len".to_string());
+        let x = input(vec![batch.clone(), seq_len.clone()], DType::F32).with_name("x");
+        let y = x.sum(1).with_name("y");
+
+        let mut lowerer = Lowerer::new();
+        let program = lowerer.lower(&[y]);
+
+        // Verify program was generated
+        assert!(matches!(program, AstNode::Program { .. }));
+
+        // Extract kernel and check for shape variable parameters
+        if let AstNode::Program { functions, .. } = program {
+            assert!(!functions.is_empty());
+            let kernel = &functions[0];
+            if let AstNode::Kernel { params, .. } = kernel {
+                // Should have shape variable parameters (sorted alphabetically)
+                let shape_params: Vec<_> = params
+                    .iter()
+                    .filter(|p| p.dtype == DType::I64)
+                    .map(|p| p.name.clone())
+                    .collect();
+                assert!(
+                    shape_params.contains(&"batch".to_string()),
+                    "Expected 'batch' shape variable"
+                );
+                assert!(
+                    shape_params.contains(&"seq_len".to_string()),
+                    "Expected 'seq_len' shape variable"
+                );
+            }
+        }
     }
 }

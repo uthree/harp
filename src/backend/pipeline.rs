@@ -405,12 +405,60 @@ where
         KernelConfig::new("main").with_global_work_size([total_elements, 1, 1])
     }
 
-    /// Get shape variables for dispatch size computation
+    /// Get shape variables from kernel signature
     ///
-    /// Since dynamic shape variables were removed, this returns an empty HashMap.
-    /// Runtime shape values can still be provided via ExecutionQuery::shape_var().
-    fn extract_shape_vars(_signature: &KernelSignature) -> HashMap<String, i64> {
-        HashMap::new()
+    /// Extracts symbolic shape variables from the signature's input and output shapes.
+    /// The values are initialized to 0 and should be provided at runtime via
+    /// ExecutionQuery::shape_var().
+    fn extract_shape_vars(signature: &KernelSignature) -> HashMap<String, i64> {
+        use std::collections::HashSet;
+
+        fn collect_from_expr(expr: &crate::shape::Expr, vars: &mut HashSet<String>) {
+            match expr {
+                crate::shape::Expr::Sym(name) => {
+                    vars.insert(name.clone());
+                }
+                crate::shape::Expr::Add(l, r)
+                | crate::shape::Expr::Sub(l, r)
+                | crate::shape::Expr::Mul(l, r)
+                | crate::shape::Expr::Div(l, r)
+                | crate::shape::Expr::Rem(l, r)
+                | crate::shape::Expr::Lt(l, r)
+                | crate::shape::Expr::And(l, r) => {
+                    collect_from_expr(l, vars);
+                    collect_from_expr(r, vars);
+                }
+                crate::shape::Expr::Not(a) => {
+                    collect_from_expr(a, vars);
+                }
+                crate::shape::Expr::LoadIndex { offset_expr, .. } => {
+                    collect_from_expr(offset_expr, vars);
+                }
+                crate::shape::Expr::Const(_)
+                | crate::shape::Expr::Bool(_)
+                | crate::shape::Expr::Idx(_) => {}
+            }
+        }
+
+        let mut vars = HashSet::new();
+
+        // Collect from input shapes
+        for buf in &signature.inputs {
+            for expr in &buf.shape {
+                collect_from_expr(expr, &mut vars);
+            }
+        }
+
+        // Collect from output shapes
+        for buf in &signature.outputs {
+            for expr in &buf.shape {
+                collect_from_expr(expr, &mut vars);
+            }
+        }
+
+        // Initialize all shape vars with default value 0
+        // Actual values will be provided at runtime
+        vars.into_iter().map(|name| (name, 0)).collect()
     }
 
     /// Compute a compatible local work size for OpenCL

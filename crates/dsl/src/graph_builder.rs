@@ -13,6 +13,8 @@ use crate::errors::{DslError, DslResult};
 pub struct GraphBuilder {
     /// Dynamic dimension values (name -> value)
     dynamic_dims: HashMap<String, i64>,
+    /// Current graph's declared shape variables (set during build_graph)
+    current_shape_vars: Vec<String>,
 }
 
 impl GraphBuilder {
@@ -20,12 +22,16 @@ impl GraphBuilder {
     pub fn new() -> Self {
         GraphBuilder {
             dynamic_dims: HashMap::new(),
+            current_shape_vars: Vec::new(),
         }
     }
 
     /// Create a new GraphBuilder with dynamic dimension definitions
     pub fn with_dynamic_dims(dims: HashMap<String, i64>) -> Self {
-        GraphBuilder { dynamic_dims: dims }
+        GraphBuilder {
+            dynamic_dims: dims,
+            current_shape_vars: Vec::new(),
+        }
     }
 
     /// Add a dynamic dimension value
@@ -34,12 +40,15 @@ impl GraphBuilder {
     }
 
     /// Build a graph from a single GraphDef
-    pub fn build_graph(&self, graph_def: &GraphDef) -> DslResult<BuiltGraph> {
-        let mut ctx = BuildContext::new(&self.dynamic_dims);
+    pub fn build_graph(&mut self, graph_def: &GraphDef) -> DslResult<BuiltGraph> {
+        // Set current shape vars for use in helper methods
+        self.current_shape_vars = graph_def.shape_vars.clone();
+
+        let mut ctx = BuildContext::new(&self.dynamic_dims, &graph_def.shape_vars);
 
         // Create input nodes for parameters
         for param in &graph_def.params {
-            let shape = self.resolve_shape(&param.type_spec.shape)?;
+            let shape = self.resolve_shape_current(&param.type_spec.shape)?;
             let dtype = convert_dtype(&param.type_spec.dtype);
             let node = named_input(&param.name, shape, dtype);
             ctx.bind(&param.name, node);
@@ -58,44 +67,80 @@ impl GraphBuilder {
         // Build return expression
         let output = self.build_expr(&ctx, &graph_def.return_expr)?;
 
+        // Clear current shape vars
+        let shape_vars = std::mem::take(&mut self.current_shape_vars);
+
         Ok(BuiltGraph {
             name: graph_def.name.clone(),
+            shape_vars,
             inputs: ctx.inputs.clone(),
             output,
         })
     }
 
     /// Build all graphs from a DslProgram
-    pub fn build_program(&self, program: &DslProgram) -> DslResult<Vec<BuiltGraph>> {
-        program.graphs.iter().map(|g| self.build_graph(g)).collect()
+    pub fn build_program(&mut self, program: &DslProgram) -> DslResult<Vec<BuiltGraph>> {
+        program
+            .graphs
+            .iter()
+            .map(|g| self.build_graph(g))
+            .collect()
     }
 
-    /// Resolve a shape to concrete Expr values
-    fn resolve_shape(&self, shape: &[ShapeDim]) -> DslResult<Vec<Expr>> {
+    /// Resolve a shape using current graph's shape vars
+    fn resolve_shape_current(&self, shape: &[ShapeDim]) -> DslResult<Vec<Expr>> {
+        self.resolve_shape(shape, &self.current_shape_vars)
+    }
+
+    /// Resolve a shape to Expr values
+    ///
+    /// - Static dimensions become `Expr::Const(n)`
+    /// - Declared shape variables (from `graph<...>`) become `Expr::Sym(name)`
+    /// - Other dynamic dimensions are resolved from `dynamic_dims`
+    fn resolve_shape(&self, shape: &[ShapeDim], declared_shape_vars: &[String]) -> DslResult<Vec<Expr>> {
         shape
             .iter()
             .map(|dim| match dim {
                 ShapeDim::Static(n) => Ok(Expr::Const(*n)),
-                ShapeDim::Dynamic(name) => self
-                    .dynamic_dims
-                    .get(name)
-                    .map(|&v| Expr::Const(v))
-                    .ok_or_else(|| DslError::UnresolvedDynamicDim(name.clone())),
+                ShapeDim::Dynamic(name) => {
+                    // If it's a declared shape variable, use Expr::Sym
+                    if declared_shape_vars.contains(name) {
+                        Ok(Expr::Sym(name.clone()))
+                    } else {
+                        // Otherwise, try to resolve from dynamic_dims
+                        self.dynamic_dims
+                            .get(name)
+                            .map(|&v| Expr::Const(v))
+                            .ok_or_else(|| DslError::UnresolvedDynamicDim(name.clone()))
+                    }
+                }
             })
             .collect()
     }
 
     /// Resolve shape to i64 values (for operations that need concrete values)
+    ///
+    /// Note: Declared shape variables (from `graph<...>`) cannot be used here
+    /// because they require runtime resolution.
     fn resolve_shape_i64(&self, shape: &[ShapeDim]) -> DslResult<Vec<i64>> {
         shape
             .iter()
             .map(|dim| match dim {
                 ShapeDim::Static(n) => Ok(*n),
-                ShapeDim::Dynamic(name) => self
-                    .dynamic_dims
-                    .get(name)
-                    .copied()
-                    .ok_or_else(|| DslError::UnresolvedDynamicDim(name.clone())),
+                ShapeDim::Dynamic(name) => {
+                    // Declared shape variables cannot be resolved to concrete values
+                    if self.current_shape_vars.contains(name) {
+                        Err(DslError::UnresolvedDynamicDim(format!(
+                            "'{}' is a dynamic shape variable and cannot be used where a concrete value is required",
+                            name
+                        )))
+                    } else {
+                        self.dynamic_dims
+                            .get(name)
+                            .copied()
+                            .ok_or_else(|| DslError::UnresolvedDynamicDim(name.clone()))
+                    }
+                }
             })
             .collect()
     }
@@ -344,8 +389,8 @@ impl GraphBuilder {
     /// Get a positional shape argument as Vec<Expr>
     fn get_positional_shape(&self, args: &[FuncArg], index: usize) -> DslResult<Vec<Expr>> {
         match args.get(index) {
-            Some(FuncArg::Shape(dims)) => self.resolve_shape(dims),
-            Some(FuncArg::NamedShape { shape, .. }) => self.resolve_shape(shape),
+            Some(FuncArg::Shape(dims)) => self.resolve_shape_current(dims),
+            Some(FuncArg::NamedShape { shape, .. }) => self.resolve_shape_current(shape),
             _ => Err(DslError::InvalidArgType {
                 func: "function".to_string(),
                 arg: format!("arg{}", index),
@@ -378,7 +423,7 @@ impl GraphBuilder {
             } = arg
             {
                 if arg_name == name {
-                    return self.resolve_shape(shape);
+                    return self.resolve_shape_current(shape);
                 }
             }
         }
@@ -445,7 +490,7 @@ impl GraphBuilder {
         // where each pair is (before, after) for each dimension
         match args.get(index) {
             Some(FuncArg::Shape(dims)) => {
-                let values = self.resolve_shape(dims)?;
+                let values = self.resolve_shape_current(dims)?;
                 if values.len() % 2 != 0 {
                     return Err(DslError::InvalidArgType {
                         func: "pad".to_string(),
@@ -484,14 +529,18 @@ struct BuildContext<'a> {
     /// Dynamic dimension values
     #[allow(dead_code)]
     dynamic_dims: &'a HashMap<String, i64>,
+    /// Declared shape variables
+    #[allow(dead_code)]
+    shape_vars: &'a [String],
 }
 
 impl<'a> BuildContext<'a> {
-    fn new(dynamic_dims: &'a HashMap<String, i64>) -> Self {
+    fn new(dynamic_dims: &'a HashMap<String, i64>, shape_vars: &'a [String]) -> Self {
         BuildContext {
             bindings: HashMap::new(),
             inputs: Vec::new(),
             dynamic_dims,
+            shape_vars,
         }
     }
 
@@ -513,6 +562,8 @@ impl<'a> BuildContext<'a> {
 pub struct BuiltGraph {
     /// Graph name
     pub name: String,
+    /// Declared shape variables (from `graph<...>` syntax)
+    pub shape_vars: Vec<String>,
     /// Input parameters (name, node)
     pub inputs: Vec<(String, GraphNode)>,
     /// Output node
@@ -572,7 +623,7 @@ program {
 }
 "#;
         let program = parse_program(source).unwrap();
-        let builder = GraphBuilder::new();
+        let mut builder = GraphBuilder::new();
         let graphs = builder.build_program(&program).unwrap();
 
         assert_eq!(graphs.len(), 1);
@@ -591,7 +642,7 @@ program {
 }
 "#;
         let program = parse_program(source).unwrap();
-        let builder = GraphBuilder::new();
+        let mut builder = GraphBuilder::new();
         let graphs = builder.build_program(&program).unwrap();
 
         assert_eq!(graphs.len(), 1);
@@ -610,7 +661,7 @@ program {
         let program = parse_program(source).unwrap();
         let mut dims = HashMap::new();
         dims.insert("batch".to_string(), 32);
-        let builder = GraphBuilder::with_dynamic_dims(dims);
+        let mut builder = GraphBuilder::with_dynamic_dims(dims);
         let graphs = builder.build_program(&program).unwrap();
 
         assert_eq!(graphs.len(), 1);
@@ -630,10 +681,57 @@ program {
 }
 "#;
         let program = parse_program(source).unwrap();
-        let builder = GraphBuilder::new();
+        let mut builder = GraphBuilder::new();
         let graphs = builder.build_program(&program).unwrap();
 
         assert_eq!(graphs.len(), 1);
         assert_eq!(graphs[0].name, "softmax");
+    }
+
+    #[test]
+    fn test_build_with_shape_vars() {
+        let source = r#"
+program {
+    graph<batch, seq_len> attention(x: f32[batch, seq_len, 64]) -> f32[batch, seq_len, 64] {
+        return x;
+    }
+}
+"#;
+        let program = parse_program(source).unwrap();
+        let mut builder = GraphBuilder::new();
+        let graphs = builder.build_program(&program).unwrap();
+
+        assert_eq!(graphs.len(), 1);
+        assert_eq!(graphs[0].name, "attention");
+        assert_eq!(graphs[0].shape_vars, vec!["batch", "seq_len"]);
+
+        // Check that the input has Sym expressions for dynamic dimensions
+        let input = &graphs[0].inputs[0].1;
+        let shape = input.shape();
+        assert!(matches!(&shape[0], Expr::Sym(name) if name == "batch"));
+        assert!(matches!(&shape[1], Expr::Sym(name) if name == "seq_len"));
+        assert!(matches!(&shape[2], Expr::Const(64)));
+    }
+
+    #[test]
+    fn test_build_shape_vars_in_operations() {
+        let source = r#"
+program {
+    graph<N> vector_add(a: f32[N], b: f32[N]) -> f32[N] {
+        return a + b;
+    }
+}
+"#;
+        let program = parse_program(source).unwrap();
+        let mut builder = GraphBuilder::new();
+        let graphs = builder.build_program(&program).unwrap();
+
+        assert_eq!(graphs[0].shape_vars, vec!["N"]);
+
+        // Check that both inputs have Sym("N") in their shape
+        for (_, input) in &graphs[0].inputs {
+            let shape = input.shape();
+            assert!(matches!(&shape[0], Expr::Sym(name) if name == "N"));
+        }
     }
 }

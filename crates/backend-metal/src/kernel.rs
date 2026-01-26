@@ -153,6 +153,22 @@ impl MetalKernel {
             encoder.set_buffer(i as u64, Some(buffer.mtl_buffer()), 0);
         }
 
+        // Set shape variable arguments (after buffer parameters)
+        // Sort by name to ensure deterministic order (matches kernel parameter order)
+        let mut shape_vars: Vec<_> = self.config.shape_vars.iter().collect();
+        shape_vars.sort_by_key(|(name, _)| *name);
+
+        let mut arg_index = buffers.len();
+        for (_, value) in shape_vars {
+            // Set i64 value as bytes (8 bytes for long)
+            encoder.set_bytes(
+                arg_index as u64,
+                std::mem::size_of::<i64>() as u64,
+                value as *const i64 as *const std::ffi::c_void,
+            );
+            arg_index += 1;
+        }
+
         // Calculate threadgroup size
         let threadgroup_size = if let Some(lws) = local_size {
             MTLSize::new(lws[0] as u64, lws[1] as u64, lws[2] as u64)
