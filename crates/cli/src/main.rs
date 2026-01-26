@@ -17,7 +17,9 @@ use clap::{Parser, ValueEnum};
 
 use eclat::ast::AstNode;
 use eclat::backend::renderer::Renderer;
-use eclat::backend::{CompilationPipeline, DeviceKind, OptimizationConfig, mark_parallel_for_openmp};
+use eclat::backend::{
+    CompilationPipeline, DeviceKind, OptimizationConfig, mark_parallel_for_openmp,
+};
 use eclat_backend_c::CRenderer;
 use eclat_backend_cuda::CudaRenderer;
 #[cfg(target_os = "macos")]
@@ -205,8 +207,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Create compilation pipeline
     let device_kind = args.backend.to_device_kind();
     let opt_config = OptimizationConfig::level(args.opt_level);
-    let pipeline = CompilationPipeline::new(device_kind)
-        .with_optimization(opt_config);
+    let pipeline = CompilationPipeline::new(device_kind).with_optimization(opt_config);
 
     // Lower to AST
     if args.verbose {
@@ -419,7 +420,6 @@ fn write_output(path: &str, content: &str) -> io::Result<()> {
     }
     Ok(())
 }
-
 
 /// Launch optimization visualization TUI
 #[cfg(feature = "viz")]

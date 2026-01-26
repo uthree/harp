@@ -30,10 +30,9 @@ use crate::graph::GraphNode;
 use crate::lowerer::Lowerer;
 use crate::opt::ast::rules::all_algebraic_rules;
 use crate::opt::ast::{
-    AstOptimizer, AstSuggester, BeamSearchOptimizer, CompositeSuggester,
-    FunctionInliningSuggester, GroupParallelizationSuggester, LocalParallelizationSuggester,
-    LoopFusionSuggester, LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester,
-    RuleBaseSuggester,
+    AstOptimizer, AstSuggester, BeamSearchOptimizer, CompositeSuggester, FunctionInliningSuggester,
+    GroupParallelizationSuggester, LocalParallelizationSuggester, LoopFusionSuggester,
+    LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester, RuleBaseSuggester,
 };
 
 /// Configuration for AST optimization
@@ -136,7 +135,10 @@ impl CompilationPipeline {
             opt_config.enable_gpu_parallelization = true;
         }
 
-        Self { backend, opt_config }
+        Self {
+            backend,
+            opt_config,
+        }
     }
 
     /// Create a pipeline using the default device
@@ -239,10 +241,7 @@ impl CompilationPipeline {
         ast: AstNode,
     ) -> (AstNode, crate::opt::ast::history::OptimizationHistory) {
         if self.opt_config.level == 0 {
-            return (
-                ast,
-                crate::opt::ast::history::OptimizationHistory::new(),
-            );
+            return (ast, crate::opt::ast::history::OptimizationHistory::new());
         }
 
         let suggester = self.create_suggester();
@@ -411,7 +410,7 @@ fn mark_parallel_recursive(ast: AstNode, is_outermost: bool) -> AstNode {
 mod tests {
     use super::*;
     use crate::ast::DType;
-    use crate::graph::{input, Expr};
+    use crate::graph::{Expr, input};
 
     #[test]
     fn test_pipeline_lower() {

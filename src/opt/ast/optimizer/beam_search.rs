@@ -315,8 +315,7 @@ where
                     if node_count > max_nodes {
                         trace!(
                             "Rejecting candidate with {} nodes (max: {})",
-                            node_count,
-                            max_nodes
+                            node_count, max_nodes
                         );
                         false
                     } else {
