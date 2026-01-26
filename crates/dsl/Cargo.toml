@@ -10,3 +10,7 @@ pest = "2"
 pest_derive = "2"
 
 [dev-dependencies]
+
+[[example]]
+name = "dynamic_matmul"
+path = "examples/dynamic_matmul.rs"

@@ -216,7 +216,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut all_asts = Vec::new();
     for graph in &built_graphs {
-        let ast = pipeline.lower(&[graph.output.clone()]);
+        let ast = pipeline
+            .lower(&[graph.output.clone()])
+            .map_err(|e| format!("Lowering error: {}", e))?;
         all_asts.push((graph.name.clone(), ast));
     }
 

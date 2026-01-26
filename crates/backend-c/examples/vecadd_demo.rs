@@ -44,7 +44,7 @@ fn main() {
     println!("Step 2: Lower to AST");
     println!("{}", "-".repeat(70));
     let mut lowerer = Lowerer::new();
-    let program = lowerer.lower(&[c]);
+    let program = lowerer.lower(&[c]).expect("Lowering should succeed");
     print_program_info(&program);
     println!();
 
