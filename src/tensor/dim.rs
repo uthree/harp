@@ -18,13 +18,15 @@ use std::fmt::Debug;
 // Core Dimension Trait
 // ============================================================================
 
-/// A type-level representation of tensor dimensionality.
-///
-/// Types implementing this trait represent the number of dimensions a tensor has.
-/// This enables compile-time checking of dimension compatibility in operations.
 pub trait Dimension: Clone + Debug + 'static {
     /// The number of dimensions (compile-time constant for fixed dims).
     const NDIM: usize;
+
+    /// Next larger dimension (e.g., D2::Larger = D3).
+    type Larger: Dimension;
+
+    /// Next smaller dimension (e.g., D2::Smaller = D1).
+    type Smaller: Dimension;
 
     /// Check if a given shape is valid for this dimension.
     fn check_shape(shape: &[usize]) -> bool {
@@ -42,6 +44,8 @@ pub struct D0;
 
 impl Dimension for D0 {
     const NDIM: usize = 0;
+    type Larger = D1;
+    type Smaller = D0; // D0 is the smallest
 }
 
 /// 1-dimensional tensor (vector).
@@ -50,6 +54,8 @@ pub struct D1;
 
 impl Dimension for D1 {
     const NDIM: usize = 1;
+    type Larger = D2;
+    type Smaller = D0;
 }
 
 /// 2-dimensional tensor (matrix).
@@ -58,6 +64,8 @@ pub struct D2;
 
 impl Dimension for D2 {
     const NDIM: usize = 2;
+    type Larger = D3;
+    type Smaller = D1;
 }
 
 /// 3-dimensional tensor.
@@ -66,6 +74,8 @@ pub struct D3;
 
 impl Dimension for D3 {
     const NDIM: usize = 3;
+    type Larger = D4;
+    type Smaller = D2;
 }
 
 /// 4-dimensional tensor.
@@ -74,6 +84,8 @@ pub struct D4;
 
 impl Dimension for D4 {
     const NDIM: usize = 4;
+    type Larger = D5;
+    type Smaller = D3;
 }
 
 /// 5-dimensional tensor.
@@ -82,6 +94,8 @@ pub struct D5;
 
 impl Dimension for D5 {
     const NDIM: usize = 5;
+    type Larger = D6;
+    type Smaller = D4;
 }
 
 /// 6-dimensional tensor.
@@ -90,6 +104,8 @@ pub struct D6;
 
 impl Dimension for D6 {
     const NDIM: usize = 6;
+    type Larger = D7;
+    type Smaller = D5;
 }
 
 /// 7-dimensional tensor.
@@ -98,6 +114,8 @@ pub struct D7;
 
 impl Dimension for D7 {
     const NDIM: usize = 7;
+    type Larger = D8;
+    type Smaller = D6;
 }
 
 /// 8-dimensional tensor.
@@ -106,6 +124,8 @@ pub struct D8;
 
 impl Dimension for D8 {
     const NDIM: usize = 8;
+    type Larger = Dyn; // Beyond D8, use dynamic
+    type Smaller = D7;
 }
 
 /// Dynamic dimension (runtime-checked).
@@ -117,6 +137,8 @@ pub struct Dyn(pub usize);
 
 impl Dimension for Dyn {
     const NDIM: usize = usize::MAX; // Sentinel value
+    type Larger = Dyn;
+    type Smaller = Dyn;
 
     fn check_shape(_shape: &[usize]) -> bool {
         // Dynamic dimension accepts any shape
@@ -125,81 +147,8 @@ impl Dimension for Dyn {
 }
 
 // ============================================================================
-// Dimension Transformation Traits
+// Dimension Compatibility Traits
 // ============================================================================
-
-/// Add one dimension (for unsqueeze operation).
-///
-/// # Example
-/// ```ignore
-/// // D2.unsqueeze(0) -> D3
-/// let a: Tensor<D2> = input([32, 64], F32);
-/// let b: Tensor<D3> = a.unsqueeze(0);  // [1, 32, 64]
-/// ```
-pub trait DimAdd1: Dimension {
-    /// The resulting dimension type after adding one dimension.
-    type Output: Dimension;
-}
-
-impl DimAdd1 for D0 {
-    type Output = D1;
-}
-impl DimAdd1 for D1 {
-    type Output = D2;
-}
-impl DimAdd1 for D2 {
-    type Output = D3;
-}
-impl DimAdd1 for D3 {
-    type Output = D4;
-}
-impl DimAdd1 for D4 {
-    type Output = D5;
-}
-impl DimAdd1 for D5 {
-    type Output = D6;
-}
-impl DimAdd1 for D6 {
-    type Output = Dyn;
-}
-impl DimAdd1 for Dyn {
-    type Output = Dyn;
-}
-
-/// Remove one dimension (for squeeze/reduce operations).
-///
-/// # Example
-/// ```ignore
-/// // D2.sum(axis) -> D1
-/// let a: Tensor<D2> = input([32, 64], F32);
-/// let b: Tensor<D1> = a.sum(1);  // [32]
-/// ```
-pub trait DimSub1: Dimension {
-    /// The resulting dimension type after removing one dimension.
-    type Output: Dimension;
-}
-
-impl DimSub1 for D1 {
-    type Output = D0;
-}
-impl DimSub1 for D2 {
-    type Output = D1;
-}
-impl DimSub1 for D3 {
-    type Output = D2;
-}
-impl DimSub1 for D4 {
-    type Output = D3;
-}
-impl DimSub1 for D5 {
-    type Output = D4;
-}
-impl DimSub1 for D6 {
-    type Output = D5;
-}
-impl DimSub1 for Dyn {
-    type Output = Dyn;
-}
 
 /// Dimension equality constraint (for binary operations, broadcasting).
 ///
@@ -218,6 +167,8 @@ impl DimEq<D3> for Dyn {}
 impl DimEq<D4> for Dyn {}
 impl DimEq<D5> for Dyn {}
 impl DimEq<D6> for Dyn {}
+impl DimEq<D7> for Dyn {}
+impl DimEq<D8> for Dyn {}
 
 impl DimEq<Dyn> for D0 {}
 impl DimEq<Dyn> for D1 {}
@@ -226,6 +177,8 @@ impl DimEq<Dyn> for D3 {}
 impl DimEq<Dyn> for D4 {}
 impl DimEq<Dyn> for D5 {}
 impl DimEq<Dyn> for D6 {}
+impl DimEq<Dyn> for D7 {}
+impl DimEq<Dyn> for D8 {}
 
 // ============================================================================
 // Utility Traits
@@ -313,27 +266,30 @@ mod tests {
     }
 
     #[test]
-    fn test_dim_add1() {
-        fn check_add<D: DimAdd1>() -> usize {
-            D::Output::NDIM
+    fn test_dim_larger() {
+        fn check_larger<D: Dimension>() -> usize {
+            D::Larger::NDIM
         }
 
-        assert_eq!(check_add::<D0>(), 1);
-        assert_eq!(check_add::<D1>(), 2);
-        assert_eq!(check_add::<D2>(), 3);
-        assert_eq!(check_add::<D3>(), 4);
+        assert_eq!(check_larger::<D0>(), 1);
+        assert_eq!(check_larger::<D1>(), 2);
+        assert_eq!(check_larger::<D2>(), 3);
+        assert_eq!(check_larger::<D3>(), 4);
+        assert_eq!(check_larger::<D7>(), 8);
+        assert_eq!(check_larger::<D8>(), usize::MAX); // -> Dyn
     }
 
     #[test]
-    fn test_dim_sub1() {
-        fn check_sub<D: DimSub1>() -> usize {
-            D::Output::NDIM
+    fn test_dim_smaller() {
+        fn check_smaller<D: Dimension>() -> usize {
+            D::Smaller::NDIM
         }
 
-        assert_eq!(check_sub::<D1>(), 0);
-        assert_eq!(check_sub::<D2>(), 1);
-        assert_eq!(check_sub::<D3>(), 2);
-        assert_eq!(check_sub::<D4>(), 3);
+        assert_eq!(check_smaller::<D0>(), 0); // D0 -> D0
+        assert_eq!(check_smaller::<D1>(), 0);
+        assert_eq!(check_smaller::<D2>(), 1);
+        assert_eq!(check_smaller::<D3>(), 2);
+        assert_eq!(check_smaller::<D4>(), 3);
     }
 
     #[test]

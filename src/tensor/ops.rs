@@ -8,7 +8,7 @@ use std::ops::{Add, Div, Mul, Neg, Sub};
 use crate::ast::TensorDType;
 use crate::graph::Expr;
 
-use super::dim::{DimAdd1, DimEq, DimSub1, Dimension, Dyn};
+use super::dim::{DimEq, Dimension, Dyn};
 use super::tensor::Tensor;
 
 // ============================================================================
@@ -166,7 +166,7 @@ impl<D: Dimension, T: TensorDType> Tensor<D, T> {
 // Reduce Operations
 // ============================================================================
 
-impl<D: Dimension + DimSub1, T: TensorDType> Tensor<D, T> {
+impl<D: Dimension, T: TensorDType> Tensor<D, T> {
     /// Sum over the specified axis, removing that dimension.
     ///
     /// # Example
@@ -175,7 +175,7 @@ impl<D: Dimension + DimSub1, T: TensorDType> Tensor<D, T> {
     /// let x: Tensor<D2, f32> = Tensor::input([32, 64]);
     /// let y: Tensor<D1, f32> = x.sum(1);  // [32, 64] -> [32]
     /// ```
-    pub fn sum(&self, axis: usize) -> Tensor<D::Output, T> {
+    pub fn sum(&self, axis: usize) -> Tensor<D::Smaller, T> {
         assert!(
             axis < self.ndim(),
             "Axis {} out of bounds for {}D tensor",
@@ -188,7 +188,7 @@ impl<D: Dimension + DimSub1, T: TensorDType> Tensor<D, T> {
     }
 
     /// Maximum over the specified axis, removing that dimension.
-    pub fn max(&self, axis: usize) -> Tensor<D::Output, T> {
+    pub fn max(&self, axis: usize) -> Tensor<D::Smaller, T> {
         assert!(
             axis < self.ndim(),
             "Axis {} out of bounds for {}D tensor",
@@ -201,7 +201,7 @@ impl<D: Dimension + DimSub1, T: TensorDType> Tensor<D, T> {
     }
 
     /// Minimum over the specified axis, removing that dimension.
-    pub fn min(&self, axis: usize) -> Tensor<D::Output, T> {
+    pub fn min(&self, axis: usize) -> Tensor<D::Smaller, T> {
         assert!(
             axis < self.ndim(),
             "Axis {} out of bounds for {}D tensor",
@@ -214,7 +214,7 @@ impl<D: Dimension + DimSub1, T: TensorDType> Tensor<D, T> {
     }
 
     /// Product over the specified axis, removing that dimension.
-    pub fn prod(&self, axis: usize) -> Tensor<D::Output, T> {
+    pub fn prod(&self, axis: usize) -> Tensor<D::Smaller, T> {
         assert!(
             axis < self.ndim(),
             "Axis {} out of bounds for {}D tensor",
@@ -227,7 +227,7 @@ impl<D: Dimension + DimSub1, T: TensorDType> Tensor<D, T> {
     }
 
     /// Mean over the specified axis, removing that dimension.
-    pub fn mean(&self, axis: usize) -> Tensor<D::Output, T> {
+    pub fn mean(&self, axis: usize) -> Tensor<D::Smaller, T> {
         assert!(
             axis < self.ndim(),
             "Axis {} out of bounds for {}D tensor",
@@ -324,7 +324,7 @@ impl<D: Dimension, T: TensorDType> Tensor<D, T> {
 // Shape Operations
 // ============================================================================
 
-impl<D: Dimension + DimAdd1, T: TensorDType> Tensor<D, T> {
+impl<D: Dimension, T: TensorDType> Tensor<D, T> {
     /// Insert a dimension of size 1 at the specified axis.
     ///
     /// # Example
@@ -333,7 +333,7 @@ impl<D: Dimension + DimAdd1, T: TensorDType> Tensor<D, T> {
     /// let x: Tensor<D2, f32> = Tensor::input([32, 64]);
     /// let y: Tensor<D3, f32> = x.unsqueeze(0);  // [32, 64] -> [1, 32, 64]
     /// ```
-    pub fn unsqueeze(&self, axis: usize) -> Tensor<D::Output, T> {
+    pub fn unsqueeze(&self, axis: usize) -> Tensor<D::Larger, T> {
         assert!(
             axis <= self.ndim(),
             "Axis {} out of bounds for unsqueeze on {}D tensor",
@@ -345,13 +345,13 @@ impl<D: Dimension + DimAdd1, T: TensorDType> Tensor<D, T> {
     }
 }
 
-impl<D: Dimension + DimSub1, T: TensorDType> Tensor<D, T> {
+impl<D: Dimension, T: TensorDType> Tensor<D, T> {
     /// Remove a dimension of size 1 at the specified axis.
     ///
     /// # Panics
     ///
     /// Panics if the dimension at `axis` is not 1.
-    pub fn squeeze(&self, axis: usize) -> Tensor<D::Output, T> {
+    pub fn squeeze(&self, axis: usize) -> Tensor<D::Smaller, T> {
         assert!(
             axis < self.ndim(),
             "Axis {} out of bounds for {}D tensor",

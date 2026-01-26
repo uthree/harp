@@ -34,7 +34,7 @@ mod realize;
 mod tensor;
 
 // Re-export dimension types
-pub use dim::{D0, D1, D2, D3, D4, D5, D6, D7, D8, DimAdd1, DimEq, DimSub1, Dimension, Dyn};
+pub use dim::{D0, D1, D2, D3, D4, D5, D6, D7, D8, DimEq, Dimension, Dyn};
 
 // Re-export tensor type
 pub use tensor::Tensor;
