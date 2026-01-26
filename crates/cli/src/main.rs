@@ -179,7 +179,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("Building computation graphs...");
     }
 
-    let builder = GraphBuilder::with_dynamic_dims(dynamic_dims);
+    let mut builder = GraphBuilder::with_dynamic_dims(dynamic_dims);
     let built_graphs = builder
         .build_program(&program)
         .map_err(|e| format!("Graph build error: {}", e))?;
