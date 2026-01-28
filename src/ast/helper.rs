@@ -162,33 +162,6 @@ pub fn cast(a: AstNode, dtype: DType) -> AstNode {
     AstNode::Cast(Box::new(a), dtype)
 }
 
-// ============================================================================
-// Complex number operations
-// ============================================================================
-
-/// Create a real part extraction node
-pub fn real(a: AstNode) -> AstNode {
-    AstNode::Real(Box::new(a))
-}
-
-/// Create an imaginary part extraction node
-pub fn imag(a: AstNode) -> AstNode {
-    AstNode::Imag(Box::new(a))
-}
-
-/// Create a complex conjugate node
-pub fn conj(a: AstNode) -> AstNode {
-    AstNode::Conj(Box::new(a))
-}
-
-/// Create a complex number from real and imaginary parts
-pub fn make_complex(re: AstNode, im: AstNode) -> AstNode {
-    AstNode::MakeComplex {
-        re: Box::new(re),
-        im: Box::new(im),
-    }
-}
-
 /// Create a variable reference node
 pub fn var(name: impl Into<String>) -> AstNode {
     AstNode::Var(name.into())

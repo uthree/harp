@@ -520,8 +520,6 @@ fn evaluate_ast_expr(ast: &AstNode, shape_vars: &HashMap<String, i64>) -> i64 {
                     0
                 }
             }
-            Literal::Complex32(re, _) => *re as i64,
-            Literal::Complex64(re, _) => *re as i64,
         },
         AstNode::Var(name) => shape_vars.get(name).copied().unwrap_or(1),
         AstNode::Mul(a, b) => evaluate_ast_expr(a, shape_vars) * evaluate_ast_expr(b, shape_vars),
@@ -618,8 +616,6 @@ impl DispatchSizeExpr {
                 Literal::F32(f) => Self::Const(*f as i64),
                 Literal::F64(f) => Self::Const(*f as i64),
                 Literal::Bool(b) => Self::Const(if *b { 1 } else { 0 }),
-                Literal::Complex32(re, _) => Self::Const(*re as i64),
-                Literal::Complex64(re, _) => Self::Const(*re as i64),
             },
             AstNode::Var(name) => Self::Var(name.clone()),
             AstNode::Add(a, b) => {

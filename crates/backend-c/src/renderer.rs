@@ -142,8 +142,6 @@ impl CLikeRenderer for CRenderer {
                 }
             }
             DType::Unknown => "/* unknown */".to_string(),
-            DType::Complex32 => "float _Complex".to_string(),
-            DType::Complex64 => "double _Complex".to_string(),
         }
     }
 

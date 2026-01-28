@@ -148,12 +148,6 @@ impl RustRenderer {
             Literal::BF16(v) => {
                 format!("half::bf16::from_f32({}f32)", v.to_f32())
             }
-            Literal::Complex32(re, im) => {
-                format!("/* complex32({}, {}) */", re, im)
-            }
-            Literal::Complex64(re, im) => {
-                format!("/* complex64({}, {}) */", re, im)
-            }
         }
     }
 
@@ -355,16 +349,6 @@ impl RustRenderer {
                     self.render_expr_rust(offset),
                     self.render_expr_rust(value)
                 )
-            }
-            AstNode::Real(operand) => {
-                format!("/* real */ {}", self.render_expr_rust(operand))
-            }
-            AstNode::Imag(_operand) => "/* imag */ 0.0f32".to_string(),
-            AstNode::Conj(operand) => {
-                format!("/* conj */ {}", self.render_expr_rust(operand))
-            }
-            AstNode::MakeComplex { re, im: _ } => {
-                format!("/* make_complex */ {}", self.render_expr_rust(re))
             }
             _ => format!("/* unsupported: {:?} */", std::mem::discriminant(node)),
         }
@@ -729,8 +713,6 @@ impl CLikeRenderer for RustRenderer {
                 }
             }
             DType::Unknown => "/* unknown */".to_string(),
-            DType::Complex32 => "/* Complex32 */ (f32, f32)".to_string(),
-            DType::Complex64 => "/* Complex64 */ (f64, f64)".to_string(),
         }
     }
 

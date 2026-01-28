@@ -255,14 +255,6 @@ impl CLikeRenderer for CudaRenderer {
                     "Type inference failed: DType::Unknown should not appear in code generation."
                 )
             }
-            DType::Complex32 => {
-                // CUDA has cuComplex, but we use float2 for simplicity
-                "float2".to_string()
-            }
-            DType::Complex64 => {
-                // CUDA has cuDoubleComplex, but we use double2 for simplicity
-                "double2".to_string()
-            }
         }
     }
 

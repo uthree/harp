@@ -263,14 +263,6 @@ impl CLikeRenderer for OpenCLRenderer {
                     "Type inference failed: DType::Unknown should not appear in code generation."
                 )
             }
-            DType::Complex32 => {
-                // OpenCL does not have native complex type, use float2 as (real, imag) pair
-                "float2".to_string()
-            }
-            DType::Complex64 => {
-                // OpenCL does not have native complex type, use double2 as (real, imag) pair
-                "double2".to_string()
-            }
         }
     }
 

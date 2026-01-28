@@ -84,15 +84,8 @@ fn collect_var_names_recursive(ast: &AstNode, names: &mut HashSet<String>) {
         | AstNode::Floor(a)
         | AstNode::BitwiseNot(a)
         | AstNode::Not(a)
-        | AstNode::Cast(a, _)
-        | AstNode::Real(a)
-        | AstNode::Imag(a)
-        | AstNode::Conj(a) => {
+        | AstNode::Cast(a, _) => {
             collect_var_names_recursive(a, names);
-        }
-        AstNode::MakeComplex { re, im } => {
-            collect_var_names_recursive(re, names);
-            collect_var_names_recursive(im, names);
         }
         AstNode::Select {
             cond,

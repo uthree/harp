@@ -99,10 +99,6 @@ pub enum DType {
     F32,
     F64,
 
-    // Complex numbers
-    Complex32, // Complex<f32>
-    Complex64, // Complex<f64>
-
     // Index type: バックエンドによって自動的に決定される整数型
     // GPU/CPUの最適なインデックス型に変換される（通常はi32またはi64）
     Int,
@@ -138,10 +134,6 @@ pub enum Literal {
     BF16(bf16),
     F32(f32),
     F64(f64),
-
-    // Complex numbers (stored as (real, imag) tuple)
-    Complex32(f32, f32),
-    Complex64(f64, f64),
 }
 
 // ============================================================================
@@ -211,8 +203,6 @@ impl Literal {
             Literal::BF16(_) => DType::BF16,
             Literal::F32(_) => DType::F32,
             Literal::F64(_) => DType::F64,
-            Literal::Complex32(_, _) => DType::Complex32,
-            Literal::Complex64(_, _) => DType::Complex64,
         }
     }
 
@@ -303,8 +293,6 @@ impl Literal {
             Literal::BF16(v) => *v == bf16::ZERO,
             Literal::F32(v) => *v == 0.0,
             Literal::F64(v) => *v == 0.0,
-            Literal::Complex32(re, im) => *re == 0.0 && *im == 0.0,
-            Literal::Complex64(re, im) => *re == 0.0 && *im == 0.0,
         }
     }
 
@@ -324,8 +312,6 @@ impl Literal {
             Literal::BF16(v) => *v == bf16::ONE,
             Literal::F32(v) => *v == 1.0,
             Literal::F64(v) => *v == 1.0,
-            Literal::Complex32(re, im) => *re == 1.0 && *im == 0.0,
-            Literal::Complex64(re, im) => *re == 1.0 && *im == 0.0,
         }
     }
 }
@@ -344,8 +330,6 @@ impl DType {
             DType::I16 | DType::U16 | DType::F16 | DType::BF16 => 2,
             DType::I32 | DType::U32 | DType::F32 => 4,
             DType::I64 | DType::U64 | DType::F64 => 8,
-            DType::Complex32 => 8,                      // 2 * f32
-            DType::Complex64 => 16,                     // 2 * f64
             DType::Int => std::mem::size_of::<isize>(), // Platform-dependent
             DType::Ptr(_) => std::mem::size_of::<usize>(),
             DType::Vec(elem_type, size) => elem_type.size_in_bytes() * size,
@@ -416,23 +400,6 @@ impl DType {
         matches!(self, DType::F16 | DType::BF16 | DType::F32 | DType::F64)
     }
 
-    /// Check if this is a complex type
-    pub fn is_complex(&self) -> bool {
-        matches!(self, DType::Complex32 | DType::Complex64)
-    }
-
-    /// Get the element type for complex numbers
-    ///
-    /// Returns `Some(DType::F32)` for `Complex32` and `Some(DType::F64)` for `Complex64`.
-    /// Returns `None` for non-complex types.
-    pub fn complex_element_type(&self) -> Option<DType> {
-        match self {
-            DType::Complex32 => Some(DType::F32),
-            DType::Complex64 => Some(DType::F64),
-            _ => None,
-        }
-    }
-
     /// Check if this is a signed integer type
     pub fn is_signed_integer(&self) -> bool {
         matches!(
@@ -451,9 +418,9 @@ impl DType {
         self.is_signed_integer() || self.is_unsigned_integer()
     }
 
-    /// Check if this is a numeric type (integer, float, or complex)
+    /// Check if this is a numeric type (integer or float)
     pub fn is_numeric(&self) -> bool {
-        self.is_integer() || self.is_float() || self.is_complex()
+        self.is_integer() || self.is_float()
     }
 
     /// Check if the type is known (not Unknown)
@@ -469,8 +436,6 @@ impl DType {
             DType::I16 | DType::U16 | DType::F16 | DType::BF16 => Some(16),
             DType::I32 | DType::U32 | DType::F32 => Some(32),
             DType::I64 | DType::U64 | DType::F64 => Some(64),
-            DType::Complex32 => Some(64),  // 2 * 32 bits
-            DType::Complex64 => Some(128), // 2 * 64 bits
             DType::Int => Some(std::mem::size_of::<isize>() * 8),
             _ => None,
         }
@@ -492,8 +457,6 @@ impl DType {
             DType::BF16 => Some(Literal::BF16(bf16::ZERO)),
             DType::F32 => Some(Literal::F32(0.0)),
             DType::F64 => Some(Literal::F64(0.0)),
-            DType::Complex32 => Some(Literal::Complex32(0.0, 0.0)),
-            DType::Complex64 => Some(Literal::Complex64(0.0, 0.0)),
             _ => None,
         }
     }
@@ -514,8 +477,6 @@ impl DType {
             DType::BF16 => Some(Literal::BF16(bf16::ONE)),
             DType::F32 => Some(Literal::F32(1.0)),
             DType::F64 => Some(Literal::F64(1.0)),
-            DType::Complex32 => Some(Literal::Complex32(1.0, 0.0)),
-            DType::Complex64 => Some(Literal::Complex64(1.0, 0.0)),
             _ => None,
         }
     }
