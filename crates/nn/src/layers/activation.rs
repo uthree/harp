@@ -30,7 +30,7 @@ use eclat::tensor::Tensor;
 /// let prelu = PReLU::new(64);
 ///
 /// let input: Tensor<D2, f32> = Tensor::input([32, 64]);
-/// let output = prelu.forward_d2(&input);
+/// let output = prelu.forward(&input);
 /// ```
 pub struct PReLU {
     /// Learnable weight parameter [num_parameters]
@@ -80,7 +80,7 @@ impl PReLU {
     ///
     /// # Returns
     /// Output tensor of shape [batch, features]
-    pub fn forward_d2(&self, input: &Tensor<D2, f32>) -> Tensor<D2, f32> {
+    pub fn forward(&self, input: &Tensor<D2, f32>) -> Tensor<D2, f32> {
         // Broadcast weight [features] -> [1, features] for proper broadcasting
         let weight_broadcast: Tensor<D2, f32> = self.weight.tensor().unsqueeze(0);
         functional::prelu(input, &weight_broadcast)
@@ -151,10 +151,10 @@ mod tests {
     }
 
     #[test]
-    fn test_prelu_forward_d2() {
+    fn test_prelu_forward() {
         let prelu = PReLU::new(3);
         let input: Tensor<D2, f32> = Tensor::input([2, 3]);
-        let output = prelu.forward_d2(&input);
+        let output = prelu.forward(&input);
         assert_eq!(output.shape(), vec![2, 3]);
     }
 
@@ -163,7 +163,7 @@ mod tests {
         // Single shared weight
         let prelu = PReLU::new(1);
         let input: Tensor<D2, f32> = Tensor::input([4, 10]);
-        let output = prelu.forward_d2(&input);
+        let output = prelu.forward(&input);
         assert_eq!(output.shape(), vec![4, 10]);
     }
 }

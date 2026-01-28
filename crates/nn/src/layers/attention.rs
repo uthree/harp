@@ -184,23 +184,29 @@ impl MultiheadAttention {
     }
 
     /// Projects input using weight and optional bias.
-    /// input: [B, L, E], weight: [E, E], bias: [E] -> output: [B, L, E]
+    /// input: [B, L, E], weight: [E, E], bias: [E] -> output: [B, L, O]
+    ///
+    /// Uses reshape to convert 3D to 2D for linear, then back to 3D.
     fn project(
         &self,
         input: &Tensor<D3, f32>,
         weight: &Parameter<D2>,
         bias: Option<&Parameter<D1>>,
     ) -> Tensor<D3, f32> {
-        // Prepare weight: [E, E] -> [1, E, E] for broadcasting
-        let w: Tensor<D3, f32> = weight.tensor().unsqueeze(0);
+        let batch_size = input.shape()[0];
+        let seq_len = input.shape()[1];
+        let in_features = input.shape()[2];
+        let out_features = weight.tensor().shape()[0];
 
-        // Prepare bias if present: [E] -> [1, 1, E]
-        let b = bias.map(|b| {
-            let b1: Tensor<D2, f32> = b.tensor().unsqueeze(0);
-            b1.unsqueeze(0)
-        });
+        // Reshape [B, L, E] -> [B*L, E]
+        let flat: Tensor<D2, f32> = input.reshape([batch_size * seq_len, in_features]);
 
-        functional::linear_d3(input, &w, b.as_ref())
+        // Apply linear: [B*L, E] -> [B*L, O]
+        let b = bias.map(|b| b.tensor());
+        let projected = functional::linear(&flat, &weight.tensor(), b.as_deref());
+
+        // Reshape [B*L, O] -> [B, L, O]
+        projected.reshape([batch_size, seq_len, out_features])
     }
 
     /// Splits the last dimension into multiple heads.

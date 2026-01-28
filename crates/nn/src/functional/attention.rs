@@ -2,52 +2,10 @@
 //!
 //! This module provides attention-related functional operations.
 
-use eclat::tensor::dim::{D3, D4};
+use eclat::tensor::dim::D4;
 use eclat::tensor::Tensor;
 
 use super::softmax;
-
-/// Applies a linear transformation to a 3D tensor: `y = xW^T + b`.
-///
-/// This is a batched version of linear for sequence data.
-///
-/// # Arguments
-/// * `input` - Input tensor of shape [batch, seq_len, in_features]
-/// * `weight` - Weight tensor of shape [out_features, in_features]
-/// * `bias` - Optional bias tensor of shape [out_features]
-///
-/// # Returns
-/// Output tensor of shape [batch, seq_len, out_features]
-pub fn linear_d3(
-    input: &Tensor<D3, f32>,
-    weight: &Tensor<D3, f32>,
-    bias: Option<&Tensor<D3, f32>>,
-) -> Tensor<D3, f32> {
-    // input: [B, L, K]
-    // weight: [1, O, K] (pre-unsqueezed from [O, K])
-    // We want: [B, L, O]
-
-    // input: [B, L, K] -> [B, L, K, 1]
-    let a = input.unsqueeze(3);
-
-    // weight: [1, O, K] -> [1, O, K] -> permute to [1, K, O] -> [1, 1, K, O]
-    let weight_t = weight.permute(&[0, 2, 1]); // [1, K, O]
-    let b = weight_t.unsqueeze(0); // [1, 1, K, O]
-
-    // broadcast multiply: [B, L, K, 1] * [1, 1, K, O] -> [B, L, K, O]
-    let product = &a * &b;
-
-    // sum over K axis (axis 2): [B, L, K, O] -> [B, L, O]
-    let y = product.sum(2);
-
-    match bias {
-        Some(bias_tensor) => {
-            // bias: [1, 1, O] -> broadcast to [B, L, O]
-            &y + bias_tensor
-        }
-        None => y,
-    }
-}
 
 /// Batched matrix multiplication for 4D tensors.
 ///
@@ -183,13 +141,5 @@ mod tests {
 
         let output = scaled_dot_product_attention(&query, &key, &value, Some(&mask));
         assert_eq!(output.shape(), vec![batch_size, num_heads, seq_len, head_dim]);
-    }
-
-    #[test]
-    fn test_linear_d3() {
-        let input: Tensor<D3, f32> = Tensor::input([2, 8, 64]); // [B, L, K]
-        let weight: Tensor<D3, f32> = Tensor::input([1, 128, 64]); // [1, O, K]
-        let output = linear_d3(&input, &weight, None);
-        assert_eq!(output.shape(), vec![2, 8, 128]); // [B, L, O]
     }
 }

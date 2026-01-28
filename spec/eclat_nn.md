@@ -55,7 +55,7 @@ pub fn conv2d(input: &Tensor<D4, f32>, weight: &Tensor<D4, f32>, bias: Option<&T
 
 ```rust
 impl Linear {
-    pub fn forward_d2(&self, input: &Tensor<D2, f32>) -> Tensor<D2, f32> {
+    pub fn forward(&self, input: &Tensor<D2, f32>) -> Tensor<D2, f32> {
         let bias = self.bias.as_ref().map(|b| b.tensor());
         functional::linear(input, &self.weight.tensor(), bias.as_deref())
     }
@@ -70,6 +70,8 @@ impl Linear {
 
 ### 全結合層
 - `Linear`: 全結合層 (y = xW^T + b)
+  - 2D テンソル `[batch, in_features]` を受け取り `[batch, out_features]` を出力
+  - 高次元テンソルに適用する場合は reshape で 2D に変換してから適用
 
 ### 活性化層（パラメータあり）
 - `PReLU`: 学習可能な負の傾きを持つ ReLU
@@ -79,6 +81,7 @@ impl Linear {
   - `new(embed_dim, num_heads, bias)` でインスタンス化
   - `forward(query, key, value, attn_mask)` で推論
   - Q, K, V 投影と出力投影を内蔵
+  - 内部で 3D -> 2D -> Linear -> 3D の reshape を使用
 
 ## 活性化関数 (functional)
 
@@ -107,7 +110,6 @@ impl Linear {
 - `scaled_dot_product_attention`: Scaled Dot-Product Attention
   - 入力: query, key, value (D4テンソル `[B, H, L, D]`)、オプションでマスク
   - 出力: `softmax(QK^T / sqrt(d)) @ V`
-- `linear_d3`: 3次元テンソル用の線形変換 `[B, L, E]`
 
 ## オプティマイザ
 

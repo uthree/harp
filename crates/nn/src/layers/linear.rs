@@ -25,7 +25,7 @@ use eclat::tensor::Tensor;
 ///
 /// // Forward pass with static dimensions
 /// let input: Tensor<D2, f32> = Tensor::input([32, 10]); // batch=32, features=10
-/// let output = layer.forward_d2(&input);  // [32, 5]
+/// let output = layer.forward(&input);  // [32, 5]
 ///
 /// // Get parameters for optimization
 /// let params = layer.parameters();
@@ -92,7 +92,7 @@ impl Linear {
     ///
     /// # Returns
     /// Output tensor of shape [batch, out_features]
-    pub fn forward_d2(&self, input: &Tensor<D2, f32>) -> Tensor<D2, f32> {
+    pub fn forward(&self, input: &Tensor<D2, f32>) -> Tensor<D2, f32> {
         let bias = self.bias.as_ref().map(|b| b.tensor());
         functional::linear(input, &self.weight.tensor(), bias.as_deref())
     }
@@ -196,10 +196,10 @@ mod tests {
     }
 
     #[test]
-    fn test_linear_forward_d2() {
+    fn test_linear_forward() {
         let layer = Linear::new(10, 5, true);
         let input: Tensor<D2, f32> = Tensor::input([4, 10]);
-        let output = layer.forward_d2(&input);
+        let output = layer.forward(&input);
         assert_eq!(output.shape(), vec![4, 5]);
     }
 }
