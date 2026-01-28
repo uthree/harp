@@ -288,5 +288,11 @@ simdgroup_store(c_frag, &C[...], ldc);
 - CUDA (WMMA): 16x16x16
 - Metal (simdgroup_matrix): 8x8
 
-デバイスのタイルサイズは `DeviceProfile::matrix_tile_size` で取得可能。
-`DeviceFeature::MatrixOperations` で対応状況を確認できる
+デバイスの行列演算能力は `DeviceProfile::matrix_capabilities` で取得可能。
+各 `MatrixCapability` には入力型、累積型、タイルサイズ（M, K, N）が含まれる。
+`DeviceFeature::MatrixOperations` で対応状況を確認できる。
+
+**コスト評価**:
+`SimpleCostEstimator` は WmmaMatmul ノードを特別に評価し、
+同等の3重ループより大幅に低いコストを割り当てる。
+これにより、ビームサーチ最適化でWMMA変換が優先される。

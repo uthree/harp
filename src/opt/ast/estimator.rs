@@ -359,6 +359,35 @@ impl SimpleCostEstimator {
                     base
                 }
             }
+            // WMMA行列積
+            AstNode::WmmaMatmul {
+                a_ptr,
+                a_offset,
+                a_stride,
+                b_ptr,
+                b_offset,
+                b_stride,
+                c_ptr,
+                c_offset,
+                c_stride,
+                m,
+                k,
+                n,
+                ..
+            } => {
+                Self::count_nodes(a_ptr)
+                    + Self::count_nodes(a_offset)
+                    + Self::count_nodes(a_stride)
+                    + Self::count_nodes(b_ptr)
+                    + Self::count_nodes(b_offset)
+                    + Self::count_nodes(b_stride)
+                    + Self::count_nodes(c_ptr)
+                    + Self::count_nodes(c_offset)
+                    + Self::count_nodes(c_stride)
+                    + Self::count_nodes(m)
+                    + Self::count_nodes(k)
+                    + Self::count_nodes(n)
+            }
             _ => 0, // Const, Var, Barrier, Rand, etc.
         };
         1 + children_count
@@ -419,6 +448,11 @@ impl SimpleCostEstimator {
 
             // 条件分岐（分岐予測オーバーヘッドを含む）
             AstNode::If { .. } => self.branch_overhead.ln(),
+
+            // WMMA (Tensor Core) 行列積
+            // Tensor Core は通常の CUDA コアより大幅に高速（10-100倍以上）
+            // タイル単位で計算するため、ベースコストは低め
+            AstNode::WmmaMatmul { .. } => 20.0_f32.ln(),
 
             // その他（変数参照、定数など）
             _ => f32::NEG_INFINITY, // log(0) = -∞
@@ -701,6 +735,81 @@ impl AstCostEstimator for SimpleCostEstimator {
                 let node_penalty = self.node_count_penalty * node_count as f32;
 
                 base_program_cost + node_penalty
+            }
+            AstNode::WmmaMatmul {
+                a_ptr,
+                a_offset,
+                a_stride,
+                b_ptr,
+                b_offset,
+                b_stride,
+                c_ptr,
+                c_offset,
+                c_stride,
+                m,
+                k,
+                n,
+                ..
+            } => {
+                // WMMA はタイル単位で計算を行う
+                // コスト = ceil(M/tile) * ceil(K/tile) * ceil(N/tile) * タイル計算コスト
+                // Tensor Core の高速性を反映して、同等のスカラー計算より大幅に低いコスト
+
+                // タイルサイズ（NVIDIA: 16x16x16, Metal: 8x8）
+                // ここでは汎用的に16を使用（実際のデバイスに応じて調整可能）
+                const TILE_SIZE: f32 = 16.0;
+
+                // M, K, N が定数の場合はタイル数を計算
+                let extract_dim = |node: &AstNode| -> f32 {
+                    match node {
+                        AstNode::Const(lit) => lit.as_usize().map(|v| v as f32).unwrap_or(256.0),
+                        _ => 256.0, // 変数の場合はデフォルト値
+                    }
+                };
+
+                let m_val = extract_dim(m);
+                let k_val = extract_dim(k);
+                let n_val = extract_dim(n);
+
+                // タイル数を計算
+                let m_tiles = (m_val / TILE_SIZE).ceil();
+                let k_tiles = (k_val / TILE_SIZE).ceil();
+                let n_tiles = (n_val / TILE_SIZE).ceil();
+                let num_tiles = m_tiles * k_tiles * n_tiles;
+
+                // Tensor Core のタイル計算コスト（非常に低い）
+                // 通常の FMA は 4 サイクル程度、Tensor Core は 16x16x16 = 4096 FMA を
+                // 数十サイクルで実行可能（約100倍高速）
+                let tile_cost = 2.0_f32; // タイルあたりのコスト
+
+                let compute_cost = (num_tiles * tile_cost).ln();
+
+                // 子ノード（ポインタ、オフセット、ストライド、サイズ）のコスト
+                let ptr_costs = log_sum_exp_iter(vec![
+                    self.estimate(a_ptr),
+                    self.estimate(b_ptr),
+                    self.estimate(c_ptr),
+                ]);
+                let offset_costs = log_sum_exp_iter(vec![
+                    self.estimate(a_offset),
+                    self.estimate(b_offset),
+                    self.estimate(c_offset),
+                ]);
+                let stride_costs = log_sum_exp_iter(vec![
+                    self.estimate(a_stride),
+                    self.estimate(b_stride),
+                    self.estimate(c_stride),
+                ]);
+                let size_costs =
+                    log_sum_exp_iter(vec![self.estimate(m), self.estimate(k), self.estimate(n)]);
+
+                log_sum_exp_iter(vec![
+                    compute_cost,
+                    ptr_costs,
+                    offset_costs,
+                    stride_costs,
+                    size_costs,
+                ])
             }
             _ => f32::NEG_INFINITY, // log(0)
         };
