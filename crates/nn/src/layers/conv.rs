@@ -32,7 +32,7 @@ use eclat::tensor::dim::{D1, D3, D4, D5};
 ///
 /// let conv = Conv2d::new(3, 64, (3, 3));
 /// let input: Tensor<D4, f32> = Tensor::input([1, 3, 32, 32]);
-/// let output = conv.forward_d4(&input);  // [1, 64, 30, 30]
+/// let output = conv.forward(&input);  // [1, 64, 30, 30]
 /// ```
 pub struct Conv2d {
     /// Weight parameter [out_channels, in_channels, kH, kW]
@@ -156,7 +156,7 @@ impl Conv2d {
     ///
     /// # Returns
     /// Output tensor of shape [N, C_out, H_out, W_out]
-    pub fn forward_d4(&self, input: &Tensor<D4, f32>) -> Tensor<D4, f32> {
+    pub fn forward(&self, input: &Tensor<D4, f32>) -> Tensor<D4, f32> {
         let bias = self.bias.as_ref().map(|b| b.tensor());
         functional::conv2d(
             input,
@@ -372,7 +372,7 @@ impl Conv1d {
     ///
     /// # Returns
     /// Output tensor of shape [N, C_out, L_out]
-    pub fn forward_d3(&self, input: &Tensor<D3, f32>) -> Tensor<D3, f32> {
+    pub fn forward(&self, input: &Tensor<D3, f32>) -> Tensor<D3, f32> {
         let bias = self.bias.as_ref().map(|b| b.tensor());
         functional::conv1d(
             input,
@@ -466,7 +466,7 @@ impl std::fmt::Debug for Conv1d {
 ///
 /// let conv = Conv3d::new(3, 64, (3, 3, 3));
 /// let input: Tensor<D5, f32> = Tensor::input([1, 3, 16, 32, 32]);
-/// let output = conv.forward_d5(&input);  // [1, 64, 14, 30, 30]
+/// let output = conv.forward(&input);  // [1, 64, 14, 30, 30]
 /// ```
 pub struct Conv3d {
     /// Weight parameter [out_channels, in_channels, kD, kH, kW]
@@ -592,7 +592,7 @@ impl Conv3d {
     ///
     /// # Returns
     /// Output tensor of shape [N, C_out, D_out, H_out, W_out]
-    pub fn forward_d5(&self, input: &Tensor<D5, f32>) -> Tensor<D5, f32> {
+    pub fn forward(&self, input: &Tensor<D5, f32>) -> Tensor<D5, f32> {
         let bias = self.bias.as_ref().map(|b| b.tensor());
         functional::conv3d(
             input,
@@ -705,7 +705,7 @@ impl std::fmt::Debug for Conv3d {
 ///
 /// let conv_t = ConvTranspose2d::new(64, 3, (3, 3));
 /// let input: Tensor<D4, f32> = Tensor::input([1, 64, 30, 30]);
-/// let output = conv_t.forward_d4(&input);  // [1, 3, 32, 32]
+/// let output = conv_t.forward(&input);  // [1, 3, 32, 32]
 /// ```
 pub struct ConvTranspose2d {
     /// Weight parameter [in_channels, out_channels, kH, kW]
@@ -835,7 +835,7 @@ impl ConvTranspose2d {
     ///
     /// # Returns
     /// Output tensor of shape [N, C_out, H_out, W_out]
-    pub fn forward_d4(&self, input: &Tensor<D4, f32>) -> Tensor<D4, f32> {
+    pub fn forward(&self, input: &Tensor<D4, f32>) -> Tensor<D4, f32> {
         let bias = self.bias.as_ref().map(|b| b.tensor());
         functional::conv_transpose2d(
             input,
@@ -1067,7 +1067,7 @@ impl ConvTranspose1d {
     ///
     /// # Returns
     /// Output tensor of shape [N, C_out, L_out]
-    pub fn forward_d3(&self, input: &Tensor<D3, f32>) -> Tensor<D3, f32> {
+    pub fn forward(&self, input: &Tensor<D3, f32>) -> Tensor<D3, f32> {
         let bias = self.bias.as_ref().map(|b| b.tensor());
         functional::conv_transpose1d(
             input,
@@ -1163,7 +1163,7 @@ impl std::fmt::Debug for ConvTranspose1d {
 ///
 /// let conv_t = ConvTranspose3d::new(64, 3, (3, 3, 3));
 /// let input: Tensor<D5, f32> = Tensor::input([1, 64, 14, 30, 30]);
-/// let output = conv_t.forward_d5(&input);  // [1, 3, 16, 32, 32]
+/// let output = conv_t.forward(&input);  // [1, 3, 16, 32, 32]
 /// ```
 pub struct ConvTranspose3d {
     /// Weight parameter [in_channels, out_channels, kD, kH, kW]
@@ -1298,7 +1298,7 @@ impl ConvTranspose3d {
     ///
     /// # Returns
     /// Output tensor of shape [N, C_out, D_out, H_out, W_out]
-    pub fn forward_d5(&self, input: &Tensor<D5, f32>) -> Tensor<D5, f32> {
+    pub fn forward(&self, input: &Tensor<D5, f32>) -> Tensor<D5, f32> {
         let bias = self.bias.as_ref().map(|b| b.tensor());
         functional::conv_transpose3d(
             input,
@@ -1399,7 +1399,7 @@ mod tests {
         // Output: [1, 64, 30, 30]
         let conv = Conv2d::new(3, 64, (3, 3));
         let input: Tensor<D4, f32> = Tensor::input([1, 3, 32, 32]);
-        let output = conv.forward_d4(&input);
+        let output = conv.forward(&input);
         assert_eq!(output.shape(), vec![1, 64, 30, 30]);
     }
 
@@ -1409,7 +1409,7 @@ mod tests {
         // Output: [1, 64, 32, 32] (same size)
         let conv = Conv2d::with_options(3, 64, (3, 3), (1, 1), (1, 1), (1, 1), true);
         let input: Tensor<D4, f32> = Tensor::input([1, 3, 32, 32]);
-        let output = conv.forward_d4(&input);
+        let output = conv.forward(&input);
         assert_eq!(output.shape(), vec![1, 64, 32, 32]);
     }
 
@@ -1419,7 +1419,7 @@ mod tests {
         // Output: [1, 64, 16, 16]
         let conv = Conv2d::with_options(3, 64, (3, 3), (2, 2), (1, 1), (1, 1), true);
         let input: Tensor<D4, f32> = Tensor::input([1, 3, 32, 32]);
-        let output = conv.forward_d4(&input);
+        let output = conv.forward(&input);
         assert_eq!(output.shape(), vec![1, 64, 16, 16]);
     }
 
@@ -1429,7 +1429,7 @@ mod tests {
         // Output: [1, 128, 96]
         let conv = Conv1d::new(64, 128, 5);
         let input: Tensor<D3, f32> = Tensor::input([1, 64, 100]);
-        let output = conv.forward_d3(&input);
+        let output = conv.forward(&input);
         assert_eq!(output.shape(), vec![1, 128, 96]);
     }
 
@@ -1439,7 +1439,7 @@ mod tests {
         // Output: [1, 128, 100] (same size)
         let conv = Conv1d::with_options(64, 128, 5, 1, 2, 1, true);
         let input: Tensor<D3, f32> = Tensor::input([1, 64, 100]);
-        let output = conv.forward_d3(&input);
+        let output = conv.forward(&input);
         assert_eq!(output.shape(), vec![1, 128, 100]);
     }
 
@@ -1462,7 +1462,7 @@ mod tests {
         // Output: [1, 64, 14, 30, 30]
         let conv = Conv3d::new(3, 64, (3, 3, 3));
         let input: Tensor<D5, f32> = Tensor::input([1, 3, 16, 32, 32]);
-        let output = conv.forward_d5(&input);
+        let output = conv.forward(&input);
         assert_eq!(output.shape(), vec![1, 64, 14, 30, 30]);
     }
 
@@ -1472,7 +1472,7 @@ mod tests {
         // Output: [1, 64, 16, 32, 32] (same size)
         let conv = Conv3d::with_options(3, 64, (3, 3, 3), (1, 1, 1), (1, 1, 1), (1, 1, 1), true);
         let input: Tensor<D5, f32> = Tensor::input([1, 3, 16, 32, 32]);
-        let output = conv.forward_d5(&input);
+        let output = conv.forward(&input);
         assert_eq!(output.shape(), vec![1, 64, 16, 32, 32]);
     }
 
@@ -1482,7 +1482,7 @@ mod tests {
         // Output: [1, 64, 8, 16, 16]
         let conv = Conv3d::with_options(3, 64, (3, 3, 3), (2, 2, 2), (1, 1, 1), (1, 1, 1), true);
         let input: Tensor<D5, f32> = Tensor::input([1, 3, 16, 32, 32]);
-        let output = conv.forward_d5(&input);
+        let output = conv.forward(&input);
         assert_eq!(output.shape(), vec![1, 64, 8, 16, 16]);
     }
 
@@ -1509,7 +1509,7 @@ mod tests {
         // Output: [1, 3, 32, 32]
         let conv_t = ConvTranspose2d::new(64, 3, (3, 3));
         let input: Tensor<D4, f32> = Tensor::input([1, 64, 30, 30]);
-        let output = conv_t.forward_d4(&input);
+        let output = conv_t.forward(&input);
         assert_eq!(output.shape(), vec![1, 3, 32, 32]);
     }
 
@@ -1520,7 +1520,7 @@ mod tests {
         let conv_t =
             ConvTranspose2d::with_options(64, 3, (3, 3), (2, 2), (1, 1), (1, 1), (1, 1), true);
         let input: Tensor<D4, f32> = Tensor::input([1, 64, 16, 16]);
-        let output = conv_t.forward_d4(&input);
+        let output = conv_t.forward(&input);
         assert_eq!(output.shape(), vec![1, 3, 32, 32]);
     }
 
@@ -1547,7 +1547,7 @@ mod tests {
         // Output: [1, 64, 100]
         let conv_t = ConvTranspose1d::new(128, 64, 5);
         let input: Tensor<D3, f32> = Tensor::input([1, 128, 96]);
-        let output = conv_t.forward_d3(&input);
+        let output = conv_t.forward(&input);
         assert_eq!(output.shape(), vec![1, 64, 100]);
     }
 
@@ -1557,7 +1557,7 @@ mod tests {
         // Output: [1, 64, 100] (same size)
         let conv_t = ConvTranspose1d::with_options(128, 64, 5, 1, 2, 0, 1, true);
         let input: Tensor<D3, f32> = Tensor::input([1, 128, 100]);
-        let output = conv_t.forward_d3(&input);
+        let output = conv_t.forward(&input);
         assert_eq!(output.shape(), vec![1, 64, 100]);
     }
 
@@ -1571,7 +1571,7 @@ mod tests {
         // Output: [1, 3, 16, 32, 32]
         let conv_t = ConvTranspose3d::new(64, 3, (3, 3, 3));
         let input: Tensor<D5, f32> = Tensor::input([1, 64, 14, 30, 30]);
-        let output = conv_t.forward_d5(&input);
+        let output = conv_t.forward(&input);
         assert_eq!(output.shape(), vec![1, 3, 16, 32, 32]);
     }
 
@@ -1590,7 +1590,7 @@ mod tests {
             true,
         );
         let input: Tensor<D5, f32> = Tensor::input([1, 64, 8, 16, 16]);
-        let output = conv_t.forward_d5(&input);
+        let output = conv_t.forward(&input);
         assert_eq!(output.shape(), vec![1, 3, 16, 32, 32]);
     }
 

@@ -32,7 +32,7 @@ use eclat::tensor::dim::{D3, D4, D5};
 ///
 /// let pool = MaxPool2d::new((2, 2));
 /// let input: Tensor<D4, f32> = Tensor::input([1, 64, 32, 32]);
-/// let output = pool.forward_d4(&input);  // [1, 64, 16, 16]
+/// let output = pool.forward(&input);  // [1, 64, 16, 16]
 /// ```
 pub struct MaxPool2d {
     kernel_size: (usize, usize),
@@ -86,7 +86,7 @@ impl MaxPool2d {
     ///
     /// # Returns
     /// Output tensor of shape [N, C, H_out, W_out]
-    pub fn forward_d4(&self, input: &Tensor<D4, f32>) -> Tensor<D4, f32> {
+    pub fn forward(&self, input: &Tensor<D4, f32>) -> Tensor<D4, f32> {
         functional::max_pool2d(input, self.kernel_size, self.stride, self.padding, self.dilation)
     }
 
@@ -160,7 +160,7 @@ impl std::fmt::Debug for MaxPool2d {
 ///
 /// let pool = AvgPool2d::new((2, 2));
 /// let input: Tensor<D4, f32> = Tensor::input([1, 64, 32, 32]);
-/// let output = pool.forward_d4(&input);  // [1, 64, 16, 16]
+/// let output = pool.forward(&input);  // [1, 64, 16, 16]
 /// ```
 pub struct AvgPool2d {
     kernel_size: (usize, usize),
@@ -193,7 +193,7 @@ impl AvgPool2d {
     }
 
     /// Forward pass.
-    pub fn forward_d4(&self, input: &Tensor<D4, f32>) -> Tensor<D4, f32> {
+    pub fn forward(&self, input: &Tensor<D4, f32>) -> Tensor<D4, f32> {
         functional::avg_pool2d(input, self.kernel_size, self.stride, self.padding)
     }
 
@@ -285,7 +285,7 @@ impl MaxPool1d {
     }
 
     /// Forward pass.
-    pub fn forward_d3(&self, input: &Tensor<D3, f32>) -> Tensor<D3, f32> {
+    pub fn forward(&self, input: &Tensor<D3, f32>) -> Tensor<D3, f32> {
         functional::max_pool1d(input, self.kernel_size, self.stride, self.padding, self.dilation)
     }
 
@@ -360,7 +360,7 @@ impl AvgPool1d {
     }
 
     /// Forward pass.
-    pub fn forward_d3(&self, input: &Tensor<D3, f32>) -> Tensor<D3, f32> {
+    pub fn forward(&self, input: &Tensor<D3, f32>) -> Tensor<D3, f32> {
         functional::avg_pool1d(input, self.kernel_size, self.stride, self.padding)
     }
 
@@ -442,7 +442,7 @@ impl MaxPool3d {
     }
 
     /// Forward pass.
-    pub fn forward_d5(&self, input: &Tensor<D5, f32>) -> Tensor<D5, f32> {
+    pub fn forward(&self, input: &Tensor<D5, f32>) -> Tensor<D5, f32> {
         functional::max_pool3d(input, self.kernel_size, self.stride, self.padding, self.dilation)
     }
 
@@ -517,7 +517,7 @@ impl AvgPool3d {
     }
 
     /// Forward pass.
-    pub fn forward_d5(&self, input: &Tensor<D5, f32>) -> Tensor<D5, f32> {
+    pub fn forward(&self, input: &Tensor<D5, f32>) -> Tensor<D5, f32> {
         functional::avg_pool3d(input, self.kernel_size, self.stride, self.padding)
     }
 
@@ -574,7 +574,7 @@ impl std::fmt::Debug for AvgPool3d {
 ///
 /// let pool = AdaptiveAvgPool2d::new();
 /// let input: Tensor<D4, f32> = Tensor::input([1, 512, 7, 7]);
-/// let output = pool.forward_d4(&input);  // [1, 512, 1, 1]
+/// let output = pool.forward(&input);  // [1, 512, 1, 1]
 /// ```
 pub struct AdaptiveAvgPool2d;
 
@@ -585,7 +585,7 @@ impl AdaptiveAvgPool2d {
     }
 
     /// Forward pass.
-    pub fn forward_d4(&self, input: &Tensor<D4, f32>) -> Tensor<D4, f32> {
+    pub fn forward(&self, input: &Tensor<D4, f32>) -> Tensor<D4, f32> {
         functional::adaptive_avg_pool2d(input)
     }
 }
@@ -638,7 +638,7 @@ impl AdaptiveMaxPool2d {
     }
 
     /// Forward pass.
-    pub fn forward_d4(&self, input: &Tensor<D4, f32>) -> Tensor<D4, f32> {
+    pub fn forward(&self, input: &Tensor<D4, f32>) -> Tensor<D4, f32> {
         functional::adaptive_max_pool2d(input)
     }
 }
@@ -685,7 +685,7 @@ mod tests {
         // Output: [1, 64, 16, 16]
         let pool = MaxPool2d::new((2, 2));
         let input: Tensor<D4, f32> = Tensor::input([1, 64, 32, 32]);
-        let output = pool.forward_d4(&input);
+        let output = pool.forward(&input);
         assert_eq!(output.shape(), vec![1, 64, 16, 16]);
     }
 
@@ -697,7 +697,7 @@ mod tests {
             .with_stride((2, 2))
             .with_padding((1, 1));
         let input: Tensor<D4, f32> = Tensor::input([1, 64, 32, 32]);
-        let output = pool.forward_d4(&input);
+        let output = pool.forward(&input);
         assert_eq!(output.shape(), vec![1, 64, 16, 16]);
     }
 
@@ -705,7 +705,7 @@ mod tests {
     fn test_avg_pool2d_output_shape() {
         let pool = AvgPool2d::new((2, 2));
         let input: Tensor<D4, f32> = Tensor::input([1, 64, 32, 32]);
-        let output = pool.forward_d4(&input);
+        let output = pool.forward(&input);
         assert_eq!(output.shape(), vec![1, 64, 16, 16]);
     }
 
@@ -715,7 +715,7 @@ mod tests {
         // Output: [2, 3, 5]
         let pool = MaxPool1d::new(2);
         let input: Tensor<D3, f32> = Tensor::input([2, 3, 10]);
-        let output = pool.forward_d3(&input);
+        let output = pool.forward(&input);
         assert_eq!(output.shape(), vec![2, 3, 5]);
     }
 
@@ -723,7 +723,7 @@ mod tests {
     fn test_avg_pool1d_output_shape() {
         let pool = AvgPool1d::new(2);
         let input: Tensor<D3, f32> = Tensor::input([2, 3, 10]);
-        let output = pool.forward_d3(&input);
+        let output = pool.forward(&input);
         assert_eq!(output.shape(), vec![2, 3, 5]);
     }
 
@@ -733,7 +733,7 @@ mod tests {
         // Output: [1, 64, 8, 16, 16]
         let pool = MaxPool3d::new((2, 2, 2));
         let input: Tensor<D5, f32> = Tensor::input([1, 64, 16, 32, 32]);
-        let output = pool.forward_d5(&input);
+        let output = pool.forward(&input);
         assert_eq!(output.shape(), vec![1, 64, 8, 16, 16]);
     }
 
@@ -741,7 +741,7 @@ mod tests {
     fn test_avg_pool3d_output_shape() {
         let pool = AvgPool3d::new((2, 2, 2));
         let input: Tensor<D5, f32> = Tensor::input([1, 64, 16, 32, 32]);
-        let output = pool.forward_d5(&input);
+        let output = pool.forward(&input);
         assert_eq!(output.shape(), vec![1, 64, 8, 16, 16]);
     }
 
@@ -749,7 +749,7 @@ mod tests {
     fn test_adaptive_avg_pool2d() {
         let pool = AdaptiveAvgPool2d::new();
         let input: Tensor<D4, f32> = Tensor::input([1, 512, 7, 7]);
-        let output = pool.forward_d4(&input);
+        let output = pool.forward(&input);
         assert_eq!(output.shape(), vec![1, 512, 1, 1]);
     }
 
@@ -757,7 +757,7 @@ mod tests {
     fn test_adaptive_max_pool2d() {
         let pool = AdaptiveMaxPool2d::new();
         let input: Tensor<D4, f32> = Tensor::input([1, 512, 7, 7]);
-        let output = pool.forward_d4(&input);
+        let output = pool.forward(&input);
         assert_eq!(output.shape(), vec![1, 512, 1, 1]);
     }
 
