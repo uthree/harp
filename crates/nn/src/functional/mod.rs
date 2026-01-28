@@ -20,9 +20,13 @@
 //! let output = functional::conv2d(&input, &weight, None, (1, 1), (0, 0), (1, 1));
 //! ```
 
+mod activation;
 mod conv;
 mod linear;
 
+pub use activation::{
+    elu, gelu, leaky_relu, log_softmax, prelu, relu, sigmoid, silu, softmax, tanh,
+};
 pub use conv::{
     conv1d, conv2d, conv3d, conv_transpose1d, conv_transpose2d, conv_transpose3d,
 };

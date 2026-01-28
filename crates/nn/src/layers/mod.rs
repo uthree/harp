@@ -27,11 +27,13 @@
 //! let mut optimizer = SGD::new(params, 0.01);
 //! ```
 
+mod activation;
 mod conv;
 mod linear;
 mod module;
 mod parameter;
 
+pub use activation::PReLU;
 pub use conv::{Conv1d, Conv2d, Conv3d, ConvTranspose1d, ConvTranspose2d, ConvTranspose3d};
 pub use linear::Linear;
 pub use module::Module;

@@ -9,12 +9,14 @@ eclat-nn/src/
 ├── lib.rs              (エントリーポイント、re-exports)
 ├── layers/             (ニューラルネットワーク層)
 │   ├── mod.rs
+│   ├── activation.rs   (活性化層: PReLU)
 │   ├── conv.rs         (畳み込み層)
 │   ├── linear.rs       (全結合層)
 │   ├── module.rs       (Module トレイト)
 │   └── parameter.rs    (パラメータ管理)
 ├── functional/         (純粋な演算関数)
 │   ├── mod.rs
+│   ├── activation.rs   (活性化関数)
 │   ├── conv.rs         (畳み込み演算)
 │   └── linear.rs       (線形演算)
 └── optim/              (オプティマイザ)
@@ -66,6 +68,31 @@ impl Linear {
 
 ### 全結合層
 - `Linear`: 全結合層 (y = xW^T + b)
+
+### 活性化層（パラメータあり）
+- `PReLU`: 学習可能な負の傾きを持つ ReLU
+
+## 活性化関数 (functional)
+
+パラメータを持たない活性化関数は `functional` モジュールで提供されます。
+
+### 基本的な活性化関数
+- `relu`: ReLU (max(0, x))
+- `leaky_relu`: Leaky ReLU (max(0, x) + α * min(0, x))
+- `sigmoid`: シグモイド (1 / (1 + exp(-x)))
+- `tanh`: 双曲線正接
+- `elu`: ELU (x if x > 0, else α * (exp(x) - 1))
+
+### 高度な活性化関数
+- `gelu`: GELU (Gaussian Error Linear Unit)
+- `silu`: SiLU / Swish (x * sigmoid(x))
+
+### Softmax 系
+- `softmax`: Softmax（指定した軸に沿って正規化）
+- `log_softmax`: Log-Softmax（数値安定性向上版）
+
+### パラメータ付き
+- `prelu`: PReLU（学習可能な weight を受け取る、任意次元に対応）
 
 ## オプティマイザ
 
