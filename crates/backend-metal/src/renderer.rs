@@ -275,6 +275,7 @@ impl MetalKernelRenderer {
 
         // Metal Shading Languageヘッダー
         code.push_str("#include <metal_stdlib>\n");
+        code.push_str("#include <metal_simdgroup_matrix>\n");
         code.push_str("using namespace metal;\n\n");
 
         // カーネル関数とFunction関数をレンダリング
@@ -518,6 +519,134 @@ impl CLikeRenderer for MetalKernelRenderer {
             ),
         }
     }
+
+    #[allow(clippy::too_many_arguments)]
+    fn render_wmma_matmul(
+        &mut self,
+        a_ptr: &AstNode,
+        a_offset: &AstNode,
+        a_stride: &AstNode,
+        b_ptr: &AstNode,
+        b_offset: &AstNode,
+        b_stride: &AstNode,
+        c_ptr: &AstNode,
+        c_offset: &AstNode,
+        c_stride: &AstNode,
+        m: &AstNode,
+        k: &AstNode,
+        n: &AstNode,
+        dtype_ab: &DType,
+        dtype_c: &DType,
+    ) -> String {
+        let indent = self.indent();
+
+        let a_ptr_str = self.render_expr(a_ptr);
+        let a_offset_str = self.render_expr(a_offset);
+        let a_stride_str = self.render_expr(a_stride);
+        let b_ptr_str = self.render_expr(b_ptr);
+        let b_offset_str = self.render_expr(b_offset);
+        let b_stride_str = self.render_expr(b_stride);
+        let c_ptr_str = self.render_expr(c_ptr);
+        let c_offset_str = self.render_expr(c_offset);
+        let c_stride_str = self.render_expr(c_stride);
+        let m_str = self.render_expr(m);
+        let k_str = self.render_expr(k);
+        let n_str = self.render_expr(n);
+
+        // Determine simdgroup_matrix types based on dtype
+        let (ab_type, c_type) = match (dtype_ab, dtype_c) {
+            (DType::F16, DType::F32) => ("simdgroup_half8x8", "simdgroup_float8x8"),
+            (DType::F16, DType::F16) => ("simdgroup_half8x8", "simdgroup_half8x8"),
+            (DType::F32, DType::F32) => ("simdgroup_float8x8", "simdgroup_float8x8"),
+            _ => ("simdgroup_float8x8", "simdgroup_float8x8"), // fallback
+        };
+
+        let mut code = String::new();
+
+        // Generate simdgroup matrix matmul code
+        // Each simdgroup handles one 8x8 output tile
+        code.push_str(&format!(
+            "{}// simdgroup_matrix Matmul: C[{},{}] += A[{},{}] * B[{},{}]\n",
+            indent, m_str, n_str, m_str, k_str, k_str, n_str
+        ));
+        code.push_str(&format!("{}{{\n", indent));
+
+        self.inc_indent();
+        let inner_indent = self.indent();
+
+        // Tile coordinates from threadgroup position
+        // Note: For simdgroup_matrix, we typically use simdgroup_id
+        code.push_str(&format!(
+            "{}uint tile_row = simdgroup_id_in_group * 8;\n",
+            inner_indent
+        ));
+        code.push_str(&format!(
+            "{}uint tile_col = (thread_position_in_threadgroup.x / 32) * 8;\n",
+            inner_indent
+        ));
+        code.push('\n');
+
+        // Declare simdgroup matrix fragments
+        code.push_str(&format!(
+            "{}// simdgroup_matrix fragments for 8x8 tiles\n",
+            inner_indent
+        ));
+        code.push_str(&format!("{}{} a_frag;\n", inner_indent, ab_type));
+        code.push_str(&format!("{}{} b_frag;\n", inner_indent, ab_type));
+        code.push_str(&format!("{}{} c_frag;\n", inner_indent, c_type));
+        code.push('\n');
+
+        // Initialize accumulator to zero
+        code.push_str(&format!(
+            "{}c_frag = {}(0);\n",
+            inner_indent, c_type
+        ));
+        code.push('\n');
+
+        // Loop over K dimension in 8-element tiles
+        code.push_str(&format!("{}// Accumulate over K dimension\n", inner_indent));
+        code.push_str(&format!(
+            "{}for (uint kk = 0; kk < {}; kk += 8) {{\n",
+            inner_indent, k_str
+        ));
+
+        self.inc_indent();
+        let loop_indent = self.indent();
+
+        // Load A tile: A[tile_row:tile_row+8, kk:kk+8]
+        code.push_str(&format!(
+            "{}simdgroup_load(a_frag, {}+ {} + tile_row * {} + kk, {});\n",
+            loop_indent, a_ptr_str, a_offset_str, a_stride_str, a_stride_str
+        ));
+
+        // Load B tile: B[kk:kk+8, tile_col:tile_col+8]
+        code.push_str(&format!(
+            "{}simdgroup_load(b_frag, {} + {} + kk * {} + tile_col, {});\n",
+            loop_indent, b_ptr_str, b_offset_str, b_stride_str, b_stride_str
+        ));
+
+        // Perform simdgroup multiply-accumulate
+        code.push_str(&format!(
+            "{}simdgroup_multiply_accumulate(c_frag, a_frag, b_frag, c_frag);\n",
+            loop_indent
+        ));
+
+        self.dec_indent();
+        code.push_str(&format!("{}}}\n", inner_indent));
+        code.push('\n');
+
+        // Store result
+        code.push_str(&format!("{}// Store result\n", inner_indent));
+        code.push_str(&format!(
+            "{}simdgroup_store(c_frag, {} + {} + tile_row * {} + tile_col, {});\n",
+            inner_indent, c_ptr_str, c_offset_str, c_stride_str, c_stride_str
+        ));
+
+        self.dec_indent();
+        code.push_str(&format!("{}}}\n", indent));
+
+        code
+    }
 }
 
 // CLikeRendererトレイトの実装（共通ヘルパー関数を使用）
@@ -629,6 +758,118 @@ impl CLikeRenderer for MetalRenderer {
                 dtype, ptr, offset, ptr, offset, value
             ),
         }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn render_wmma_matmul(
+        &mut self,
+        a_ptr: &AstNode,
+        a_offset: &AstNode,
+        a_stride: &AstNode,
+        b_ptr: &AstNode,
+        b_offset: &AstNode,
+        b_stride: &AstNode,
+        c_ptr: &AstNode,
+        c_offset: &AstNode,
+        c_stride: &AstNode,
+        m: &AstNode,
+        k: &AstNode,
+        n: &AstNode,
+        dtype_ab: &DType,
+        dtype_c: &DType,
+    ) -> String {
+        let indent = self.indent();
+
+        let a_ptr_str = self.render_expr(a_ptr);
+        let a_offset_str = self.render_expr(a_offset);
+        let a_stride_str = self.render_expr(a_stride);
+        let b_ptr_str = self.render_expr(b_ptr);
+        let b_offset_str = self.render_expr(b_offset);
+        let b_stride_str = self.render_expr(b_stride);
+        let c_ptr_str = self.render_expr(c_ptr);
+        let c_offset_str = self.render_expr(c_offset);
+        let c_stride_str = self.render_expr(c_stride);
+        let m_str = self.render_expr(m);
+        let k_str = self.render_expr(k);
+        let n_str = self.render_expr(n);
+
+        // Determine simdgroup_matrix types based on dtype
+        let (ab_type, c_type) = match (dtype_ab, dtype_c) {
+            (DType::F16, DType::F32) => ("simdgroup_half8x8", "simdgroup_float8x8"),
+            (DType::F16, DType::F16) => ("simdgroup_half8x8", "simdgroup_half8x8"),
+            (DType::F32, DType::F32) => ("simdgroup_float8x8", "simdgroup_float8x8"),
+            _ => ("simdgroup_float8x8", "simdgroup_float8x8"), // fallback
+        };
+
+        let mut code = String::new();
+
+        // Generate simdgroup matrix matmul code
+        code.push_str(&format!(
+            "{}// simdgroup_matrix Matmul: C[{},{}] += A[{},{}] * B[{},{}]\n",
+            indent, m_str, n_str, m_str, k_str, k_str, n_str
+        ));
+        code.push_str(&format!("{}{{\n", indent));
+
+        self.inc_indent();
+        let inner_indent = self.indent();
+
+        // Tile coordinates
+        code.push_str(&format!(
+            "{}uint tile_row = simdgroup_id_in_group * 8;\n",
+            inner_indent
+        ));
+        code.push_str(&format!(
+            "{}uint tile_col = (thread_position_in_threadgroup.x / 32) * 8;\n",
+            inner_indent
+        ));
+        code.push('\n');
+
+        // Declare simdgroup matrix fragments
+        code.push_str(&format!("{}{} a_frag;\n", inner_indent, ab_type));
+        code.push_str(&format!("{}{} b_frag;\n", inner_indent, ab_type));
+        code.push_str(&format!("{}{} c_frag;\n", inner_indent, c_type));
+        code.push('\n');
+
+        // Initialize accumulator
+        code.push_str(&format!("{}c_frag = {}(0);\n", inner_indent, c_type));
+        code.push('\n');
+
+        // Loop over K dimension
+        code.push_str(&format!(
+            "{}for (uint kk = 0; kk < {}; kk += 8) {{\n",
+            inner_indent, k_str
+        ));
+
+        self.inc_indent();
+        let loop_indent = self.indent();
+
+        code.push_str(&format!(
+            "{}simdgroup_load(a_frag, {} + {} + tile_row * {} + kk, {});\n",
+            loop_indent, a_ptr_str, a_offset_str, a_stride_str, a_stride_str
+        ));
+        code.push_str(&format!(
+            "{}simdgroup_load(b_frag, {} + {} + kk * {} + tile_col, {});\n",
+            loop_indent, b_ptr_str, b_offset_str, b_stride_str, b_stride_str
+        ));
+        code.push_str(&format!(
+            "{}simdgroup_multiply_accumulate(c_frag, a_frag, b_frag, c_frag);\n",
+            loop_indent
+        ));
+
+        self.dec_indent();
+        code.push_str(&format!("{}}}\n", inner_indent));
+        code.push('\n');
+
+        // Store result
+        code.push_str(&format!(
+            "{}simdgroup_store(c_frag, {} + {} + tile_row * {} + tile_col, {});\n",
+            inner_indent, c_ptr_str, c_offset_str, c_stride_str, c_stride_str
+        ));
+
+        self.dec_indent();
+        code.push_str(&format!("{}}}\n", indent));
+
+        code
     }
 }
 

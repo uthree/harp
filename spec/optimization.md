@@ -265,3 +265,28 @@ wmma::store_matrix_sync(&C[...], c_frag, ldc, wmma::mem_row_major);
 ```
 
 **対応GPU**: Volta以降 (Compute Capability 7.0+)
+
+**生成Metalコード** (`MetalRenderer`):
+```metal
+simdgroup_half8x8 a_frag;
+simdgroup_half8x8 b_frag;
+simdgroup_float8x8 c_frag;
+
+c_frag = simdgroup_float8x8(0);
+
+for (uint kk = 0; kk < K; kk += 8) {
+    simdgroup_load(a_frag, &A[...], lda);
+    simdgroup_load(b_frag, &B[...], ldb);
+    simdgroup_multiply_accumulate(c_frag, a_frag, b_frag, c_frag);
+}
+simdgroup_store(c_frag, &C[...], ldc);
+```
+
+**対応GPU**: Apple Silicon (M1以降)
+
+**タイルサイズ**:
+- CUDA (WMMA): 16x16x16
+- Metal (simdgroup_matrix): 8x8
+
+デバイスのタイルサイズは `DeviceProfile::matrix_tile_size` で取得可能。
+`DeviceFeature::MatrixOperations` で対応状況を確認できる

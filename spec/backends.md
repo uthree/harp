@@ -83,9 +83,32 @@ pub struct DeviceProfile {
     pub local_memory_size: usize,       // ローカルメモリサイズ
     pub warp_size: usize,               // ワープ/ウェーブサイズ
     pub preferred_tile_sizes: Vec<usize>,
-    pub simd_capabilities: SimdCapabilities,
+    pub simd_capabilities: Vec<SimdCapability>,
+    pub matrix_capabilities: Vec<MatrixCapability>,  // 行列演算機能
+}
+
+/// 行列演算機能 (Tensor Core / simdgroup_matrix)
+pub struct MatrixCapability {
+    pub dtype_input: DType,   // 入力行列型 (A, B)
+    pub dtype_acc: DType,     // 累積型 (C)
+    pub tile_m: usize,        // M次元タイルサイズ
+    pub tile_n: usize,        // N次元タイルサイズ
+    pub tile_k: usize,        // K次元タイルサイズ
 }
 ```
+
+## DeviceFeature
+
+デバイス機能の有無を確認。
+
+- `FastMath`: 高速数学関数
+- `HalfPrecision`: F16サポート
+- `DoublePrecision`: F64サポート
+- `LocalMemory`: 共有/ローカルメモリ
+- `AtomicOperations`: アトミック演算
+- `SubgroupOperations`: サブグループ演算
+- `ParallelKernel`: 並列カーネル実行
+- `MatrixOperations`: 行列演算 (WMMA/simdgroup_matrix)
 
 ## 各バックエンドの詳細
 
@@ -151,6 +174,10 @@ kernel void kernel_0(
     buf1[i] = buf0[i] * 2.0f;
 }
 ```
+
+**simdgroup_matrix サポート**:
+- 8x8タイル行列積 (Apple Silicon M1以降)
+- 入力: F16/F32, 累積/出力: F16/F32
 
 ### OpenCL バックエンド
 

@@ -76,6 +76,7 @@ impl Device for CDevice {
             warp_size: 1,
             preferred_tile_sizes: vec![1, 4, 8, 16], // CPU-friendly tile sizes
             simd_capabilities: Self::build_simd_capabilities(),
+            matrix_capabilities: Vec::new(), // No matrix operations in pure C
         }
     }
 
@@ -88,6 +89,7 @@ impl Device for CDevice {
             DeviceFeature::AtomicOperations => false, // Pure C99 doesn't have atomics
             DeviceFeature::SubgroupOperations => false, // No subgroups in pure C
             DeviceFeature::ParallelKernel => false,   // No parallel kernel execution
+            DeviceFeature::MatrixOperations => false, // No matrix operations in pure C
         }
     }
 

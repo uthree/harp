@@ -2,7 +2,8 @@
 
 use eclat::ast::DType;
 use eclat::backend::traits::{
-    Device, DeviceFeature, DeviceInstruction, DeviceProfile, DeviceType, OpKind, SimdCapability,
+    Device, DeviceFeature, DeviceInstruction, DeviceProfile, DeviceType, MatrixCapability, OpKind,
+    SimdCapability,
 };
 use metal::{CommandQueue, Device as MtlDevice};
 use std::sync::Arc;
@@ -68,8 +69,9 @@ impl Device for MetalDevice {
             preferred_work_group_size_range: (32, 256),
             local_memory_size: 32768, // 32KB typical for Apple GPUs
             warp_size,
-            preferred_tile_sizes: vec![16, 32, 64],
+            preferred_tile_sizes: vec![8, 16, 32, 64], // Include 8 for simdgroup matrix
             simd_capabilities: Self::build_simd_capabilities(),
+            matrix_capabilities: Self::build_matrix_capabilities(),
         }
     }
 
@@ -82,6 +84,7 @@ impl Device for MetalDevice {
             DeviceFeature::AtomicOperations => true, // Basic atomics supported
             DeviceFeature::SubgroupOperations => true, // SIMD-group functions available
             DeviceFeature::ParallelKernel => true,   // Metal supports parallel kernel execution
+            DeviceFeature::MatrixOperations => true, // simdgroup_matrix available on Apple Silicon (Metal 3)
         }
     }
 
@@ -123,6 +126,18 @@ impl MetalDevice {
         caps.push(SimdCapability::new(DType::I64, Div, 2));
 
         caps
+    }
+
+    /// Build matrix capabilities for Metal (Apple simdgroup_matrix uses 8x8 tiles)
+    fn build_matrix_capabilities() -> Vec<MatrixCapability> {
+        vec![
+            // F16 input, F32 accumulator (most common for ML)
+            MatrixCapability::square(DType::F16, DType::F32, 8),
+            // F16 input, F16 accumulator
+            MatrixCapability::square(DType::F16, DType::F16, 8),
+            // F32 input, F32 accumulator
+            MatrixCapability::square(DType::F32, DType::F32, 8),
+        ]
     }
 
     /// Create a new context for a specific device index

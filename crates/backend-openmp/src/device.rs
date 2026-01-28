@@ -141,6 +141,7 @@ int main() {
             warp_size: 1,
             preferred_tile_sizes: vec![16, 32, 64, 128], // Larger tiles for parallel execution
             simd_capabilities: Self::build_simd_capabilities(),
+            matrix_capabilities: Vec::new(), // No matrix operations in OpenMP
         }
     }
 
@@ -153,6 +154,7 @@ int main() {
             DeviceFeature::AtomicOperations => true, // OpenMP supports atomics
             DeviceFeature::SubgroupOperations => false,
             DeviceFeature::ParallelKernel => true, // OpenMP supports parallel execution
+            DeviceFeature::MatrixOperations => false, // No matrix operations in OpenMP
         }
     }
 

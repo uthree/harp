@@ -79,6 +79,7 @@ impl Device for RustDevice {
             warp_size: 1,
             preferred_tile_sizes: vec![1, 4, 8, 16], // CPU-friendly tile sizes
             simd_capabilities: Self::build_simd_capabilities(),
+            matrix_capabilities: Vec::new(), // No matrix operations in Rust backend
         }
     }
 
@@ -91,6 +92,7 @@ impl Device for RustDevice {
             DeviceFeature::AtomicOperations => false, // Sequential execution
             DeviceFeature::SubgroupOperations => false, // No subgroups
             DeviceFeature::ParallelKernel => false, // No parallel kernel execution
+            DeviceFeature::MatrixOperations => false, // No matrix operations in Rust backend
         }
     }
 

@@ -96,6 +96,7 @@ impl Device for OpenCLDevice {
             warp_size,
             preferred_tile_sizes,
             simd_capabilities,
+            matrix_capabilities: Vec::new(), // No matrix operations in standard OpenCL
         }
     }
 
@@ -111,6 +112,7 @@ impl Device for OpenCLDevice {
                 extensions.contains("cl_khr_subgroups") || extensions.contains("cl_intel_subgroups")
             }
             DeviceFeature::ParallelKernel => true, // OpenCL supports parallel kernel execution
+            DeviceFeature::MatrixOperations => false, // No matrix operations in standard OpenCL
         }
     }
 

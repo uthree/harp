@@ -40,7 +40,7 @@ pub mod traits;
 // Re-export core traits
 pub use traits::{
     Buffer, Compiler, Device, DeviceFeature, DeviceInstruction, DeviceProfile, DeviceType, Kernel,
-    KernelConfig, OpKind, SimdCapability, TypedBuffer,
+    KernelConfig, MatrixCapability, OpKind, SimdCapability, TypedBuffer,
 };
 
 // Re-export pipeline types

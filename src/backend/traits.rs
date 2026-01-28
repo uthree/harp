@@ -37,6 +37,9 @@ pub enum DeviceFeature {
     SubgroupOperations,
     /// Parallel kernel execution support (AstNode::Kernel with grid/threadgroup)
     ParallelKernel,
+    /// Matrix operations support (Tensor Core / simdgroup matrix)
+    /// NVIDIA: WMMA (16x16x16), Apple: simdgroup_matrix (8x8)
+    MatrixOperations,
 }
 
 /// Specific device instructions
@@ -101,6 +104,54 @@ impl SimdCapability {
     }
 }
 
+/// Matrix operation capability entry
+///
+/// Describes supported matrix multiply-accumulate configurations.
+/// Examples:
+/// - NVIDIA WMMA: 16x16x16, F16 input, F32 accumulator
+/// - Apple simdgroup_matrix: 8x8x8, F16/F32 input, F16/F32 accumulator
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MatrixCapability {
+    /// Input matrix A and B data type
+    pub dtype_input: DType,
+    /// Accumulator (C matrix) data type
+    pub dtype_acc: DType,
+    /// Tile size for M dimension
+    pub tile_m: usize,
+    /// Tile size for N dimension
+    pub tile_n: usize,
+    /// Tile size for K dimension
+    pub tile_k: usize,
+}
+
+impl MatrixCapability {
+    /// Create a new matrix capability entry
+    pub fn new(dtype_input: DType, dtype_acc: DType, tile_m: usize, tile_n: usize, tile_k: usize) -> Self {
+        Self {
+            dtype_input,
+            dtype_acc,
+            tile_m,
+            tile_n,
+            tile_k,
+        }
+    }
+
+    /// Create a square tile capability (M=N=K)
+    pub fn square(dtype_input: DType, dtype_acc: DType, tile_size: usize) -> Self {
+        Self::new(dtype_input, dtype_acc, tile_size, tile_size, tile_size)
+    }
+
+    /// Check if this capability supports the given input/accumulator types
+    pub fn supports(&self, dtype_input: &DType, dtype_acc: &DType) -> bool {
+        &self.dtype_input == dtype_input && &self.dtype_acc == dtype_acc
+    }
+
+    /// Get the tile size (returns M dimension, assumes square tiles for simplicity)
+    pub fn tile_size(&self) -> usize {
+        self.tile_m
+    }
+}
+
 /// Device profile containing hardware characteristics
 #[derive(Debug, Clone)]
 pub struct DeviceProfile {
@@ -120,6 +171,8 @@ pub struct DeviceProfile {
     pub preferred_tile_sizes: Vec<usize>,
     /// SIMD capabilities per dtype and operation
     pub simd_capabilities: Vec<SimdCapability>,
+    /// Matrix operation capabilities (Tensor Core / simdgroup_matrix)
+    pub matrix_capabilities: Vec<MatrixCapability>,
 }
 
 impl Default for DeviceProfile {
@@ -133,6 +186,7 @@ impl Default for DeviceProfile {
             warp_size: 32,
             preferred_tile_sizes: vec![16, 32, 64, 128],
             simd_capabilities: Self::default_simd_capabilities(),
+            matrix_capabilities: Vec::new(), // No matrix operations by default
         }
     }
 }
