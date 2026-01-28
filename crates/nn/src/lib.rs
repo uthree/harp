@@ -32,5 +32,5 @@ pub mod nn;
 pub mod optim;
 
 // Re-export commonly used types
-pub use nn::{Conv1d, Conv2d, Conv3d, Linear, Module, Parameter, ParameterBase, ParameterError};
+pub use nn::{Conv1d, Conv2d, Conv3d, ConvTranspose1d, ConvTranspose2d, ConvTranspose3d, Linear, Module, Parameter, ParameterBase, ParameterError};
 pub use optim::{Adam, OptimError, Optimizer, SGD};

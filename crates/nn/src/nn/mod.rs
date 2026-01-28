@@ -31,7 +31,7 @@ mod linear;
 mod module;
 mod parameter;
 
-pub use conv::{Conv1d, Conv2d, Conv3d};
+pub use conv::{Conv1d, Conv2d, Conv3d, ConvTranspose1d, ConvTranspose2d, ConvTranspose3d};
 pub use linear::Linear;
 pub use module::Module;
 pub use parameter::{Parameter, ParameterBase, ParameterError};
