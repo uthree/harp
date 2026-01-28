@@ -155,6 +155,30 @@ pub enum GraphOp {
         /// If true, output[i] excludes input[i] (exclusive scan)
         exclusive: bool,
     },
+
+    /// Matrix multiplication operation
+    ///
+    /// Computes C[M, N] = A[M, K] @ B[K, N] (or transposed variants).
+    /// This high-level operation is detected by graph optimization and
+    /// can be lowered to efficient implementations (WMMA, cuBLAS, etc.).
+    ///
+    /// # Sources
+    /// - sources[0]: Matrix A with shape [M, K] (or [K, M] if transpose.0)
+    /// - sources[1]: Matrix B with shape [K, N] (or [N, K] if transpose.1)
+    ///
+    /// # Output
+    /// - Shape [M, N] with the specified dtype
+    MatMul {
+        /// Transpose flags for (A, B)
+        /// - (false, false): C = A @ B
+        /// - (true, false): C = A^T @ B
+        /// - (false, true): C = A @ B^T
+        /// - (true, true): C = A^T @ B^T
+        transpose: (bool, bool),
+        /// Optional accumulator dtype (for mixed precision)
+        /// If None, uses the output dtype
+        accumulator_dtype: Option<DType>,
+    },
 }
 
 // ============================================================================

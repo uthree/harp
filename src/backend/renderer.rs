@@ -142,7 +142,10 @@ pub trait CLikeRenderer {
     /// OpenCL: __local float name[size];
     fn render_shared_alloc(&self, name: &str, dtype: &DType, size_expr: &str) -> String {
         let dtype_str = self.render_dtype_backend(dtype);
-        format!("{}* {} = 0; // shared alloc size={}", dtype_str, name, size_expr)
+        format!(
+            "{}* {} = 0; // shared alloc size={}",
+            dtype_str, name, size_expr
+        )
     }
 
     /// 共有メモリからの読み込みをレンダリング
@@ -151,12 +154,7 @@ pub trait CLikeRenderer {
     }
 
     /// 共有メモリへの書き込みをレンダリング
-    fn render_shared_store(
-        &self,
-        ptr_expr: &str,
-        offset_expr: &str,
-        value_expr: &str,
-    ) -> String {
+    fn render_shared_store(&self, ptr_expr: &str, offset_expr: &str, value_expr: &str) -> String {
         format!("{}[{}] = {}", ptr_expr, offset_expr, value_expr)
     }
 

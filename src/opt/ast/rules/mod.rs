@@ -8,8 +8,8 @@ pub mod bit_ops;
 pub mod const_folding;
 mod macros;
 
-use crate::ast::pat::AstRewriteRule;
 use crate::ast::AddressSpace;
+use crate::ast::pat::AstRewriteRule;
 use crate::backend::traits::DeviceInstruction;
 use crate::opt::context::DeviceCapabilities;
 use std::rc::Rc;

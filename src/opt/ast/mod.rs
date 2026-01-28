@@ -74,6 +74,7 @@ pub use suggesters::{
     CompositeSuggester, CseSuggester, FunctionInliningSuggester, GroupParallelizationSuggester,
     LocalParallelizationSuggester, LoopFusionSuggester, LoopInliningSuggester,
     LoopInterchangeSuggester, LoopTilingSuggester, RuleBaseSuggester, SharedMemorySuggester,
-    VariableExpansionSuggester, VectorizationSuggester, WmmaSuggester,
+    VariableExpansionSuggester, VectorizationSuggester,
 };
+// Note: WmmaSuggester removed - WMMA detection now done at graph level
 pub use transforms::{inline_small_loop, tile_loop};

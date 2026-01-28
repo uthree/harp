@@ -4,9 +4,9 @@
 //! It is designed for use with the `Module` trait and optimizers.
 
 use eclat::graph::GraphNode;
+use eclat::tensor::GradientParam;
 use eclat::tensor::Tensor;
 use eclat::tensor::dim::{Dimension, Dyn};
-use eclat::tensor::GradientParam;
 use std::cell::{Ref, RefCell};
 use std::marker::PhantomData;
 use std::rc::Rc;

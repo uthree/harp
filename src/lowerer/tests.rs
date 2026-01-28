@@ -156,3 +156,38 @@ fn test_scan_loop_generation() {
     // Should be nested Range structures
     assert!(matches!(scan_loops, crate::ast::AstNode::Range { .. }));
 }
+
+#[test]
+fn test_unified_optimization() {
+    // Test that unified optimization applies both MatMul detection and fusion passes
+    let x = input(vec![Expr::Const(32), Expr::Const(64)], DType::F32);
+
+    // Create consecutive views that can be fused
+    let transposed = x.permute(&[1, 0]);
+    let unsqueezed = transposed.unsqueeze(0);
+
+    // Lower with graph optimization
+    let mut lowerer = Lowerer::new();
+    let program = lowerer
+        .lower_with_graph_optimization(&[unsqueezed])
+        .expect("Lowering with optimization should succeed");
+
+    assert!(matches!(program, crate::ast::AstNode::Program { .. }));
+}
+
+#[test]
+fn test_unified_optimization_with_fusion_and_reduce() {
+    // Test that fusion passes work within unified optimization
+    let x = input(vec![Expr::Const(32), Expr::Const(64)], DType::F32);
+
+    // Elementwise followed by reduction - should be fused
+    let doubled = &x * &x;
+    let summed = doubled.sum(1);
+
+    let mut lowerer = Lowerer::new();
+    let program = lowerer
+        .lower_with_graph_optimization(&[summed])
+        .expect("Lowering should succeed");
+
+    assert!(matches!(program, crate::ast::AstNode::Program { .. }));
+}

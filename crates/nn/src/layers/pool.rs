@@ -87,7 +87,13 @@ impl MaxPool2d {
     /// # Returns
     /// Output tensor of shape [N, C, H_out, W_out]
     pub fn forward(&self, input: &Tensor<D4, f32>) -> Tensor<D4, f32> {
-        functional::max_pool2d(input, self.kernel_size, self.stride, self.padding, self.dilation)
+        functional::max_pool2d(
+            input,
+            self.kernel_size,
+            self.stride,
+            self.padding,
+            self.dilation,
+        )
     }
 
     /// Get the kernel size.
@@ -286,7 +292,13 @@ impl MaxPool1d {
 
     /// Forward pass.
     pub fn forward(&self, input: &Tensor<D3, f32>) -> Tensor<D3, f32> {
-        functional::max_pool1d(input, self.kernel_size, self.stride, self.padding, self.dilation)
+        functional::max_pool1d(
+            input,
+            self.kernel_size,
+            self.stride,
+            self.padding,
+            self.dilation,
+        )
     }
 
     /// Get the kernel size.
@@ -443,7 +455,13 @@ impl MaxPool3d {
 
     /// Forward pass.
     pub fn forward(&self, input: &Tensor<D5, f32>) -> Tensor<D5, f32> {
-        functional::max_pool3d(input, self.kernel_size, self.stride, self.padding, self.dilation)
+        functional::max_pool3d(
+            input,
+            self.kernel_size,
+            self.stride,
+            self.padding,
+            self.dilation,
+        )
     }
 
     /// Get the kernel size.

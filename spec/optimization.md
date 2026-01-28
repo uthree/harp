@@ -4,8 +4,28 @@
 
 Eclatは二段階の最適化を行う:
 
-1. **グラフレベル**: 演算融合、冗長除去
+1. **グラフレベル最適化**: パターン検出（MatMul等）と融合パス（ViewFusion、ElementwiseReduceFusion）を統合したビームサーチ最適化
 2. **ASTレベル**: ループ変換、並列化、ベクトル化
+
+## パイプライン
+
+```
+Graph → [GraphBeamSearchOptimizer] → Lowerer → AST → [BeamSearchOptimizer] → Backend
+             ├── MatMulDetectorSuggester
+             ├── FusionSuggester<ViewFusion>
+             └── FusionSuggester<ElementwiseReduceFusion>
+```
+
+## 最適化の統合
+
+`FusionSuggester<F>`アダプターにより、`FusionPass`トレイトを実装するすべての融合パスが`GraphSuggester`として動作し、ビームサーチの探索空間に統合される。これにより:
+
+- **統一的な探索**: すべての変換がコスト評価に基づいて選択される
+- **順序最適化**: 変換の適用順序も探索で決定
+- **拡張性**: 新しいFusionPassも自動的にSuggesterとして使用可能
+
+`lower()`: 融合パス（AllFusions）のみ適用（高速・決定的）
+`lower_with_graph_optimization()`: ビームサーチで統合最適化
 
 ## 探索戦略
 
@@ -259,30 +279,69 @@ cost = operation_count + memory_weight * memory_accesses
 
 可視化ツール(`eclat-viz`)で探索過程を確認可能。
 
-### WmmaSuggester
+## グラフレベル最適化
 
-WMMA (Tensor Core) を使用した行列積最適化。3重ループの行列積パターンを検出し、`WmmaMatmul`ノードに変換する。
+グラフレベルでの最適化は、ASTへの変換前に高レベルなパターンを検出して最適化する。
 
-**検出パターン**:
-```c
-// Lowererが生成する3重ループ構造
-for (ridx0 = 0; ridx0 < M; ridx0++) {        // M次元
-    for (ridx2 = 0; ridx2 < N; ridx2++) {    // N次元
-        acc = 0.0;
-        for (ridx1 = 0; ridx1 < K; ridx1++) { // K次元 (reduce)
-            acc += A[ridx0 * K + ridx1] * B[ridx1 * N + ridx2];
-        }
-        C[ridx0 * N + ridx2] = acc;
-    }
+### GraphBeamSearchOptimizer
+
+ビームサーチを使用した探索。ASTレベルより候補が少ないため、より小さいビーム幅を使用。
+
+```rust
+GraphBeamSearchOptimizer {
+    beam_width: 5,       // ビーム幅
+    max_steps: 100,      // 最大ステップ数
+    no_improvement_limit: Some(3),  // 改善がない場合の早期終了
 }
 ```
+
+### MatMulDetectorSuggester
+
+行列積パターンを検出し、`GraphOp::MatMul`ノードに変換する。
+
+**検出パターン**:
+```
+A.unsqueeze(-1).expand([M, K, N]) * B.unsqueeze(0).expand([M, K, N]) → sum(axis=K)
+```
+
+これはGraphレベルでは以下のように表現される:
+- MapReduce { map: Mul(Wildcard(0), Wildcard(1)), reduce: Some(Sum, K_axis) }
 
 **適用条件**:
 - データ型: F16
 - M, K, N が16の倍数
-- Row-majorレイアウト、線形インデックス式
 
 **変換後**:
+```rust
+GraphOp::MatMul {
+    transpose: (bool, bool),           // (trans_a, trans_b)
+    accumulator_dtype: Option<DType>,  // アキュムレータ型
+}
+```
+
+### SimpleGraphCostEstimator
+
+グラフのコスト推定。対数スケールで返却。
+
+- FLOPs推定: 演算タイプに基づく
+- メモリアクセスコスト: 読み書きのバランス
+- MatMul効率係数: WMMA対応の場合は高効率
+
+## WMMA/MatMul最適化
+
+行列積は以下の流れで最適化される:
+
+1. **Graph段階**: MatMulDetectorSuggesterがパターンを検出し、`GraphOp::MatMul`に変換
+2. **Lowerer**: MatMulノードを処理
+   - WMMA対応（F16 + 16の倍数）: `WmmaMatmul` ASTノードを生成
+   - 非対応: 効率的な3重ループを生成
+3. **Backend**: WmmaMatmulまたは3重ループをターゲットコードに変換
+
+**WmmaMatmul生成条件**:
+- データ型: F16
+- M, K, N が16の倍数
+
+**生成されるASTノード**:
 ```rust
 AstNode::WmmaMatmul {
     a_ptr, a_offset, a_stride,  // 行列A
@@ -308,8 +367,6 @@ for (int kk = 0; kk < K; kk += 16) {
 wmma::store_matrix_sync(&C[...], c_frag, ldc, wmma::mem_row_major);
 ```
 
-**対応GPU**: Volta以降 (Compute Capability 7.0+)
-
 **生成Metalコード** (`MetalRenderer`):
 ```metal
 simdgroup_half8x8 a_frag;
@@ -326,17 +383,11 @@ for (uint kk = 0; kk < K; kk += 8) {
 simdgroup_store(c_frag, &C[...], ldc);
 ```
 
-**対応GPU**: Apple Silicon (M1以降)
-
 **タイルサイズ**:
 - CUDA (WMMA): 16x16x16
 - Metal (simdgroup_matrix): 8x8
 
-デバイスの行列演算能力は `DeviceProfile::matrix_capabilities` で取得可能。
-各 `MatrixCapability` には入力型、累積型、タイルサイズ（M, K, N）が含まれる。
-`DeviceFeature::MatrixOperations` で対応状況を確認できる。
-
 **コスト評価**:
-`SimpleCostEstimator` は WmmaMatmul ノードを特別に評価し、
-同等の3重ループより大幅に低いコストを割り当てる。
-これにより、ビームサーチ最適化でWMMA変換が優先される。
+`SimpleGraphCostEstimator`はMatMulノードにWMMA効率係数（約0.05）を適用し、
+通常のMapReduceより大幅に低いコストを割り当てる。
+`SimpleCostEstimator`（AST）はWmmaMatmulノードを同様に高効率として評価。

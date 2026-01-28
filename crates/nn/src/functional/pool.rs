@@ -147,9 +147,10 @@ pub fn max_pool2d(
     let unfolded = padded.unfold_2d((kh, kw), (sh, sw), (dh, dw));
 
     // 3. contiguous + reshape to merge kernel dims: [N, C, H_out, W_out, kH*kW]
-    let reshaped: Tensor<D5, f32> = unfolded
-        .contiguous()
-        .reshape([batch, channels, h_out, w_out, kh * kw]);
+    let reshaped: Tensor<D5, f32> =
+        unfolded
+            .contiguous()
+            .reshape([batch, channels, h_out, w_out, kh * kw]);
 
     // 4. max over kernel dimension (axis 4): [N, C, H_out, W_out]
     let output: Tensor<D4, f32> = reshaped.max(4);
@@ -199,9 +200,10 @@ pub fn avg_pool2d(
     let unfolded = padded.unfold_2d((kh, kw), (sh, sw), (1, 1));
 
     // 3. contiguous + reshape to merge kernel dims: [N, C, H_out, W_out, kH*kW]
-    let reshaped: Tensor<D5, f32> = unfolded
-        .contiguous()
-        .reshape([batch, channels, h_out, w_out, kh * kw]);
+    let reshaped: Tensor<D5, f32> =
+        unfolded
+            .contiguous()
+            .reshape([batch, channels, h_out, w_out, kh * kw]);
 
     // 4. mean over kernel dimension (axis 4): [N, C, H_out, W_out]
     let output: Tensor<D4, f32> = reshaped.mean(4);
@@ -261,9 +263,10 @@ pub fn max_pool3d(
 
     // 3. contiguous + reshape to merge kernel dims: [N, C, D_out, H_out, W_out, kD*kH*kW]
     use eclat::tensor::dim::D6;
-    let reshaped: Tensor<D6, f32> = unfolded
-        .contiguous()
-        .reshape([batch, channels, d_out, h_out, w_out, kd * kh * kw]);
+    let reshaped: Tensor<D6, f32> =
+        unfolded
+            .contiguous()
+            .reshape([batch, channels, d_out, h_out, w_out, kd * kh * kw]);
 
     // 4. max over kernel dimension (axis 5): [N, C, D_out, H_out, W_out]
     let output: Tensor<D5, f32> = reshaped.max(5);
@@ -316,9 +319,10 @@ pub fn avg_pool3d(
 
     // 3. contiguous + reshape to merge kernel dims: [N, C, D_out, H_out, W_out, kD*kH*kW]
     use eclat::tensor::dim::D6;
-    let reshaped: Tensor<D6, f32> = unfolded
-        .contiguous()
-        .reshape([batch, channels, d_out, h_out, w_out, kd * kh * kw]);
+    let reshaped: Tensor<D6, f32> =
+        unfolded
+            .contiguous()
+            .reshape([batch, channels, d_out, h_out, w_out, kd * kh * kw]);
 
     // 4. mean over kernel dimension (axis 5): [N, C, D_out, H_out, W_out]
     let output: Tensor<D5, f32> = reshaped.mean(5);

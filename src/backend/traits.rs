@@ -126,7 +126,13 @@ pub struct MatrixCapability {
 
 impl MatrixCapability {
     /// Create a new matrix capability entry
-    pub fn new(dtype_input: DType, dtype_acc: DType, tile_m: usize, tile_n: usize, tile_k: usize) -> Self {
+    pub fn new(
+        dtype_input: DType,
+        dtype_acc: DType,
+        tile_m: usize,
+        tile_n: usize,
+        tile_k: usize,
+    ) -> Self {
         Self {
             dtype_input,
             dtype_acc,

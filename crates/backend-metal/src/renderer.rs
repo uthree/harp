@@ -612,10 +612,7 @@ impl CLikeRenderer for MetalKernelRenderer {
         code.push('\n');
 
         // Initialize accumulator to zero
-        code.push_str(&format!(
-            "{}c_frag = {}(0);\n",
-            inner_indent, c_type
-        ));
+        code.push_str(&format!("{}c_frag = {}(0);\n", inner_indent, c_type));
         code.push('\n');
 
         // Loop over K dimension in 8-element tiles

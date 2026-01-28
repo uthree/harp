@@ -13,13 +13,13 @@ extern crate eclat_backend_metal;
 use std::error::Error;
 
 use eclat::backend::{get_default_device_kind, set_device_str};
-use indicatif::{ProgressBar, ProgressStyle};
-use eclat::tensor::dim::{D2, D4};
 use eclat::tensor::Tensor;
+use eclat::tensor::dim::{D2, D4};
 use eclat_nn::functional::{cross_entropy_loss, predict_classes, relu};
 use eclat_nn::layers::{Module, ParameterBase};
 use eclat_nn::optim::{Adam, Optimizer};
 use eclat_nn::{Conv2d, Linear, MaxPool2d};
+use indicatif::{ProgressBar, ProgressStyle};
 use mnist::MnistBuilder;
 
 /// Simple CNN model for MNIST classification.
@@ -134,8 +134,12 @@ fn download_mnist(data_dir: &std::path::Path) -> Result<(), Box<dyn Error>> {
             .output()?;
 
         if !output.status.success() {
-            return Err(format!("Failed to download {}: {}", file, 
-                String::from_utf8_lossy(&output.stderr)).into());
+            return Err(format!(
+                "Failed to download {}: {}",
+                file,
+                String::from_utf8_lossy(&output.stderr)
+            )
+            .into());
         }
 
         println!("  Extracting {}...", file);
@@ -146,8 +150,12 @@ fn download_mnist(data_dir: &std::path::Path) -> Result<(), Box<dyn Error>> {
             .output()?;
 
         if !output.status.success() {
-            return Err(format!("Failed to extract {}: {}", file,
-                String::from_utf8_lossy(&output.stderr)).into());
+            return Err(format!(
+                "Failed to extract {}: {}",
+                file,
+                String::from_utf8_lossy(&output.stderr)
+            )
+            .into());
         }
     }
 

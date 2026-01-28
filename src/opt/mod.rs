@@ -1,6 +1,7 @@
 pub mod ast;
 pub mod context;
 pub mod cost_utils;
+pub mod graph;
 pub mod log_capture;
 pub mod progress;
 

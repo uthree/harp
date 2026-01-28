@@ -3,8 +3,8 @@
 //! This module provides loss functions for neural network training.
 
 use eclat::backend::ExecutionError;
-use eclat::tensor::dim::{D0, D1, D2};
 use eclat::tensor::Tensor;
+use eclat::tensor::dim::{D0, D1, D2};
 
 use super::log_softmax;
 

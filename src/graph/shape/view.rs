@@ -2537,7 +2537,10 @@ mod tests {
 
         // Convert to IndexExpr
         let idx_expr = unsqueezed.to_index_expr();
-        if let View::IndexExpr { shape, index_expr, .. } = &idx_expr {
+        if let View::IndexExpr {
+            shape, index_expr, ..
+        } = &idx_expr
+        {
             assert_eq!(shape, &vec![Expr::from(1)]);
             // index_expr should be Const(0), not Idx(0)
             assert_eq!(

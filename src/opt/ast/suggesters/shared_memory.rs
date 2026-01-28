@@ -135,7 +135,9 @@ impl SharedMemorySuggester {
     /// AST内のLoad操作を収集
     fn collect_loads(node: &AstNode, loads: &mut Vec<(String, DType, AstNode)>) {
         match node {
-            AstNode::Load { ptr, offset, dtype, .. } => {
+            AstNode::Load {
+                ptr, offset, dtype, ..
+            } => {
                 if let Some(ptr_var) = Self::extract_ptr_var(ptr) {
                     loads.push((ptr_var, dtype.clone(), *offset.clone()));
                 }
@@ -158,12 +160,7 @@ impl SharedMemorySuggester {
         let mut candidates = Vec::new();
 
         // bodyから内側のRangeループを探す
-        self.find_inner_loops_with_loads(
-            parallel_var,
-            parallel_size,
-            body,
-            &mut candidates,
-        );
+        self.find_inner_loops_with_loads(parallel_var, parallel_size, body, &mut candidates);
 
         candidates
     }
@@ -231,9 +228,19 @@ impl SharedMemorySuggester {
                 else_body,
                 ..
             } => {
-                self.find_inner_loops_with_loads(parallel_var, parallel_size, then_body, candidates);
+                self.find_inner_loops_with_loads(
+                    parallel_var,
+                    parallel_size,
+                    then_body,
+                    candidates,
+                );
                 if let Some(else_b) = else_body {
-                    self.find_inner_loops_with_loads(parallel_var, parallel_size, else_b, candidates);
+                    self.find_inner_loops_with_loads(
+                        parallel_var,
+                        parallel_size,
+                        else_b,
+                        candidates,
+                    );
                 }
             }
             _ => {}
@@ -270,10 +277,18 @@ impl SharedMemorySuggester {
                 // 変換しない場合はそのまま返す
                 AstNode::Load {
                     ptr: Box::new(Self::replace_load_with_shared_load(
-                        ptr, ptr_var, shared_name, parallel_var, dtype,
+                        ptr,
+                        ptr_var,
+                        shared_name,
+                        parallel_var,
+                        dtype,
                     )),
                     offset: Box::new(Self::replace_load_with_shared_load(
-                        offset, ptr_var, shared_name, parallel_var, dtype,
+                        offset,
+                        ptr_var,
+                        shared_name,
+                        parallel_var,
+                        dtype,
                     )),
                     count: *count,
                     dtype: load_dtype.clone(),
@@ -282,7 +297,13 @@ impl SharedMemorySuggester {
             _ => {
                 // 再帰的に子ノードを変換
                 node.map_children(&|child| {
-                    Self::replace_load_with_shared_load(child, ptr_var, shared_name, parallel_var, dtype)
+                    Self::replace_load_with_shared_load(
+                        child,
+                        ptr_var,
+                        shared_name,
+                        parallel_var,
+                        dtype,
+                    )
                 })
             }
         }
@@ -338,12 +359,7 @@ impl SharedMemorySuggester {
 
             // 新しいボディを組み立て
             let new_body = AstNode::Block {
-                statements: vec![
-                    shared_alloc,
-                    preload,
-                    barrier,
-                    transformed_body,
-                ],
+                statements: vec![shared_alloc, preload, barrier, transformed_body],
                 scope: Box::new(Scope::new()),
             };
 
@@ -412,7 +428,8 @@ impl SharedMemorySuggester {
                 if parallel.is_parallel && matches!(parallel.kind, ParallelKind::GpuThread) {
                     // GpuThreadループの場合、共有メモリ候補を探す
                     if let Some(parallel_size) = Self::get_loop_count(start, stop) {
-                        let candidates = self.find_shared_memory_candidates(var, parallel_size, body);
+                        let candidates =
+                            self.find_shared_memory_candidates(var, parallel_size, body);
 
                         for candidate in candidates {
                             debug!(

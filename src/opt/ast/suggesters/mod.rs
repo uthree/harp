@@ -12,7 +12,8 @@ pub mod rule_based;
 pub mod shared_memory;
 pub mod variable_expansion;
 pub mod vectorization;
-pub mod wmma;
+// Note: wmma module removed - WMMA detection is now done at graph level
+// See src/opt/graph/suggesters/matmul.rs
 
 use crate::ast::AstNode;
 use std::collections::HashSet;
@@ -31,7 +32,6 @@ pub use rule_based::RuleBaseSuggester;
 pub use shared_memory::SharedMemorySuggester;
 pub use variable_expansion::VariableExpansionSuggester;
 pub use vectorization::VectorizationSuggester;
-pub use wmma::WmmaSuggester;
 
 /// 重複を排除しながら候補リストを作成するヘルパー関数
 ///

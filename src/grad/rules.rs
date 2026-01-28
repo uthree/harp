@@ -74,6 +74,117 @@ pub fn compute_vjp(node: &GraphNode, grad_output: &GraphNode) -> VjpResult {
             // Cumulative scan の VJP
             compute_scan_vjp(node, grad_output, sources, *scan_op, *axis)
         }
+        GraphOp::MatMul { transpose, .. } => {
+            // MatMul VJP: C = A @ B
+            // dA = dC @ B^T
+            // dB = A^T @ dC
+            compute_matmul_vjp(node, grad_output, sources, *transpose)
+        }
+    }
+}
+
+// ============================================================================
+// MatMul VJP
+// ============================================================================
+
+/// Compute VJP for matrix multiplication.
+///
+/// For C = A @ B:
+/// - dA = dC @ B^T
+/// - dB = A^T @ dC
+fn compute_matmul_vjp(
+    _node: &GraphNode,
+    grad_output: &GraphNode,
+    inputs: &[GraphNode],
+    transpose: (bool, bool),
+) -> VjpResult {
+    if inputs.len() < 2 {
+        return VjpResult {
+            input_grads: vec![None; inputs.len()],
+        };
+    }
+
+    let a = &inputs[0];
+    let b = &inputs[1];
+    let (trans_a, trans_b) = transpose;
+
+    // C = A @ B (or transposed variants)
+    // For simplicity, we use the expand-multiply-reduce pattern for VJP
+    // which will be detected and optimized by the graph optimizer
+
+    // Get shapes
+    let a_shape = a.shape();
+    let b_shape = b.shape();
+    let c_shape = grad_output.shape();
+
+    // Determine M, K, N based on transpose flags
+    let m = if trans_a {
+        a_shape.get(1)
+    } else {
+        a_shape.first()
+    };
+    let k = if trans_a {
+        a_shape.first()
+    } else {
+        a_shape.get(1)
+    };
+    let n = if trans_b {
+        b_shape.first()
+    } else {
+        b_shape.get(1)
+    };
+
+    // If we can't determine shapes, return None gradients
+    if m.is_none() || k.is_none() || n.is_none() {
+        return VjpResult {
+            input_grads: vec![None; inputs.len()],
+        };
+    }
+
+    let _m = m.unwrap().clone();
+    let k = k.unwrap().clone();
+    let n = n.unwrap().clone();
+
+    // dA = dC @ B^T
+    // Expand dC[M, N] and B[K, N] (transposed view) to [M, K, N] and reduce
+    let grad_c_exp = grad_output.unsqueeze(1).expand(1, k.clone());
+    let b_t = if trans_b {
+        // B is already [N, K], need [K, N] for matmul pattern
+        b.clone()
+    } else {
+        // B is [K, N], transpose to get conceptual [N, K]
+        b.permute(&[1, 0])
+    };
+    let b_t_exp = b_t.unsqueeze(0).expand(0, c_shape[0].clone());
+    let grad_a = (&grad_c_exp * &b_t_exp).sum(2).squeeze(2);
+
+    // Apply transpose if needed for output shape
+    let grad_a = if trans_a {
+        grad_a.permute(&[1, 0])
+    } else {
+        grad_a
+    };
+
+    // dB = A^T @ dC
+    // Similar pattern for B's gradient
+    let a_t = if trans_a {
+        a.clone()
+    } else {
+        a.permute(&[1, 0])
+    };
+    let a_t_exp = a_t.unsqueeze(2).expand(2, n.clone());
+    let grad_c_exp_b = grad_output.unsqueeze(0).expand(0, k);
+    let grad_b = (&a_t_exp * &grad_c_exp_b).sum(0).squeeze(0);
+
+    // Apply transpose if needed for output shape
+    let grad_b = if trans_b {
+        grad_b.permute(&[1, 0])
+    } else {
+        grad_b
+    };
+
+    VjpResult {
+        input_grads: vec![Some(grad_a), Some(grad_b)],
     }
 }
 
@@ -490,7 +601,8 @@ fn compute_view_vjp(
             // Create a view that slices out the original region
             // We need to construct a slice that extracts the center region
             // For each dimension where node_shape > orig_shape, we slice [pad:pad+orig]
-            for (axis, (orig_dim, node_dim)) in orig_shape.iter().zip(node_shape.iter()).enumerate() {
+            for (axis, (orig_dim, node_dim)) in orig_shape.iter().zip(node_shape.iter()).enumerate()
+            {
                 if let (Expr::Const(o), Expr::Const(n)) = (orig_dim, node_dim) {
                     if n > o {
                         let pad = (n - o) / 2;
@@ -517,10 +629,14 @@ fn compute_view_vjp(
             grad_output.pad(&padding, crate::graph::shape::PadValue::Zero)
         } else {
             // Complex case - fall back to reshape (may fail)
-            eprintln!("[WARN View VJP] Element count mismatch but different ndim - falling back to reshape");
+            eprintln!(
+                "[WARN View VJP] Element count mismatch but different ndim - falling back to reshape"
+            );
             grad_output.contiguous().reshape(orig_shape)
         }
-    } else if orig_shape.len() != node_shape.len() && !is_squeeze_or_unsqueeze(&orig_shape, &node_shape) {
+    } else if orig_shape.len() != node_shape.len()
+        && !is_squeeze_or_unsqueeze(&orig_shape, &node_shape)
+    {
         // Different ndim but not a simple squeeze/unsqueeze - this is reshape
         grad_output.contiguous().reshape(orig_shape)
     } else if orig_shape.len() > node_shape.len() {
