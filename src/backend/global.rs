@@ -41,8 +41,6 @@ pub enum DeviceKind {
     Cuda,
     /// C backend (CPU fallback)
     C,
-    /// Rust backend (CPU, experimental)
-    Rust,
     /// OpenMP backend (CPU parallel)
     OpenMP,
 }
@@ -55,7 +53,6 @@ impl std::fmt::Display for DeviceKind {
             DeviceKind::OpenCL => write!(f, "OpenCL"),
             DeviceKind::Cuda => write!(f, "Cuda"),
             DeviceKind::C => write!(f, "C"),
-            DeviceKind::Rust => write!(f, "Rust"),
             DeviceKind::OpenMP => write!(f, "OpenMP"),
         }
     }
@@ -424,7 +421,6 @@ mod tests {
         assert_eq!(format!("{}", DeviceKind::OpenCL), "OpenCL");
         assert_eq!(format!("{}", DeviceKind::Cuda), "Cuda");
         assert_eq!(format!("{}", DeviceKind::C), "C");
-        assert_eq!(format!("{}", DeviceKind::Rust), "Rust");
         assert_eq!(format!("{}", DeviceKind::OpenMP), "OpenMP");
     }
 }

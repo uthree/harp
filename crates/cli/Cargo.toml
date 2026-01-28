@@ -19,7 +19,6 @@ eclat-backend-c = { path = "../backend-c" }
 eclat-backend-cuda = { path = "../backend-cuda" }
 eclat-backend-opencl = { path = "../backend-opencl" }
 eclat-backend-openmp = { path = "../backend-openmp" }
-eclat-backend-rust = { path = "../backend-rust" }
 eclat-viz = { path = "../viz", optional = true }
 clap = { version = "4", features = ["derive"] }
 

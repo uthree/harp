@@ -26,7 +26,6 @@ use eclat_backend_cuda::CudaRenderer;
 use eclat_backend_metal::MetalRenderer;
 use eclat_backend_opencl::OpenCLRenderer;
 use eclat_backend_openmp::OpenMPRenderer;
-use eclat_backend_rust::RustRenderer;
 use eclat_dsl::{GraphBuilder, parse_program};
 
 /// Eclat DSL Transpiler
@@ -89,8 +88,6 @@ enum Backend {
     Metal,
     /// OpenCL backend
     Opencl,
-    /// Rust backend
-    Rust,
     /// OpenMP backend
     Openmp,
 }
@@ -103,7 +100,6 @@ impl Backend {
             Backend::Cuda => "cu",
             Backend::Metal => "metal",
             Backend::Opencl => "cl",
-            Backend::Rust => "rs",
             Backend::Openmp => "c",
         }
     }
@@ -114,7 +110,6 @@ impl Backend {
             Backend::Cuda => DeviceKind::Cuda,
             Backend::Metal => DeviceKind::Metal,
             Backend::Opencl => DeviceKind::OpenCL,
-            Backend::Rust => DeviceKind::Rust,
             Backend::Openmp => DeviceKind::OpenMP,
         }
     }
@@ -405,15 +400,6 @@ fn render_to_backend(asts: &[(String, AstNode)], backend: Backend) -> Result<Str
                 output.push_str("\n\n");
             }
         }
-        Backend::Rust => {
-            let renderer = RustRenderer::new();
-            for (name, ast) in asts {
-                output.push_str(&format!("// Graph: {}\n", name));
-                let code = renderer.render(ast);
-                output.push_str(code.as_str());
-                output.push_str("\n\n");
-            }
-        }
     }
 
     Ok(output)
@@ -457,9 +443,6 @@ fn launch_viz(
         }
         Backend::Opencl => {
             eclat_viz::run_with_renderer(history, OpenCLRenderer::new())?;
-        }
-        Backend::Rust => {
-            eclat_viz::run_with_renderer(history, RustRenderer::new())?;
         }
     }
 

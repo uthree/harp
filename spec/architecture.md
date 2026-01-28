@@ -20,7 +20,6 @@ crates/
 ├── backend-metal/    # Metalバックエンド
 ├── backend-opencl/   # OpenCLバックエンド
 ├── backend-openmp/   # OpenMPバックエンド
-├── backend-rust/     # Rustバックエンド
 ├── dsl/              # DSLパーサー
 ├── nn/               # ニューラルネットワーク層
 ├── cli/              # CLIツール

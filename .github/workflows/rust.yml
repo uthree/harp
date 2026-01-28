@@ -22,10 +22,10 @@ jobs:
               uses: dtolnay/rust-toolchain@stable
 
             - name: Build workspace
-              run: cargo build --workspace --exclude eclat-backend-opencl --exclude eclat-backend-metal --exclude eclat-backend-cuda --exclude eclat-backend-rust --exclude eclat-nn --exclude eclat-backend-openmp --exclude eclat-cli
+              run: cargo build --workspace --exclude eclat-backend-opencl --exclude eclat-backend-metal --exclude eclat-backend-cuda --exclude eclat-nn --exclude eclat-backend-openmp --exclude eclat-cli
 
             - name: Run tests
-              run: cargo test --workspace --exclude eclat-backend-opencl --exclude eclat-backend-metal --exclude eclat-backend-cuda --exclude eclat-backend-rust --exclude eclat-nn --exclude eclat-backend-openmp --exclude eclat-cli
+              run: cargo test --workspace --exclude eclat-backend-opencl --exclude eclat-backend-metal --exclude eclat-backend-cuda --exclude eclat-nn --exclude eclat-backend-openmp --exclude eclat-cli
 
     openmp_backend_integration_test:
         name: OpenMP Backend Integration Test
@@ -94,10 +94,10 @@ jobs:
               uses: dtolnay/rust-toolchain@stable
 
             - name: Build with OpenCL
-              run: cargo build --workspace --exclude eclat-backend-metal --exclude eclat-backend-cuda --exclude eclat-backend-rust --exclude eclat-nn --verbose
+              run: cargo build --workspace --exclude eclat-backend-metal --exclude eclat-backend-cuda --exclude eclat-nn --verbose
 
             - name: Run OpenCL integration tests
-              run: RUST_LOG=error cargo test --workspace --exclude eclat-backend-metal --exclude eclat-backend-cuda --exclude eclat-backend-rust --exclude eclat-nn --verbose -- --test-threads=1
+              run: RUST_LOG=error cargo test --workspace --exclude eclat-backend-metal --exclude eclat-backend-cuda --exclude eclat-nn --verbose -- --test-threads=1
 
     metal_build_test:
         name: Metal Build Test (macOS)
@@ -110,10 +110,10 @@ jobs:
               uses: dtolnay/rust-toolchain@stable
 
             - name: Build with Metal
-              run: cargo build --workspace --exclude eclat-backend-opencl --exclude eclat-backend-cuda --exclude eclat-backend-rust --exclude eclat-nn --verbose
+              run: cargo build --workspace --exclude eclat-backend-opencl --exclude eclat-backend-cuda --exclude eclat-nn --verbose
 
             - name: Run Metal integration tests
-              run: cargo test --workspace --exclude eclat-backend-opencl --exclude eclat-backend-cuda --exclude eclat-backend-rust --exclude eclat-nn --verbose
+              run: cargo test --workspace --exclude eclat-backend-opencl --exclude eclat-backend-cuda --exclude eclat-nn --verbose
 
     cuda_backend_build_test:
         name: CUDA Backend Build Test
