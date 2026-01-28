@@ -28,12 +28,14 @@
 //! ```
 
 mod activation;
+mod attention;
 mod conv;
 mod linear;
 mod module;
 mod parameter;
 
 pub use activation::PReLU;
+pub use attention::MultiheadAttention;
 pub use conv::{Conv1d, Conv2d, Conv3d, ConvTranspose1d, ConvTranspose2d, ConvTranspose3d};
 pub use linear::Linear;
 pub use module::Module;

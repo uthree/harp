@@ -36,6 +36,6 @@ pub mod optim;
 // Re-export commonly used types from layers
 pub use layers::{
     Conv1d, Conv2d, Conv3d, ConvTranspose1d, ConvTranspose2d, ConvTranspose3d, Linear, Module,
-    PReLU, Parameter, ParameterBase, ParameterError,
+    MultiheadAttention, PReLU, Parameter, ParameterBase, ParameterError,
 };
 pub use optim::{Adam, OptimError, Optimizer, SGD};

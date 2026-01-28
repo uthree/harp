@@ -21,12 +21,14 @@
 //! ```
 
 mod activation;
+mod attention;
 mod conv;
 mod linear;
 
 pub use activation::{
     elu, gelu, leaky_relu, log_softmax, prelu, relu, sigmoid, silu, softmax, tanh,
 };
+pub use attention::{linear_d3, scaled_dot_product_attention};
 pub use conv::{
     conv1d, conv2d, conv3d, conv_transpose1d, conv_transpose2d, conv_transpose3d,
 };

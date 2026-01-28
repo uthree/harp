@@ -10,6 +10,7 @@ eclat-nn/src/
 ├── layers/             (ニューラルネットワーク層)
 │   ├── mod.rs
 │   ├── activation.rs   (活性化層: PReLU)
+│   ├── attention.rs    (アテンション層: MultiheadAttention)
 │   ├── conv.rs         (畳み込み層)
 │   ├── linear.rs       (全結合層)
 │   ├── module.rs       (Module トレイト)
@@ -17,6 +18,7 @@ eclat-nn/src/
 ├── functional/         (純粋な演算関数)
 │   ├── mod.rs
 │   ├── activation.rs   (活性化関数)
+│   ├── attention.rs    (アテンション演算)
 │   ├── conv.rs         (畳み込み演算)
 │   └── linear.rs       (線形演算)
 └── optim/              (オプティマイザ)
@@ -72,6 +74,12 @@ impl Linear {
 ### 活性化層（パラメータあり）
 - `PReLU`: 学習可能な負の傾きを持つ ReLU
 
+### アテンション層
+- `MultiheadAttention`: マルチヘッドアテンション（Transformer の基本構成要素）
+  - `new(embed_dim, num_heads, bias)` でインスタンス化
+  - `forward(query, key, value, attn_mask)` で推論
+  - Q, K, V 投影と出力投影を内蔵
+
 ## 活性化関数 (functional)
 
 パラメータを持たない活性化関数は `functional` モジュールで提供されます。
@@ -93,6 +101,13 @@ impl Linear {
 
 ### パラメータ付き
 - `prelu`: PReLU（学習可能な weight を受け取る、任意次元に対応）
+
+## アテンション関数 (functional)
+
+- `scaled_dot_product_attention`: Scaled Dot-Product Attention
+  - 入力: query, key, value (D4テンソル `[B, H, L, D]`)、オプションでマスク
+  - 出力: `softmax(QK^T / sqrt(d)) @ V`
+- `linear_d3`: 3次元テンソル用の線形変換 `[B, L, E]`
 
 ## オプティマイザ
 
