@@ -11,7 +11,7 @@
 //! ホスト側でスレッド数・グループ数を正確に設定するため、
 //! 並列化時に境界チェック（if文）は生成しない。
 
-use crate::ast::{AstNode, Literal, Scope};
+use crate::ast::{AddressSpace, AstNode, Literal, Scope};
 use crate::opt::ast::{AstSuggestResult, AstSuggester};
 
 use super::parallelization_common::{
@@ -710,13 +710,13 @@ mod tests {
             params: vec![
                 VarDecl {
                     name: "input".to_string(),
-                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    dtype: DType::Ptr(Box::new(DType::F32), AddressSpace::Global),
                     mutability: Mutability::Immutable,
                     kind: VarKind::Normal,
                 },
                 VarDecl {
                     name: "output".to_string(),
-                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    dtype: DType::Ptr(Box::new(DType::F32), AddressSpace::Global),
                     mutability: Mutability::Immutable,
                     kind: VarKind::Normal,
                 },
@@ -794,13 +794,13 @@ mod tests {
                 },
                 VarDecl {
                     name: "input".to_string(),
-                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    dtype: DType::Ptr(Box::new(DType::F32), AddressSpace::Global),
                     mutability: Mutability::Immutable,
                     kind: VarKind::Normal,
                 },
                 VarDecl {
                     name: "output".to_string(),
-                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    dtype: DType::Ptr(Box::new(DType::F32), AddressSpace::Global),
                     mutability: Mutability::Mutable,
                     kind: VarKind::Normal,
                 },
@@ -1069,13 +1069,13 @@ mod tests {
                 },
                 VarDecl {
                     name: "input".to_string(),
-                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    dtype: DType::Ptr(Box::new(DType::F32), AddressSpace::Global),
                     mutability: Mutability::Immutable,
                     kind: VarKind::Normal,
                 },
                 VarDecl {
                     name: "output".to_string(),
-                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    dtype: DType::Ptr(Box::new(DType::F32), AddressSpace::Global),
                     mutability: Mutability::Mutable,
                     kind: VarKind::Normal,
                 },
@@ -1164,13 +1164,13 @@ mod tests {
                 },
                 VarDecl {
                     name: "input".to_string(),
-                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    dtype: DType::Ptr(Box::new(DType::F32), AddressSpace::Global),
                     mutability: Mutability::Immutable,
                     kind: VarKind::Normal,
                 },
                 VarDecl {
                     name: "output".to_string(),
-                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    dtype: DType::Ptr(Box::new(DType::F32), AddressSpace::Global),
                     mutability: Mutability::Mutable,
                     kind: VarKind::Normal,
                 },

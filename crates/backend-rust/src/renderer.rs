@@ -699,7 +699,7 @@ impl CLikeRenderer for RustRenderer {
             DType::F32 => "f32".to_string(),
             DType::F64 => "f64".to_string(),
             DType::Int => "i64".to_string(),
-            DType::Ptr(inner) => format!("*mut {}", self.render_dtype_backend(inner)),
+            DType::Ptr(inner, _) => format!("*mut {}", self.render_dtype_backend(inner)),
             DType::Vec(inner, size) => {
                 format!("[{}; {}]", self.render_dtype_backend(inner), size)
             }
@@ -803,7 +803,7 @@ impl eclat::backend::pipeline::KernelSourceRenderer for RustRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eclat::ast::Literal;
+    use eclat::ast::{AddressSpace, Literal};
 
     #[test]
     fn test_render_header() {
@@ -821,7 +821,7 @@ mod tests {
         assert_eq!(renderer.render_dtype_backend(&DType::I32), "i32");
         assert_eq!(renderer.render_dtype_backend(&DType::I64), "i64");
         assert_eq!(
-            renderer.render_dtype_backend(&DType::Ptr(Box::new(DType::F32))),
+            renderer.render_dtype_backend(&DType::Ptr(Box::new(DType::F32), AddressSpace::Global)),
             "*mut f32"
         );
     }

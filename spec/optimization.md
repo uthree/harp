@@ -118,6 +118,50 @@ for (i = 0; i < N; i += 4)
     a[i:i+4] = b[i:i+4] + c[i:i+4];
 ```
 
+### SharedMemorySuggester
+
+GPUの共有メモリを活用した最適化。GpuThread並列化されたループ内で、内側ループで再利用されるデータを共有メモリにプリロードする。
+
+**検出パターン**:
+```c
+// タイリング後のループで複数スレッドがデータを再利用
+for (tile = 0; tile < N/TILE; tile++) {      // GroupId
+    for (local = 0; local < TILE; local++) { // GpuThread
+        for (k = 0; k < K; k++) {             // 内側ループ
+            acc += A[tile*TILE + local] * B[k];
+            // A[tile*TILE + local] は k に対して不変 → 共有メモリ候補
+        }
+    }
+}
+```
+
+**変換後**:
+```c
+__shared__ float shared_a[TILE];  // 共有メモリ確保
+
+// 協調ロード
+shared_a[local] = A[tile*TILE + local];
+__syncthreads();  // バリア
+
+for (k = 0; k < K; k++) {
+    acc += shared_a[local] * B[k];  // 共有メモリからロード
+}
+```
+
+**生成コード**:
+- CUDA: `__shared__` 配列
+- Metal: `threadgroup` 配列
+- OpenCL: `__local` 配列
+
+**適用条件**:
+- GpuThread並列化されたループ内
+- 内側ループで同一データが複数回アクセスされる
+- 再利用回数が閾値以上（デフォルト4回）
+- 共有メモリサイズ制限内（デフォルト48KB）
+
+**コスト評価**:
+`SimpleCostEstimator`は`SharedLoad`/`SharedStore`にグローバルメモリアクセスの約1/4のコストを割り当てる。
+
 ### CseSuggester
 
 共通部分式除去。

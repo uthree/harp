@@ -593,6 +593,22 @@ impl VariableExpansionSuggester {
                 dtype_ab: dtype_ab.clone(),
                 dtype_c: dtype_c.clone(),
             },
+            // SharedMemory operations
+            AstNode::SharedAlloc { name, dtype, size } => AstNode::SharedAlloc {
+                name: name.clone(),
+                dtype: dtype.clone(),
+                size: Box::new(Self::substitute_var(size, var_name, replacement)),
+            },
+            AstNode::SharedLoad { ptr, offset, dtype } => AstNode::SharedLoad {
+                ptr: Box::new(Self::substitute_var(ptr, var_name, replacement)),
+                offset: Box::new(Self::substitute_var(offset, var_name, replacement)),
+                dtype: dtype.clone(),
+            },
+            AstNode::SharedStore { ptr, offset, value } => AstNode::SharedStore {
+                ptr: Box::new(Self::substitute_var(ptr, var_name, replacement)),
+                offset: Box::new(Self::substitute_var(offset, var_name, replacement)),
+                value: Box::new(Self::substitute_var(value, var_name, replacement)),
+            },
         }
     }
 

@@ -178,6 +178,19 @@ fn collect_var_names_recursive(ast: &AstNode, names: &mut HashSet<String>) {
             collect_var_names_recursive(k, names);
             collect_var_names_recursive(n, names);
         }
+        // SharedMemory operations
+        AstNode::SharedAlloc { size, .. } => {
+            collect_var_names_recursive(size, names);
+        }
+        AstNode::SharedLoad { ptr, offset, .. } => {
+            collect_var_names_recursive(ptr, names);
+            collect_var_names_recursive(offset, names);
+        }
+        AstNode::SharedStore { ptr, offset, value } => {
+            collect_var_names_recursive(ptr, names);
+            collect_var_names_recursive(offset, names);
+            collect_var_names_recursive(value, names);
+        }
         // リーフノード
         AstNode::Const(_) | AstNode::Wildcard(_) | AstNode::Rand | AstNode::Barrier => {}
     }

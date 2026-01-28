@@ -73,7 +73,7 @@ pub use optimizer::{
 pub use suggesters::{
     CompositeSuggester, CseSuggester, FunctionInliningSuggester, GroupParallelizationSuggester,
     LocalParallelizationSuggester, LoopFusionSuggester, LoopInliningSuggester,
-    LoopInterchangeSuggester, LoopTilingSuggester, RuleBaseSuggester, VariableExpansionSuggester,
-    VectorizationSuggester, WmmaSuggester,
+    LoopInterchangeSuggester, LoopTilingSuggester, RuleBaseSuggester, SharedMemorySuggester,
+    VariableExpansionSuggester, VectorizationSuggester, WmmaSuggester,
 };
 pub use transforms::{inline_small_loop, tile_loop};

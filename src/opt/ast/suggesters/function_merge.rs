@@ -3,7 +3,7 @@
 //! 複数のAstNode::Functionを1つのFunctionに統合し、
 //! 後段のLoopFusionSuggesterでループ融合を可能にします。
 
-use crate::ast::{AstNode, Scope, VarDecl};
+use crate::ast::{AddressSpace, AstNode, Scope, VarDecl};
 use crate::opt::ast::{AstSuggestResult, AstSuggester};
 use log::{debug, trace};
 
@@ -270,7 +270,7 @@ mod tests {
             name: Some(name.to_string()),
             params: vec![VarDecl {
                 name: output_var.to_string(),
-                dtype: DType::Ptr(Box::new(DType::F32)),
+                dtype: DType::Ptr(Box::new(DType::F32), AddressSpace::Global),
                 mutability: Mutability::Mutable,
                 kind: VarKind::Normal,
             }],
@@ -376,7 +376,7 @@ mod tests {
             name: Some("f1".to_string()),
             params: vec![VarDecl {
                 name: "shared".to_string(),
-                dtype: DType::Ptr(Box::new(DType::F32)),
+                dtype: DType::Ptr(Box::new(DType::F32), AddressSpace::Global),
                 mutability: Mutability::Mutable,
                 kind: VarKind::Normal,
             }],
@@ -388,7 +388,7 @@ mod tests {
             name: Some("f2".to_string()),
             params: vec![VarDecl {
                 name: "shared".to_string(),
-                dtype: DType::Ptr(Box::new(DType::F32)),
+                dtype: DType::Ptr(Box::new(DType::F32), AddressSpace::Global),
                 mutability: Mutability::Mutable,
                 kind: VarKind::Normal,
             }],

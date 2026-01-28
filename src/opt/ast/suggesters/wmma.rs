@@ -13,7 +13,7 @@
 //!         C[ridx0, ridx2] = acc
 //! ```
 
-use crate::ast::{AstNode, DType, Literal, Scope};
+use crate::ast::{AddressSpace, AstNode, DType, Literal, Scope};
 use crate::opt::ast::{AstSuggestResult, AstSuggester};
 use log::{debug, trace};
 
@@ -705,19 +705,19 @@ mod tests {
             params: vec![
                 VarDecl {
                     name: "A".to_string(),
-                    dtype: DType::Ptr(Box::new(DType::F16)),
+                    dtype: DType::Ptr(Box::new(DType::F16), AddressSpace::Global),
                     mutability: Mutability::Immutable,
                     kind: VarKind::Normal,
                 },
                 VarDecl {
                     name: "B".to_string(),
-                    dtype: DType::Ptr(Box::new(DType::F16)),
+                    dtype: DType::Ptr(Box::new(DType::F16), AddressSpace::Global),
                     mutability: Mutability::Immutable,
                     kind: VarKind::Normal,
                 },
                 VarDecl {
                     name: "C".to_string(),
-                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    dtype: DType::Ptr(Box::new(DType::F32), AddressSpace::Global),
                     mutability: Mutability::Mutable,
                     kind: VarKind::Normal,
                 },

@@ -250,7 +250,7 @@ pub fn execute_graph(
             // Extract buffer parameters only (Ptr type)
             // Non-buffer parameters (LocalId, GroupId, shape vars) are handled separately
             let is_buffer_param =
-                |p: &&crate::ast::VarDecl| matches!(p.dtype, crate::ast::DType::Ptr(_));
+                |p: &&crate::ast::VarDecl| matches!(p.dtype, crate::ast::DType::Ptr(..));
 
             let input_params: Vec<_> = params
                 .iter()
@@ -467,7 +467,7 @@ fn infer_buffer_shape(grid_size: &[Box<crate::ast::AstNode>; 3]) -> Vec<usize> {
 /// Extract element dtype from pointer type
 fn extract_buffer_dtype(dtype: &crate::ast::DType) -> crate::ast::DType {
     match dtype {
-        crate::ast::DType::Ptr(inner) => inner.as_ref().clone(),
+        crate::ast::DType::Ptr(inner, _) => inner.as_ref().clone(),
         other => other.clone(),
     }
 }

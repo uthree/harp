@@ -2,7 +2,7 @@
 //!
 //! 小さい関数をインライン展開して、関数呼び出しのオーバーヘッドを削減します。
 
-use crate::ast::AstNode;
+use crate::ast::{AddressSpace, AstNode};
 use crate::opt::ast::{AstSuggestResult, AstSuggester};
 use log::{debug, trace};
 use std::collections::{HashMap, HashSet};
@@ -538,6 +538,23 @@ impl FunctionInliningSuggester {
                 dtype_ab: dtype_ab.clone(),
                 dtype_c: dtype_c.clone(),
             },
+
+            // SharedMemory operations
+            AstNode::SharedAlloc { name, dtype, .. } => AstNode::SharedAlloc {
+                name: name.clone(),
+                dtype: dtype.clone(),
+                size: Box::new(children[0].clone()),
+            },
+            AstNode::SharedLoad { dtype, .. } => AstNode::SharedLoad {
+                ptr: Box::new(children[0].clone()),
+                offset: Box::new(children[1].clone()),
+                dtype: dtype.clone(),
+            },
+            AstNode::SharedStore { .. } => AstNode::SharedStore {
+                ptr: Box::new(children[0].clone()),
+                offset: Box::new(children[1].clone()),
+                value: Box::new(children[2].clone()),
+            },
         }
     }
 
@@ -924,13 +941,13 @@ mod tests {
             params: vec![
                 VarDecl {
                     name: "input".to_string(),
-                    dtype: DType::Ptr(Box::new(DType::I64)),
+                    dtype: DType::Ptr(Box::new(DType::I64), AddressSpace::Global),
                     mutability: Mutability::Immutable,
                     kind: VarKind::Normal,
                 },
                 VarDecl {
                     name: "output".to_string(),
-                    dtype: DType::Ptr(Box::new(DType::I64)),
+                    dtype: DType::Ptr(Box::new(DType::I64), AddressSpace::Global),
                     mutability: Mutability::Mutable,
                     kind: VarKind::Normal,
                 },
@@ -953,13 +970,13 @@ mod tests {
             params: vec![
                 VarDecl {
                     name: "a".to_string(),
-                    dtype: DType::Ptr(Box::new(DType::I64)),
+                    dtype: DType::Ptr(Box::new(DType::I64), AddressSpace::Global),
                     mutability: Mutability::Immutable,
                     kind: VarKind::Normal,
                 },
                 VarDecl {
                     name: "b".to_string(),
-                    dtype: DType::Ptr(Box::new(DType::I64)),
+                    dtype: DType::Ptr(Box::new(DType::I64), AddressSpace::Global),
                     mutability: Mutability::Mutable,
                     kind: VarKind::Normal,
                 },
@@ -1028,7 +1045,7 @@ mod tests {
             params: vec![
                 VarDecl {
                     name: "ptr".to_string(),
-                    dtype: DType::Ptr(Box::new(DType::I64)),
+                    dtype: DType::Ptr(Box::new(DType::I64), AddressSpace::Global),
                     mutability: Mutability::Immutable,
                     kind: VarKind::Normal,
                 },

@@ -233,10 +233,14 @@ impl CLikeRenderer for CudaRenderer {
             DType::F32 => "float".to_string(),
             DType::F64 => "double".to_string(),
             DType::Int => "int".to_string(), // Index type: 32-bit for GPU efficiency
-            DType::Ptr(inner) => {
-                // CUDA doesn't need __global qualifier for pointers
+            DType::Ptr(inner, space) => {
+                use eclat::ast::AddressSpace;
                 let base = self.render_dtype_backend(inner);
-                format!("{}*", base)
+                match space {
+                    AddressSpace::Shared => format!("__shared__ {}*", base),
+                    AddressSpace::Constant => format!("__constant__ {}*", base),
+                    _ => format!("{}*", base), // Global and Local don't need qualifier in CUDA
+                }
             }
             DType::Vec(inner, size) => {
                 // CUDA vector types (float2, float4, etc.)
@@ -501,6 +505,12 @@ impl CLikeRenderer for CudaRenderer {
         }
     }
 
+    fn render_shared_alloc(&self, name: &str, dtype: &DType, size_expr: &str) -> String {
+        let dtype_str = self.render_dtype_backend(dtype);
+        // CUDA: __shared__ float name[size];
+        format!("__shared__ {} {}[{}];", dtype_str, name, size_expr)
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn render_wmma_matmul(
         &mut self,
@@ -666,7 +676,7 @@ impl eclat::backend::pipeline::KernelSourceRenderer for CudaRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eclat::ast::{Mutability, VarDecl, VarKind};
+    use eclat::ast::{AddressSpace, Mutability, VarDecl, VarKind};
     use eclat::backend::renderer::CLikeRenderer;
 
     #[test]
@@ -689,7 +699,7 @@ mod tests {
 
         // Pointer type (no __global in CUDA)
         assert_eq!(
-            renderer.render_dtype_backend(&DType::Ptr(Box::new(DType::F32))),
+            renderer.render_dtype_backend(&DType::Ptr(Box::new(DType::F32), AddressSpace::Global)),
             "float*"
         );
 

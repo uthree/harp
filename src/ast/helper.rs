@@ -1,4 +1,4 @@
-use super::{AstNode, DType, Literal, Scope};
+use super::{AddressSpace, AstNode, DType, Literal, Scope};
 
 // Convenience free functions for AST construction
 
@@ -775,7 +775,7 @@ mod tests {
 
         let params = vec![VarDecl {
             name: "buffer".to_string(),
-            dtype: DType::Ptr(Box::new(DType::F32)),
+            dtype: DType::Ptr(Box::new(DType::F32), AddressSpace::Global),
             mutability: Mutability::Mutable,
             kind: VarKind::Normal,
         }];

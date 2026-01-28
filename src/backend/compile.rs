@@ -33,7 +33,7 @@ use crate::opt::ast::{
     AstOptimizer, AstSuggester, BeamSearchOptimizer, CompositeSuggester, FunctionInliningSuggester,
     GroupParallelizationSuggester, LocalParallelizationSuggester, LoopFusionSuggester,
     LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester, RuleBaseSuggester,
-    WmmaSuggester,
+    SharedMemorySuggester, WmmaSuggester,
 };
 
 /// Configuration for AST optimization
@@ -321,6 +321,8 @@ impl CompilationPipeline {
             suggesters.push(Box::new(LocalParallelizationSuggester::new()));
             // WMMA (Tensor Core) 最適化 - CUDA/Metal で行列積をハードウェア加速
             suggesters.push(Box::new(WmmaSuggester::new()));
+            // 共有メモリ最適化 - GPU並列化時のみ有効
+            suggesters.push(Box::new(SharedMemorySuggester::new()));
         }
 
         CompositeSuggester::new(suggesters)

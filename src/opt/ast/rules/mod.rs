@@ -9,6 +9,7 @@ pub mod const_folding;
 mod macros;
 
 use crate::ast::pat::AstRewriteRule;
+use crate::ast::AddressSpace;
 use crate::backend::traits::DeviceInstruction;
 use crate::opt::context::DeviceCapabilities;
 use std::rc::Rc;
@@ -723,13 +724,13 @@ mod tests {
             params: vec![
                 VarDecl {
                     name: "input".to_string(),
-                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    dtype: DType::Ptr(Box::new(DType::F32), AddressSpace::Global),
                     mutability: Mutability::Immutable,
                     kind: VarKind::Normal,
                 },
                 VarDecl {
                     name: "output".to_string(),
-                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    dtype: DType::Ptr(Box::new(DType::F32), AddressSpace::Global),
                     mutability: Mutability::Mutable,
                     kind: VarKind::Normal,
                 },

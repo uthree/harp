@@ -137,7 +137,7 @@ impl CLikeRenderer for OpenMPRenderer {
             DType::F32 => "float".to_string(),
             DType::F64 => "double".to_string(),
             DType::Int => "long long".to_string(),
-            DType::Ptr(inner) => format!("{}*", self.render_dtype_backend(inner)),
+            DType::Ptr(inner, _) => format!("{}*", self.render_dtype_backend(inner)),
             DType::Vec(inner, size) => format!("{}[{}]", self.render_dtype_backend(inner), size),
             DType::Tuple(types) => {
                 if types.is_empty() {

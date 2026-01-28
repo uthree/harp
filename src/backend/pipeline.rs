@@ -13,7 +13,7 @@ use crate::opt::ast::{
     AstSuggester, BeamSearchOptimizer, CompositeSuggester as AstCompositeSuggester,
     FunctionInliningSuggester, GroupParallelizationSuggester, LoopFusionSuggester,
     LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester,
-    OptimizationHistory as AstOptimizationHistory, RuleBaseSuggester,
+    OptimizationHistory as AstOptimizationHistory, RuleBaseSuggester, SharedMemorySuggester,
 };
 use crate::opt::context::DeviceCapabilities;
 use crate::opt::progress::{IndicatifProgress, NoOpProgress};
@@ -250,6 +250,8 @@ where
             suggesters.push(Box::new(GroupParallelizationSuggester::new()));
             // TODO: LocalParallelizationは2次元以上で問題があるため、一時的に無効化
             // suggesters.push(Box::new(LocalParallelizationSuggester::new()));
+            // 共有メモリ最適化（GPU並列化時のみ有効）
+            suggesters.push(Box::new(SharedMemorySuggester::new()));
         }
 
         let suggester = AstCompositeSuggester::new(suggesters);

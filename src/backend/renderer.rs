@@ -136,6 +136,30 @@ pub trait CLikeRenderer {
         )
     }
 
+    /// 共有メモリ配列の宣言をレンダリング
+    /// CUDA: __shared__ float name[size];
+    /// Metal: threadgroup float name[size];
+    /// OpenCL: __local float name[size];
+    fn render_shared_alloc(&self, name: &str, dtype: &DType, size_expr: &str) -> String {
+        let dtype_str = self.render_dtype_backend(dtype);
+        format!("{}* {} = 0; // shared alloc size={}", dtype_str, name, size_expr)
+    }
+
+    /// 共有メモリからの読み込みをレンダリング
+    fn render_shared_load(&self, ptr_expr: &str, offset_expr: &str, _dtype: &DType) -> String {
+        format!("{}[{}]", ptr_expr, offset_expr)
+    }
+
+    /// 共有メモリへの書き込みをレンダリング
+    fn render_shared_store(
+        &self,
+        ptr_expr: &str,
+        offset_expr: &str,
+        value_expr: &str,
+    ) -> String {
+        format!("{}[{}] = {}", ptr_expr, offset_expr, value_expr)
+    }
+
     // ========== 共通実装（デフォルト実装） ==========
 
     /// インデント文字列を取得
@@ -409,6 +433,11 @@ pub trait CLikeRenderer {
                 &self.render_expr(value),
                 dtype,
             ),
+            AstNode::SharedLoad { ptr, offset, dtype } => {
+                let ptr_expr = self.render_expr(ptr);
+                let offset_expr = self.render_expr(offset);
+                self.render_shared_load(&ptr_expr, &offset_expr, dtype)
+            }
             _ => format!("/* unsupported expression: {:?} */", node),
         }
     }
@@ -500,6 +529,24 @@ pub trait CLikeRenderer {
             }
             AstNode::Deallocate { ptr } => {
                 format!("{}free({});", self.indent(), self.render_expr(ptr))
+            }
+            AstNode::SharedAlloc { name, dtype, size } => {
+                let size_expr = self.render_expr(size);
+                format!(
+                    "{}{}",
+                    self.indent(),
+                    self.render_shared_alloc(name, dtype, &size_expr)
+                )
+            }
+            AstNode::SharedStore { ptr, offset, value } => {
+                let ptr_expr = self.render_expr(ptr);
+                let offset_expr = self.render_expr(offset);
+                let value_expr = self.render_expr(value);
+                format!(
+                    "{}{};",
+                    self.indent(),
+                    self.render_shared_store(&ptr_expr, &offset_expr, &value_expr)
+                )
             }
             AstNode::WmmaMatmul {
                 a_ptr,
@@ -998,7 +1045,7 @@ impl CLikeRenderer for GenericRenderer {
             DType::F32 => "float".to_string(),
             DType::F64 => "double".to_string(),
             DType::Int => "long long".to_string(), // Index type: 64-bit for CPU
-            DType::Ptr(inner) => format!("{}*", self.render_dtype_backend(inner)),
+            DType::Ptr(inner, _) => format!("{}*", self.render_dtype_backend(inner)),
             DType::Vec(inner, size) => format!("{}[{}]", self.render_dtype_backend(inner), size),
             DType::Tuple(_) => "/* tuple */".to_string(),
             DType::Unknown => "/* unknown */".to_string(),

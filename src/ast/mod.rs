@@ -9,7 +9,7 @@ pub mod types;
 
 // Re-export commonly used types
 pub use scope::{Mutability, Scope, VarDecl, VarKind};
-pub use types::{DType, Literal, TensorDType};
+pub use types::{AddressSpace, DType, Literal, TensorDType};
 
 use crate::shape::Expr;
 
@@ -307,6 +307,56 @@ pub enum AstNode {
         dtype_c: DType, // 出力/累積行列の型 (F16 or F32)
     },
 
+    // =========================================================================
+    // Shared Memory Operations - 共有メモリ操作
+    // =========================================================================
+
+    /// 共有メモリ配列の宣言
+    ///
+    /// スレッドグループ内で共有される高速メモリ領域を確保する。
+    /// CUDA では `__shared__`、Metal では `threadgroup`、OpenCL では `__local` に対応。
+    ///
+    /// # 使用例
+    ///
+    /// ```text
+    /// SharedAlloc { name: "shared_a", dtype: F32, size: 256 }
+    /// // CUDA: __shared__ float shared_a[256];
+    /// // Metal: threadgroup float shared_a[256];
+    /// // OpenCL: __local float shared_a[256];
+    /// ```
+    SharedAlloc {
+        /// 共有メモリ変数名
+        name: String,
+        /// 要素の型
+        dtype: DType,
+        /// 配列サイズ（要素数）
+        size: Box<AstNode>,
+    },
+
+    /// 共有メモリからの読み込み
+    ///
+    /// SharedAlloc で確保した共有メモリ領域からデータを読み込む。
+    SharedLoad {
+        /// 共有メモリへのポインタ（SharedAlloc の変数参照）
+        ptr: Box<AstNode>,
+        /// オフセット（要素インデックス）
+        offset: Box<AstNode>,
+        /// 読み込む要素の型
+        dtype: DType,
+    },
+
+    /// 共有メモリへの書き込み
+    ///
+    /// SharedAlloc で確保した共有メモリ領域にデータを書き込む。
+    SharedStore {
+        /// 共有メモリへのポインタ（SharedAlloc の変数参照）
+        ptr: Box<AstNode>,
+        /// オフセット（要素インデックス）
+        offset: Box<AstNode>,
+        /// 書き込む値
+        value: Box<AstNode>,
+    },
+
     // Program - プログラム全体
     /// カーネル関数群を保持するプログラムノード
     ///
@@ -463,6 +513,11 @@ impl AstNode {
                 k.as_ref(),
                 n.as_ref(),
             ],
+            AstNode::SharedAlloc { size, .. } => vec![size.as_ref()],
+            AstNode::SharedLoad { ptr, offset, .. } => vec![ptr.as_ref(), offset.as_ref()],
+            AstNode::SharedStore { ptr, offset, value } => {
+                vec![ptr.as_ref(), offset.as_ref(), value.as_ref()]
+            }
             AstNode::Program {
                 functions,
                 execution_waves: _,
@@ -697,6 +752,21 @@ impl AstNode {
                 dtype_ab: dtype_ab.clone(),
                 dtype_c: dtype_c.clone(),
             },
+            AstNode::SharedAlloc { name, dtype, size } => AstNode::SharedAlloc {
+                name: name.clone(),
+                dtype: dtype.clone(),
+                size: Box::new(f(size)),
+            },
+            AstNode::SharedLoad { ptr, offset, dtype } => AstNode::SharedLoad {
+                ptr: Box::new(f(ptr)),
+                offset: Box::new(f(offset)),
+                dtype: dtype.clone(),
+            },
+            AstNode::SharedStore { ptr, offset, value } => AstNode::SharedStore {
+                ptr: Box::new(f(ptr)),
+                offset: Box::new(f(offset)),
+                value: Box::new(f(value)),
+            },
             AstNode::Program {
                 functions,
                 execution_waves,
@@ -811,7 +881,7 @@ impl AstNode {
             AstNode::Barrier => DType::Tuple(vec![]),
 
             // Allocate - ポインタを返す
-            AstNode::Allocate { dtype, .. } => DType::Ptr(dtype.clone()),
+            AstNode::Allocate { dtype, .. } => DType::Ptr(dtype.clone(), AddressSpace::Global),
 
             // Deallocate - 値を返さない（unit型）
             AstNode::Deallocate { .. } => DType::Tuple(vec![]),
@@ -826,6 +896,17 @@ impl AstNode {
 
             // WmmaMatmul - WMMA行列積は値を返さない（Cに書き込む）
             AstNode::WmmaMatmul { .. } => DType::Tuple(vec![]),
+
+            // SharedAlloc - 共有メモリへのポインタを返す
+            AstNode::SharedAlloc { dtype, .. } => {
+                DType::Ptr(Box::new(dtype.clone()), AddressSpace::Shared)
+            }
+
+            // SharedLoad - 読み込む要素の型を返す
+            AstNode::SharedLoad { dtype, .. } => dtype.clone(),
+
+            // SharedStore - 値を返さない（unit型）
+            AstNode::SharedStore { .. } => DType::Tuple(vec![]),
         }
     }
 
@@ -1054,6 +1135,24 @@ impl AstNode {
                 m.check_scope(scope)?;
                 k.check_scope(scope)?;
                 n.check_scope(scope)?;
+                Ok(())
+            }
+            // SharedAlloc - サイズ式のスコープチェック
+            AstNode::SharedAlloc { size, .. } => {
+                size.check_scope(scope)?;
+                Ok(())
+            }
+            // SharedLoad - ポインタとオフセットのスコープチェック
+            AstNode::SharedLoad { ptr, offset, .. } => {
+                ptr.check_scope(scope)?;
+                offset.check_scope(scope)?;
+                Ok(())
+            }
+            // SharedStore - ポインタ、オフセット、値のスコープチェック
+            AstNode::SharedStore { ptr, offset, value } => {
+                ptr.check_scope(scope)?;
+                offset.check_scope(scope)?;
+                value.check_scope(scope)?;
                 Ok(())
             }
         }

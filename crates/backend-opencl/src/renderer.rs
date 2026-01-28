@@ -242,9 +242,15 @@ impl CLikeRenderer for OpenCLRenderer {
             DType::F32 => "float".to_string(),
             DType::F64 => "double".to_string(),
             DType::Int => "int".to_string(), // Index type: 32-bit for GPU efficiency
-            DType::Ptr(inner) => {
+            DType::Ptr(inner, space) => {
+                use eclat::ast::AddressSpace;
                 let base = self.render_dtype_backend(inner);
-                format!("__global {}*", base)
+                match space {
+                    AddressSpace::Global => format!("__global {}*", base),
+                    AddressSpace::Shared => format!("__local {}*", base),
+                    AddressSpace::Local => format!("__private {}*", base),
+                    AddressSpace::Constant => format!("__constant {}*", base),
+                }
             }
             DType::Vec(inner, size) => {
                 // OpenCLのベクトル型
@@ -450,6 +456,11 @@ impl CLikeRenderer for OpenCLRenderer {
             ),
         }
     }
+
+    fn render_shared_alloc(&self, name: &str, dtype: &DType, size_expr: &str) -> String {
+        let dtype_str = self.render_dtype_backend(dtype);
+        format!("__local {} {}[{}];", dtype_str, name, size_expr)
+    }
 }
 
 /// Implementation of KernelSourceRenderer for native OpenCL backend
@@ -487,7 +498,7 @@ impl eclat::backend::pipeline::KernelSourceRenderer for OpenCLRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eclat::ast::{Mutability, Scope, VarDecl, VarKind};
+    use eclat::ast::{AddressSpace, Mutability, Scope, VarDecl, VarKind};
     use eclat::backend::renderer::CLikeRenderer;
 
     #[test]
@@ -515,13 +526,13 @@ mod tests {
             },
             VarDecl {
                 name: "input".to_string(),
-                dtype: DType::Ptr(Box::new(DType::F32)),
+                dtype: DType::Ptr(Box::new(DType::F32), AddressSpace::Global),
                 kind: VarKind::Normal,
                 mutability: Mutability::Immutable,
             },
             VarDecl {
                 name: "output".to_string(),
-                dtype: DType::Ptr(Box::new(DType::F32)),
+                dtype: DType::Ptr(Box::new(DType::F32), AddressSpace::Global),
                 kind: VarKind::Normal,
                 mutability: Mutability::Mutable,
             },
@@ -627,7 +638,7 @@ mod tests {
 
         // ポインタ型
         assert_eq!(
-            renderer.render_dtype_backend(&DType::Ptr(Box::new(DType::F32))),
+            renderer.render_dtype_backend(&DType::Ptr(Box::new(DType::F32), AddressSpace::Global)),
             "__global float*"
         );
 

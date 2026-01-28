@@ -236,7 +236,7 @@ fn test_dtype_to_ptr() {
     let ptr_type = base_type.to_ptr();
 
     match ptr_type {
-        DType::Ptr(pointee) => {
+        DType::Ptr(pointee, _) => {
             assert_eq!(*pointee, DType::F32);
         }
         _ => panic!("Expected Ptr type"),

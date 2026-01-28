@@ -131,7 +131,7 @@ impl CLikeRenderer for CRenderer {
             DType::F32 => "float".to_string(),
             DType::F64 => "double".to_string(),
             DType::Int => "long long".to_string(), // Index type: 64-bit for CPU
-            DType::Ptr(inner) => format!("{}*", self.render_dtype_backend(inner)),
+            DType::Ptr(inner, _) => format!("{}*", self.render_dtype_backend(inner)),
             DType::Vec(inner, size) => format!("{}[{}]", self.render_dtype_backend(inner), size),
             DType::Tuple(types) => {
                 if types.is_empty() {
@@ -234,7 +234,7 @@ impl eclat::backend::pipeline::KernelSourceRenderer for CRenderer {
 mod tests {
     use super::*;
     use eclat::ast::helper::*;
-    use eclat::ast::{AstNode, Literal};
+    use eclat::ast::{AddressSpace, AstNode, Literal};
     use eclat::backend::renderer::CLikeRenderer;
 
     #[test]
@@ -254,7 +254,7 @@ mod tests {
         assert_eq!(renderer.render_dtype_backend(&DType::I32), "int");
         assert_eq!(renderer.render_dtype_backend(&DType::I64), "long long");
         assert_eq!(
-            renderer.render_dtype_backend(&DType::Ptr(Box::new(DType::F32))),
+            renderer.render_dtype_backend(&DType::Ptr(Box::new(DType::F32), AddressSpace::Global)),
             "float*"
         );
     }

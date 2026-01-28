@@ -2,7 +2,7 @@
 //!
 //! Global/LocalParallelizationSuggesterで使用される書き込み解析や変数置換機能を提供します。
 
-use crate::ast::{AstNode, DType, Literal, Mutability, VarDecl, VarKind};
+use crate::ast::{AddressSpace, AstNode, DType, Literal, Mutability, VarDecl, VarKind};
 use std::collections::HashSet;
 
 /// ループの並列化可否を解析するアナライザー
@@ -176,6 +176,23 @@ impl LoopAnalyzer {
             | AstNode::Program { .. }
             | AstNode::CallKernel { .. }
             | AstNode::WmmaMatmul { .. } => {}
+            // SharedMemory operations - treat like Store/Load
+            AstNode::SharedAlloc { size, .. } => {
+                self.analyze_recursive(size);
+            }
+            AstNode::SharedLoad { ptr, offset, .. } => {
+                self.analyze_recursive(ptr);
+                self.analyze_recursive(offset);
+            }
+            AstNode::SharedStore { ptr, offset, value } => {
+                self.has_stores = true;
+                if self.depends_on_loop_var(offset) {
+                    self.stores_depend_on_loop_var = true;
+                }
+                self.analyze_recursive(ptr);
+                self.analyze_recursive(offset);
+                self.analyze_recursive(value);
+            }
         }
     }
 
@@ -532,6 +549,23 @@ pub fn substitute_var(ast: &AstNode, var_name: &str, replacement: &AstNode) -> A
         | AstNode::Program { .. }
         | AstNode::CallKernel { .. }
         | AstNode::WmmaMatmul { .. } => ast.clone(),
+
+        // SharedMemory operations
+        AstNode::SharedAlloc { name, dtype, size } => AstNode::SharedAlloc {
+            name: name.clone(),
+            dtype: dtype.clone(),
+            size: Box::new(substitute_var(size, var_name, replacement)),
+        },
+        AstNode::SharedLoad { ptr, offset, dtype } => AstNode::SharedLoad {
+            ptr: Box::new(substitute_var(ptr, var_name, replacement)),
+            offset: Box::new(substitute_var(offset, var_name, replacement)),
+            dtype: dtype.clone(),
+        },
+        AstNode::SharedStore { ptr, offset, value } => AstNode::SharedStore {
+            ptr: Box::new(substitute_var(ptr, var_name, replacement)),
+            offset: Box::new(substitute_var(offset, var_name, replacement)),
+            value: Box::new(substitute_var(value, var_name, replacement)),
+        },
     }
 }
 
@@ -629,14 +663,14 @@ pub fn infer_params_from_placeholders(free_vars: &[String]) -> Vec<VarDecl> {
         let decl = if var_name.starts_with("input") || var_name.starts_with("param") {
             VarDecl {
                 name: var_name.clone(),
-                dtype: DType::Ptr(Box::new(DType::F32)),
+                dtype: DType::Ptr(Box::new(DType::F32), AddressSpace::Global),
                 mutability: Mutability::Immutable,
                 kind: VarKind::Normal,
             }
         } else if var_name.starts_with("output") {
             VarDecl {
                 name: var_name.clone(),
-                dtype: DType::Ptr(Box::new(DType::F32)),
+                dtype: DType::Ptr(Box::new(DType::F32), AddressSpace::Global),
                 mutability: Mutability::Mutable,
                 kind: VarKind::Normal,
             }
@@ -871,6 +905,20 @@ impl FreeVariableCollector {
             | AstNode::Program { .. }
             | AstNode::CallKernel { .. }
             | AstNode::WmmaMatmul { .. } => {}
+
+            // SharedMemory operations
+            AstNode::SharedAlloc { size, .. } => {
+                self.collect_recursive(size);
+            }
+            AstNode::SharedLoad { ptr, offset, .. } => {
+                self.collect_recursive(ptr);
+                self.collect_recursive(offset);
+            }
+            AstNode::SharedStore { ptr, offset, value } => {
+                self.collect_recursive(ptr);
+                self.collect_recursive(offset);
+                self.collect_recursive(value);
+            }
         }
     }
 }

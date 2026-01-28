@@ -107,7 +107,7 @@ mod tests {
                         .collect::<Vec<_>>()
                         .join(", ")
                 ),
-                DType::Ptr(inner) => format!("{}*", self.render_dtype_backend(inner)),
+                DType::Ptr(inner, _) => format!("{}*", self.render_dtype_backend(inner)),
                 _ => "unknown".to_string(),
             }
         }

@@ -1,5 +1,5 @@
 use super::AstCostEstimator;
-use crate::ast::{AstNode, ParallelKind, VarKind};
+use crate::ast::{AddressSpace, AstNode, ParallelKind, VarKind};
 use crate::opt::cost_utils::{log_sum_exp, log_sum_exp_iter};
 
 /// 簡単なコスト推定器
@@ -342,6 +342,14 @@ impl SimpleCostEstimator {
             }
             AstNode::Allocate { size, .. } => Self::count_nodes(size),
             AstNode::Deallocate { ptr } => Self::count_nodes(ptr),
+            // 共有メモリ操作
+            AstNode::SharedAlloc { size, .. } => Self::count_nodes(size),
+            AstNode::SharedLoad { ptr, offset, .. } => {
+                Self::count_nodes(ptr) + Self::count_nodes(offset)
+            }
+            AstNode::SharedStore { ptr, offset, value } => {
+                Self::count_nodes(ptr) + Self::count_nodes(offset) + Self::count_nodes(value)
+            }
             AstNode::Program { functions, .. } => functions.iter().map(Self::count_nodes).sum(),
             // 比較・論理演算
             AstNode::Lt(a, b) | AstNode::And(a, b) => Self::count_nodes(a) + Self::count_nodes(b),
@@ -435,6 +443,12 @@ impl SimpleCostEstimator {
 
             // 乱数生成（比較的高コスト）
             AstNode::Rand => 10.0_f32.ln(),
+
+            // 共有メモリ操作（グローバルメモリより高速）
+            // 共有メモリはL1キャッシュに近い速度（グローバルメモリの約1/10のレイテンシ）
+            AstNode::SharedAlloc { .. } => 5.0_f32.ln(),
+            AstNode::SharedLoad { .. } => (self.memory_access_cost * 0.25).ln(), // グローバルの1/4
+            AstNode::SharedStore { .. } => (self.memory_access_cost * 0.25).ln(),
 
             // メモリ確保/解放（高コスト）
             AstNode::Allocate { .. } => 100.0_f32.ln(),
@@ -614,6 +628,15 @@ impl AstCostEstimator for SimpleCostEstimator {
             AstNode::Return { value } => self.estimate(value),
             AstNode::Allocate { size, .. } => self.estimate(size),
             AstNode::Deallocate { ptr } => self.estimate(ptr),
+            // 共有メモリ操作
+            AstNode::SharedAlloc { size, .. } => self.estimate(size),
+            AstNode::SharedLoad { ptr, offset, .. } => {
+                log_sum_exp(self.estimate(ptr), self.estimate(offset))
+            }
+            AstNode::SharedStore { ptr, offset, value } => log_sum_exp(
+                log_sum_exp(self.estimate(ptr), self.estimate(offset)),
+                self.estimate(value),
+            ),
             AstNode::CallKernel {
                 args,
                 grid_size,
@@ -993,7 +1016,7 @@ mod tests {
             params: vec![
                 VarDecl {
                     name: "ptr".to_string(),
-                    dtype: DType::Ptr(Box::new(DType::I64)),
+                    dtype: DType::Ptr(Box::new(DType::I64), AddressSpace::Global),
                     mutability: Mutability::Immutable,
                     kind: VarKind::Normal,
                 },
@@ -1336,7 +1359,7 @@ mod tests {
                 },
                 VarDecl {
                     name: "output".to_string(),
-                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    dtype: DType::Ptr(Box::new(DType::F32), AddressSpace::Global),
                     mutability: Mutability::Mutable,
                     kind: VarKind::Normal,
                 },
@@ -1359,7 +1382,7 @@ mod tests {
                 },
                 VarDecl {
                     name: "output".to_string(),
-                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    dtype: DType::Ptr(Box::new(DType::F32), AddressSpace::Global),
                     mutability: Mutability::Mutable,
                     kind: VarKind::Normal,
                 },
@@ -1410,7 +1433,7 @@ mod tests {
                 },
                 VarDecl {
                     name: "output".to_string(),
-                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    dtype: DType::Ptr(Box::new(DType::F32), AddressSpace::Global),
                     mutability: Mutability::Mutable,
                     kind: VarKind::Normal,
                 },
@@ -1435,7 +1458,7 @@ mod tests {
                 },
                 VarDecl {
                     name: "output".to_string(),
-                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    dtype: DType::Ptr(Box::new(DType::F32), AddressSpace::Global),
                     mutability: Mutability::Mutable,
                     kind: VarKind::Normal,
                 },

@@ -88,7 +88,16 @@ fn render_dtype_metal(dtype: &DType) -> String {
         DType::F32 => "float".to_string(),
         DType::F64 => "double".to_string(), // Note: Metal has limited double support
         DType::Int => "int".to_string(),    // Index type: 32-bit for GPU efficiency
-        DType::Ptr(inner) => format!("device {}*", render_dtype_metal(inner)),
+        DType::Ptr(inner, space) => {
+            use eclat::ast::AddressSpace;
+            let base = render_dtype_metal(inner);
+            match space {
+                AddressSpace::Global => format!("device {}*", base),
+                AddressSpace::Shared => format!("threadgroup {}*", base),
+                AddressSpace::Local => format!("thread {}*", base),
+                AddressSpace::Constant => format!("constant {}*", base),
+            }
+        }
         DType::Vec(inner, size) => {
             let base = render_dtype_metal(inner);
             format!("{}{}", base, size)
@@ -520,6 +529,12 @@ impl CLikeRenderer for MetalKernelRenderer {
         }
     }
 
+    fn render_shared_alloc(&self, name: &str, dtype: &DType, size_expr: &str) -> String {
+        let dtype_str = self.render_dtype_backend(dtype);
+        // Metal: threadgroup float name[size];
+        format!("threadgroup {} {}[{}];", dtype_str, name, size_expr)
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn render_wmma_matmul(
         &mut self,
@@ -758,6 +773,12 @@ impl CLikeRenderer for MetalRenderer {
                 dtype, ptr, offset, ptr, offset, value
             ),
         }
+    }
+
+    fn render_shared_alloc(&self, name: &str, dtype: &DType, size_expr: &str) -> String {
+        let dtype_str = self.render_dtype_backend(dtype);
+        // Metal: threadgroup float name[size];
+        format!("threadgroup {} {}[{}];", dtype_str, name, size_expr)
     }
 
     #[allow(clippy::too_many_arguments)]

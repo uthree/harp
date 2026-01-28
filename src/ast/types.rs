@@ -69,6 +69,29 @@ impl_tensor_dtype!(f32, F32, F32, 0.0, 1.0);
 impl_tensor_dtype!(f64, F64, F64, 0.0, 1.0);
 
 // ============================================================================
+// AddressSpace enum
+// ============================================================================
+
+/// メモリアドレス空間を表す列挙型
+/// GPU カーネルにおけるメモリの種類を区別する
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub enum AddressSpace {
+    /// グローバルメモリ（デフォルト）
+    /// GPU の VRAM 上のメモリで、全スレッドからアクセス可能
+    #[default]
+    Global,
+    /// 共有メモリ（シェアードメモリ）
+    /// スレッドグループ内で共有される高速メモリ
+    Shared,
+    /// ローカルメモリ（プライベートメモリ）
+    /// 各スレッドに固有のメモリ
+    Local,
+    /// 定数メモリ
+    /// 読み取り専用でキャッシュされるメモリ
+    Constant,
+}
+
+// ============================================================================
 // DType enum
 // ============================================================================
 
@@ -104,7 +127,10 @@ pub enum DType {
     Int,
 
     // Composite types
-    Ptr(Box<DType>),        // pointer for memory buffer
+    /// メモリバッファへのポインタ型
+    /// 第1引数: ポイント先の型
+    /// 第2引数: アドレス空間（Global, Shared, Local, Constant）
+    Ptr(Box<DType>, AddressSpace),
     Vec(Box<DType>, usize), // fixed size vector for SIMD
     Tuple(Vec<DType>),
 
@@ -331,7 +357,7 @@ impl DType {
             DType::I32 | DType::U32 | DType::F32 => 4,
             DType::I64 | DType::U64 | DType::F64 => 8,
             DType::Int => std::mem::size_of::<isize>(), // Platform-dependent
-            DType::Ptr(_) => std::mem::size_of::<usize>(),
+            DType::Ptr(_, _) => std::mem::size_of::<usize>(),
             DType::Vec(elem_type, size) => elem_type.size_in_bytes() * size,
             DType::Tuple(types) => types.iter().map(|t| t.size_in_bytes()).sum(),
             DType::Unknown => 0,
@@ -343,9 +369,14 @@ impl DType {
         DType::Vec(Box::new(self.clone()), size)
     }
 
-    /// Convert this type to a pointer type
+    /// Convert this type to a pointer type with Global address space
     pub fn to_ptr(&self) -> DType {
-        DType::Ptr(Box::new(self.clone()))
+        DType::Ptr(Box::new(self.clone()), AddressSpace::Global)
+    }
+
+    /// Convert this type to a pointer type with specified address space
+    pub fn to_ptr_with_space(&self, space: AddressSpace) -> DType {
+        DType::Ptr(Box::new(self.clone()), space)
     }
 
     /// If this is a Vec type, return the element type and size
@@ -359,7 +390,15 @@ impl DType {
     /// If this is a Ptr type, return the pointee type
     pub fn from_ptr(&self) -> Option<&DType> {
         match self {
-            DType::Ptr(pointee) => Some(pointee.as_ref()),
+            DType::Ptr(pointee, _) => Some(pointee.as_ref()),
+            _ => None,
+        }
+    }
+
+    /// If this is a Ptr type, return the address space
+    pub fn address_space(&self) -> Option<&AddressSpace> {
+        match self {
+            DType::Ptr(_, space) => Some(space),
             _ => None,
         }
     }
@@ -375,19 +414,29 @@ impl DType {
     /// Get the pointee type if this is a Ptr, otherwise return self
     pub fn deref_type(&self) -> &DType {
         match self {
-            DType::Ptr(pointee) => pointee.as_ref(),
+            DType::Ptr(pointee, _) => pointee.as_ref(),
             _ => self,
         }
     }
 
     /// Check if this is a Vec type
     pub fn is_vec(&self) -> bool {
-        matches!(self, DType::Vec(_, _))
+        matches!(self, DType::Vec(..))
     }
 
     /// Check if this is a Ptr type
     pub fn is_ptr(&self) -> bool {
-        matches!(self, DType::Ptr(_))
+        matches!(self, DType::Ptr(_, _))
+    }
+
+    /// Check if this is a shared memory pointer
+    pub fn is_shared_ptr(&self) -> bool {
+        matches!(self, DType::Ptr(_, AddressSpace::Shared))
+    }
+
+    /// Check if this is a global memory pointer
+    pub fn is_global_ptr(&self) -> bool {
+        matches!(self, DType::Ptr(_, AddressSpace::Global))
     }
 
     /// Check if this is a Bool type

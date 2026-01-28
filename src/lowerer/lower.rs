@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use crate::ast::{AstNode, DType, Literal, Mutability, VarDecl, VarKind};
+use crate::ast::{AddressSpace, AstNode, DType, Literal, Mutability, VarDecl, VarKind};
 use crate::graph::{Expr, GraphNode, GraphOp, ReduceOp, View, collect_inputs, topological_sort};
 
 use super::fusion::AllFusions;
@@ -776,7 +776,7 @@ impl Lowerer {
             .into_iter()
             .map(|buf| VarDecl {
                 name: buf.name,
-                dtype: DType::Ptr(Box::new(buf.dtype)),
+                dtype: DType::Ptr(Box::new(buf.dtype), AddressSpace::Global),
                 mutability: Mutability::Immutable,
                 kind: VarKind::Normal,
             })
@@ -785,7 +785,7 @@ impl Lowerer {
         // Add output buffer parameter
         params.push(VarDecl {
             name: output_buffer.name,
-            dtype: DType::Ptr(Box::new(output_buffer.dtype)),
+            dtype: DType::Ptr(Box::new(output_buffer.dtype), AddressSpace::Global),
             mutability: Mutability::Mutable,
             kind: VarKind::Normal,
         });
