@@ -4,13 +4,14 @@
 //!
 //! # Overview
 //!
-//! - `nn`: Neural network layers and parameter management
+//! - `layers`: Neural network layers and parameter management
+//! - `functional`: Pure functions for neural network operations
 //! - `optim`: Optimization algorithms (SGD, Adam)
 //!
 //! # Example
 //!
 //! ```ignore
-//! use eclat_nn::nn::{Module, Linear, Parameter, ParameterBase};
+//! use eclat_nn::layers::{Module, Linear, Parameter, ParameterBase};
 //! use eclat_nn::optim::{Optimizer, SGD, Adam};
 //!
 //! // Create a layer
@@ -28,9 +29,13 @@
 //! optimizer.step().unwrap();
 //! ```
 
-pub mod nn;
+pub mod functional;
+pub mod layers;
 pub mod optim;
 
-// Re-export commonly used types
-pub use nn::{Conv1d, Conv2d, Conv3d, ConvTranspose1d, ConvTranspose2d, ConvTranspose3d, Linear, Module, Parameter, ParameterBase, ParameterError};
+// Re-export commonly used types from layers
+pub use layers::{
+    Conv1d, Conv2d, Conv3d, ConvTranspose1d, ConvTranspose2d, ConvTranspose3d, Linear, Module,
+    Parameter, ParameterBase, ParameterError,
+};
 pub use optim::{Adam, OptimError, Optimizer, SGD};

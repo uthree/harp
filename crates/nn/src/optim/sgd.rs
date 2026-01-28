@@ -3,7 +3,7 @@
 //! Implements SGD with optional momentum.
 
 use super::{OptimError, Optimizer, get_param_data};
-use crate::nn::ParameterBase;
+use crate::layers::ParameterBase;
 
 /// Stochastic Gradient Descent optimizer.
 ///
@@ -130,7 +130,7 @@ impl std::fmt::Debug for SGD {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::nn::Parameter;
+    use crate::layers::Parameter;
     use eclat::tensor::dim::D2;
 
     #[test]

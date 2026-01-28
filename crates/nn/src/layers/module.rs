@@ -68,7 +68,7 @@ pub trait Module {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::nn::Parameter;
+    use crate::layers::Parameter;
     use eclat::tensor::dim::D2;
 
     // Simple test module for testing the trait

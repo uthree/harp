@@ -2,7 +2,7 @@
 //!
 //! Base trait for all optimization algorithms.
 
-use crate::nn::{ParameterBase, ParameterError};
+use crate::layers::{ParameterBase, ParameterError};
 
 /// Base trait for optimizers.
 ///

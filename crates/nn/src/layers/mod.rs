@@ -1,6 +1,6 @@
-//! Neural Network Module
+//! Neural Network Layers
 //!
-//! This module provides PyTorch-like neural network abstractions for eclat.
+//! This module provides PyTorch-like neural network layer abstractions for eclat.
 //!
 //! # Overview
 //!
@@ -9,11 +9,12 @@
 //! - `Module`: Base trait for neural network layers
 //! - `Linear`: Fully connected layer
 //! - `Conv1d`, `Conv2d`, `Conv3d`: Convolution layers
+//! - `ConvTranspose1d`, `ConvTranspose2d`, `ConvTranspose3d`: Transposed convolution layers
 //!
 //! # Example
 //!
 //! ```ignore
-//! use eclat_nn::nn::{Module, Linear, Parameter, ParameterBase};
+//! use eclat_nn::layers::{Module, Linear, Parameter, ParameterBase};
 //! use eclat_nn::optim::{Optimizer, SGD};
 //!
 //! // Create a linear layer

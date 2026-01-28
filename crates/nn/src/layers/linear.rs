@@ -6,8 +6,9 @@
 //! - b: bias vector [out_features] (optional)
 
 use super::{Module, Parameter, ParameterBase};
-use eclat::tensor::Tensor;
+use crate::functional;
 use eclat::tensor::dim::{D1, D2};
+use eclat::tensor::Tensor;
 
 /// A fully connected (linear) layer.
 ///
@@ -91,40 +92,9 @@ impl Linear {
     ///
     /// # Returns
     /// Output tensor of shape [batch, out_features]
-    ///
-    /// # Implementation
-    /// Matrix multiplication is implemented using unsqueeze and sum:
-    /// 1. input: [B, K] -> [B, K, 1]
-    /// 2. weight^T: [K, O] -> [1, K, O]
-    /// 3. broadcast multiply: [B, K, 1] * [1, K, O] -> [B, K, O]
-    /// 4. sum over K: [B, K, O] -> [B, O]
     pub fn forward_d2(&self, input: &Tensor<D2, f32>) -> Tensor<D2, f32> {
-        // Get weight tensor and transpose it: [O, K] -> [K, O]
-        let weight = self.weight.tensor();
-        let weight_t = weight.permute(&[1, 0]); // [K, O]
-
-        // input: [B, K] -> [B, K, 1]
-        let a = input.unsqueeze(2);
-
-        // weight^T: [K, O] -> [1, K, O]
-        let b = weight_t.unsqueeze(0);
-
-        // broadcast multiply: [B, K, 1] * [1, K, O] -> [B, K, O]
-        let product = &a * &b;
-
-        // sum over K axis: [B, K, O] -> [B, O]
-        let y = product.sum(1);
-
-        // Add bias if present
-        match &self.bias {
-            Some(bias) => {
-                let bias_tensor = bias.tensor();
-                // bias: [O] -> [1, O]
-                let bias_expanded = bias_tensor.unsqueeze(0);
-                &y + &bias_expanded
-            }
-            None => y,
-        }
+        let bias = self.bias.as_ref().map(|b| b.tensor());
+        functional::linear(input, &self.weight.tensor(), bias.as_deref())
     }
 
     /// Get the input features count.

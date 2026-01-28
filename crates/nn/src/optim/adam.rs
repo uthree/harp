@@ -5,7 +5,7 @@
 //! Reference: Kingma, D. P., & Ba, J. (2014). Adam: A Method for Stochastic Optimization.
 
 use super::{OptimError, Optimizer, get_param_data};
-use crate::nn::ParameterBase;
+use crate::layers::ParameterBase;
 
 /// Adam optimizer.
 ///
@@ -174,7 +174,7 @@ impl std::fmt::Debug for Adam {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::nn::Parameter;
+    use crate::layers::Parameter;
     use eclat::tensor::dim::D2;
 
     #[test]

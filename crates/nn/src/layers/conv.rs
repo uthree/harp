@@ -1,10 +1,12 @@
 //! Convolution layers
 //!
-//! Implements Conv1d, Conv2d, and Conv3d using unfold (im2col) approach.
+//! Implements Conv1d, Conv2d, Conv3d and their transposed variants.
+//! The actual computation is performed by the functional module.
 
 use super::{Module, Parameter, ParameterBase};
+use crate::functional;
+use eclat::tensor::dim::{D1, D3, D4, D5};
 use eclat::tensor::Tensor;
-use eclat::tensor::dim::{D1, D2, D3, D4, D5, D6, D8};
 
 // ============================================================================
 // Conv2d
@@ -151,69 +153,15 @@ impl Conv2d {
     /// # Returns
     /// Output tensor of shape [N, C_out, H_out, W_out]
     pub fn forward_d4(&self, input: &Tensor<D4, f32>) -> Tensor<D4, f32> {
-        let (kh, kw) = self.kernel_size;
-        let (sh, sw) = self.stride;
-        let (ph, pw) = self.padding;
-        let (dh, dw) = self.dilation;
-
-        // Get input shape
-        let input_shape = input.shape();
-        let batch = input_shape[0];
-        let h = input_shape[2];
-        let w = input_shape[3];
-
-        // Calculate output spatial dimensions
-        let h_out = (h + 2 * ph - dh * (kh - 1) - 1) / sh + 1;
-        let w_out = (w + 2 * pw - dw * (kw - 1) - 1) / sw + 1;
-
-        // 1. Padding: D4 -> D4
-        let padded = input.pad(&[(0, 0), (0, 0), (ph, ph), (pw, pw)]);
-
-        // 2. unfold_2d: D4 -> D6 [N, C_in, H_out, W_out, kH, kW]
-        let unfolded: Tensor<D6, f32> = padded.unfold_2d((kh, kw), (sh, sw), (dh, dw));
-
-        // 3. permute: [N, C_in, H_out, W_out, kH, kW] -> [N, H_out, W_out, C_in, kH, kW]
-        let permuted: Tensor<D6, f32> = unfolded.permute(&[0, 2, 3, 1, 4, 5]);
-
-        // 4. contiguous + reshape: D6 -> D3 [N, H_out*W_out, C_in*kH*kW]
-        // Note: permute creates a non-contiguous view, so we need contiguous() before reshape()
-        let cols: Tensor<D3, f32> =
-            permuted
-                .contiguous()
-                .reshape([batch, h_out * w_out, self.in_channels * kh * kw]);
-
-        // 5. Get weight and reshape: [C_out, C_in, kH, kW] -> [C_out, C_in*kH*kW]
-        let weight = self.weight.tensor();
-        let weight_flat: Tensor<D2, f32> =
-            weight.reshape([self.out_channels, self.in_channels * kh * kw]);
-
-        // 6. Matrix multiplication using broadcast multiply + sum
-        // cols: [N, H_out*W_out, C_in*kH*kW] -> [N, H_out*W_out, 1, C_in*kH*kW]
-        // weight: [C_out, C_in*kH*kW] -> [1, 1, C_out, C_in*kH*kW]
-        let cols_expanded: Tensor<D4, f32> = cols.unsqueeze(2);
-        let weight_expanded: Tensor<D4, f32> = weight_flat.unsqueeze(0).unsqueeze(0);
-
-        // broadcast multiply: [N, H_out*W_out, C_out, C_in*kH*kW]
-        let product: Tensor<D4, f32> = &cols_expanded * &weight_expanded;
-
-        // sum over last axis: [N, H_out*W_out, C_out]
-        let result: Tensor<D3, f32> = product.sum(3);
-
-        // 7. reshape + permute: [N, H_out*W_out, C_out] -> [N, H_out, W_out, C_out] -> [N, C_out, H_out, W_out]
-        let reshaped: Tensor<D4, f32> = result.reshape([batch, h_out, w_out, self.out_channels]);
-        let output: Tensor<D4, f32> = reshaped.permute(&[0, 3, 1, 2]);
-
-        // 8. Add bias if present
-        match &self.bias {
-            Some(bias) => {
-                let bias_tensor = bias.tensor();
-                // bias: [C_out] -> [1, C_out, 1, 1]
-                let bias_expanded: Tensor<D4, f32> =
-                    bias_tensor.unsqueeze(0).unsqueeze(2).unsqueeze(3);
-                &output + &bias_expanded
-            }
-            None => output,
-        }
+        let bias = self.bias.as_ref().map(|b| b.tensor());
+        functional::conv2d(
+            input,
+            &self.weight.tensor(),
+            bias.as_deref(),
+            self.stride,
+            self.padding,
+            self.dilation,
+        )
     }
 
     /// Get the number of input channels.
@@ -417,67 +365,15 @@ impl Conv1d {
     /// # Returns
     /// Output tensor of shape [N, C_out, L_out]
     pub fn forward_d3(&self, input: &Tensor<D3, f32>) -> Tensor<D3, f32> {
-        let k = self.kernel_size;
-        let s = self.stride;
-        let p = self.padding;
-        let d = self.dilation;
-
-        // Get input shape
-        let input_shape = input.shape();
-        let batch = input_shape[0];
-        let l = input_shape[2];
-
-        // Calculate output length
-        let l_out = (l + 2 * p - d * (k - 1) - 1) / s + 1;
-
-        // 1. Padding: D3 -> D3
-        let padded = input.pad(&[(0, 0), (0, 0), (p, p)]);
-
-        // 2. unfold_1d: D3 -> D4 [N, C_in, L_out, K]
-        let unfolded: Tensor<D4, f32> = padded.unfold_1d(k, s, d);
-
-        // 3. permute: [N, C_in, L_out, K] -> [N, L_out, C_in, K]
-        let permuted: Tensor<D4, f32> = unfolded.permute(&[0, 2, 1, 3]);
-
-        // 4. contiguous + reshape: D4 -> D2 [N*L_out, C_in*K]
-        // Note: permute creates a non-contiguous view, so we need contiguous() before reshape()
-        let cols: Tensor<D2, f32> = permuted
-            .contiguous()
-            .reshape([batch * l_out, self.in_channels * k]);
-
-        // 5. Get weight and reshape: [C_out, C_in, K] -> [C_out, C_in*K]
-        let weight = self.weight.tensor();
-        let weight_flat: Tensor<D2, f32> =
-            weight.reshape([self.out_channels, self.in_channels * k]);
-
-        // 6. Matrix multiplication using broadcast multiply + sum
-        // cols: [N*L_out, C_in*K] -> [N*L_out, 1, C_in*K]
-        // weight: [C_out, C_in*K] -> [1, C_out, C_in*K]
-        let cols_expanded: Tensor<D3, f32> = cols.unsqueeze(1);
-        let weight_expanded: Tensor<D3, f32> = weight_flat.unsqueeze(0);
-
-        // broadcast multiply: [N*L_out, C_out, C_in*K]
-        let product: Tensor<D3, f32> = &cols_expanded * &weight_expanded;
-
-        // sum over last axis: [N*L_out, C_out]
-        let result: Tensor<D2, f32> = product.sum(2);
-
-        // 7. reshape: [N*L_out, C_out] -> [N, L_out, C_out]
-        let reshaped: Tensor<D3, f32> = result.reshape([batch, l_out, self.out_channels]);
-
-        // 8. permute: [N, L_out, C_out] -> [N, C_out, L_out]
-        let output: Tensor<D3, f32> = reshaped.permute(&[0, 2, 1]);
-
-        // 9. Add bias if present
-        match &self.bias {
-            Some(bias) => {
-                let bias_tensor = bias.tensor();
-                // bias: [C_out] -> [1, C_out, 1]
-                let bias_expanded: Tensor<D3, f32> = bias_tensor.unsqueeze(0).unsqueeze(2);
-                &output + &bias_expanded
-            }
-            None => output,
-        }
+        let bias = self.bias.as_ref().map(|b| b.tensor());
+        functional::conv1d(
+            input,
+            &self.weight.tensor(),
+            bias.as_deref(),
+            self.stride,
+            self.padding,
+            self.dilation,
+        )
     }
 
     /// Get the number of input channels.
@@ -685,75 +581,15 @@ impl Conv3d {
     /// # Returns
     /// Output tensor of shape [N, C_out, D_out, H_out, W_out]
     pub fn forward_d5(&self, input: &Tensor<D5, f32>) -> Tensor<D5, f32> {
-        let (kd, kh, kw) = self.kernel_size;
-        let (sd, sh, sw) = self.stride;
-        let (pd, ph, pw) = self.padding;
-        let (dd, dh, dw) = self.dilation;
-
-        // Get input shape
-        let input_shape = input.shape();
-        let batch = input_shape[0];
-        let d = input_shape[2];
-        let h = input_shape[3];
-        let w = input_shape[4];
-
-        // Calculate output size
-        let d_out = (d + 2 * pd - dd * (kd - 1) - 1) / sd + 1;
-        let h_out = (h + 2 * ph - dh * (kh - 1) - 1) / sh + 1;
-        let w_out = (w + 2 * pw - dw * (kw - 1) - 1) / sw + 1;
-
-        // 1. Padding: D5 -> D5
-        let padded = input.pad(&[(0, 0), (0, 0), (pd, pd), (ph, ph), (pw, pw)]);
-
-        // 2. unfold_3d: D5 -> D8 [N, C_in, D_out, H_out, W_out, kD, kH, kW]
-        let unfolded: Tensor<D8, f32> = padded.unfold_3d((kd, kh, kw), (sd, sh, sw), (dd, dh, dw));
-
-        // 3. permute: [N, C_in, D_out, H_out, W_out, kD, kH, kW] -> [N, D_out, H_out, W_out, C_in, kD, kH, kW]
-        let permuted: Tensor<D8, f32> = unfolded.permute(&[0, 2, 3, 4, 1, 5, 6, 7]);
-
-        // 4. contiguous + reshape: D8 -> D3 [N, D_out*H_out*W_out, C_in*kD*kH*kW]
-        let cols: Tensor<D3, f32> = permuted.contiguous().reshape([
-            batch,
-            d_out * h_out * w_out,
-            self.in_channels * kd * kh * kw,
-        ]);
-
-        // 5. Get weight and reshape: [C_out, C_in, kD, kH, kW] -> [C_out, C_in*kD*kH*kW]
-        let weight = self.weight.tensor();
-        let weight_flat: Tensor<D2, f32> =
-            weight.reshape([self.out_channels, self.in_channels * kd * kh * kw]);
-
-        // 6. Matrix multiplication using broadcast multiply + sum
-        // cols: [N, D_out*H_out*W_out, C_in*kD*kH*kW] -> [N, D_out*H_out*W_out, 1, C_in*kD*kH*kW]
-        // weight: [C_out, C_in*kD*kH*kW] -> [1, 1, C_out, C_in*kD*kH*kW]
-        let cols_expanded: Tensor<D4, f32> = cols.unsqueeze(2);
-        let weight_expanded: Tensor<D4, f32> = weight_flat.unsqueeze(0).unsqueeze(0);
-
-        // broadcast multiply: [N, D_out*H_out*W_out, C_out, C_in*kD*kH*kW]
-        let product: Tensor<D4, f32> = &cols_expanded * &weight_expanded;
-
-        // sum over last axis: [N, D_out*H_out*W_out, C_out]
-        let result: Tensor<D3, f32> = product.sum(3);
-
-        // 7. reshape + permute: [N, D_out*H_out*W_out, C_out] -> [N, D_out, H_out, W_out, C_out] -> [N, C_out, D_out, H_out, W_out]
-        let reshaped: Tensor<D5, f32> =
-            result.reshape([batch, d_out, h_out, w_out, self.out_channels]);
-        let output: Tensor<D5, f32> = reshaped.permute(&[0, 4, 1, 2, 3]);
-
-        // 8. Add bias if present
-        match &self.bias {
-            Some(bias) => {
-                let bias_tensor = bias.tensor();
-                // bias: [C_out] -> [1, C_out, 1, 1, 1]
-                let bias_expanded: Tensor<D5, f32> = bias_tensor
-                    .unsqueeze(0)
-                    .unsqueeze(2)
-                    .unsqueeze(3)
-                    .unsqueeze(4);
-                &output + &bias_expanded
-            }
-            None => output,
-        }
+        let bias = self.bias.as_ref().map(|b| b.tensor());
+        functional::conv3d(
+            input,
+            &self.weight.tensor(),
+            bias.as_deref(),
+            self.stride,
+            self.padding,
+            self.dilation,
+        )
     }
 
     /// Get the number of input channels.
@@ -984,76 +820,16 @@ impl ConvTranspose2d {
     /// # Returns
     /// Output tensor of shape [N, C_out, H_out, W_out]
     pub fn forward_d4(&self, input: &Tensor<D4, f32>) -> Tensor<D4, f32> {
-        let (kh, kw) = self.kernel_size;
-        let (sh, sw) = self.stride;
-        let (ph, pw) = self.padding;
-        let (oph, opw) = self.output_padding;
-        let (dh, dw) = self.dilation;
-
-        // Get input shape
-        let input_shape = input.shape();
-        let batch = input_shape[0];
-        let h_in = input_shape[2];
-        let w_in = input_shape[3];
-
-        // Calculate output spatial dimensions
-        let h_out = (h_in - 1) * sh + dh * (kh - 1) + 1 + oph - 2 * ph;
-        let w_out = (w_in - 1) * sw + dw * (kw - 1) + 1 + opw - 2 * pw;
-
-        // 1. Reshape input: [N, C_in, H, W] -> [N, H*W, C_in]
-        let input_reshaped: Tensor<D3, f32> =
-            input.permute(&[0, 2, 3, 1]).contiguous().reshape([batch, h_in * w_in, self.in_channels]);
-
-        // 2. Get weight and reshape: [C_in, C_out, kH, kW] -> [C_in, C_out*kH*kW]
-        let weight = self.weight.tensor();
-        let weight_flat: Tensor<D2, f32> =
-            weight.reshape([self.in_channels, self.out_channels * kh * kw]);
-
-        // 3. Matrix multiplication: [N, H*W, C_in] x [C_in, C_out*kH*kW] -> [N, H*W, C_out*kH*kW]
-        // Using broadcast multiply + sum
-        // input: [N, H*W, C_in] -> [N, H*W, C_in, 1]
-        // weight: [C_in, C_out*kH*kW] -> [1, 1, C_in, C_out*kH*kW]
-        let input_expanded: Tensor<D4, f32> = input_reshaped.unsqueeze(3);
-        let weight_expanded: Tensor<D4, f32> = weight_flat.unsqueeze(0).unsqueeze(0);
-
-        // broadcast multiply: [N, H*W, C_in, C_out*kH*kW]
-        let product: Tensor<D4, f32> = &input_expanded * &weight_expanded;
-
-        // sum over C_in axis: [N, H*W, C_out*kH*kW]
-        let cols: Tensor<D3, f32> = product.sum(2);
-
-        // 4. Reshape: [N, H*W, C_out*kH*kW] -> [N, H, W, C_out, kH, kW]
-        let cols_reshaped: Tensor<D6, f32> =
-            cols.reshape([batch, h_in, w_in, self.out_channels, kh, kw]);
-
-        // 5. Permute: [N, H, W, C_out, kH, kW] -> [N, C_out, H, W, kH, kW]
-        let cols_permuted: Tensor<D6, f32> = cols_reshaped.permute(&[0, 3, 1, 2, 4, 5]);
-
-        // 6. Use fold to scatter-add back to output shape
-        // fold expects input [N, C_out, H, W, kH, kW] -> output [N, C_out, H_out, W_out]
-        let output_shape = &[batch, self.out_channels, h_out, w_out];
-        let folded = cols_permuted.contiguous().into_dyn().fold(
-            output_shape,
-            &[2, 3],        // axes that were unfolded
-            &[kh, kw],      // kernel sizes
-            &[sh, sw],      // strides
-            &[dh, dw],      // dilations
-        );
-
-        // 7. Reshape to D4 (fold returns Dyn)
-        let output: Tensor<D4, f32> = folded.reshape([batch, self.out_channels, h_out, w_out]);
-
-        // 8. Add bias if present
-        match &self.bias {
-            Some(bias) => {
-                let bias_tensor = bias.tensor();
-                // bias: [C_out] -> [1, C_out, 1, 1]
-                let bias_expanded: Tensor<D4, f32> =
-                    bias_tensor.unsqueeze(0).unsqueeze(2).unsqueeze(3);
-                &output + &bias_expanded
-            }
-            None => output,
-        }
+        let bias = self.bias.as_ref().map(|b| b.tensor());
+        functional::conv_transpose2d(
+            input,
+            &self.weight.tensor(),
+            bias.as_deref(),
+            self.stride,
+            self.padding,
+            self.output_padding,
+            self.dilation,
+        )
     }
 
     /// Get the number of input channels.
@@ -1276,71 +1052,16 @@ impl ConvTranspose1d {
     /// # Returns
     /// Output tensor of shape [N, C_out, L_out]
     pub fn forward_d3(&self, input: &Tensor<D3, f32>) -> Tensor<D3, f32> {
-        let k = self.kernel_size;
-        let s = self.stride;
-        let p = self.padding;
-        let op = self.output_padding;
-        let d = self.dilation;
-
-        // Get input shape
-        let input_shape = input.shape();
-        let batch = input_shape[0];
-        let l_in = input_shape[2];
-
-        // Calculate output length
-        let l_out = (l_in - 1) * s + d * (k - 1) + 1 + op - 2 * p;
-
-        // 1. Reshape input: [N, C_in, L] -> [N, L, C_in]
-        let input_reshaped: Tensor<D3, f32> =
-            input.permute(&[0, 2, 1]);
-
-        // 2. Get weight and reshape: [C_in, C_out, K] -> [C_in, C_out*K]
-        let weight = self.weight.tensor();
-        let weight_flat: Tensor<D2, f32> =
-            weight.reshape([self.in_channels, self.out_channels * k]);
-
-        // 3. Matrix multiplication using broadcast multiply + sum
-        // input: [N, L, C_in] -> [N, L, C_in, 1]
-        // weight: [C_in, C_out*K] -> [1, 1, C_in, C_out*K]
-        let input_expanded: Tensor<D4, f32> = input_reshaped.unsqueeze(3);
-        let weight_expanded: Tensor<D4, f32> = weight_flat.unsqueeze(0).unsqueeze(0);
-
-        // broadcast multiply: [N, L, C_in, C_out*K]
-        let product: Tensor<D4, f32> = &input_expanded * &weight_expanded;
-
-        // sum over C_in axis: [N, L, C_out*K]
-        let cols: Tensor<D3, f32> = product.sum(2);
-
-        // 4. Reshape: [N, L, C_out*K] -> [N, L, C_out, K]
-        let cols_reshaped: Tensor<D4, f32> =
-            cols.reshape([batch, l_in, self.out_channels, k]);
-
-        // 5. Permute: [N, L, C_out, K] -> [N, C_out, L, K]
-        let cols_permuted: Tensor<D4, f32> = cols_reshaped.permute(&[0, 2, 1, 3]);
-
-        // 6. Use fold to scatter-add back to output shape
-        let output_shape = &[batch, self.out_channels, l_out];
-        let folded = cols_permuted.contiguous().into_dyn().fold(
-            output_shape,
-            &[2],       // axis that was unfolded
-            &[k],       // kernel size
-            &[s],       // stride
-            &[d],       // dilation
-        );
-
-        // 7. Reshape to D3
-        let output: Tensor<D3, f32> = folded.reshape([batch, self.out_channels, l_out]);
-
-        // 8. Add bias if present
-        match &self.bias {
-            Some(bias) => {
-                let bias_tensor = bias.tensor();
-                // bias: [C_out] -> [1, C_out, 1]
-                let bias_expanded: Tensor<D3, f32> = bias_tensor.unsqueeze(0).unsqueeze(2);
-                &output + &bias_expanded
-            }
-            None => output,
-        }
+        let bias = self.bias.as_ref().map(|b| b.tensor());
+        functional::conv_transpose1d(
+            input,
+            &self.weight.tensor(),
+            bias.as_deref(),
+            self.stride,
+            self.padding,
+            self.output_padding,
+            self.dilation,
+        )
     }
 
     /// Get the number of input channels.
@@ -1562,79 +1283,16 @@ impl ConvTranspose3d {
     /// # Returns
     /// Output tensor of shape [N, C_out, D_out, H_out, W_out]
     pub fn forward_d5(&self, input: &Tensor<D5, f32>) -> Tensor<D5, f32> {
-        let (kd, kh, kw) = self.kernel_size;
-        let (sd, sh, sw) = self.stride;
-        let (pd, ph, pw) = self.padding;
-        let (opd, oph, opw) = self.output_padding;
-        let (dd, dh, dw) = self.dilation;
-
-        // Get input shape
-        let input_shape = input.shape();
-        let batch = input_shape[0];
-        let d_in = input_shape[2];
-        let h_in = input_shape[3];
-        let w_in = input_shape[4];
-
-        // Calculate output size
-        let d_out = (d_in - 1) * sd + dd * (kd - 1) + 1 + opd - 2 * pd;
-        let h_out = (h_in - 1) * sh + dh * (kh - 1) + 1 + oph - 2 * ph;
-        let w_out = (w_in - 1) * sw + dw * (kw - 1) + 1 + opw - 2 * pw;
-
-        // 1. Reshape input: [N, C_in, D, H, W] -> [N, D*H*W, C_in]
-        let input_reshaped: Tensor<D3, f32> = input
-            .permute(&[0, 2, 3, 4, 1])
-            .contiguous()
-            .reshape([batch, d_in * h_in * w_in, self.in_channels]);
-
-        // 2. Get weight and reshape: [C_in, C_out, kD, kH, kW] -> [C_in, C_out*kD*kH*kW]
-        let weight = self.weight.tensor();
-        let weight_flat: Tensor<D2, f32> =
-            weight.reshape([self.in_channels, self.out_channels * kd * kh * kw]);
-
-        // 3. Matrix multiplication using broadcast multiply + sum
-        let input_expanded: Tensor<D4, f32> = input_reshaped.unsqueeze(3);
-        let weight_expanded: Tensor<D4, f32> = weight_flat.unsqueeze(0).unsqueeze(0);
-
-        // broadcast multiply: [N, D*H*W, C_in, C_out*kD*kH*kW]
-        let product: Tensor<D4, f32> = &input_expanded * &weight_expanded;
-
-        // sum over C_in axis: [N, D*H*W, C_out*kD*kH*kW]
-        let cols: Tensor<D3, f32> = product.sum(2);
-
-        // 4. Reshape: [N, D*H*W, C_out*kD*kH*kW] -> [N, D, H, W, C_out, kD, kH, kW]
-        let cols_reshaped: Tensor<D8, f32> =
-            cols.reshape([batch, d_in, h_in, w_in, self.out_channels, kd, kh, kw]);
-
-        // 5. Permute: [N, D, H, W, C_out, kD, kH, kW] -> [N, C_out, D, H, W, kD, kH, kW]
-        let cols_permuted: Tensor<D8, f32> = cols_reshaped.permute(&[0, 4, 1, 2, 3, 5, 6, 7]);
-
-        // 6. Use fold to scatter-add back to output shape
-        let output_shape = &[batch, self.out_channels, d_out, h_out, w_out];
-        let folded = cols_permuted.contiguous().into_dyn().fold(
-            output_shape,
-            &[2, 3, 4],           // axes that were unfolded
-            &[kd, kh, kw],        // kernel sizes
-            &[sd, sh, sw],        // strides
-            &[dd, dh, dw],        // dilations
-        );
-
-        // 7. Reshape to D5
-        let output: Tensor<D5, f32> = folded.reshape([batch, self.out_channels, d_out, h_out, w_out]);
-
-        // 8. Add bias if present
-        match &self.bias {
-            Some(bias) => {
-                let bias_tensor = bias.tensor();
-                // bias: [C_out] -> [1, C_out, 1, 1, 1]
-                let bias_expanded: Tensor<D5, f32> = bias_tensor
-                    .unsqueeze(0)
-                    .unsqueeze(2)
-                    .unsqueeze(3)
-                    .unsqueeze(4);
-                &output + &bias_expanded
-            }
-            None => output,
-        }
+        let bias = self.bias.as_ref().map(|b| b.tensor());
+        functional::conv_transpose3d(
+            input,
+            &self.weight.tensor(),
+            bias.as_deref(),
+            self.stride,
+            self.padding,
+            self.output_padding,
+            self.dilation,
+        )
     }
 
     /// Get the number of input channels.
