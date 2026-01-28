@@ -11,6 +11,7 @@ pub mod reduction_tiling;
 pub mod rule_based;
 pub mod variable_expansion;
 pub mod vectorization;
+pub mod wmma;
 
 use crate::ast::AstNode;
 use std::collections::HashSet;
@@ -28,6 +29,7 @@ pub use reduction_tiling::ReductionTilingSuggester;
 pub use rule_based::RuleBaseSuggester;
 pub use variable_expansion::VariableExpansionSuggester;
 pub use vectorization::VectorizationSuggester;
+pub use wmma::WmmaSuggester;
 
 /// 重複を排除しながら候補リストを作成するヘルパー関数
 ///

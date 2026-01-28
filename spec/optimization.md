@@ -214,3 +214,54 @@ cost = operation_count + memory_weight * memory_accesses
 - 代替候補とその説明
 
 可視化ツール(`eclat-viz`)で探索過程を確認可能。
+
+### WmmaSuggester
+
+WMMA (Tensor Core) を使用した行列積最適化。3重ループの行列積パターンを検出し、`WmmaMatmul`ノードに変換する。
+
+**検出パターン**:
+```c
+// Lowererが生成する3重ループ構造
+for (ridx0 = 0; ridx0 < M; ridx0++) {        // M次元
+    for (ridx2 = 0; ridx2 < N; ridx2++) {    // N次元
+        acc = 0.0;
+        for (ridx1 = 0; ridx1 < K; ridx1++) { // K次元 (reduce)
+            acc += A[ridx0 * K + ridx1] * B[ridx1 * N + ridx2];
+        }
+        C[ridx0 * N + ridx2] = acc;
+    }
+}
+```
+
+**適用条件**:
+- データ型: F16
+- M, K, N が16の倍数
+- Row-majorレイアウト、線形インデックス式
+
+**変換後**:
+```rust
+AstNode::WmmaMatmul {
+    a_ptr, a_offset, a_stride,  // 行列A
+    b_ptr, b_offset, b_stride,  // 行列B
+    c_ptr, c_offset, c_stride,  // 行列C (出力)
+    m, k, n,                    // 次元サイズ
+    dtype_ab: F16,              // 入力型
+    dtype_c: F32,               // 累積型
+}
+```
+
+**生成CUDAコード** (`CudaRenderer`):
+```cuda
+wmma::fragment<wmma::matrix_a, 16, 16, 16, __half> a_frag;
+wmma::fragment<wmma::matrix_b, 16, 16, 16, __half> b_frag;
+wmma::fragment<wmma::accumulator, 16, 16, 16, float> c_frag;
+
+for (int kk = 0; kk < K; kk += 16) {
+    wmma::load_matrix_sync(a_frag, &A[...], lda);
+    wmma::load_matrix_sync(b_frag, &B[...], ldb);
+    wmma::mma_sync(c_frag, a_frag, b_frag, c_frag);
+}
+wmma::store_matrix_sync(&C[...], c_frag, ldc, wmma::mem_row_major);
+```
+
+**対応GPU**: Volta以降 (Compute Capability 7.0+)
