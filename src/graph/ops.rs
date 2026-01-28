@@ -6,6 +6,7 @@ use crate::ast::{AstNode, DType};
 
 use super::Expr;
 use super::node::{GraphNode, GraphOp};
+use super::shape::View;
 
 // ============================================================================
 // Binary Operation Helper
@@ -79,9 +80,13 @@ where
 
     let combined = combine(lhs_ref, rhs_ref);
 
+    // Result is a new tensor with contiguous layout
+    // (the broadcast view only affects how inputs are read, not the output)
+    let result_view = View::contiguous(lhs_bc.shape());
+
     GraphNode::new(
         vec![lhs_bc.clone(), rhs_bc.clone()],
-        lhs_bc.view().clone(),
+        result_view,
         GraphOp::MapReduce {
             map: combined,
             reduce: None,

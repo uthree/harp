@@ -419,27 +419,53 @@ fn compute_view_vjp(
 ) -> VjpResult {
     use crate::graph::shape::View;
 
-    let grad_input = match view {
-        // For reshape: reshape grad_output back to original shape
-        View::Linear { .. } => {
-            let orig_shape = inputs[0].shape();
-            let node_shape = node.shape();
+    let orig_shape = inputs[0].shape();
+    let node_shape = node.shape();
 
-            if orig_shape != node_shape {
-                // This is a reshape or similar
-                grad_output.reshape(orig_shape)
+    // Detect the type of view transformation by comparing shapes
+    let grad_input = if orig_shape == node_shape {
+        // Identity view
+        grad_output.clone()
+    } else if orig_shape.len() > node_shape.len() {
+        // Squeeze: input has more dimensions than output
+        // Inverse: unsqueeze the grad_output
+        // Find which axes were squeezed (size was 1)
+        let mut result = grad_output.clone();
+        let mut out_idx = 0;
+        for (in_idx, dim) in orig_shape.iter().enumerate() {
+            if out_idx >= node_shape.len() || *dim != node_shape[out_idx] {
+                // This dimension was squeezed (must be size 1)
+                result = result.unsqueeze(in_idx);
             } else {
-                // Identity view
-                grad_output.clone()
+                out_idx += 1;
             }
         }
-
-        // For indexed views, need to invert the indexing
-        // Note: Views with bounds (masks) are also IndexExpr now
-        View::IndexExpr { .. } => {
-            // This is complex - for now, try to infer the inverse
-            let orig_shape = inputs[0].shape();
-            grad_output.reshape(orig_shape)
+        result
+    } else if orig_shape.len() < node_shape.len() {
+        // Unsqueeze: input has fewer dimensions than output
+        // Inverse: squeeze the grad_output
+        let mut result = grad_output.clone();
+        // Find which axes were unsqueezed and squeeze them (in reverse order)
+        let mut axes_to_squeeze = Vec::new();
+        let mut in_idx = 0;
+        for (out_idx, dim) in node_shape.iter().enumerate() {
+            if in_idx >= orig_shape.len() || *dim != orig_shape[in_idx] {
+                // This dimension was unsqueezed
+                axes_to_squeeze.push(out_idx);
+            } else {
+                in_idx += 1;
+            }
+        }
+        // Squeeze in reverse order to maintain axis indices
+        for axis in axes_to_squeeze.into_iter().rev() {
+            result = result.squeeze(axis);
+        }
+        result
+    } else {
+        // Same ndim but different shape: could be reshape or permute
+        match view {
+            View::Linear { .. } => grad_output.reshape(orig_shape),
+            View::IndexExpr { .. } => grad_output.reshape(orig_shape),
         }
     };
 

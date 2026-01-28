@@ -2458,6 +2458,73 @@ mod tests {
     }
 
     #[test]
+    fn test_scalar_broadcast_to_index_expr() {
+        // Test that a scalar broadcast view converts correctly to IndexExpr
+        // This is the key operation for broadcast semantics
+
+        // unsqueeze: [] -> [1] with stride 0
+        let scalar = View::contiguous(Vec::<i64>::new());
+        let unsqueezed = scalar.unsqueeze(0); // [] -> [1]
+
+        // Check unsqueezed is Linear with stride 0
+        if let View::Linear { shape, strides, .. } = &unsqueezed {
+            assert_eq!(shape, &vec![Expr::from(1)]);
+            assert_eq!(
+                strides,
+                &vec![Expr::from(0)],
+                "stride should be 0 for broadcast"
+            );
+        } else {
+            panic!("Expected Linear view");
+        }
+
+        // Convert to IndexExpr
+        let idx_expr = unsqueezed.to_index_expr();
+        if let View::IndexExpr { shape, index_expr, .. } = &idx_expr {
+            assert_eq!(shape, &vec![Expr::from(1)]);
+            // index_expr should be Const(0), not Idx(0)
+            assert_eq!(
+                *index_expr,
+                Expr::Const(0),
+                "index_expr should be Const(0) for broadcast, got {:?}",
+                index_expr
+            );
+        } else {
+            panic!("Expected IndexExpr view");
+        }
+    }
+
+    #[test]
+    fn test_scalar_broadcast_compose() {
+        // Test compose for scalar broadcast
+        // This simulates: scalar.unsqueeze(0).expand(0, 4)
+
+        // inner: the original scalar view
+        let inner = View::contiguous(Vec::<i64>::new());
+
+        // outer: unsqueeze result -> Linear { shape: [1], strides: [0] }
+        let outer = View::Linear {
+            shape: vec![Expr::from(1)],
+            strides: vec![Expr::from(0)],
+            offset: Expr::from(0),
+            bounds: ViewBounds::none(),
+        };
+
+        // Compose: the result should have index_expr = Const(0)
+        let composed = View::compose(&outer, &inner);
+        if let View::IndexExpr { index_expr, .. } = &composed {
+            assert_eq!(
+                *index_expr,
+                Expr::Const(0),
+                "composed index_expr should be Const(0), got {:?}",
+                index_expr
+            );
+        } else {
+            panic!("Expected IndexExpr view, got {:?}", composed);
+        }
+    }
+
+    #[test]
     fn test_masked_unfold_2d() {
         use super::PadValue;
 
