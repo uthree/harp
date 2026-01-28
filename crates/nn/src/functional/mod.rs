@@ -24,6 +24,7 @@ mod activation;
 mod attention;
 mod conv;
 mod linear;
+mod pool;
 
 pub use activation::{
     elu, gelu, leaky_relu, log_softmax, prelu, relu, sigmoid, silu, softmax, tanh,
@@ -31,3 +32,7 @@ pub use activation::{
 pub use attention::scaled_dot_product_attention;
 pub use conv::{conv_transpose1d, conv_transpose2d, conv_transpose3d, conv1d, conv2d, conv3d};
 pub use linear::linear;
+pub use pool::{
+    adaptive_avg_pool2d, adaptive_max_pool2d, avg_pool1d, avg_pool2d, avg_pool3d, max_pool1d,
+    max_pool2d, max_pool3d,
+};

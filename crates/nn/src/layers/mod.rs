@@ -33,6 +33,7 @@ mod conv;
 mod linear;
 mod module;
 mod parameter;
+mod pool;
 
 pub use activation::PReLU;
 pub use attention::MultiheadAttention;
@@ -40,3 +41,7 @@ pub use conv::{Conv1d, Conv2d, Conv3d, ConvTranspose1d, ConvTranspose2d, ConvTra
 pub use linear::Linear;
 pub use module::Module;
 pub use parameter::{Parameter, ParameterBase, ParameterError};
+pub use pool::{
+    AdaptiveAvgPool2d, AdaptiveMaxPool2d, AvgPool1d, AvgPool2d, AvgPool3d, MaxPool1d, MaxPool2d,
+    MaxPool3d,
+};
