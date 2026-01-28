@@ -142,6 +142,36 @@ impl Linear {
 - `SGD`: モメンタム付き確率的勾配降下法
 - `Adam`: 適応的モーメント推定
 
+## パラメータと勾配計算
+
+### GradientParam トレイト
+
+`eclat::tensor::GradientParam` トレイトは、勾配計算に必要なインターフェースを定義します。
+
+```rust
+pub trait GradientParam {
+    fn graph_node(&self) -> GraphNode;
+    fn store_gradient(&self, grad_graph: GraphNode);
+}
+```
+
+`ParameterBase` トレイトは `GradientParam` を継承しており、すべての `Parameter<D>` はこのトレイトを実装しています。
+
+### 逆伝播の呼び出し方
+
+異なる次元を持つパラメータ（例：Conv2dの重み[D4]とバイアス[D1]）を一括で処理するには、`backward_with_dyn_params` を使用します。
+
+```rust
+// パラメータを収集
+let params = model.parameters();
+
+// 逆伝播
+loss.backward_with_dyn_params(&params)?;
+
+// 勾配はパラメータ内に保存される
+// optimizer.step() で更新
+```
+
 ## 使用例
 
 ### MNIST CNN の学習
@@ -170,8 +200,9 @@ let logits = fc2.forward(&x);
 // 損失計算
 let loss = cross_entropy_loss(&logits, &targets, 10);
 
-// 逆伝播
-loss.backward()?;
+// 逆伝播（パラメータを明示的に渡す）
+let params = model.parameters();
+loss.backward_with_dyn_params(&params)?;
 
 // パラメータ更新
 optimizer.step()?;

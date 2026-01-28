@@ -40,4 +40,4 @@ pub use dim::{D0, D1, D2, D3, D4, D5, D6, D7, D8, DimEq, Dimension, Dyn};
 pub use tensor::Tensor;
 
 // Re-export autograd types
-pub use autograd::BackwardError;
+pub use autograd::{BackwardError, GradientParam};

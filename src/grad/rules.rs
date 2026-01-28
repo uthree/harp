@@ -98,10 +98,16 @@ fn compute_elementwise_vjp(
 
         // mul(a, b): grad_a = grad_out * b, grad_b = grad_out * a
         MapCategory::Mul => {
-            vec![
-                Some(grad_output * &inputs[1]),
-                Some(grad_output * &inputs[0]),
-            ]
+            if inputs.len() < 2 {
+                // This is a scalar multiplication embedded in the map (e.g., x * constant)
+                // Just pass through the gradient to the single input
+                vec![Some(grad_output.clone())]
+            } else {
+                vec![
+                    Some(grad_output * &inputs[1]),
+                    Some(grad_output * &inputs[0]),
+                ]
+            }
         }
 
         // neg(a): grad_a = -grad_out
@@ -462,10 +468,29 @@ fn compute_view_vjp(
         }
         result
     } else {
-        // Same ndim but different shape: could be reshape or permute
-        match view {
-            View::Linear { .. } => grad_output.reshape(orig_shape),
-            View::IndexExpr { .. } => grad_output.reshape(orig_shape),
+        // Same ndim but different shape: could be reshape, permute, or expand
+        // Check if this is an expand operation (broadcasting from size 1 to larger size)
+        let mut result = grad_output.clone();
+        let mut is_expand = false;
+
+        for (i, (orig_dim, node_dim)) in orig_shape.iter().zip(node_shape.iter()).enumerate() {
+            // If original dimension was 1 and output dimension is larger, this is expand
+            if *orig_dim == 1.into() && *node_dim != 1.into() {
+                is_expand = true;
+                // Sum along this axis to reverse the expand
+                // But keep the dimension for further processing
+                result = result.sum(i);
+            }
+        }
+
+        if is_expand {
+            result
+        } else {
+            // True reshape or permute: just reshape
+            match view {
+                View::Linear { .. } => grad_output.reshape(orig_shape),
+                View::IndexExpr { .. } => grad_output.reshape(orig_shape),
+            }
         }
     };
 
@@ -506,6 +531,11 @@ fn categorize_map(map: &AstNode) -> MapCategory {
     // Check for negation first (Mul with -1 constant)
     if is_negation(map) {
         return MapCategory::Neg;
+    }
+
+    // Check for log (Mul with log2 and constant) before generic Mul
+    if is_log(map) {
+        return MapCategory::Log;
     }
 
     match map {
@@ -563,9 +593,29 @@ fn is_exp(map: &AstNode) -> bool {
 }
 
 /// Check if map represents natural log.
-fn is_log(_map: &AstNode) -> bool {
-    // ln is typically: log2(x) * ln(2) or log2(x) / log2(e)
-    false // Simplified - actual detection would check for log2 patterns
+fn is_log(map: &AstNode) -> bool {
+    // ln is: log2(x) * (1/log2(e)) = log2(x) / log2(e)
+    // Pattern: Mul(Log2(Wildcard), Recip(Const)) or Mul(Log2(Wildcard), Const)
+    match map {
+        AstNode::Mul(a, b) => {
+            let a_is_log2 = matches!(a.as_ref(), AstNode::Log2(_));
+            let b_is_const = is_constant_expr(b.as_ref());
+            a_is_log2 && b_is_const
+        }
+        _ => false,
+    }
+}
+
+/// Check if an AstNode is a constant expression (no wildcards).
+fn is_constant_expr(node: &AstNode) -> bool {
+    match node {
+        AstNode::Const(_) => true,
+        AstNode::Recip(inner) => is_constant_expr(inner.as_ref()),
+        AstNode::Mul(a, b) | AstNode::Add(a, b) => {
+            is_constant_expr(a.as_ref()) && is_constant_expr(b.as_ref())
+        }
+        _ => false,
+    }
 }
 
 /// Check if map represents cosine.

@@ -448,14 +448,22 @@ impl Lowerer {
         let ctx = self.prepare_kernel_context(node, output_buf, KernelOpType::Copy, None);
 
         let shape = node.shape();
-        let output_idx = self.index_gen().view_to_index(node.view());
+        // Use contiguous view for output - node.view() may contain padding offsets
+        // which are only relevant for indexing into the source, not the output
+        let output_view = View::contiguous(shape.clone());
+        let output_idx = self.index_gen().view_to_index(&output_view);
 
-        // Resolve View chain to get actual source and composed view
+        // Resolve the view chain from the direct source to get:
+        // - actual_src: the buffer we'll read from (matches collect_input_buffers)
+        // - inner_view: the view chain from actual_src to src
         let src = &node.sources()[0];
-        let (actual_src, view_for_indexing) = self.resolve_view_chain(src);
-
+        let (actual_src, inner_view) = self.resolve_view_chain(src);
         let src_buf = self.get_buffer_name(&actual_src);
-        let src_idx = self.index_gen().view_to_index(&view_for_indexing);
+
+        // Compose node.view() (output->src) with inner_view (src->actual_src)
+        // to get the full transformation from output positions to actual_src positions
+        let composed_view = View::compose(node.view(), &inner_view);
+        let src_idx = self.index_gen().view_to_index(&composed_view);
 
         // Load from source
         let load = AstNode::Load {
@@ -466,9 +474,9 @@ impl Lowerer {
         };
 
         // Handle bounds (for padded views)
-        let load_expr = if let Some(default_value) = view_for_indexing.default_value() {
+        let load_expr = if let Some(default_value) = composed_view.default_value() {
             // View has bounds - wrap load in conditional
-            let condition = view_for_indexing.condition().unwrap();
+            let condition = composed_view.condition().unwrap();
             let cond_ast: AstNode = condition.clone().into();
             let default_ast = AstNode::Const(crate::ast::Literal::F32(default_value.as_f32()));
             AstNode::Select {

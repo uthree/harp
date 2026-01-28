@@ -31,7 +31,7 @@ impl LoopTilingSuggester {
     /// 新しいLoopTilingSuggesterを作成（両パターン生成）
     pub fn new() -> Self {
         Self {
-            tile_sizes: vec![2, 3, 4, 5, 7, 8, 16, 32, 64],
+            tile_sizes: vec![2, 3, 5, 7],
             generate_guard_pattern: true,
             tile_innermost_only: false,
         }

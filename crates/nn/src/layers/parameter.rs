@@ -3,8 +3,10 @@
 //! `Parameter` wraps a tensor and automatically enables gradient tracking.
 //! It is designed for use with the `Module` trait and optimizers.
 
+use eclat::graph::GraphNode;
 use eclat::tensor::Tensor;
 use eclat::tensor::dim::{Dimension, Dyn};
+use eclat::tensor::GradientParam;
 use std::cell::{Ref, RefCell};
 use std::marker::PhantomData;
 use std::rc::Rc;
@@ -13,7 +15,9 @@ use std::rc::Rc;
 ///
 /// This trait allows optimizers to work with parameters of any dimension
 /// through dynamic dispatch.
-pub trait ParameterBase {
+///
+/// Extends `GradientParam` to enable backward pass gradient computation.
+pub trait ParameterBase: GradientParam {
     /// Get the parameter name.
     fn name(&self) -> &str;
 
@@ -263,6 +267,19 @@ impl<D: Dimension> Parameter<D> {
     pub fn has_data(&self) -> bool {
         self.inner.tensor.borrow().is_realized() || self.inner.initial_data.borrow().is_some()
     }
+
+    /// Get a clone of the underlying GraphNode.
+    pub fn graph_node(&self) -> GraphNode {
+        self.inner.tensor.borrow().graph().clone()
+    }
+
+    /// Store the gradient from a computed GraphNode.
+    ///
+    /// This converts the GraphNode to a Tensor and stores it as the gradient.
+    pub fn store_gradient(&self, grad_graph: GraphNode) {
+        let grad_tensor: Tensor<D, f32> = Tensor::from_graph(grad_graph);
+        self.inner.tensor.borrow().set_grad(grad_tensor);
+    }
 }
 
 /// Implement ParameterBase for all Parameter<D> types
@@ -293,6 +310,17 @@ impl<D: Dimension> ParameterBase for Parameter<D> {
 
     fn to_vec(&self) -> Result<Vec<f32>, ParameterError> {
         Parameter::to_vec(self)
+    }
+}
+
+/// Implement GradientParam for all Parameter<D> types to enable backward pass.
+impl<D: Dimension> GradientParam for Parameter<D> {
+    fn graph_node(&self) -> GraphNode {
+        Parameter::graph_node(self)
+    }
+
+    fn store_gradient(&self, grad_graph: GraphNode) {
+        Parameter::store_gradient(self, grad_graph)
     }
 }
 

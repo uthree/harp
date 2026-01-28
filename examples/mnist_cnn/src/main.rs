@@ -204,13 +204,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Create model and optimizer
     // ========================================================================
     let model = MnistCNN::new();
+    let params = model.parameters();
 
     println!(
         "  Model parameters: {}\n",
-        model.parameters().iter().map(|p| p.numel()).sum::<usize>()
+        params.iter().map(|p| p.numel()).sum::<usize>()
     );
 
-    // Get fresh parameters for optimizer
+    // Create optimizer with fresh copy of parameters
     let mut optimizer = Adam::new(model.parameters(), 0.001);
 
     // ========================================================================
@@ -292,7 +293,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 println!("  Batch 0: Backward pass...");
             }
             // Backward pass - compute gradients for all parameters
-            loss.backward()?;
+            loss.backward_with_dyn_params(&params)?;
 
             if batch_idx == 0 && epoch == 0 {
                 println!("  Batch 0: Optimizer step...");

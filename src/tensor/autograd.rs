@@ -33,6 +33,29 @@ use super::dim::{D0, Dimension};
 use super::tensor::Tensor;
 
 // ============================================================================
+// GradientParam Trait
+// ============================================================================
+
+/// A trait for parameters that can participate in gradient computation.
+///
+/// This trait provides the interface needed for the backward pass to work
+/// with parameters of any dimension type through dynamic dispatch.
+///
+/// This is typically implemented by neural network parameter types.
+pub trait GradientParam {
+    /// Get a clone of the underlying GraphNode.
+    ///
+    /// This is needed for the backward pass to identify which nodes
+    /// need gradient computation.
+    fn graph_node(&self) -> GraphNode;
+
+    /// Store the gradient from a computed GraphNode.
+    ///
+    /// This is called by the backward pass to store the computed gradient.
+    fn store_gradient(&self, grad_graph: GraphNode);
+}
+
+// ============================================================================
 // Gradient Tracking
 // ============================================================================
 
@@ -274,6 +297,53 @@ impl<T: TensorDType> Tensor<D0, T> {
             if let Some(grad_node) = grad_result.get(param.graph()) {
                 let grad_tensor: Tensor<D2, T> = Tensor::from_graph(grad_node);
                 param.set_grad(grad_tensor);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Compute gradients with dynamic parameter list.
+    ///
+    /// This method accepts parameters of any dimension through dynamic dispatch,
+    /// which is useful when working with neural network layers that have
+    /// parameters of different dimensions (e.g., weights and biases).
+    ///
+    /// # Arguments
+    ///
+    /// * `params` - List of parameters implementing `ParameterBase` trait.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let model = MyModel::new();
+    /// let logits = model.forward(&input);
+    /// let loss = cross_entropy_loss(&logits, &targets);
+    ///
+    /// // Compute gradients for all model parameters
+    /// loss.backward_with_dyn_params(&model.parameters())?;
+    /// ```
+    pub fn backward_with_dyn_params<P: GradientParam + ?Sized>(
+        &self,
+        params: &[Box<P>],
+    ) -> Result<(), BackwardError> {
+        if params.is_empty() {
+            return Err(BackwardError::NoParams(
+                "No parameters provided for backward pass.".to_string(),
+            ));
+        }
+
+        // Collect GraphNodes from params
+        let param_graphs: Vec<GraphNode> = params.iter().map(|p| p.graph_node()).collect();
+        let param_refs: Vec<&GraphNode> = param_graphs.iter().collect();
+
+        // Call existing backward implementation
+        let grad_result = compute_backward(&self.inner.graph, &param_refs);
+
+        // Store gradients back into parameters
+        for (param, param_graph) in params.iter().zip(param_graphs.iter()) {
+            if let Some(grad_node) = grad_result.get(param_graph) {
+                param.store_gradient(grad_node);
             }
         }
 
