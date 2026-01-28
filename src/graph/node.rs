@@ -363,6 +363,24 @@ impl GraphNode {
         )
     }
 
+    /// Slice along an axis, extracting elements from `start` with `length` elements
+    ///
+    /// # Example
+    /// ```ignore
+    /// let x = input(vec![Expr::Const(8), Expr::Const(10)], DType::F32);
+    /// let sliced = x.slice_axis(0, Expr::Const(2), Expr::Const(4));  // [8, 10] -> [4, 10]
+    /// ```
+    pub fn slice_axis(&self, axis: usize, start: Expr, length: Expr) -> Self {
+        let new_view = self.0.view.clone().slice_axis(axis, start, length);
+        GraphNode::new(
+            vec![self.clone()],
+            new_view,
+            GraphOp::View(self.0.view.clone()),
+            self.0.dtype.clone(),
+            None,
+        )
+    }
+
     /// Flip a dimension
     pub fn flip(&self, axis: usize) -> Self {
         let new_view = self.0.view.clone().flip(axis);

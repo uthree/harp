@@ -573,6 +573,63 @@ impl View {
         }
     }
 
+    /// Slice along an axis, extracting elements from `start` with `length` elements
+    ///
+    /// # Arguments
+    /// * `axis` - The axis to slice
+    /// * `start` - Starting index
+    /// * `length` - Number of elements to extract
+    ///
+    /// # Example
+    /// ```ignore
+    /// // [8, 10] with axis=0, start=2, length=4 -> [4, 10]
+    /// let sliced = view.slice_axis(0, 2.into(), 4.into());
+    /// ```
+    pub fn slice_axis(self, axis: usize, start: impl Into<Expr>, length: impl Into<Expr>) -> Self {
+        let start = start.into();
+        let length = length.into();
+        let shape_vec = self.shape();
+        assert!(axis < shape_vec.len(), "axis out of bounds for slice_axis");
+
+        match self {
+            View::Linear {
+                mut shape,
+                strides,
+                offset,
+                bounds,
+            } => {
+                // Update offset to skip `start` elements along the axis
+                // new_offset = offset + start * strides[axis]
+                let new_offset = (offset + start.clone() * strides[axis].clone()).simplify();
+                shape[axis] = length;
+
+                // Update bounds: Idx(axis) -> Idx(axis) + start
+                let shifted_idx = (Expr::Idx(axis) + start).simplify();
+                View::Linear {
+                    shape,
+                    strides,
+                    offset: new_offset,
+                    bounds: bounds.substitute_idx(axis, shifted_idx),
+                }
+            }
+            View::IndexExpr {
+                mut shape,
+                index_expr,
+                bounds,
+            } => {
+                // Idx(axis) -> Idx(axis) + start
+                let shifted_idx = (Expr::Idx(axis) + start.clone()).simplify();
+                let new_index_expr = index_expr.substitute_idx(axis, shifted_idx.clone());
+                shape[axis] = length;
+                View::IndexExpr {
+                    shape,
+                    index_expr: new_index_expr,
+                    bounds: bounds.substitute_idx(axis, shifted_idx),
+                }
+            }
+        }
+    }
+
     /// 指定した軸を繰り返す（サイズ1の軸のみ対応）
     ///
     /// # Arguments

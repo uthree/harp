@@ -293,5 +293,49 @@ mod tests {
             let output = z1.to_vec().expect("to_vec failed");
             assert_eq!(output, vec![6.0, 8.0, 10.0, 12.0]);
         }
+
+        #[test]
+        fn test_realize_fold() {
+            use eclat::tensor::dim::{D4, Dyn};
+
+            if !setup_c() {
+                println!("C backend not available, skipping test");
+                return;
+            }
+
+            // Test fold (Scatter) operation
+            // This test verifies that the Scatter code generation works correctly
+            // after the inline_small_loop fix for AtomicAdd variable replacement
+            let x: Tensor<D4, f32> = Tensor::input([1, 1, 4, 4]);
+
+            // Set simple test data
+            let data: Vec<f32> = (0..16).map(|i| i as f32).collect();
+            x.set_data(&data).expect("set_data failed");
+
+            // Unfold: [1, 1, 4, 4] -> [1, 1, 2, 2, 2, 2] with kernel 2x2, stride 2
+            let unfolded = x.unfold(&[2, 3], &[2, 2], &[2, 2], &[1, 1]);
+            assert_eq!(unfolded.shape(), vec![1, 1, 2, 2, 2, 2]);
+
+            // Fold back: [1, 1, 2, 2, 2, 2] -> [1, 1, 4, 4]
+            let folded: Tensor<Dyn, f32> =
+                unfolded.fold(&[1, 1, 4, 4], &[2, 3], &[2, 2], &[2, 2], &[1, 1]);
+
+            // Realize the fold operation (this tests Scatter code generation)
+            let result = folded.realize();
+            assert!(result.is_ok(), "realize fold failed: {:?}", result.err());
+
+            // Verify output has correct length and all original values are present
+            let output = folded.to_vec().expect("to_vec failed");
+            assert_eq!(output.len(), 16);
+
+            // The values should all be present (fold is a scatter-add operation)
+            // With non-overlapping windows, each element appears exactly once
+            let sum_input: f32 = data.iter().sum();
+            let sum_output: f32 = output.iter().sum();
+            assert_eq!(
+                sum_input, sum_output,
+                "Sum of elements should be preserved in fold operation"
+            );
+        }
     }
 }

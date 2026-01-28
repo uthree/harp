@@ -752,7 +752,78 @@ fn replace_var_in_ast(ast: &AstNode, var_name: &str, replacement: &AstNode) -> A
             b: Box::new(replace_var_in_ast(b, var_name, replacement)),
             c: Box::new(replace_var_in_ast(c, var_name, replacement)),
         },
-        // その他のノードは再帰的に処理
+        AstNode::AtomicAdd {
+            ptr,
+            offset,
+            value,
+            dtype,
+        } => AstNode::AtomicAdd {
+            ptr: Box::new(replace_var_in_ast(ptr, var_name, replacement)),
+            offset: Box::new(replace_var_in_ast(offset, var_name, replacement)),
+            value: Box::new(replace_var_in_ast(value, var_name, replacement)),
+            dtype: dtype.clone(),
+        },
+        AstNode::AtomicMax {
+            ptr,
+            offset,
+            value,
+            dtype,
+        } => AstNode::AtomicMax {
+            ptr: Box::new(replace_var_in_ast(ptr, var_name, replacement)),
+            offset: Box::new(replace_var_in_ast(offset, var_name, replacement)),
+            value: Box::new(replace_var_in_ast(value, var_name, replacement)),
+            dtype: dtype.clone(),
+        },
+        AstNode::Lt(a, b) => AstNode::Lt(
+            Box::new(replace_var_in_ast(a, var_name, replacement)),
+            Box::new(replace_var_in_ast(b, var_name, replacement)),
+        ),
+        AstNode::And(a, b) => AstNode::And(
+            Box::new(replace_var_in_ast(a, var_name, replacement)),
+            Box::new(replace_var_in_ast(b, var_name, replacement)),
+        ),
+        AstNode::Not(a) => AstNode::Not(Box::new(replace_var_in_ast(a, var_name, replacement))),
+        AstNode::Select {
+            cond,
+            then_val,
+            else_val,
+        } => AstNode::Select {
+            cond: Box::new(replace_var_in_ast(cond, var_name, replacement)),
+            then_val: Box::new(replace_var_in_ast(then_val, var_name, replacement)),
+            else_val: Box::new(replace_var_in_ast(else_val, var_name, replacement)),
+        },
+        AstNode::If {
+            condition,
+            then_body,
+            else_body,
+        } => AstNode::If {
+            condition: Box::new(replace_var_in_ast(condition, var_name, replacement)),
+            then_body: Box::new(replace_var_in_ast(then_body, var_name, replacement)),
+            else_body: else_body
+                .as_ref()
+                .map(|e| Box::new(replace_var_in_ast(e, var_name, replacement))),
+        },
+        AstNode::Call { name, args } => AstNode::Call {
+            name: name.clone(),
+            args: args
+                .iter()
+                .map(|a| replace_var_in_ast(a, var_name, replacement))
+                .collect(),
+        },
+        AstNode::Return { value } => AstNode::Return {
+            value: Box::new(replace_var_in_ast(value, var_name, replacement)),
+        },
+        AstNode::SharedLoad { ptr, offset, dtype } => AstNode::SharedLoad {
+            ptr: Box::new(replace_var_in_ast(ptr, var_name, replacement)),
+            offset: Box::new(replace_var_in_ast(offset, var_name, replacement)),
+            dtype: dtype.clone(),
+        },
+        AstNode::SharedStore { ptr, offset, value } => AstNode::SharedStore {
+            ptr: Box::new(replace_var_in_ast(ptr, var_name, replacement)),
+            offset: Box::new(replace_var_in_ast(offset, var_name, replacement)),
+            value: Box::new(replace_var_in_ast(value, var_name, replacement)),
+        },
+        // リーフノードや特殊ノードはそのまま返す
         _ => ast.clone(),
     }
 }

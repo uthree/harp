@@ -272,8 +272,10 @@ fn compute_reduce_vjp(
             } else {
                 node.clone()
             };
+
             // Expand max back to original shape for comparison
             let max_expanded = node_with_axis.expand(axis, axis_size.clone());
+
             // Create mask: 1 where input equals max, 0 elsewhere
             let mask = inputs[0].eq_node(&max_expanded);
             let mask_float = mask.cast(inputs[0].dtype().clone());
@@ -281,6 +283,7 @@ fn compute_reduce_vjp(
             // Simplified: just use mask without normalization
             // TODO: Proper normalization with sum_keepdim
             let grad_expanded = grad_with_axis.expand(axis, axis_size);
+
             vec![Some(&grad_expanded * &mask_float)]
         }
 
@@ -421,17 +424,105 @@ fn compute_view_vjp(
     node: &GraphNode,
     grad_output: &GraphNode,
     inputs: &[GraphNode],
-    view: &crate::graph::shape::View,
+    _view: &crate::graph::shape::View,
 ) -> VjpResult {
-    use crate::graph::shape::View;
+    use crate::graph::Expr;
 
     let orig_shape = inputs[0].shape();
     let node_shape = node.shape();
+
+    // Helper to compute the number of elements from a shape
+    fn numel(shape: &[Expr]) -> Option<i64> {
+        let mut result = 1i64;
+        for dim in shape {
+            match dim {
+                Expr::Const(n) => result *= *n,
+                _ => return None,
+            }
+        }
+        Some(result)
+    }
+
+    // Helper to check if a dimension is a single-element squeeze/unsqueeze
+    // by verifying the "squeezed" dimension has size 1
+    fn is_squeeze_or_unsqueeze(orig_shape: &[Expr], node_shape: &[Expr]) -> bool {
+        // Count how many dimensions differ
+        let (longer, shorter) = if orig_shape.len() > node_shape.len() {
+            (orig_shape, node_shape)
+        } else {
+            (node_shape, orig_shape)
+        };
+
+        // Check if longer shape has size-1 dimensions that, when removed, give shorter shape
+        let mut short_idx = 0;
+        for dim in longer.iter() {
+            if short_idx < shorter.len() && *dim == shorter[short_idx] {
+                short_idx += 1;
+            } else if *dim != 1.into() {
+                // Found a non-1 dimension that doesn't match - this is reshape, not squeeze
+                return false;
+            }
+        }
+        short_idx == shorter.len()
+    }
+
+    // Check if element counts match - if not, this is padding or slicing
+    let orig_numel = numel(&orig_shape);
+    let node_numel = numel(&node_shape);
 
     // Detect the type of view transformation by comparing shapes
     let grad_input = if orig_shape == node_shape {
         // Identity view
         grad_output.clone()
+    } else if orig_numel.is_some() && node_numel.is_some() && orig_numel != node_numel {
+        // Element counts differ - this is padding (node_numel > orig_numel) or slicing
+        // For padding VJP: slice out the original region from grad_output
+        // For slicing VJP: pad grad_output to original size
+        let orig_n = orig_numel.unwrap();
+        let node_n = node_numel.unwrap();
+
+        if node_n > orig_n && orig_shape.len() == node_shape.len() {
+            // This is padding: compute padding amounts and slice
+            // Padding amounts per dimension: (node_dim - orig_dim)
+            // For simplicity, assume symmetric padding: padding = (node_dim - orig_dim) / 2
+            let mut result = grad_output.clone();
+
+            // Create a view that slices out the original region
+            // We need to construct a slice that extracts the center region
+            // For each dimension where node_shape > orig_shape, we slice [pad:pad+orig]
+            for (axis, (orig_dim, node_dim)) in orig_shape.iter().zip(node_shape.iter()).enumerate() {
+                if let (Expr::Const(o), Expr::Const(n)) = (orig_dim, node_dim) {
+                    if n > o {
+                        let pad = (n - o) / 2;
+                        // Slice from pad to pad + orig_size
+                        // Use View transformation for slicing
+                        result = result.slice_axis(axis, Expr::Const(pad), orig_dim.clone());
+                    }
+                }
+            }
+            result
+        } else if node_n < orig_n && orig_shape.len() == node_shape.len() {
+            // This is slicing: pad grad_output back to original size
+            let mut padding = Vec::new();
+            for (orig_dim, node_dim) in orig_shape.iter().zip(node_shape.iter()) {
+                if let (Expr::Const(o), Expr::Const(n)) = (orig_dim, node_dim) {
+                    let diff = o - n;
+                    let pad_before = diff / 2;
+                    let pad_after = diff - pad_before;
+                    padding.push((pad_before as usize, pad_after as usize));
+                } else {
+                    padding.push((0, 0));
+                }
+            }
+            grad_output.pad(&padding, crate::graph::shape::PadValue::Zero)
+        } else {
+            // Complex case - fall back to reshape (may fail)
+            eprintln!("[WARN View VJP] Element count mismatch but different ndim - falling back to reshape");
+            grad_output.contiguous().reshape(orig_shape)
+        }
+    } else if orig_shape.len() != node_shape.len() && !is_squeeze_or_unsqueeze(&orig_shape, &node_shape) {
+        // Different ndim but not a simple squeeze/unsqueeze - this is reshape
+        grad_output.contiguous().reshape(orig_shape)
     } else if orig_shape.len() > node_shape.len() {
         // Squeeze: input has more dimensions than output
         // Inverse: unsqueeze the grad_output
@@ -486,11 +577,10 @@ fn compute_view_vjp(
         if is_expand {
             result
         } else {
-            // True reshape or permute: just reshape
-            match view {
-                View::Linear { .. } => grad_output.reshape(orig_shape),
-                View::IndexExpr { .. } => grad_output.reshape(orig_shape),
-            }
+            // True reshape or permute: make contiguous first if needed, then reshape
+            // This handles cases where grad_output is non-contiguous (e.g., from permute)
+            let contiguous_grad = grad_output.contiguous();
+            contiguous_grad.reshape(orig_shape)
         }
     };
 
