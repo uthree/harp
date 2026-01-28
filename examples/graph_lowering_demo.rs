@@ -136,7 +136,9 @@ fn demo_complex_graph() {
     println!();
 
     let mut lowerer = Lowerer::new();
-    let program = lowerer.lower(&[final_result]).expect("Lowering should succeed");
+    let program = lowerer
+        .lower(&[final_result])
+        .expect("Lowering should succeed");
 
     println!("Lowered AST:");
     print_program_structure(&program);
@@ -185,7 +187,9 @@ fn demo_view_transforms() {
     // Lower a transpose operation
     println!("Lowering transpose operation:");
     let mut lowerer = Lowerer::new();
-    let program = lowerer.lower(&[transposed]).expect("Lowering should succeed");
+    let program = lowerer
+        .lower(&[transposed])
+        .expect("Lowering should succeed");
     print_program_structure(&program);
     println!();
 }

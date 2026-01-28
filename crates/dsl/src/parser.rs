@@ -77,9 +77,7 @@ fn parse_graph_def(pair: Pair<Rule>) -> DslResult<GraphDef> {
 
 /// Parse shape variable list: <var1, var2, ...>
 fn parse_shape_var_list(pair: Pair<Rule>) -> Vec<String> {
-    pair.into_inner()
-        .map(|p| p.as_str().to_string())
-        .collect()
+    pair.into_inner().map(|p| p.as_str().to_string()).collect()
 }
 
 fn parse_param_list(pair: Pair<Rule>) -> DslResult<Vec<ParamDecl>> {

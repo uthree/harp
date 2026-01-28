@@ -501,11 +501,58 @@ pub trait CLikeRenderer {
             AstNode::Deallocate { ptr } => {
                 format!("{}free({});", self.indent(), self.render_expr(ptr))
             }
+            AstNode::WmmaMatmul {
+                a_ptr,
+                a_offset,
+                a_stride,
+                b_ptr,
+                b_offset,
+                b_stride,
+                c_ptr,
+                c_offset,
+                c_stride,
+                m,
+                k,
+                n,
+                dtype_ab,
+                dtype_c,
+            } => self.render_wmma_matmul(
+                a_ptr, a_offset, a_stride, b_ptr, b_offset, b_stride, c_ptr, c_offset, c_stride, m,
+                k, n, dtype_ab, dtype_c,
+            ),
             _ => {
                 // 式として評価できるものは文末にセミコロンを付ける
                 format!("{}{};", self.indent(), self.render_expr(node))
             }
         }
+    }
+
+    /// WMMA (Tensor Core) 行列積をレンダリング
+    ///
+    /// デフォルト実装はコメントを出力するだけ（WMMA非対応バックエンド用）。
+    /// CUDAバックエンドはこのメソッドをオーバーライドしてWMMA APIを出力する。
+    #[allow(clippy::too_many_arguments)]
+    fn render_wmma_matmul(
+        &mut self,
+        _a_ptr: &AstNode,
+        _a_offset: &AstNode,
+        _a_stride: &AstNode,
+        _b_ptr: &AstNode,
+        _b_offset: &AstNode,
+        _b_stride: &AstNode,
+        _c_ptr: &AstNode,
+        _c_offset: &AstNode,
+        _c_stride: &AstNode,
+        _m: &AstNode,
+        _k: &AstNode,
+        _n: &AstNode,
+        _dtype_ab: &DType,
+        _dtype_c: &DType,
+    ) -> String {
+        format!(
+            "{}/* WMMA matmul not supported on this backend */",
+            self.indent()
+        )
     }
 
     /// ブロックを描画

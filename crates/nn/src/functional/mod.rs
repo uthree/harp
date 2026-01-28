@@ -29,7 +29,5 @@ pub use activation::{
     elu, gelu, leaky_relu, log_softmax, prelu, relu, sigmoid, silu, softmax, tanh,
 };
 pub use attention::scaled_dot_product_attention;
-pub use conv::{
-    conv1d, conv2d, conv3d, conv_transpose1d, conv_transpose2d, conv_transpose3d,
-};
+pub use conv::{conv_transpose1d, conv_transpose2d, conv_transpose3d, conv1d, conv2d, conv3d};
 pub use linear::linear;

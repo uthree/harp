@@ -5,8 +5,8 @@
 
 use super::{Module, Parameter, ParameterBase};
 use crate::functional;
-use eclat::tensor::dim::{D1, D3, D4, D5};
 use eclat::tensor::Tensor;
+use eclat::tensor::dim::{D1, D3, D4, D5};
 
 // ============================================================================
 // Conv2d
@@ -115,7 +115,11 @@ impl Conv2d {
     pub fn with_bias(mut self) -> Self {
         if self.bias.is_none() {
             let bias_data = vec![0.0f32; self.out_channels];
-            self.bias = Some(Parameter::from_data("bias", &bias_data, &[self.out_channels]));
+            self.bias = Some(Parameter::from_data(
+                "bias",
+                &bias_data,
+                &[self.out_channels],
+            ));
         }
         self
     }
@@ -332,7 +336,11 @@ impl Conv1d {
     pub fn with_bias(mut self) -> Self {
         if self.bias.is_none() {
             let bias_data = vec![0.0f32; self.out_channels];
-            self.bias = Some(Parameter::from_data("bias", &bias_data, &[self.out_channels]));
+            self.bias = Some(Parameter::from_data(
+                "bias",
+                &bias_data,
+                &[self.out_channels],
+            ));
         }
         self
     }
@@ -548,7 +556,11 @@ impl Conv3d {
     pub fn with_bias(mut self) -> Self {
         if self.bias.is_none() {
             let bias_data = vec![0.0f32; self.out_channels];
-            self.bias = Some(Parameter::from_data("bias", &bias_data, &[self.out_channels]));
+            self.bias = Some(Parameter::from_data(
+                "bias",
+                &bias_data,
+                &[self.out_channels],
+            ));
         }
         self
     }
@@ -785,7 +797,11 @@ impl ConvTranspose2d {
     pub fn with_bias(mut self) -> Self {
         if self.bias.is_none() {
             let bias_data = vec![0.0f32; self.out_channels];
-            self.bias = Some(Parameter::from_data("bias", &bias_data, &[self.out_channels]));
+            self.bias = Some(Parameter::from_data(
+                "bias",
+                &bias_data,
+                &[self.out_channels],
+            ));
         }
         self
     }
@@ -1016,7 +1032,11 @@ impl ConvTranspose1d {
     pub fn with_bias(mut self) -> Self {
         if self.bias.is_none() {
             let bias_data = vec![0.0f32; self.out_channels];
-            self.bias = Some(Parameter::from_data("bias", &bias_data, &[self.out_channels]));
+            self.bias = Some(Parameter::from_data(
+                "bias",
+                &bias_data,
+                &[self.out_channels],
+            ));
         }
         self
     }
@@ -1037,11 +1057,7 @@ impl ConvTranspose1d {
             .with_padding(padding)
             .with_output_padding(output_padding)
             .with_dilation(dilation);
-        if bias {
-            layer.with_bias()
-        } else {
-            layer
-        }
+        if bias { layer.with_bias() } else { layer }
     }
 
     /// Forward pass with static dimension types.
@@ -1247,7 +1263,11 @@ impl ConvTranspose3d {
     pub fn with_bias(mut self) -> Self {
         if self.bias.is_none() {
             let bias_data = vec![0.0f32; self.out_channels];
-            self.bias = Some(Parameter::from_data("bias", &bias_data, &[self.out_channels]));
+            self.bias = Some(Parameter::from_data(
+                "bias",
+                &bias_data,
+                &[self.out_channels],
+            ));
         }
         self
     }
@@ -1268,11 +1288,7 @@ impl ConvTranspose3d {
             .with_padding(padding)
             .with_output_padding(output_padding)
             .with_dilation(dilation);
-        if bias {
-            layer.with_bias()
-        } else {
-            layer
-        }
+        if bias { layer.with_bias() } else { layer }
     }
 
     /// Forward pass with static dimension types.
@@ -1483,7 +1499,6 @@ mod tests {
         assert_eq!(params.len(), 2); // weight + bias
     }
 
-
     // ============================================================================
     // ConvTranspose2d Tests
     // ============================================================================
@@ -1502,7 +1517,8 @@ mod tests {
     fn test_conv_transpose2d_with_stride() {
         // Input: [1, 64, 16, 16], kernel: 3x3, stride: 2, padding: 1, output_padding: 1
         // Output: [1, 3, 32, 32]
-        let conv_t = ConvTranspose2d::with_options(64, 3, (3, 3), (2, 2), (1, 1), (1, 1), (1, 1), true);
+        let conv_t =
+            ConvTranspose2d::with_options(64, 3, (3, 3), (2, 2), (1, 1), (1, 1), (1, 1), true);
         let input: Tensor<D4, f32> = Tensor::input([1, 64, 16, 16]);
         let output = conv_t.forward_d4(&input);
         assert_eq!(output.shape(), vec![1, 3, 32, 32]);
@@ -1563,7 +1579,16 @@ mod tests {
     fn test_conv_transpose3d_with_stride() {
         // Input: [1, 64, 8, 16, 16], kernel: 3x3x3, stride: 2, padding: 1, output_padding: 1
         // Output: [1, 3, 16, 32, 32]
-        let conv_t = ConvTranspose3d::with_options(64, 3, (3, 3, 3), (2, 2, 2), (1, 1, 1), (1, 1, 1), (1, 1, 1), true);
+        let conv_t = ConvTranspose3d::with_options(
+            64,
+            3,
+            (3, 3, 3),
+            (2, 2, 2),
+            (1, 1, 1),
+            (1, 1, 1),
+            (1, 1, 1),
+            true,
+        );
         let input: Tensor<D5, f32> = Tensor::input([1, 64, 8, 16, 16]);
         let output = conv_t.forward_d5(&input);
         assert_eq!(output.shape(), vec![1, 3, 16, 32, 32]);

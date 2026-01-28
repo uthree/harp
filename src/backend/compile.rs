@@ -208,7 +208,10 @@ impl CompilationPipeline {
     /// # Errors
     ///
     /// Returns `LoweringError` if lowering fails.
-    pub fn lower_with_lowerer(&self, roots: &[GraphNode]) -> crate::lowerer::LoweringResult<(AstNode, Lowerer)> {
+    pub fn lower_with_lowerer(
+        &self,
+        roots: &[GraphNode],
+    ) -> crate::lowerer::LoweringResult<(AstNode, Lowerer)> {
         let mut lowerer = Lowerer::new();
         let ast = lowerer.lower(roots)?;
         Ok((ast, lowerer))

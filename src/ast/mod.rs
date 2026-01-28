@@ -277,6 +277,36 @@ pub enum AstNode {
         thread_group_size: [Box<AstNode>; 3], // スレッドグループサイズ (x, y, z)
     },
 
+    /// WMMA (Tensor Core) 行列積ブロック
+    ///
+    /// C[m,n] += A[m,k] * B[k,n] を Tensor Core を使って計算する。
+    /// 16x16x16 タイルで計算し、CUDA の WMMA API を使用する。
+    WmmaMatmul {
+        /// 入力行列A
+        a_ptr: Box<AstNode>,
+        a_offset: Box<AstNode>,
+        a_stride: Box<AstNode>, // leading dimension (K)
+
+        /// 入力行列B
+        b_ptr: Box<AstNode>,
+        b_offset: Box<AstNode>,
+        b_stride: Box<AstNode>, // leading dimension (N)
+
+        /// 出力行列C (累積)
+        c_ptr: Box<AstNode>,
+        c_offset: Box<AstNode>,
+        c_stride: Box<AstNode>, // leading dimension (N)
+
+        /// サイズ (16の倍数であること)
+        m: Box<AstNode>,
+        k: Box<AstNode>,
+        n: Box<AstNode>,
+
+        /// データ型
+        dtype_ab: DType, // 入力行列の型 (F16)
+        dtype_c: DType, // 出力/累積行列の型 (F16 or F32)
+    },
+
     // Program - プログラム全体
     /// カーネル関数群を保持するプログラムノード
     ///
@@ -405,6 +435,34 @@ impl AstNode {
                 }
                 children
             }
+            AstNode::WmmaMatmul {
+                a_ptr,
+                a_offset,
+                a_stride,
+                b_ptr,
+                b_offset,
+                b_stride,
+                c_ptr,
+                c_offset,
+                c_stride,
+                m,
+                k,
+                n,
+                ..
+            } => vec![
+                a_ptr.as_ref(),
+                a_offset.as_ref(),
+                a_stride.as_ref(),
+                b_ptr.as_ref(),
+                b_offset.as_ref(),
+                b_stride.as_ref(),
+                c_ptr.as_ref(),
+                c_offset.as_ref(),
+                c_stride.as_ref(),
+                m.as_ref(),
+                k.as_ref(),
+                n.as_ref(),
+            ],
             AstNode::Program {
                 functions,
                 execution_waves: _,
@@ -608,6 +666,37 @@ impl AstNode {
                     Box::new(f(&thread_group_size[2])),
                 ],
             },
+            AstNode::WmmaMatmul {
+                a_ptr,
+                a_offset,
+                a_stride,
+                b_ptr,
+                b_offset,
+                b_stride,
+                c_ptr,
+                c_offset,
+                c_stride,
+                m,
+                k,
+                n,
+                dtype_ab,
+                dtype_c,
+            } => AstNode::WmmaMatmul {
+                a_ptr: Box::new(f(a_ptr)),
+                a_offset: Box::new(f(a_offset)),
+                a_stride: Box::new(f(a_stride)),
+                b_ptr: Box::new(f(b_ptr)),
+                b_offset: Box::new(f(b_offset)),
+                b_stride: Box::new(f(b_stride)),
+                c_ptr: Box::new(f(c_ptr)),
+                c_offset: Box::new(f(c_offset)),
+                c_stride: Box::new(f(c_stride)),
+                m: Box::new(f(m)),
+                k: Box::new(f(k)),
+                n: Box::new(f(n)),
+                dtype_ab: dtype_ab.clone(),
+                dtype_c: dtype_c.clone(),
+            },
             AstNode::Program {
                 functions,
                 execution_waves,
@@ -734,6 +823,9 @@ impl AstNode {
 
             // Program - プログラム全体の型はvoid（カーネル群の集合）
             AstNode::Program { .. } => DType::Tuple(vec![]),
+
+            // WmmaMatmul - WMMA行列積は値を返さない（Cに書き込む）
+            AstNode::WmmaMatmul { .. } => DType::Tuple(vec![]),
         }
     }
 
@@ -932,6 +1024,36 @@ impl AstNode {
                 for func in functions {
                     func.check_scope(scope)?;
                 }
+                Ok(())
+            }
+            // WmmaMatmul - 全ての子ノードをチェック
+            AstNode::WmmaMatmul {
+                a_ptr,
+                a_offset,
+                a_stride,
+                b_ptr,
+                b_offset,
+                b_stride,
+                c_ptr,
+                c_offset,
+                c_stride,
+                m,
+                k,
+                n,
+                ..
+            } => {
+                a_ptr.check_scope(scope)?;
+                a_offset.check_scope(scope)?;
+                a_stride.check_scope(scope)?;
+                b_ptr.check_scope(scope)?;
+                b_offset.check_scope(scope)?;
+                b_stride.check_scope(scope)?;
+                c_ptr.check_scope(scope)?;
+                c_offset.check_scope(scope)?;
+                c_stride.check_scope(scope)?;
+                m.check_scope(scope)?;
+                k.check_scope(scope)?;
+                n.check_scope(scope)?;
                 Ok(())
             }
         }

@@ -210,11 +210,12 @@ impl Lowerer {
     /// - composed_view: The combined View transformation from actual_source to the original node
     fn resolve_view_chain(&self, node: &GraphNode) -> (GraphNode, View) {
         match node.op() {
-            GraphOp::View(_) if self.can_inline_view(node) => {
+            GraphOp::View(source_view) if self.can_inline_view(node) => {
                 // View can be inlined: recursively resolve source
                 let (inner_src, inner_view) = self.resolve_view_chain(&node.sources()[0]);
                 // Compose: node's view applied to inner_view
                 let composed = View::compose(node.view(), &inner_view);
+
                 (inner_src, composed)
             }
             _ => {
@@ -559,7 +560,12 @@ impl Lowerer {
     ) -> AstNode {
         use crate::ast::Scope;
 
-        let ctx = self.prepare_kernel_context(node, output_buf, KernelOpType::Scatter, Some(output_shape));
+        let ctx = self.prepare_kernel_context(
+            node,
+            output_buf,
+            KernelOpType::Scatter,
+            Some(output_shape),
+        );
 
         let src = &node.sources()[0];
         let src_shape = src.shape();
@@ -830,6 +836,7 @@ impl Lowerer {
 
             let src_buf = self.get_buffer_name(&actual_src);
             let idx = self.index_gen().view_to_index(&view_for_indexing);
+
             let load = AstNode::Load {
                 ptr: Box::new(AstNode::Var(src_buf)),
                 offset: Box::new(idx),
@@ -1084,7 +1091,11 @@ mod tests {
         // expand(unsqueeze(x)) + y should not generate separate View kernels
 
         let x = input(vec![Expr::Const(4), Expr::Const(8)], DType::F32).with_name("x");
-        let y = input(vec![Expr::Const(4), Expr::Const(8), Expr::Const(16)], DType::F32).with_name("y");
+        let y = input(
+            vec![Expr::Const(4), Expr::Const(8), Expr::Const(16)],
+            DType::F32,
+        )
+        .with_name("y");
 
         // Create expanded tensor through unsqueeze + expand
         // [4, 8] → [4, 8, 1] → [4, 8, 16]

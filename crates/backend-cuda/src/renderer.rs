@@ -271,7 +271,10 @@ impl CLikeRenderer for CudaRenderer {
 
         // CUDA headers (for math functions)
         header.push_str("#include <cuda_runtime.h>\n");
-        header.push_str("#include <math.h>\n\n");
+        header.push_str("#include <math.h>\n");
+        // WMMA (Tensor Core) support
+        header.push_str("#include <mma.h>\n");
+        header.push_str("using namespace nvcuda;\n\n");
 
         // Helper for atomic operations on float
         header.push_str("// Atomic add for float using CAS\n");
@@ -496,6 +499,135 @@ impl CLikeRenderer for CudaRenderer {
                 dtype, ptr, offset, ptr, offset, value
             ),
         }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn render_wmma_matmul(
+        &mut self,
+        a_ptr: &AstNode,
+        a_offset: &AstNode,
+        a_stride: &AstNode,
+        b_ptr: &AstNode,
+        b_offset: &AstNode,
+        b_stride: &AstNode,
+        c_ptr: &AstNode,
+        c_offset: &AstNode,
+        c_stride: &AstNode,
+        m: &AstNode,
+        k: &AstNode,
+        n: &AstNode,
+        _dtype_ab: &DType,
+        _dtype_c: &DType,
+    ) -> String {
+        let indent = self.indent();
+
+        let a_ptr_str = self.render_expr(a_ptr);
+        let a_offset_str = self.render_expr(a_offset);
+        let a_stride_str = self.render_expr(a_stride);
+        let b_ptr_str = self.render_expr(b_ptr);
+        let b_offset_str = self.render_expr(b_offset);
+        let b_stride_str = self.render_expr(b_stride);
+        let c_ptr_str = self.render_expr(c_ptr);
+        let c_offset_str = self.render_expr(c_offset);
+        let c_stride_str = self.render_expr(c_stride);
+        let m_str = self.render_expr(m);
+        let k_str = self.render_expr(k);
+        let n_str = self.render_expr(n);
+
+        // Generate WMMA kernel code
+        // Each block handles one 16x16 output tile
+        // Grid: (M/16, N/16), Block: (32, 1) - one warp per tile
+        let mut code = String::new();
+
+        code.push_str(&format!(
+            "{}// WMMA Matrix Multiplication: C[{},{}] += A[{},{}] * B[{},{}]\n",
+            indent, m_str, n_str, m_str, k_str, k_str, n_str
+        ));
+        code.push_str(&format!("{}{{\n", indent));
+
+        self.inc_indent();
+        let inner_indent = self.indent();
+
+        // Tile coordinates from block indices
+        code.push_str(&format!(
+            "{}int tile_row = blockIdx.x * 16;\n",
+            inner_indent
+        ));
+        code.push_str(&format!(
+            "{}int tile_col = blockIdx.y * 16;\n",
+            inner_indent
+        ));
+        code.push('\n');
+
+        // Declare WMMA fragments
+        code.push_str(&format!(
+            "{}// WMMA fragments for 16x16x16 tiles\n",
+            inner_indent
+        ));
+        code.push_str(&format!(
+            "{}wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::row_major> a_frag;\n",
+            inner_indent
+        ));
+        code.push_str(&format!(
+            "{}wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::row_major> b_frag;\n",
+            inner_indent
+        ));
+        code.push_str(&format!(
+            "{}wmma::fragment<wmma::accumulator, 16, 16, 16, float> c_frag;\n",
+            inner_indent
+        ));
+        code.push('\n');
+
+        // Initialize accumulator to zero
+        code.push_str(&format!(
+            "{}wmma::fill_fragment(c_frag, 0.0f);\n",
+            inner_indent
+        ));
+        code.push('\n');
+
+        // Loop over K dimension in 16-element tiles
+        code.push_str(&format!("{}// Accumulate over K dimension\n", inner_indent));
+        code.push_str(&format!(
+            "{}for (int kk = 0; kk < {}; kk += 16) {{\n",
+            inner_indent, k_str
+        ));
+
+        self.inc_indent();
+        let loop_indent = self.indent();
+
+        // Load A tile: A[tile_row:tile_row+16, kk:kk+16]
+        code.push_str(&format!(
+            "{}wmma::load_matrix_sync(a_frag, &{}[{} + tile_row * {} + kk], {});\n",
+            loop_indent, a_ptr_str, a_offset_str, a_stride_str, a_stride_str
+        ));
+
+        // Load B tile: B[kk:kk+16, tile_col:tile_col+16]
+        code.push_str(&format!(
+            "{}wmma::load_matrix_sync(b_frag, &{}[{} + kk * {} + tile_col], {});\n",
+            loop_indent, b_ptr_str, b_offset_str, b_stride_str, b_stride_str
+        ));
+
+        // Perform WMMA multiply-accumulate
+        code.push_str(&format!(
+            "{}wmma::mma_sync(c_frag, a_frag, b_frag, c_frag);\n",
+            loop_indent
+        ));
+
+        self.dec_indent();
+        code.push_str(&format!("{}}}\n", inner_indent));
+        code.push('\n');
+
+        // Store result
+        code.push_str(&format!("{}// Store result\n", inner_indent));
+        code.push_str(&format!(
+            "{}wmma::store_matrix_sync(&{}[{} + tile_row * {} + tile_col], c_frag, {}, wmma::mem_row_major);\n",
+            inner_indent, c_ptr_str, c_offset_str, c_stride_str, c_stride_str
+        ));
+
+        self.dec_indent();
+        code.push_str(&format!("{}}}\n", indent));
+
+        code
     }
 }
 

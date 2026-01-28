@@ -2,8 +2,8 @@
 //!
 //! Implements convolution operations using unfold (im2col) approach.
 
-use eclat::tensor::dim::{D1, D2, D3, D4, D5, D6, D8};
 use eclat::tensor::Tensor;
+use eclat::tensor::dim::{D1, D2, D3, D4, D5, D6, D8};
 
 // ============================================================================
 // Conv1d
@@ -54,7 +54,9 @@ pub fn conv1d(
     let permuted: Tensor<D4, f32> = unfolded.permute(&[0, 2, 1, 3]);
 
     // 4. contiguous + reshape: D4 -> D2 [N*L_out, C_in*K]
-    let cols: Tensor<D2, f32> = permuted.contiguous().reshape([batch * l_out, in_channels * k]);
+    let cols: Tensor<D2, f32> = permuted
+        .contiguous()
+        .reshape([batch * l_out, in_channels * k]);
 
     // 5. Get weight and reshape: [C_out, C_in, K] -> [C_out, C_in*K]
     let weight_flat: Tensor<D2, f32> = weight.reshape([out_channels, in_channels * k]);
@@ -238,11 +240,10 @@ pub fn conv3d(
     let permuted: Tensor<D8, f32> = unfolded.permute(&[0, 2, 3, 4, 1, 5, 6, 7]);
 
     // 4. contiguous + reshape: D8 -> D3 [N, D_out*H_out*W_out, C_in*kD*kH*kW]
-    let cols: Tensor<D3, f32> = permuted.contiguous().reshape([
-        batch,
-        d_out * h_out * w_out,
-        in_channels * kd * kh * kw,
-    ]);
+    let cols: Tensor<D3, f32> =
+        permuted
+            .contiguous()
+            .reshape([batch, d_out * h_out * w_out, in_channels * kd * kh * kw]);
 
     // 5. Get weight and reshape: [C_out, C_in, kD, kH, kW] -> [C_out, C_in*kD*kH*kW]
     let weight_flat: Tensor<D2, f32> = weight.reshape([out_channels, in_channels * kd * kh * kw]);
@@ -344,9 +345,9 @@ pub fn conv_transpose1d(
     let output_shape = &[batch, out_channels, l_out];
     let folded = cols_permuted.contiguous().into_dyn().fold(
         output_shape,
-        &[2],   // axis that was unfolded
-        &[k],   // kernel size
-        &[stride], // stride
+        &[2],        // axis that was unfolded
+        &[k],        // kernel size
+        &[stride],   // stride
         &[dilation], // dilation
     );
 
@@ -412,10 +413,11 @@ pub fn conv_transpose2d(
     let w_out = (w_in - 1) * sw + dw * (kw - 1) + 1 + opw - 2 * pw;
 
     // 1. Reshape input: [N, C_in, H, W] -> [N, H*W, C_in]
-    let input_reshaped: Tensor<D3, f32> = input
-        .permute(&[0, 2, 3, 1])
-        .contiguous()
-        .reshape([batch, h_in * w_in, in_channels]);
+    let input_reshaped: Tensor<D3, f32> =
+        input
+            .permute(&[0, 2, 3, 1])
+            .contiguous()
+            .reshape([batch, h_in * w_in, in_channels]);
 
     // 2. Get weight and reshape: [C_in, C_out, kH, kW] -> [C_in, C_out*kH*kW]
     let weight_flat: Tensor<D2, f32> = weight.reshape([in_channels, out_channels * kh * kw]);
@@ -440,10 +442,10 @@ pub fn conv_transpose2d(
     let output_shape = &[batch, out_channels, h_out, w_out];
     let folded = cols_permuted.contiguous().into_dyn().fold(
         output_shape,
-        &[2, 3],      // axes that were unfolded
-        &[kh, kw],    // kernel sizes
-        &[sh, sw],    // strides
-        &[dh, dw],    // dilations
+        &[2, 3],   // axes that were unfolded
+        &[kh, kw], // kernel sizes
+        &[sh, sw], // strides
+        &[dh, dw], // dilations
     );
 
     // 7. Reshape to D4
@@ -510,14 +512,14 @@ pub fn conv_transpose3d(
     let w_out = (w_in - 1) * sw + dw * (kw - 1) + 1 + opw - 2 * pw;
 
     // 1. Reshape input: [N, C_in, D, H, W] -> [N, D*H*W, C_in]
-    let input_reshaped: Tensor<D3, f32> = input
-        .permute(&[0, 2, 3, 4, 1])
-        .contiguous()
-        .reshape([batch, d_in * h_in * w_in, in_channels]);
+    let input_reshaped: Tensor<D3, f32> = input.permute(&[0, 2, 3, 4, 1]).contiguous().reshape([
+        batch,
+        d_in * h_in * w_in,
+        in_channels,
+    ]);
 
     // 2. Get weight and reshape: [C_in, C_out, kD, kH, kW] -> [C_in, C_out*kD*kH*kW]
-    let weight_flat: Tensor<D2, f32> =
-        weight.reshape([in_channels, out_channels * kd * kh * kw]);
+    let weight_flat: Tensor<D2, f32> = weight.reshape([in_channels, out_channels * kd * kh * kw]);
 
     // 3. Matrix multiplication using broadcast multiply + sum
     let input_expanded: Tensor<D4, f32> = input_reshaped.unsqueeze(3);
@@ -540,10 +542,10 @@ pub fn conv_transpose3d(
     let output_shape = &[batch, out_channels, d_out, h_out, w_out];
     let folded = cols_permuted.contiguous().into_dyn().fold(
         output_shape,
-        &[2, 3, 4],        // axes that were unfolded
-        &[kd, kh, kw],     // kernel sizes
-        &[sd, sh, sw],     // strides
-        &[dd, dh, dw],     // dilations
+        &[2, 3, 4],    // axes that were unfolded
+        &[kd, kh, kw], // kernel sizes
+        &[sd, sh, sw], // strides
+        &[dd, dh, dw], // dilations
     );
 
     // 7. Reshape to D5
@@ -611,7 +613,15 @@ mod tests {
     fn test_conv_transpose3d() {
         let input: Tensor<D5, f32> = Tensor::input([1, 64, 14, 30, 30]);
         let weight: Tensor<D5, f32> = Tensor::input([64, 3, 3, 3, 3]);
-        let output = conv_transpose3d(&input, &weight, None, (1, 1, 1), (0, 0, 0), (0, 0, 0), (1, 1, 1));
+        let output = conv_transpose3d(
+            &input,
+            &weight,
+            None,
+            (1, 1, 1),
+            (0, 0, 0),
+            (0, 0, 0),
+            (1, 1, 1),
+        );
         assert_eq!(output.shape(), vec![1, 3, 16, 32, 32]);
     }
 }

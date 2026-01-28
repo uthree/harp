@@ -33,7 +33,9 @@ fn test_view_lowering() {
     let transposed = x.permute(&[1, 0]).with_name("transposed");
 
     let mut lowerer = Lowerer::new();
-    let program = lowerer.lower(&[transposed]).expect("Lowering should succeed");
+    let program = lowerer
+        .lower(&[transposed])
+        .expect("Lowering should succeed");
 
     assert!(matches!(program, crate::ast::AstNode::Program { .. }));
 }
@@ -46,7 +48,9 @@ fn test_reduction_lowering() {
     let sum_result = x.sum(1).with_name("sum_result");
 
     let mut lowerer = Lowerer::new();
-    let program = lowerer.lower(&[sum_result]).expect("Lowering should succeed");
+    let program = lowerer
+        .lower(&[sum_result])
+        .expect("Lowering should succeed");
 
     assert!(matches!(program, crate::ast::AstNode::Program { .. }));
 }
@@ -98,7 +102,9 @@ fn test_scan_lowering() {
     let cumsum_result = x.cumsum(1).with_name("cumsum_result");
 
     let mut lowerer = Lowerer::new();
-    let program = lowerer.lower(&[cumsum_result]).expect("Lowering should succeed");
+    let program = lowerer
+        .lower(&[cumsum_result])
+        .expect("Lowering should succeed");
 
     assert!(matches!(program, crate::ast::AstNode::Program { .. }));
 }

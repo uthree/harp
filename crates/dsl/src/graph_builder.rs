@@ -80,11 +80,7 @@ impl GraphBuilder {
 
     /// Build all graphs from a DslProgram
     pub fn build_program(&mut self, program: &DslProgram) -> DslResult<Vec<BuiltGraph>> {
-        program
-            .graphs
-            .iter()
-            .map(|g| self.build_graph(g))
-            .collect()
+        program.graphs.iter().map(|g| self.build_graph(g)).collect()
     }
 
     /// Resolve a shape using current graph's shape vars
@@ -97,7 +93,11 @@ impl GraphBuilder {
     /// - Static dimensions become `Expr::Const(n)`
     /// - Declared shape variables (from `graph<...>`) become `Expr::Sym(name)`
     /// - Other dynamic dimensions are resolved from `dynamic_dims`
-    fn resolve_shape(&self, shape: &[ShapeDim], declared_shape_vars: &[String]) -> DslResult<Vec<Expr>> {
+    fn resolve_shape(
+        &self,
+        shape: &[ShapeDim],
+        declared_shape_vars: &[String],
+    ) -> DslResult<Vec<Expr>> {
         shape
             .iter()
             .map(|dim| match dim {

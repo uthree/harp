@@ -518,6 +518,26 @@ impl FunctionInliningSuggester {
                 functions: children.to_vec(),
                 execution_waves: execution_waves.clone(),
             },
+
+            // WmmaMatmul
+            AstNode::WmmaMatmul {
+                dtype_ab, dtype_c, ..
+            } => AstNode::WmmaMatmul {
+                a_ptr: Box::new(children[0].clone()),
+                a_offset: Box::new(children[1].clone()),
+                a_stride: Box::new(children[2].clone()),
+                b_ptr: Box::new(children[3].clone()),
+                b_offset: Box::new(children[4].clone()),
+                b_stride: Box::new(children[5].clone()),
+                c_ptr: Box::new(children[6].clone()),
+                c_offset: Box::new(children[7].clone()),
+                c_stride: Box::new(children[8].clone()),
+                m: Box::new(children[9].clone()),
+                k: Box::new(children[10].clone()),
+                n: Box::new(children[11].clone()),
+                dtype_ab: dtype_ab.clone(),
+                dtype_c: dtype_c.clone(),
+            },
         }
     }
 

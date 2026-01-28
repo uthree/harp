@@ -3,8 +3,8 @@
 //! Implements the multi-head attention mechanism as described in
 //! "Attention Is All You Need" (Vaswani et al., 2017).
 
-use eclat::tensor::dim::{D1, D2, D3, D4};
 use eclat::tensor::Tensor;
+use eclat::tensor::dim::{D1, D2, D3, D4};
 
 use super::{Module, Parameter, ParameterBase};
 use crate::functional;
@@ -169,12 +169,8 @@ impl MultiheadAttention {
         let v_heads = self.split_heads(&v, batch_size, seq_len_k);
 
         // Apply scaled dot-product attention
-        let attn_output = functional::scaled_dot_product_attention(
-            &q_heads,
-            &k_heads,
-            &v_heads,
-            attn_mask,
-        );
+        let attn_output =
+            functional::scaled_dot_product_attention(&q_heads, &k_heads, &v_heads, attn_mask);
 
         // Merge heads: [B, H, L, D] -> [B, L, H, D] -> [B, L, E]
         let merged = self.merge_heads(&attn_output, batch_size, seq_len_q);
@@ -211,16 +207,27 @@ impl MultiheadAttention {
 
     /// Splits the last dimension into multiple heads.
     /// input: [B, L, E] -> output: [B, H, L, D]
-    fn split_heads(&self, input: &Tensor<D3, f32>, batch_size: usize, seq_len: usize) -> Tensor<D4, f32> {
+    fn split_heads(
+        &self,
+        input: &Tensor<D3, f32>,
+        batch_size: usize,
+        seq_len: usize,
+    ) -> Tensor<D4, f32> {
         // [B, L, E] -> [B, L, H, D]
-        let reshaped: Tensor<D4, f32> = input.reshape([batch_size, seq_len, self.num_heads, self.head_dim]);
+        let reshaped: Tensor<D4, f32> =
+            input.reshape([batch_size, seq_len, self.num_heads, self.head_dim]);
         // [B, L, H, D] -> [B, H, L, D]
         reshaped.permute(&[0, 2, 1, 3])
     }
 
     /// Merges heads back into embed_dim.
     /// input: [B, H, L, D] -> output: [B, L, E]
-    fn merge_heads(&self, input: &Tensor<D4, f32>, batch_size: usize, seq_len: usize) -> Tensor<D3, f32> {
+    fn merge_heads(
+        &self,
+        input: &Tensor<D4, f32>,
+        batch_size: usize,
+        seq_len: usize,
+    ) -> Tensor<D3, f32> {
         // [B, H, L, D] -> [B, L, H, D]
         let permuted = input.permute(&[0, 2, 1, 3]);
         // Make contiguous after permute for reshape

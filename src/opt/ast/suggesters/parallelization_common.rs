@@ -174,7 +174,8 @@ impl LoopAnalyzer {
             AstNode::Function { .. }
             | AstNode::Kernel { .. }
             | AstNode::Program { .. }
-            | AstNode::CallKernel { .. } => {}
+            | AstNode::CallKernel { .. }
+            | AstNode::WmmaMatmul { .. } => {}
         }
     }
 
@@ -529,7 +530,8 @@ pub fn substitute_var(ast: &AstNode, var_name: &str, replacement: &AstNode) -> A
         AstNode::Function { .. }
         | AstNode::Kernel { .. }
         | AstNode::Program { .. }
-        | AstNode::CallKernel { .. } => ast.clone(),
+        | AstNode::CallKernel { .. }
+        | AstNode::WmmaMatmul { .. } => ast.clone(),
     }
 }
 
@@ -867,7 +869,8 @@ impl FreeVariableCollector {
             AstNode::Function { .. }
             | AstNode::Kernel { .. }
             | AstNode::Program { .. }
-            | AstNode::CallKernel { .. } => {}
+            | AstNode::CallKernel { .. }
+            | AstNode::WmmaMatmul { .. } => {}
         }
     }
 }

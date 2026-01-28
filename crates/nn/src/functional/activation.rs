@@ -3,8 +3,8 @@
 //! This module provides pure activation functions for neural networks.
 //! These are implemented using basic tensor operations.
 
-use eclat::tensor::dim::Dimension;
 use eclat::tensor::Tensor;
+use eclat::tensor::dim::Dimension;
 
 /// Applies the Rectified Linear Unit (ReLU) function element-wise.
 ///

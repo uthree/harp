@@ -5,8 +5,8 @@
 //! - W: weight matrix [out_features, in_features]
 //! - b: bias vector [out_features] (optional)
 
-use eclat::tensor::dim::{D1, D2};
 use eclat::tensor::Tensor;
+use eclat::tensor::dim::{D1, D2};
 
 /// Applies a linear transformation: `y = xW^T + b`.
 ///

@@ -150,6 +150,34 @@ fn collect_var_names_recursive(ast: &AstNode, names: &mut HashSet<String>) {
                 collect_var_names_recursive(else_b, names);
             }
         }
+        AstNode::WmmaMatmul {
+            a_ptr,
+            a_offset,
+            a_stride,
+            b_ptr,
+            b_offset,
+            b_stride,
+            c_ptr,
+            c_offset,
+            c_stride,
+            m,
+            k,
+            n,
+            ..
+        } => {
+            collect_var_names_recursive(a_ptr, names);
+            collect_var_names_recursive(a_offset, names);
+            collect_var_names_recursive(a_stride, names);
+            collect_var_names_recursive(b_ptr, names);
+            collect_var_names_recursive(b_offset, names);
+            collect_var_names_recursive(b_stride, names);
+            collect_var_names_recursive(c_ptr, names);
+            collect_var_names_recursive(c_offset, names);
+            collect_var_names_recursive(c_stride, names);
+            collect_var_names_recursive(m, names);
+            collect_var_names_recursive(k, names);
+            collect_var_names_recursive(n, names);
+        }
         // リーフノード
         AstNode::Const(_) | AstNode::Wildcard(_) | AstNode::Rand | AstNode::Barrier => {}
     }

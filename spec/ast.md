@@ -81,6 +81,16 @@ Deallocate { ptr }
 // アトミック演算
 AtomicAdd { ptr, offset, value, dtype }
 AtomicMax { ptr, offset, value, dtype }
+
+// WMMA行列積（Tensor Core）
+WmmaMatmul {
+    a_ptr, a_offset, a_stride,  // 行列A [M,K]
+    b_ptr, b_offset, b_stride,  // 行列B [K,N]
+    c_ptr, c_offset, c_stride,  // 行列C [M,N]
+    m, k, n,                     // サイズ
+    dtype_ab,                    // 入力型（F16）
+    dtype_c,                     // 出力型（F32）
+}
 ```
 
 ### 制御フロー

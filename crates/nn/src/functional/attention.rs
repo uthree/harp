@@ -2,8 +2,8 @@
 //!
 //! This module provides attention-related functional operations.
 
-use eclat::tensor::dim::D4;
 use eclat::tensor::Tensor;
+use eclat::tensor::dim::D4;
 
 use super::softmax;
 
@@ -124,7 +124,10 @@ mod tests {
         let value: Tensor<D4, f32> = Tensor::input([batch_size, num_heads, seq_len, head_dim]);
 
         let output = scaled_dot_product_attention(&query, &key, &value, None);
-        assert_eq!(output.shape(), vec![batch_size, num_heads, seq_len, head_dim]);
+        assert_eq!(
+            output.shape(),
+            vec![batch_size, num_heads, seq_len, head_dim]
+        );
     }
 
     #[test]
@@ -140,6 +143,9 @@ mod tests {
         let mask: Tensor<D4, f32> = Tensor::input([batch_size, num_heads, seq_len, seq_len]);
 
         let output = scaled_dot_product_attention(&query, &key, &value, Some(&mask));
-        assert_eq!(output.shape(), vec![batch_size, num_heads, seq_len, head_dim]);
+        assert_eq!(
+            output.shape(),
+            vec![batch_size, num_heads, seq_len, head_dim]
+        );
     }
 }

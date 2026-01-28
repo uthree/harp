@@ -133,6 +133,11 @@ __global__ void kernel_0(float* buf0, float* buf1, long long n) {
 - `local_id`: ブロック内スレッドID
 - `group_id`: ブロックID
 
+**Tensor Core サポート**:
+- WMMA API を使用した16x16x16タイル行列積
+- 対応アーキテクチャ: Volta以降 (sm_70+)
+- 入力: F16, 累積/出力: F32
+
 ### Metal バックエンド
 
 Metal Shading Language生成。
