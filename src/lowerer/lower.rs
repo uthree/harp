@@ -441,18 +441,23 @@ impl Lowerer {
     }
 
     /// Lower a View operation
+    ///
+    /// When the view has bounds (e.g., for padding), the load is wrapped in a
+    /// Select that returns the default value when out of bounds.
     fn lower_view(&mut self, node: &GraphNode, output_buf: &str) -> AstNode {
         let ctx = self.prepare_kernel_context(node, output_buf, KernelOpType::Copy, None);
 
         let shape = node.shape();
         let output_idx = self.index_gen().view_to_index(node.view());
 
-        // Get source buffer and index
+        // Resolve View chain to get actual source and composed view
         let src = &node.sources()[0];
-        let src_buf = self.get_buffer_name(src);
-        let src_idx = self.index_gen().view_to_index(src.view());
+        let (actual_src, view_for_indexing) = self.resolve_view_chain(src);
 
-        // Load from source, store to output
+        let src_buf = self.get_buffer_name(&actual_src);
+        let src_idx = self.index_gen().view_to_index(&view_for_indexing);
+
+        // Load from source
         let load = AstNode::Load {
             ptr: Box::new(AstNode::Var(src_buf)),
             offset: Box::new(src_idx),
@@ -460,10 +465,25 @@ impl Lowerer {
             dtype: node.dtype().clone(),
         };
 
+        // Handle bounds (for padded views)
+        let load_expr = if let Some(default_value) = view_for_indexing.default_value() {
+            // View has bounds - wrap load in conditional
+            let condition = view_for_indexing.condition().unwrap();
+            let cond_ast: AstNode = condition.clone().into();
+            let default_ast = AstNode::Const(crate::ast::Literal::F32(default_value.as_f32()));
+            AstNode::Select {
+                cond: Box::new(cond_ast),
+                then_val: Box::new(load),
+                else_val: Box::new(default_ast),
+            }
+        } else {
+            load
+        };
+
         let store = AstNode::Store {
             ptr: Box::new(AstNode::Var(output_buf.to_string())),
             offset: Box::new(output_idx),
-            value: Box::new(load),
+            value: Box::new(load_expr),
         };
 
         let body = self.loop_gen.generate_loops(&shape, store);
@@ -827,6 +847,9 @@ impl Lowerer {
     /// Creates a mapping from wildcard IDs ("0", "1", ...) to Load operations
     /// for each source. Resolves View chains to load directly from the actual
     /// source with composed index expressions.
+    ///
+    /// When a view has bounds (e.g., for padding), the load is wrapped in a
+    /// Select that returns the default value when out of bounds.
     fn substitute_wildcards(&mut self, node: &GraphNode, expr: &AstNode) -> AstNode {
         let mut mappings = std::collections::HashMap::new();
 
@@ -843,7 +866,23 @@ impl Lowerer {
                 count: 1,
                 dtype: src.dtype().clone(),
             };
-            mappings.insert(i.to_string(), load);
+
+            // Handle bounds (for padded views)
+            let load_expr = if let Some(default_value) = view_for_indexing.default_value() {
+                // View has bounds - wrap load in conditional
+                let condition = view_for_indexing.condition().unwrap();
+                let cond_ast: AstNode = condition.clone().into();
+                let default_ast = AstNode::Const(crate::ast::Literal::F32(default_value.as_f32()));
+                AstNode::Select {
+                    cond: Box::new(cond_ast),
+                    then_val: Box::new(load),
+                    else_val: Box::new(default_ast),
+                }
+            } else {
+                load
+            };
+
+            mappings.insert(i.to_string(), load_expr);
         }
 
         expr.substitute(&mappings)

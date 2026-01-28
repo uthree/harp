@@ -20,7 +20,9 @@ eclat-nn/src/
 │   ├── activation.rs   (活性化関数)
 │   ├── attention.rs    (アテンション演算)
 │   ├── conv.rs         (畳み込み演算)
-│   └── linear.rs       (線形演算)
+│   ├── linear.rs       (線形演算)
+│   ├── loss.rs         (損失関数)
+│   └── pool.rs         (プーリング演算)
 └── optim/              (オプティマイザ)
     ├── mod.rs
     ├── optimizer.rs    (Optimizer トレイト)
@@ -111,7 +113,66 @@ impl Linear {
   - 入力: query, key, value (D4テンソル `[B, H, L, D]`)、オプションでマスク
   - 出力: `softmax(QK^T / sqrt(d)) @ V`
 
+## 損失関数 (functional)
+
+- `cross_entropy_loss`: クロスエントロピー損失
+  - 入力: logits `[N, C]`、target class indices `[N]`、num_classes
+  - 出力: スカラー損失 `D0` テンソル
+  - 内部で log_softmax + one-hot エンコーディングを使用
+- `predict_classes`: ロジットからクラス予測を取得
+  - 入力: logits `[N, C]`
+  - 出力: 予測クラスインデックスのベクトル
+- `accuracy`: 予測精度の計算
+  - 入力: predictions, targets
+  - 出力: 精度 (0.0 - 1.0)
+
+## プーリング層
+
+### 最大プーリング
+- `MaxPool1d`, `MaxPool2d`, `MaxPool3d`: 最大プーリング
+
+### 平均プーリング
+- `AvgPool1d`, `AvgPool2d`, `AvgPool3d`: 平均プーリング
+
+### 適応的プーリング
+- `AdaptiveAvgPool2d`, `AdaptiveMaxPool2d`: 出力サイズを指定するプーリング
+
 ## オプティマイザ
 
 - `SGD`: モメンタム付き確率的勾配降下法
 - `Adam`: 適応的モーメント推定
+
+## 使用例
+
+### MNIST CNN の学習
+
+完全な実装例は `examples/mnist_cnn/` にあります。
+
+```bash
+cargo run --release -p mnist_cnn
+```
+
+```rust
+// モデル定義
+let conv1 = Conv2d::new(1, 32, (3, 3)).with_padding((1, 1)).with_bias();
+let conv2 = Conv2d::new(32, 64, (3, 3)).with_padding((1, 1)).with_bias();
+let fc1 = Linear::new(3136, 128, true);
+let fc2 = Linear::new(128, 10, true);
+let pool = MaxPool2d::new((2, 2));
+
+// 順伝播
+let x = conv1.forward(&input);
+let x = relu(&x);
+let x = pool.forward(&x);
+// ...
+let logits = fc2.forward(&x);
+
+// 損失計算
+let loss = cross_entropy_loss(&logits, &targets, 10);
+
+// 逆伝播
+loss.backward()?;
+
+// パラメータ更新
+optimizer.step()?;
+```

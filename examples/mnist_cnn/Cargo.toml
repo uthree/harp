@@ -1,0 +1,16 @@
+[package]
+name = "mnist_cnn"
+version = "0.1.0"
+edition = "2024"
+description = "MNIST CNN training example using eclat and eclat-nn"
+
+[dependencies]
+eclat = { path = "../.." }
+eclat-nn = { path = "../../crates/nn" }
+eclat-backend-c = { path = "../../crates/backend-c" }
+mnist = "0.6"
+indicatif = "0.17"
+env_logger = "0.11"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+eclat-backend-metal = { path = "../../crates/backend-metal" }

@@ -139,7 +139,12 @@ impl<D: Dimension> Parameter<D> {
     }
 
     /// Get a reference to the underlying tensor.
+    ///
+    /// This automatically ensures the parameter data is transferred to the device.
     pub fn tensor(&self) -> Ref<'_, Tensor<D, f32>> {
+        // Ensure data is on device before returning tensor
+        self.ensure_on_device()
+            .expect("Failed to transfer parameter data to device");
         self.inner.tensor.borrow()
     }
 

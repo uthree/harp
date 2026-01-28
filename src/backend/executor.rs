@@ -165,7 +165,12 @@ pub fn execute_graph(
     }
 
     // 2. Lower and optimize graph using CompilationPipeline
-    let pipeline = CompilationPipeline::from_default_device();
+    // Check for ECLAT_OPT_LEVEL environment variable (0-3, default is 3)
+    let opt_level = std::env::var("ECLAT_OPT_LEVEL")
+        .ok()
+        .and_then(|s| s.parse::<u8>().ok())
+        .unwrap_or(3);
+    let pipeline = CompilationPipeline::from_default_device().with_opt_level(opt_level);
     let (ast, lowerer) = pipeline
         .lower_with_lowerer(roots)
         .map_err(|e| ExecutionError::Internal(format!("Lowering failed: {}", e)))?;

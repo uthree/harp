@@ -74,10 +74,14 @@ impl From<Expr> for crate::ast::AstNode {
             }
             Expr::Add(l, r) => AstNode::Add(Box::new((*l).into()), Box::new((*r).into())),
             Expr::Sub(l, r) => {
-                // a - b = a + (-b)
+                // a - b = a + (-1 * b) using integer -1 for index expressions
                 let left: AstNode = (*l).into();
                 let right: AstNode = (*r).into();
-                left + (-right)
+                let neg_one = AstNode::Const(Literal::I64(-1));
+                AstNode::Add(
+                    Box::new(left),
+                    Box::new(AstNode::Mul(Box::new(neg_one), Box::new(right))),
+                )
             }
             Expr::Mul(l, r) => AstNode::Mul(Box::new((*l).into()), Box::new((*r).into())),
             Expr::Div(l, r) => {

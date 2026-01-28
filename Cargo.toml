@@ -1,6 +1,17 @@
 [workspace]
 resolver = "2"
-members = ["crates/backend-c", "crates/backend-opencl", "crates/backend-metal", "crates/backend-cuda", "crates/backend-openmp", "crates/nn", "crates/dsl", "crates/cli", "crates/viz"]
+members = [
+    "crates/backend-c",
+    "crates/backend-opencl",
+    "crates/backend-metal",
+    "crates/backend-cuda",
+    "crates/backend-openmp",
+    "crates/nn",
+    "crates/dsl",
+    "crates/cli",
+    "crates/viz",
+    "examples/mnist_cnn",
+]
 
 [package]
 name = "eclat"
