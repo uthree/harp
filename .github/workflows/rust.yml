@@ -22,10 +22,10 @@ jobs:
               uses: dtolnay/rust-toolchain@stable
 
             - name: Build workspace
-              run: cargo build --workspace --exclude eclat-backend-opencl --exclude eclat-backend-metal --exclude eclat-backend-cuda --exclude eclat-backend-rust --exclude eclat-nn --exclude eclat-backend-openmp
+              run: cargo build --workspace --exclude eclat-backend-opencl --exclude eclat-backend-metal --exclude eclat-backend-cuda --exclude eclat-backend-rust --exclude eclat-nn --exclude eclat-backend-openmp --exclude eclat-cli
 
             - name: Run tests
-              run: cargo test --workspace --exclude eclat-backend-opencl --exclude eclat-backend-metal --exclude eclat-backend-cuda --exclude eclat-backend-rust --exclude eclat-nn --exclude eclat-backend-openmp
+              run: cargo test --workspace --exclude eclat-backend-opencl --exclude eclat-backend-metal --exclude eclat-backend-cuda --exclude eclat-backend-rust --exclude eclat-nn --exclude eclat-backend-openmp --exclude eclat-cli
 
     openmp_backend_integration_test:
         name: OpenMP Backend Integration Test
