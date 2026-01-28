@@ -54,38 +54,16 @@ pub struct Conv2d {
 }
 
 impl Conv2d {
-    /// Create a new Conv2d layer with default stride=1, padding=0, dilation=1, bias=true.
-    pub fn new(in_channels: usize, out_channels: usize, kernel_size: (usize, usize)) -> Self {
-        Self::with_options(
-            in_channels,
-            out_channels,
-            kernel_size,
-            (1, 1),
-            (0, 0),
-            (1, 1),
-            true,
-        )
-    }
-
-    /// Create a new Conv2d layer with all options.
+    /// Create a new Conv2d layer with default stride=1, padding=0, dilation=1, no bias.
     ///
-    /// # Arguments
-    /// * `in_channels` - Number of input channels
-    /// * `out_channels` - Number of output channels
-    /// * `kernel_size` - Size of the convolving kernel (kH, kW)
-    /// * `stride` - Stride of the convolution (sH, sW)
-    /// * `padding` - Zero-padding added to both sides (pH, pW)
-    /// * `dilation` - Spacing between kernel elements (dH, dW)
-    /// * `bias` - If true, adds a learnable bias
-    pub fn with_options(
-        in_channels: usize,
-        out_channels: usize,
-        kernel_size: (usize, usize),
-        stride: (usize, usize),
-        padding: (usize, usize),
-        dilation: (usize, usize),
-        bias: bool,
-    ) -> Self {
+    /// Use builder methods to customize:
+    /// ```ignore
+    /// let conv = Conv2d::new(3, 64, (3, 3))
+    ///     .with_padding((1, 1))
+    ///     .with_stride((2, 2))
+    ///     .with_bias();
+    /// ```
+    pub fn new(in_channels: usize, out_channels: usize, kernel_size: (usize, usize)) -> Self {
         let (kh, kw) = kernel_size;
 
         // Kaiming uniform initialization
@@ -100,25 +78,69 @@ impl Conv2d {
         let weight: Parameter<D4> =
             Parameter::from_data("weight", &weight_data, &[out_channels, in_channels, kh, kw]);
 
-        // Initialize bias
-        let bias = if bias {
-            let bias_data = vec![0.0f32; out_channels];
-            Some(Parameter::from_data("bias", &bias_data, &[out_channels]))
-        } else {
-            None
-        };
-
         Self {
             weight,
-            bias,
+            bias: None,
             in_channels,
             out_channels,
             kernel_size,
-            stride,
-            padding,
-            dilation,
+            stride: (1, 1),
+            padding: (0, 0),
+            dilation: (1, 1),
             training: true,
         }
+    }
+
+    /// Set the stride. Default is (1, 1).
+    pub fn with_stride(mut self, stride: (usize, usize)) -> Self {
+        self.stride = stride;
+        self
+    }
+
+    /// Set the padding. Default is (0, 0).
+    pub fn with_padding(mut self, padding: (usize, usize)) -> Self {
+        self.padding = padding;
+        self
+    }
+
+    /// Set the dilation. Default is (1, 1).
+    pub fn with_dilation(mut self, dilation: (usize, usize)) -> Self {
+        self.dilation = dilation;
+        self
+    }
+
+    /// Add a learnable bias. Default is no bias.
+    pub fn with_bias(mut self) -> Self {
+        if self.bias.is_none() {
+            let bias_data = vec![0.0f32; self.out_channels];
+            self.bias = Some(Parameter::from_data("bias", &bias_data, &[self.out_channels]));
+        }
+        self
+    }
+
+    /// Create a new Conv2d layer with all options (legacy API).
+    ///
+    /// Prefer using the builder pattern instead:
+    /// ```ignore
+    /// Conv2d::new(in_ch, out_ch, kernel).with_padding(p).with_bias()
+    /// ```
+    pub fn with_options(
+        in_channels: usize,
+        out_channels: usize,
+        kernel_size: (usize, usize),
+        stride: (usize, usize),
+        padding: (usize, usize),
+        dilation: (usize, usize),
+        bias: bool,
+    ) -> Self {
+        let mut conv = Self::new(in_channels, out_channels, kernel_size)
+            .with_stride(stride)
+            .with_padding(padding)
+            .with_dilation(dilation);
+        if bias {
+            conv = conv.with_bias();
+        }
+        conv
     }
 
     /// Forward pass with static dimension types.
@@ -302,21 +324,16 @@ pub struct Conv1d {
 }
 
 impl Conv1d {
-    /// Create a new Conv1d layer with default stride=1, padding=0, dilation=1, bias=true.
+    /// Create a new Conv1d layer with default stride=1, padding=0, dilation=1, no bias.
+    ///
+    /// Use builder methods to customize:
+    /// ```ignore
+    /// let conv = Conv1d::new(3, 64, 3)
+    ///     .with_padding(1)
+    ///     .with_stride(2)
+    ///     .with_bias();
+    /// ```
     pub fn new(in_channels: usize, out_channels: usize, kernel_size: usize) -> Self {
-        Self::with_options(in_channels, out_channels, kernel_size, 1, 0, 1, true)
-    }
-
-    /// Create a new Conv1d layer with all options.
-    pub fn with_options(
-        in_channels: usize,
-        out_channels: usize,
-        kernel_size: usize,
-        stride: usize,
-        padding: usize,
-        dilation: usize,
-        bias: bool,
-    ) -> Self {
         // Kaiming uniform initialization
         let fan_in = in_channels * kernel_size;
         let bound = (1.0 / fan_in as f32).sqrt();
@@ -332,25 +349,64 @@ impl Conv1d {
             &[out_channels, in_channels, kernel_size],
         );
 
-        // Initialize bias
-        let bias = if bias {
-            let bias_data = vec![0.0f32; out_channels];
-            Some(Parameter::from_data("bias", &bias_data, &[out_channels]))
-        } else {
-            None
-        };
-
         Self {
             weight,
-            bias,
+            bias: None,
             in_channels,
             out_channels,
             kernel_size,
-            stride,
-            padding,
-            dilation,
+            stride: 1,
+            padding: 0,
+            dilation: 1,
             training: true,
         }
+    }
+
+    /// Set the stride. Default is 1.
+    pub fn with_stride(mut self, stride: usize) -> Self {
+        self.stride = stride;
+        self
+    }
+
+    /// Set the padding. Default is 0.
+    pub fn with_padding(mut self, padding: usize) -> Self {
+        self.padding = padding;
+        self
+    }
+
+    /// Set the dilation. Default is 1.
+    pub fn with_dilation(mut self, dilation: usize) -> Self {
+        self.dilation = dilation;
+        self
+    }
+
+    /// Add a learnable bias. Default is no bias.
+    pub fn with_bias(mut self) -> Self {
+        if self.bias.is_none() {
+            let bias_data = vec![0.0f32; self.out_channels];
+            self.bias = Some(Parameter::from_data("bias", &bias_data, &[self.out_channels]));
+        }
+        self
+    }
+
+    /// Create a new Conv1d layer with all options (legacy API).
+    pub fn with_options(
+        in_channels: usize,
+        out_channels: usize,
+        kernel_size: usize,
+        stride: usize,
+        padding: usize,
+        dilation: usize,
+        bias: bool,
+    ) -> Self {
+        let mut conv = Self::new(in_channels, out_channels, kernel_size)
+            .with_stride(stride)
+            .with_padding(padding)
+            .with_dilation(dilation);
+        if bias {
+            conv = conv.with_bias();
+        }
+        conv
     }
 
     /// Forward pass with static dimension types.
@@ -530,32 +586,19 @@ pub struct Conv3d {
 }
 
 impl Conv3d {
-    /// Create a new Conv3d layer with default stride=1, padding=0, dilation=1, bias=true.
+    /// Create a new Conv3d layer with default stride=1, padding=0, dilation=1, no bias.
+    ///
+    /// Use builder methods to customize:
+    /// ```ignore
+    /// let conv = Conv3d::new(3, 64, (3, 3, 3))
+    ///     .with_padding((1, 1, 1))
+    ///     .with_stride((2, 2, 2))
+    ///     .with_bias();
+    /// ```
     pub fn new(
         in_channels: usize,
         out_channels: usize,
         kernel_size: (usize, usize, usize),
-    ) -> Self {
-        Self::with_options(
-            in_channels,
-            out_channels,
-            kernel_size,
-            (1, 1, 1),
-            (0, 0, 0),
-            (1, 1, 1),
-            true,
-        )
-    }
-
-    /// Create a new Conv3d layer with all options.
-    pub fn with_options(
-        in_channels: usize,
-        out_channels: usize,
-        kernel_size: (usize, usize, usize),
-        stride: (usize, usize, usize),
-        padding: (usize, usize, usize),
-        dilation: (usize, usize, usize),
-        bias: bool,
     ) -> Self {
         let (kd, kh, kw) = kernel_size;
 
@@ -574,25 +617,64 @@ impl Conv3d {
             &[out_channels, in_channels, kd, kh, kw],
         );
 
-        // Initialize bias
-        let bias = if bias {
-            let bias_data = vec![0.0f32; out_channels];
-            Some(Parameter::from_data("bias", &bias_data, &[out_channels]))
-        } else {
-            None
-        };
-
         Self {
             weight,
-            bias,
+            bias: None,
             in_channels,
             out_channels,
             kernel_size,
-            stride,
-            padding,
-            dilation,
+            stride: (1, 1, 1),
+            padding: (0, 0, 0),
+            dilation: (1, 1, 1),
             training: true,
         }
+    }
+
+    /// Set the stride. Default is (1, 1, 1).
+    pub fn with_stride(mut self, stride: (usize, usize, usize)) -> Self {
+        self.stride = stride;
+        self
+    }
+
+    /// Set the padding. Default is (0, 0, 0).
+    pub fn with_padding(mut self, padding: (usize, usize, usize)) -> Self {
+        self.padding = padding;
+        self
+    }
+
+    /// Set the dilation. Default is (1, 1, 1).
+    pub fn with_dilation(mut self, dilation: (usize, usize, usize)) -> Self {
+        self.dilation = dilation;
+        self
+    }
+
+    /// Add a learnable bias. Default is no bias.
+    pub fn with_bias(mut self) -> Self {
+        if self.bias.is_none() {
+            let bias_data = vec![0.0f32; self.out_channels];
+            self.bias = Some(Parameter::from_data("bias", &bias_data, &[self.out_channels]));
+        }
+        self
+    }
+
+    /// Create a new Conv3d layer with all options (legacy API).
+    pub fn with_options(
+        in_channels: usize,
+        out_channels: usize,
+        kernel_size: (usize, usize, usize),
+        stride: (usize, usize, usize),
+        padding: (usize, usize, usize),
+        dilation: (usize, usize, usize),
+        bias: bool,
+    ) -> Self {
+        let mut conv = Self::new(in_channels, out_channels, kernel_size)
+            .with_stride(stride)
+            .with_padding(padding)
+            .with_dilation(dilation);
+        if bias {
+            conv = conv.with_bias();
+        }
+        conv
     }
 
     /// Forward pass with static dimension types.
@@ -801,41 +883,16 @@ pub struct ConvTranspose2d {
 }
 
 impl ConvTranspose2d {
-    /// Create a new ConvTranspose2d layer with default stride=1, padding=0, output_padding=0, dilation=1, bias=true.
-    pub fn new(in_channels: usize, out_channels: usize, kernel_size: (usize, usize)) -> Self {
-        Self::with_options(
-            in_channels,
-            out_channels,
-            kernel_size,
-            (1, 1),
-            (0, 0),
-            (0, 0),
-            (1, 1),
-            true,
-        )
-    }
-
-    /// Create a new ConvTranspose2d layer with all options.
+    /// Create a new ConvTranspose2d layer with default options, no bias.
     ///
-    /// # Arguments
-    /// * `in_channels` - Number of input channels
-    /// * `out_channels` - Number of output channels
-    /// * `kernel_size` - Size of the convolving kernel (kH, kW)
-    /// * `stride` - Stride of the convolution (sH, sW)
-    /// * `padding` - Zero-padding added to both sides (pH, pW)
-    /// * `output_padding` - Additional size added to output (opH, opW)
-    /// * `dilation` - Spacing between kernel elements (dH, dW)
-    /// * `bias` - If true, adds a learnable bias
-    pub fn with_options(
-        in_channels: usize,
-        out_channels: usize,
-        kernel_size: (usize, usize),
-        stride: (usize, usize),
-        padding: (usize, usize),
-        output_padding: (usize, usize),
-        dilation: (usize, usize),
-        bias: bool,
-    ) -> Self {
+    /// Use builder methods to customize:
+    /// ```ignore
+    /// let conv_t = ConvTranspose2d::new(64, 3, (3, 3))
+    ///     .with_stride((2, 2))
+    ///     .with_padding((1, 1))
+    ///     .with_bias();
+    /// ```
+    pub fn new(in_channels: usize, out_channels: usize, kernel_size: (usize, usize)) -> Self {
         let (kh, kw) = kernel_size;
 
         // Kaiming uniform initialization
@@ -850,26 +907,73 @@ impl ConvTranspose2d {
         let weight: Parameter<D4> =
             Parameter::from_data("weight", &weight_data, &[in_channels, out_channels, kh, kw]);
 
-        // Initialize bias
-        let bias = if bias {
-            let bias_data = vec![0.0f32; out_channels];
-            Some(Parameter::from_data("bias", &bias_data, &[out_channels]))
-        } else {
-            None
-        };
-
         Self {
             weight,
-            bias,
+            bias: None,
             in_channels,
             out_channels,
             kernel_size,
-            stride,
-            padding,
-            output_padding,
-            dilation,
+            stride: (1, 1),
+            padding: (0, 0),
+            output_padding: (0, 0),
+            dilation: (1, 1),
             training: true,
         }
+    }
+
+    /// Set the stride. Default is (1, 1).
+    pub fn with_stride(mut self, stride: (usize, usize)) -> Self {
+        self.stride = stride;
+        self
+    }
+
+    /// Set the padding. Default is (0, 0).
+    pub fn with_padding(mut self, padding: (usize, usize)) -> Self {
+        self.padding = padding;
+        self
+    }
+
+    /// Set the output padding. Default is (0, 0).
+    pub fn with_output_padding(mut self, output_padding: (usize, usize)) -> Self {
+        self.output_padding = output_padding;
+        self
+    }
+
+    /// Set the dilation. Default is (1, 1).
+    pub fn with_dilation(mut self, dilation: (usize, usize)) -> Self {
+        self.dilation = dilation;
+        self
+    }
+
+    /// Add a learnable bias. Default is no bias.
+    pub fn with_bias(mut self) -> Self {
+        if self.bias.is_none() {
+            let bias_data = vec![0.0f32; self.out_channels];
+            self.bias = Some(Parameter::from_data("bias", &bias_data, &[self.out_channels]));
+        }
+        self
+    }
+
+    /// Create a new ConvTranspose2d layer with all options (legacy API).
+    pub fn with_options(
+        in_channels: usize,
+        out_channels: usize,
+        kernel_size: (usize, usize),
+        stride: (usize, usize),
+        padding: (usize, usize),
+        output_padding: (usize, usize),
+        dilation: (usize, usize),
+        bias: bool,
+    ) -> Self {
+        let mut conv = Self::new(in_channels, out_channels, kernel_size)
+            .with_stride(stride)
+            .with_padding(padding)
+            .with_output_padding(output_padding)
+            .with_dilation(dilation);
+        if bias {
+            conv = conv.with_bias();
+        }
+        conv
     }
 
     /// Forward pass with static dimension types.
@@ -1068,22 +1172,17 @@ pub struct ConvTranspose1d {
 }
 
 impl ConvTranspose1d {
-    /// Create a new ConvTranspose1d layer with default stride=1, padding=0, output_padding=0, dilation=1, bias=true.
+    /// Create a new ConvTranspose1d layer with default stride=1, padding=0, output_padding=0, dilation=1, no bias.
+    ///
+    /// Use builder methods to customize:
+    /// ```ignore
+    /// let conv_t = ConvTranspose1d::new(64, 3, 3)
+    ///     .with_stride(2)
+    ///     .with_padding(1)
+    ///     .with_output_padding(1)
+    ///     .with_bias();
+    /// ```
     pub fn new(in_channels: usize, out_channels: usize, kernel_size: usize) -> Self {
-        Self::with_options(in_channels, out_channels, kernel_size, 1, 0, 0, 1, true)
-    }
-
-    /// Create a new ConvTranspose1d layer with all options.
-    pub fn with_options(
-        in_channels: usize,
-        out_channels: usize,
-        kernel_size: usize,
-        stride: usize,
-        padding: usize,
-        output_padding: usize,
-        dilation: usize,
-        bias: bool,
-    ) -> Self {
         // Kaiming uniform initialization
         let fan_in = in_channels * kernel_size;
         let bound = (1.0 / fan_in as f32).sqrt();
@@ -1099,25 +1198,73 @@ impl ConvTranspose1d {
             &[in_channels, out_channels, kernel_size],
         );
 
-        // Initialize bias
-        let bias = if bias {
-            let bias_data = vec![0.0f32; out_channels];
-            Some(Parameter::from_data("bias", &bias_data, &[out_channels]))
-        } else {
-            None
-        };
-
         Self {
             weight,
-            bias,
+            bias: None,
             in_channels,
             out_channels,
             kernel_size,
-            stride,
-            padding,
-            output_padding,
-            dilation,
+            stride: 1,
+            padding: 0,
+            output_padding: 0,
+            dilation: 1,
             training: true,
+        }
+    }
+
+    /// Set the stride.
+    pub fn with_stride(mut self, stride: usize) -> Self {
+        self.stride = stride;
+        self
+    }
+
+    /// Set the padding.
+    pub fn with_padding(mut self, padding: usize) -> Self {
+        self.padding = padding;
+        self
+    }
+
+    /// Set the output padding.
+    pub fn with_output_padding(mut self, output_padding: usize) -> Self {
+        self.output_padding = output_padding;
+        self
+    }
+
+    /// Set the dilation.
+    pub fn with_dilation(mut self, dilation: usize) -> Self {
+        self.dilation = dilation;
+        self
+    }
+
+    /// Add a bias parameter.
+    pub fn with_bias(mut self) -> Self {
+        if self.bias.is_none() {
+            let bias_data = vec![0.0f32; self.out_channels];
+            self.bias = Some(Parameter::from_data("bias", &bias_data, &[self.out_channels]));
+        }
+        self
+    }
+
+    /// Create a new ConvTranspose1d layer with all options (legacy API).
+    pub fn with_options(
+        in_channels: usize,
+        out_channels: usize,
+        kernel_size: usize,
+        stride: usize,
+        padding: usize,
+        output_padding: usize,
+        dilation: usize,
+        bias: bool,
+    ) -> Self {
+        let layer = Self::new(in_channels, out_channels, kernel_size)
+            .with_stride(stride)
+            .with_padding(padding)
+            .with_output_padding(output_padding)
+            .with_dilation(dilation);
+        if bias {
+            layer.with_bias()
+        } else {
+            layer
         }
     }
 
@@ -1305,34 +1452,20 @@ pub struct ConvTranspose3d {
 }
 
 impl ConvTranspose3d {
-    /// Create a new ConvTranspose3d layer with default stride=1, padding=0, output_padding=0, dilation=1, bias=true.
+    /// Create a new ConvTranspose3d layer with default stride=1, padding=0, output_padding=0, dilation=1, no bias.
+    ///
+    /// Use builder methods to customize:
+    /// ```ignore
+    /// let conv_t = ConvTranspose3d::new(64, 3, (3, 3, 3))
+    ///     .with_stride((2, 2, 2))
+    ///     .with_padding((1, 1, 1))
+    ///     .with_output_padding((1, 1, 1))
+    ///     .with_bias();
+    /// ```
     pub fn new(
         in_channels: usize,
         out_channels: usize,
         kernel_size: (usize, usize, usize),
-    ) -> Self {
-        Self::with_options(
-            in_channels,
-            out_channels,
-            kernel_size,
-            (1, 1, 1),
-            (0, 0, 0),
-            (0, 0, 0),
-            (1, 1, 1),
-            true,
-        )
-    }
-
-    /// Create a new ConvTranspose3d layer with all options.
-    pub fn with_options(
-        in_channels: usize,
-        out_channels: usize,
-        kernel_size: (usize, usize, usize),
-        stride: (usize, usize, usize),
-        padding: (usize, usize, usize),
-        output_padding: (usize, usize, usize),
-        dilation: (usize, usize, usize),
-        bias: bool,
     ) -> Self {
         let (kd, kh, kw) = kernel_size;
 
@@ -1351,25 +1484,73 @@ impl ConvTranspose3d {
             &[in_channels, out_channels, kd, kh, kw],
         );
 
-        // Initialize bias
-        let bias = if bias {
-            let bias_data = vec![0.0f32; out_channels];
-            Some(Parameter::from_data("bias", &bias_data, &[out_channels]))
-        } else {
-            None
-        };
-
         Self {
             weight,
-            bias,
+            bias: None,
             in_channels,
             out_channels,
             kernel_size,
-            stride,
-            padding,
-            output_padding,
-            dilation,
+            stride: (1, 1, 1),
+            padding: (0, 0, 0),
+            output_padding: (0, 0, 0),
+            dilation: (1, 1, 1),
             training: true,
+        }
+    }
+
+    /// Set the stride.
+    pub fn with_stride(mut self, stride: (usize, usize, usize)) -> Self {
+        self.stride = stride;
+        self
+    }
+
+    /// Set the padding.
+    pub fn with_padding(mut self, padding: (usize, usize, usize)) -> Self {
+        self.padding = padding;
+        self
+    }
+
+    /// Set the output padding.
+    pub fn with_output_padding(mut self, output_padding: (usize, usize, usize)) -> Self {
+        self.output_padding = output_padding;
+        self
+    }
+
+    /// Set the dilation.
+    pub fn with_dilation(mut self, dilation: (usize, usize, usize)) -> Self {
+        self.dilation = dilation;
+        self
+    }
+
+    /// Add a bias parameter.
+    pub fn with_bias(mut self) -> Self {
+        if self.bias.is_none() {
+            let bias_data = vec![0.0f32; self.out_channels];
+            self.bias = Some(Parameter::from_data("bias", &bias_data, &[self.out_channels]));
+        }
+        self
+    }
+
+    /// Create a new ConvTranspose3d layer with all options (legacy API).
+    pub fn with_options(
+        in_channels: usize,
+        out_channels: usize,
+        kernel_size: (usize, usize, usize),
+        stride: (usize, usize, usize),
+        padding: (usize, usize, usize),
+        output_padding: (usize, usize, usize),
+        dilation: (usize, usize, usize),
+        bias: bool,
+    ) -> Self {
+        let layer = Self::new(in_channels, out_channels, kernel_size)
+            .with_stride(stride)
+            .with_padding(padding)
+            .with_output_padding(output_padding)
+            .with_dilation(dilation);
+        if bias {
+            layer.with_bias()
+        } else {
+            layer
         }
     }
 
@@ -1590,13 +1771,15 @@ mod tests {
 
     #[test]
     fn test_conv2d_parameters() {
+        // new() creates layer without bias by default
         let conv = Conv2d::new(3, 64, (3, 3));
         let params = conv.parameters();
-        assert_eq!(params.len(), 2); // weight + bias
-
-        let conv_no_bias = Conv2d::with_options(3, 64, (3, 3), (1, 1), (0, 0), (1, 1), false);
-        let params = conv_no_bias.parameters();
         assert_eq!(params.len(), 1); // weight only
+
+        // with_bias() adds bias
+        let conv_with_bias = Conv2d::new(3, 64, (3, 3)).with_bias();
+        let params = conv_with_bias.parameters();
+        assert_eq!(params.len(), 2); // weight + bias
     }
 
     #[test]
@@ -1631,14 +1814,15 @@ mod tests {
 
     #[test]
     fn test_conv3d_parameters() {
+        // new() creates layer without bias by default
         let conv = Conv3d::new(3, 64, (3, 3, 3));
         let params = conv.parameters();
-        assert_eq!(params.len(), 2); // weight + bias
-
-        let conv_no_bias =
-            Conv3d::with_options(3, 64, (3, 3, 3), (1, 1, 1), (0, 0, 0), (1, 1, 1), false);
-        let params = conv_no_bias.parameters();
         assert_eq!(params.len(), 1); // weight only
+
+        // with_bias() adds bias
+        let conv_with_bias = Conv3d::new(3, 64, (3, 3, 3)).with_bias();
+        let params = conv_with_bias.parameters();
+        assert_eq!(params.len(), 2); // weight + bias
     }
 
 
@@ -1668,14 +1852,15 @@ mod tests {
 
     #[test]
     fn test_conv_transpose2d_parameters() {
+        // new() creates layer without bias by default
         let conv_t = ConvTranspose2d::new(64, 3, (3, 3));
         let params = conv_t.parameters();
-        assert_eq!(params.len(), 2); // weight + bias
-
-        let conv_t_no_bias =
-            ConvTranspose2d::with_options(64, 3, (3, 3), (1, 1), (0, 0), (0, 0), (1, 1), false);
-        let params = conv_t_no_bias.parameters();
         assert_eq!(params.len(), 1); // weight only
+
+        // with_bias() adds bias
+        let conv_t_with_bias = ConvTranspose2d::new(64, 3, (3, 3)).with_bias();
+        let params = conv_t_with_bias.parameters();
+        assert_eq!(params.len(), 2); // weight + bias
     }
 
     // ============================================================================
@@ -1728,13 +1913,14 @@ mod tests {
 
     #[test]
     fn test_conv_transpose3d_parameters() {
+        // new() creates layer without bias by default
         let conv_t = ConvTranspose3d::new(64, 3, (3, 3, 3));
         let params = conv_t.parameters();
-        assert_eq!(params.len(), 2); // weight + bias
-
-        let conv_t_no_bias =
-            ConvTranspose3d::with_options(64, 3, (3, 3, 3), (1, 1, 1), (0, 0, 0), (0, 0, 0), (1, 1, 1), false);
-        let params = conv_t_no_bias.parameters();
         assert_eq!(params.len(), 1); // weight only
+
+        // with_bias() adds bias
+        let conv_t_with_bias = ConvTranspose3d::new(64, 3, (3, 3, 3)).with_bias();
+        let params = conv_t_with_bias.parameters();
+        assert_eq!(params.len(), 2); // weight + bias
     }
 }
