@@ -2,5 +2,23 @@
 name = "eclat"
 version = "0.1.0"
 edition = "2024"
+description = "A lightweight tensor library inspired by tinygrad"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/uthree/eclat"
+keywords = ["tensor", "machine-learning", "deep-learning", "gpu"]
+categories = ["science", "mathematics"]
 
 [dependencies]
+thiserror = "2"
+
+[features]
+default = ["cpu"]
+cpu = []
+opencl = ["opencl3"]
+
+[dependencies.opencl3]
+version = "0.9"
+optional = true
+
+[dev-dependencies]
+# For benchmarking and examples
