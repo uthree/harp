@@ -43,8 +43,8 @@ Backend (レンダリング・コンパイル・実行)
 
 ### Lowererの動作
 
-- `lower()`: `AllFusions`のみ適用
-- `lower_with_graph_optimization()`: ビームサーチで統合最適化
+- `lower()`: 純粋なローワリングのみ（最適化なし）
+- グラフ最適化は`CompilationPipeline`が担当
 
 ## 探索戦略
 

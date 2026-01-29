@@ -35,7 +35,12 @@ use crate::opt::ast::{
     LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester, RuleBaseSuggester,
     SharedMemorySuggester,
 };
-// Note: WmmaSuggester removed - WMMA detection is now done at graph level
+use crate::opt::graph::{
+    CompositeSuggester as GraphCompositeSuggester, ElementwiseReduceFusionSuggester,
+    GraphBeamSearchOptimizer, GraphOptimizer, GraphSuggester, MatMulDetectorSuggester,
+    ViewFusionSuggester,
+};
+use crate::opt::progress::NoOpProgress;
 
 /// Configuration for AST optimization
 #[derive(Debug, Clone)]
@@ -195,27 +200,26 @@ impl CompilationPipeline {
     /// graph into an AST representation suitable for optimization and code
     /// generation.
     ///
-    /// When optimization level > 0, applies graph-level beam search optimization
-    /// including MatMul pattern detection and fusion passes.
+    /// Graph-level optimization (MatMul detection, fusion) is applied based on
+    /// the optimization level before lowering.
     ///
     /// # Errors
     ///
     /// Returns `LoweringError` if lowering fails.
     pub fn lower(&self, roots: &[GraphNode]) -> crate::lowerer::LoweringResult<AstNode> {
+        // Apply graph-level optimization first
+        let optimized_roots = self.optimize_graph(roots.to_vec());
+        // Then lower to AST
         let mut lowerer = Lowerer::new();
-        if self.opt_config.level > 0 {
-            lowerer.lower_with_graph_optimization(roots)
-        } else {
-            lowerer.lower(roots)
-        }
+        lowerer.lower(&optimized_roots)
     }
 
     /// Lower GraphNode DAG to AST, returning the Lowerer for buffer name lookups
     ///
     /// Use this when you need to map between GraphNode and buffer names.
     ///
-    /// When optimization level > 0, applies graph-level beam search optimization
-    /// including MatMul pattern detection and fusion passes.
+    /// Graph-level optimization (MatMul detection, fusion) is applied based on
+    /// the optimization level before lowering.
     ///
     /// # Errors
     ///
@@ -224,12 +228,11 @@ impl CompilationPipeline {
         &self,
         roots: &[GraphNode],
     ) -> crate::lowerer::LoweringResult<(AstNode, Lowerer)> {
+        // Apply graph-level optimization first
+        let optimized_roots = self.optimize_graph(roots.to_vec());
+        // Then lower to AST
         let mut lowerer = Lowerer::new();
-        let ast = if self.opt_config.level > 0 {
-            lowerer.lower_with_graph_optimization(roots)?
-        } else {
-            lowerer.lower(roots)?
-        };
+        let ast = lowerer.lower(&optimized_roots)?;
         Ok((ast, lowerer))
     }
 
@@ -340,6 +343,46 @@ impl CompilationPipeline {
         }
 
         CompositeSuggester::new(suggesters)
+    }
+
+    /// Create the graph-level composite suggester with all graph suggesters
+    fn create_graph_suggester(&self) -> GraphCompositeSuggester {
+        let suggesters: Vec<Box<dyn GraphSuggester>> = vec![
+            Box::new(MatMulDetectorSuggester::new()),
+            Box::new(ViewFusionSuggester::new()),
+            Box::new(ElementwiseReduceFusionSuggester::new()),
+        ];
+        GraphCompositeSuggester::new(suggesters)
+    }
+
+    /// Optimize computation graph using beam search
+    ///
+    /// Applies graph-level optimizations including:
+    /// - MatMul pattern detection
+    /// - View fusion (composing consecutive View operations)
+    /// - Elementwise + Reduce fusion
+    ///
+    /// Returns the optimized graph roots.
+    pub fn optimize_graph(&self, roots: Vec<GraphNode>) -> Vec<GraphNode> {
+        if self.opt_config.level == 0 {
+            // Level 0: Apply only basic fusion passes (fast, deterministic)
+            use crate::lowerer::{AllFusions, FusionPass};
+            return AllFusions.apply(&roots);
+        }
+
+        let suggester = self.create_graph_suggester();
+
+        // Use smaller beam width for graph optimization (fewer candidates than AST)
+        let beam_width = std::cmp::max(self.opt_config.beam_width / 2, 3);
+        let max_steps = std::cmp::max(self.opt_config.max_steps / 2, 50);
+
+        let mut optimizer: GraphBeamSearchOptimizer<_, _, NoOpProgress> =
+            GraphBeamSearchOptimizer::new(suggester)
+                .without_progress()
+                .with_beam_width(beam_width)
+                .with_max_steps(max_steps);
+
+        optimizer.optimize(roots)
     }
 
     /// Check if the backend is a GPU backend

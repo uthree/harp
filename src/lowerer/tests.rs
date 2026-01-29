@@ -159,17 +159,20 @@ fn test_scan_loop_generation() {
 
 #[test]
 fn test_unified_optimization() {
-    // Test that unified optimization applies both MatMul detection and fusion passes
+    // Test that CompilationPipeline applies both MatMul detection and fusion passes
+    use crate::backend::compile::CompilationPipeline;
+    use crate::backend::DeviceKind;
+
     let x = input(vec![Expr::Const(32), Expr::Const(64)], DType::F32);
 
     // Create consecutive views that can be fused
     let transposed = x.permute(&[1, 0]);
     let unsqueezed = transposed.unsqueeze(0);
 
-    // Lower with graph optimization
-    let mut lowerer = Lowerer::new();
-    let program = lowerer
-        .lower_with_graph_optimization(&[unsqueezed])
+    // Lower with graph optimization via CompilationPipeline
+    let pipeline = CompilationPipeline::new(DeviceKind::None);
+    let program = pipeline
+        .lower(&[unsqueezed])
         .expect("Lowering with optimization should succeed");
 
     assert!(matches!(program, crate::ast::AstNode::Program { .. }));
@@ -177,16 +180,19 @@ fn test_unified_optimization() {
 
 #[test]
 fn test_unified_optimization_with_fusion_and_reduce() {
-    // Test that fusion passes work within unified optimization
+    // Test that fusion passes work within CompilationPipeline
+    use crate::backend::compile::CompilationPipeline;
+    use crate::backend::DeviceKind;
+
     let x = input(vec![Expr::Const(32), Expr::Const(64)], DType::F32);
 
     // Elementwise followed by reduction - should be fused
     let doubled = &x * &x;
     let summed = doubled.sum(1);
 
-    let mut lowerer = Lowerer::new();
-    let program = lowerer
-        .lower_with_graph_optimization(&[summed])
+    let pipeline = CompilationPipeline::new(DeviceKind::None);
+    let program = pipeline
+        .lower(&[summed])
         .expect("Lowering should succeed");
 
     assert!(matches!(program, crate::ast::AstNode::Program { .. }));

@@ -9,7 +9,6 @@ use std::fmt;
 use crate::ast::{AddressSpace, AstNode, DType, Literal, Mutability, VarDecl, VarKind};
 use crate::graph::{Expr, GraphNode, GraphOp, ReduceOp, View, collect_inputs, topological_sort};
 
-use super::fusion::{AllFusions, FusionPass};
 use super::index_gen::IndexGenerator;
 use super::loop_gen::LoopGenerator;
 
@@ -288,10 +287,12 @@ impl Lowerer {
     /// Lower a computation graph to a Program AST
     ///
     /// This is the main entry point. It:
-    /// 1. Applies fusion passes
-    /// 2. Topologically sorts nodes
-    /// 3. Generates a kernel for each non-input node
-    /// 4. Wraps everything in a Program node
+    /// 1. Topologically sorts nodes
+    /// 2. Generates a kernel for each non-input node
+    /// 3. Wraps everything in a Program node
+    ///
+    /// Note: Graph-level optimization (fusion, MatMul detection) should be applied
+    /// before calling this method. Use `CompilationPipeline` for automatic optimization.
     ///
     /// # Errors
     ///
@@ -300,65 +301,14 @@ impl Lowerer {
     /// - Buffer lookup fails
     /// - Shape validation fails
     pub fn lower(&mut self, roots: &[GraphNode]) -> LoweringResult<AstNode> {
-        self.lower_internal(roots, false)
-    }
-
-    /// Lower a computation graph to a Program AST with graph-level optimization
-    ///
-    /// This variant applies graph-level beam search optimization before lowering.
-    /// It can detect high-level patterns like matrix multiplication and replace
-    /// them with optimized operations (e.g., WMMA).
-    ///
-    /// # Errors
-    ///
-    /// Returns `LoweringError` if any lowering operation fails.
-    pub fn lower_with_graph_optimization(
-        &mut self,
-        roots: &[GraphNode],
-    ) -> LoweringResult<AstNode> {
-        self.lower_internal(roots, true)
-    }
-
-    /// Internal lowering implementation
-    fn lower_internal(
-        &mut self,
-        roots: &[GraphNode],
-        with_graph_optimization: bool,
-    ) -> LoweringResult<AstNode> {
-        // Apply optimizations based on mode
-        let optimized = if with_graph_optimization {
-            // Unified optimization: fusion suggesters integrated into beam search
-            use crate::opt::graph::suggesters::{
-                CompositeSuggester, ElementwiseReduceFusionSuggester, MatMulDetectorSuggester,
-                ViewFusionSuggester,
-            };
-            use crate::opt::graph::{GraphBeamSearchOptimizer, GraphOptimizer};
-            use crate::opt::progress::NoOpProgress;
-
-            let suggester = CompositeSuggester::new(vec![
-                Box::new(MatMulDetectorSuggester::new()),
-                Box::new(ViewFusionSuggester::new()),
-                Box::new(ElementwiseReduceFusionSuggester::new()),
-            ]);
-            let mut optimizer: GraphBeamSearchOptimizer<_, _, NoOpProgress> =
-                GraphBeamSearchOptimizer::new(suggester)
-                    .without_progress()
-                    .with_beam_width(5)
-                    .with_max_steps(100);
-            optimizer.optimize(roots.to_vec())
-        } else {
-            // Fallback: apply only fusion passes (no beam search)
-            AllFusions.apply(roots)
-        };
-
         // Get topological order
-        let sorted = topological_sort(&optimized);
+        let sorted = topological_sort(roots);
 
         // Compute consumer counts for View inlining decisions
         self.consumer_counts = Self::count_consumers(&sorted);
 
         // Identify external inputs
-        let inputs = collect_inputs(&optimized);
+        let inputs = collect_inputs(roots);
         for input in &inputs {
             self.get_buffer_name(input);
         }

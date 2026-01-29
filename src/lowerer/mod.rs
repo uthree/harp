@@ -26,7 +26,8 @@ mod tests;
 
 // Re-exports
 pub use fusion::{
-    ElementwiseReduceFusion, FusionPass, ViewFusion, fuse_elementwise_reduce, fuse_views,
+    AllFusions, ElementwiseReduceFusion, FusionPass, ViewFusion, fuse_elementwise_reduce,
+    fuse_views,
 };
 pub use index_gen::IndexGenerator;
 pub use loop_gen::LoopGenerator;
