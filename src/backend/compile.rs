@@ -195,17 +195,27 @@ impl CompilationPipeline {
     /// graph into an AST representation suitable for optimization and code
     /// generation.
     ///
+    /// When optimization level > 0, applies graph-level beam search optimization
+    /// including MatMul pattern detection and fusion passes.
+    ///
     /// # Errors
     ///
     /// Returns `LoweringError` if lowering fails.
     pub fn lower(&self, roots: &[GraphNode]) -> crate::lowerer::LoweringResult<AstNode> {
         let mut lowerer = Lowerer::new();
-        lowerer.lower(roots)
+        if self.opt_config.level > 0 {
+            lowerer.lower_with_graph_optimization(roots)
+        } else {
+            lowerer.lower(roots)
+        }
     }
 
     /// Lower GraphNode DAG to AST, returning the Lowerer for buffer name lookups
     ///
     /// Use this when you need to map between GraphNode and buffer names.
+    ///
+    /// When optimization level > 0, applies graph-level beam search optimization
+    /// including MatMul pattern detection and fusion passes.
     ///
     /// # Errors
     ///
@@ -215,7 +225,11 @@ impl CompilationPipeline {
         roots: &[GraphNode],
     ) -> crate::lowerer::LoweringResult<(AstNode, Lowerer)> {
         let mut lowerer = Lowerer::new();
-        let ast = lowerer.lower(roots)?;
+        let ast = if self.opt_config.level > 0 {
+            lowerer.lower_with_graph_optimization(roots)?
+        } else {
+            lowerer.lower(roots)?
+        };
         Ok((ast, lowerer))
     }
 

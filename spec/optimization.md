@@ -10,22 +10,41 @@ Eclatは二段階の最適化を行う:
 ## パイプライン
 
 ```
-Graph → [GraphBeamSearchOptimizer] → Lowerer → AST → [BeamSearchOptimizer] → Backend
-             ├── MatMulDetectorSuggester
-             ├── FusionSuggester<ViewFusion>
-             └── FusionSuggester<ElementwiseReduceFusion>
+Tensor::realize()
+    ↓
+execute_graph() [backend/executor.rs]
+    ↓
+CompilationPipeline::lower_with_lowerer() [backend/compile.rs]
+    ↓ (opt_level > 0 の場合)
+GraphBeamSearchOptimizer [opt/graph/optimizer]
+    ├── MatMulDetectorSuggester      (MatMulパターン検出)
+    ├── ViewFusionSuggester          (連続View融合)
+    └── ElementwiseReduceFusionSuggester (Elementwise+Reduce融合)
+    ↓
+Lowerer::lower() → AST
+    ↓
+CompilationPipeline::optimize() [BeamSearchOptimizer]
+    ↓
+Backend (レンダリング・コンパイル・実行)
 ```
 
 ## 最適化の統合
 
-`FusionSuggester<F>`アダプターにより、`FusionPass`トレイトを実装するすべての融合パスが`GraphSuggester`として動作し、ビームサーチの探索空間に統合される。これにより:
+各融合パス（ViewFusion, ElementwiseReduceFusion）は直接`GraphSuggester`トレイトを実装する。これにより:
 
 - **統一的な探索**: すべての変換がコスト評価に基づいて選択される
 - **順序最適化**: 変換の適用順序も探索で決定
-- **拡張性**: 新しいFusionPassも自動的にSuggesterとして使用可能
+- **シンプルな実装**: アダプターなしで直接Suggesterとして動作
 
-`lower()`: 融合パス（AllFusions）のみ適用（高速・決定的）
-`lower_with_graph_optimization()`: ビームサーチで統合最適化
+### CompilationPipelineの動作
+
+- `opt_level > 0`: `GraphBeamSearchOptimizer`による統合最適化
+- `opt_level = 0`: `AllFusions`のみ適用（高速・決定的）
+
+### Lowererの動作
+
+- `lower()`: `AllFusions`のみ適用
+- `lower_with_graph_optimization()`: ビームサーチで統合最適化
 
 ## 探索戦略
 
