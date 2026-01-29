@@ -296,4 +296,76 @@ mod tests {
             assert!((v - 3.0).abs() < 0.0001);
         }
     }
+
+    #[test]
+    fn test_opencl_fused_elementwise() {
+        let Some(device) = get_test_device() else {
+            println!("No OpenCL GPU device available, skipping test");
+            return;
+        };
+
+        let mut buffers = BufferMap::new();
+
+        // Create: (a + b) * c - should fuse add and mul into one kernel
+        let a = UOp::constant(ScalarValue::Float32(1.0), Shape::new([4]));
+        let b = UOp::constant(ScalarValue::Float32(2.0), Shape::new([4]));
+        let c = UOp::constant(ScalarValue::Float32(3.0), Shape::new([4]));
+
+        let sum = a.add(&b);
+        let product = sum.mul(&c);
+
+        // Test with fusion
+        let mut interpreter = OpenCLInterpreter::new(&device, &mut buffers);
+        let result = interpreter.eval_with_fusion(&product).unwrap();
+
+        let data = result.copy_to_host();
+        let values: Vec<f32> = data
+            .chunks(4)
+            .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
+            .collect();
+
+        // (1 + 2) * 3 = 9
+        for v in &values {
+            assert!(
+                (v - 9.0).abs() < 0.0001,
+                "Expected 9.0, got {}",
+                v
+            );
+        }
+    }
+
+    #[test]
+    fn test_opencl_fused_chain() {
+        let Some(device) = get_test_device() else {
+            println!("No OpenCL GPU device available, skipping test");
+            return;
+        };
+
+        let mut buffers = BufferMap::new();
+
+        // Create: neg(a + b) - triple chain fusion
+        let a = UOp::constant(ScalarValue::Float32(2.0), Shape::new([4]));
+        let b = UOp::constant(ScalarValue::Float32(3.0), Shape::new([4]));
+
+        let sum = a.add(&b);
+        let neg = sum.neg();
+
+        let mut interpreter = OpenCLInterpreter::new(&device, &mut buffers);
+        let result = interpreter.eval_with_fusion(&neg).unwrap();
+
+        let data = result.copy_to_host();
+        let values: Vec<f32> = data
+            .chunks(4)
+            .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
+            .collect();
+
+        // -(2 + 3) = -5
+        for v in &values {
+            assert!(
+                (v - (-5.0)).abs() < 0.0001,
+                "Expected -5.0, got {}",
+                v
+            );
+        }
+    }
 }

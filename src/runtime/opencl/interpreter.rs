@@ -10,10 +10,12 @@ use opencl3::types::{CL_BLOCKING, cl_uint};
 use crate::device::{Buffer, BufferMap, DeviceError, Result};
 use crate::dtype::{DType, ScalarValue};
 use crate::ops::Ops;
+use crate::schedule::{FusedKernel, FusedSource, FusionType, ScheduleItem, Scheduler};
 use crate::shape::Shape;
 use crate::uop::{UOp, UOpArg};
 
 use super::buffer::OpenCLBuffer;
+use super::codegen::FusedKernelCodeGen;
 use super::device::OpenCLDevice;
 use super::ops::{
     compare::{gen_cmp_kernel, gen_cmp_simple_kernel, gen_where_kernel, gen_where_simple_kernel},
@@ -55,6 +57,196 @@ impl<'a> OpenCLInterpreter<'a> {
         self.cache.insert(ptr, result.clone());
 
         Ok(result)
+    }
+
+    /// Evaluates a UOp with kernel fusion optimization.
+    /// This analyzes the graph and fuses compatible operations into single kernels.
+    pub fn eval_with_fusion(&mut self, uop: &UOp) -> Result<Arc<dyn Buffer>> {
+        // Check cache first
+        let ptr = uop.ptr_id();
+        if let Some(cached) = self.cache.get(&ptr) {
+            return Ok(cached.clone());
+        }
+
+        // Create scheduler and build schedule
+        let mut scheduler = Scheduler::new(uop);
+        let items = scheduler.schedule(uop);
+
+        // Execute schedule items
+        for item in &items {
+            self.eval_schedule_item(item, &scheduler)?;
+        }
+
+        // The final result should be in cache now
+        self.cache
+            .get(&ptr)
+            .cloned()
+            .ok_or_else(|| DeviceError::ExecutionFailed("Result not found after scheduling".into()))
+    }
+
+    /// Evaluates a single schedule item.
+    fn eval_schedule_item(
+        &mut self,
+        item: &ScheduleItem,
+        scheduler: &Scheduler,
+    ) -> Result<Arc<dyn Buffer>> {
+        let output_id = item.output.ptr_id();
+
+        // Check if already evaluated
+        if let Some(cached) = self.cache.get(&output_id) {
+            return Ok(cached.clone());
+        }
+
+        let result = match item.fusion_type {
+            FusionType::Single => {
+                // No fusion, evaluate normally
+                self.eval_inner(&item.output)?
+            }
+            FusionType::Elementwise => {
+                // Execute fused elementwise kernel
+                let kernel = scheduler.build_fused_kernel(item);
+                self.eval_fused_elementwise(&kernel, &item.fused_ops)?
+            }
+            FusionType::Reduce => {
+                // For now, fall back to non-fused execution for reduce
+                // TODO: Implement fused reduce kernels
+                self.eval_inner(&item.output)?
+            }
+        };
+
+        // Cache the result
+        self.cache.insert(output_id, result.clone());
+        Ok(result)
+    }
+
+    /// Evaluates a fused elementwise kernel.
+    fn eval_fused_elementwise(
+        &mut self,
+        kernel: &FusedKernel,
+        fused_ops: &[UOp],
+    ) -> Result<Arc<dyn Buffer>> {
+        // Collect input buffers
+        let mut input_buffers: Vec<Arc<dyn Buffer>> = Vec::new();
+
+        // Find leaf inputs from fused ops
+        for fused_op in &kernel.ops_chain {
+            for source in &fused_op.sources {
+                if let FusedSource::Input(idx) = source {
+                    // Find the corresponding UOp and evaluate it
+                    if *idx >= input_buffers.len() {
+                        // We need to find the input UOp
+                        let input_uop = self.find_input_uop(fused_ops, *idx)?;
+                        let buf = self.eval(&input_uop)?;
+                        while input_buffers.len() <= *idx {
+                            input_buffers.push(buf.clone());
+                        }
+                        input_buffers[*idx] = buf;
+                    }
+                }
+            }
+        }
+
+        // Generate and compile kernel
+        let codegen = FusedKernelCodeGen::new(kernel);
+        let (source, kernel_name) = codegen.generate();
+
+        let numel = kernel.output_numel();
+        let dtype = kernel.output_dtype;
+
+        // Create output buffer
+        let output = OpenCLBuffer::new(
+            self.device.context(),
+            self.device.queue().clone(),
+            numel,
+            dtype,
+        )?;
+
+        // Compile kernel
+        let mut kernel_cache = self.device.kernel_cache().write().unwrap();
+        let cl_kernel = kernel_cache.get_or_compile(
+            self.device.context(),
+            self.device.cl_device(),
+            &source,
+            &kernel_name,
+        )?;
+
+        // Execute kernel
+        let n = numel as cl_uint;
+        let global_work_size = [compute_work_sizes(numel).0];
+        let local_work_size = [compute_work_sizes(numel).1];
+
+        unsafe {
+            let mut exec = ExecuteKernel::new(cl_kernel);
+
+            // Set input buffer arguments
+            for buf in &input_buffers {
+                let cl_buf = buf
+                    .as_any()
+                    .downcast_ref::<OpenCLBuffer>()
+                    .ok_or_else(|| DeviceError::BufferError("Expected OpenCL buffer".into()))?;
+                exec.set_arg(cl_buf.cl_buffer());
+            }
+
+            // Set output buffer and n
+            exec.set_arg(output.cl_buffer())
+                .set_arg(&n)
+                .set_global_work_sizes(&global_work_size)
+                .set_local_work_sizes(&local_work_size)
+                .enqueue_nd_range(self.device.queue().as_ref())
+                .map_err(|e| {
+                    DeviceError::ExecutionFailed(format!("Fused kernel execution failed: {:?}", e))
+                })?;
+        }
+
+        Ok(Arc::new(output))
+    }
+
+    /// Finds the input UOp at the given index by traversing the fused ops.
+    fn find_input_uop(&self, fused_ops: &[UOp], input_idx: usize) -> Result<UOp> {
+        // Collect all leaf inputs (Load and Const operations)
+        let mut inputs: Vec<UOp> = Vec::new();
+        let mut visited = std::collections::HashSet::new();
+
+        for op in fused_ops {
+            self.collect_leaf_inputs(op, &mut inputs, &mut visited);
+        }
+
+        // Filter to only Load operations (real inputs)
+        let load_inputs: Vec<_> = inputs
+            .into_iter()
+            .filter(|u| matches!(u.op(), Ops::Load))
+            .collect();
+
+        load_inputs.get(input_idx).cloned().ok_or_else(|| {
+            DeviceError::ExecutionFailed(format!("Input {} not found in fused ops", input_idx))
+        })
+    }
+
+    fn collect_leaf_inputs(
+        &self,
+        uop: &UOp,
+        inputs: &mut Vec<UOp>,
+        visited: &mut std::collections::HashSet<usize>,
+    ) {
+        let id = uop.ptr_id();
+        if visited.contains(&id) {
+            return;
+        }
+        visited.insert(id);
+
+        match uop.op() {
+            Ops::Load => {
+                inputs.push(uop.clone());
+            }
+            Ops::Const => {
+                // Constants are inlined, don't add to inputs
+            }
+            _ => {
+                for src in uop.src() {
+                    self.collect_leaf_inputs(src, inputs, visited);
+                }
+            }
+        }
     }
 
     fn eval_inner(&mut self, uop: &UOp) -> Result<Arc<dyn Buffer>> {

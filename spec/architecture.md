@@ -76,7 +76,8 @@ src/runtime/opencl/
 ├── device.rs        # OpenCLDevice実装
 ├── buffer.rs        # OpenCLBuffer実装
 ├── kernel.rs        # カーネルコンパイル・キャッシュ
-├── interpreter.rs   # UOpグラフのインタープリタ実行
+├── codegen.rs       # FusedKernelのコード生成
+├── interpreter.rs   # UOpグラフのインタープリタ実行（フュージョン対応）
 └── ops/             # 演算カーネルソース生成
     ├── mod.rs
     ├── elementwise.rs   # Unary/Binary演算
@@ -90,6 +91,7 @@ src/runtime/opencl/
 - `OpenCLBuffer`: GPUメモリ上のバッファ
 - `KernelCache`: コンパイル済みカーネルのキャッシュ
 - `OpenCLInterpreter`: UOpグラフを操作ごとにカーネル実行
+- `FusedKernelCodeGen`: 複数操作を融合したカーネルのコード生成
 
 使用方法：
 ```rust
@@ -99,6 +101,30 @@ src/runtime/opencl/
 eclat::init_opencl()?;  // OpenCLデバイスを初期化・登録
 let device = eclat::device::get_device("OPENCL").unwrap();
 ```
+
+### schedule/ - カーネルフュージョン・スケジューリング
+複数のUOp操作を1つのカーネルに融合する最適化を行う。
+
+```
+src/schedule/
+├── mod.rs           # モジュール定義
+├── item.rs          # ScheduleItem（スケジュール単位）
+├── kernel.rs        # FusedKernel, FusedOp（融合カーネル表現）
+├── scheduler.rs     # フュージョン判定・グループ化
+└── analysis.rs      # グラフ解析（参照カウント等）
+```
+
+主要構造体：
+- `ScheduleItem`: 1回のカーネル実行を表す。複数のUOpを融合可能
+- `FusedKernel`: 融合された操作チェーンを持つカーネル表現
+- `FusedOp`: 融合カーネル内の個別操作
+- `Scheduler`: UOp DAGを解析しフュージョン判定・スケジュール生成
+- `GraphAnalysis`: グラフ解析（参照カウント、フュージョン可否判定）
+
+フュージョン対応：
+- Elementwiseフュージョン: 連続するelementwise操作を1カーネルに融合
+- 条件: 形状一致、単一参照、非Load/Const
+- `OpenCLInterpreter::eval_with_fusion()`で有効化
 
 ## 設計原則
 
@@ -123,15 +149,16 @@ Deviceトレイトを通じて複数バックエンドをサポート。現在�
 ## 現在の制限事項
 
 - 自動微分は未実装
-- カーネルフュージョンは未実装
-- スケジューリング最適化は未実装
+- Reduceのフュージョンは部分的（reduce前のelementwise融合は非対応）
+- ブロードキャスト付きのフュージョンは非対応
 
 ## 今後の拡張
-
-### Phase 3: カーネル最適化
-- Linearizer
-- カーネルフュージョン
 
 ### Phase 4: 自動微分
 - requires_grad
 - backward
+
+### Phase 5: さらなる最適化
+- Reduceカーネル内でのelementwiseフュージョン
+- ブロードキャスト対応のフュージョン
+- メモリ最適化（中間バッファ削減）

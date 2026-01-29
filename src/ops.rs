@@ -117,6 +117,21 @@ impl Ops {
             Ops::Reshape | Ops::Expand | Ops::Permute | Ops::Pad | Ops::Shrink | Ops::Stride
         )
     }
+
+    /// Returns true if this is an elementwise operation (unary, binary, or ternary).
+    /// These operations can be fused together when shapes match.
+    pub fn is_elementwise(&self) -> bool {
+        self.is_unary()
+            || matches!(
+                self,
+                Ops::Add | Ops::Sub | Ops::Mul | Ops::Div | Ops::Max | Ops::Where
+            )
+    }
+
+    /// Returns true if this is a comparison operation.
+    pub fn is_compare(&self) -> bool {
+        matches!(self, Ops::CmpLt | Ops::CmpEq)
+    }
 }
 
 #[cfg(test)]

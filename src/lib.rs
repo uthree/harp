@@ -26,6 +26,7 @@ pub mod device;
 pub mod dtype;
 pub mod ops;
 pub mod runtime;
+pub mod schedule;
 pub mod shape;
 pub mod tensor;
 pub mod uop;
