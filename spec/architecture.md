@@ -67,6 +67,39 @@ Buffer (データ保持)
 - `CpuBuffer`: ホストメモリ上のバッファ
 - `CpuInterpreter`: UOpグラフを直接解釈実行
 
+### runtime/opencl/ - OpenCLバックエンド（`opencl` feature）
+GPUを利用した計算を行うOpenCLバックエンド。
+
+```
+src/runtime/opencl/
+├── mod.rs           # モジュール定義
+├── device.rs        # OpenCLDevice実装
+├── buffer.rs        # OpenCLBuffer実装
+├── kernel.rs        # カーネルコンパイル・キャッシュ
+├── interpreter.rs   # UOpグラフのインタープリタ実行
+└── ops/             # 演算カーネルソース生成
+    ├── mod.rs
+    ├── elementwise.rs   # Unary/Binary演算
+    ├── compare.rs       # CmpLt, CmpEq, Where
+    ├── reduce.rs        # Sum, ReduceMax
+    └── movement.rs      # Expand, Permute, Cast
+```
+
+主要構造体：
+- `OpenCLDevice`: GPU実行デバイス（Context, CommandQueue管理）
+- `OpenCLBuffer`: GPUメモリ上のバッファ
+- `KernelCache`: コンパイル済みカーネルのキャッシュ
+- `OpenCLInterpreter`: UOpグラフを操作ごとにカーネル実行
+
+使用方法：
+```rust
+// OpenCL featureを有効にしてビルド
+// cargo build --features opencl
+
+eclat::init_opencl()?;  // OpenCLデバイスを初期化・登録
+let device = eclat::device::get_device("OPENCL").unwrap();
+```
+
 ## 設計原則
 
 ### 遅延評価
@@ -76,7 +109,7 @@ Buffer (データ保持)
 UOpとTensorはイミュータブル。操作は新しいノードを作成し、古いノードは変更しない。Arc参照カウントにより効率的な共有が可能。
 
 ### バックエンド抽象化
-Deviceトレイトを通じて複数バックエンドをサポート。現在はCPUインタプリタのみ実装。将来的にOpenCL、CUDA、Metalなどをサポート予定。
+Deviceトレイトを通じて複数バックエンドをサポート。現在はCPUインタプリタとOpenCLバックエンドを実装。将来的にCUDA、Metalなどをサポート予定。
 
 ## データフロー
 
@@ -90,15 +123,10 @@ Deviceトレイトを通じて複数バックエンドをサポート。現在�
 ## 現在の制限事項
 
 - 自動微分は未実装
-- GPUバックエンドは未実装
 - カーネルフュージョンは未実装
 - スケジューリング最適化は未実装
 
 ## 今後の拡張
-
-### Phase 2: OpenCLバックエンド
-- OpenCLコードレンダラ
-- カーネルコンパイル・実行
 
 ### Phase 3: カーネル最適化
 - Linearizer

@@ -51,6 +51,32 @@ pub fn init() {
     device::register_device(Arc::new(runtime::CpuDevice::new()));
 }
 
+/// Initializes the OpenCL device (requires `opencl` feature).
+///
+/// Returns an error if no GPU devices are found or OpenCL initialization fails.
+#[cfg(feature = "opencl")]
+pub fn init_opencl() -> Result<(), DeviceError> {
+    let device = runtime::OpenCLDevice::new()
+        .map_err(|e| DeviceError::ExecutionFailed(format!("Failed to initialize OpenCL: {}", e)))?;
+    device::register_device(Arc::new(device));
+    Ok(())
+}
+
+/// Initializes the OpenCL device with a specific device index.
+///
+/// Use this when multiple GPUs are available and you want to select a specific one.
+#[cfg(feature = "opencl")]
+pub fn init_opencl_with_device(index: usize) -> Result<(), DeviceError> {
+    let device = runtime::OpenCLDevice::with_device_index(index).map_err(|e| {
+        DeviceError::ExecutionFailed(format!(
+            "Failed to initialize OpenCL device {}: {}",
+            index, e
+        ))
+    })?;
+    device::register_device(Arc::new(device));
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

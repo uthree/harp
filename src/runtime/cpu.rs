@@ -172,7 +172,11 @@ impl<'a> CpuInterpreter<'a> {
         let dtype = uop.dtype();
         let value = match uop.arg() {
             Some(UOpArg::Scalar(v)) => *v,
-            _ => return Err(DeviceError::ExecutionFailed("Const missing scalar arg".into())),
+            _ => {
+                return Err(DeviceError::ExecutionFailed(
+                    "Const missing scalar arg".into(),
+                ));
+            }
         };
 
         let mut buffer = CpuBuffer::new(numel, dtype);
@@ -216,7 +220,11 @@ impl<'a> CpuInterpreter<'a> {
     fn eval_load(&mut self, uop: &UOp) -> Result<Arc<dyn Buffer>> {
         let buffer_id = match uop.arg() {
             Some(UOpArg::BufferId(id)) => *id,
-            _ => return Err(DeviceError::ExecutionFailed("Load missing buffer id".into())),
+            _ => {
+                return Err(DeviceError::ExecutionFailed(
+                    "Load missing buffer id".into(),
+                ));
+            }
         };
 
         self.buffers

@@ -48,7 +48,6 @@ impl fmt::Display for DType {
     }
 }
 
-
 /// Trait for scalar types that can be stored in tensors.
 pub trait Scalar: Copy + Send + Sync + 'static {
     const DTYPE: DType;

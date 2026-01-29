@@ -43,13 +43,7 @@ pub struct UOp(Arc<UOpInner>);
 
 impl UOp {
     /// Creates a new UOp node.
-    pub fn new(
-        op: Ops,
-        dtype: DType,
-        shape: Shape,
-        src: Vec<UOp>,
-        arg: Option<UOpArg>,
-    ) -> Self {
+    pub fn new(op: Ops, dtype: DType, shape: Shape, src: Vec<UOp>, arg: Option<UOpArg>) -> Self {
         UOp(Arc::new(UOpInner {
             op,
             dtype,
@@ -117,43 +111,87 @@ impl UOp {
 
     /// Negation.
     pub fn neg(&self) -> UOp {
-        UOp::new(Ops::Neg, self.dtype(), self.shape().clone(), vec![self.clone()], None)
+        UOp::new(
+            Ops::Neg,
+            self.dtype(),
+            self.shape().clone(),
+            vec![self.clone()],
+            None,
+        )
     }
 
     /// Exponential.
     pub fn exp(&self) -> UOp {
-        UOp::new(Ops::Exp, self.dtype(), self.shape().clone(), vec![self.clone()], None)
+        UOp::new(
+            Ops::Exp,
+            self.dtype(),
+            self.shape().clone(),
+            vec![self.clone()],
+            None,
+        )
     }
 
     /// Natural logarithm.
     pub fn log(&self) -> UOp {
-        UOp::new(Ops::Log, self.dtype(), self.shape().clone(), vec![self.clone()], None)
+        UOp::new(
+            Ops::Log,
+            self.dtype(),
+            self.shape().clone(),
+            vec![self.clone()],
+            None,
+        )
     }
 
     /// Square root.
     pub fn sqrt(&self) -> UOp {
-        UOp::new(Ops::Sqrt, self.dtype(), self.shape().clone(), vec![self.clone()], None)
+        UOp::new(
+            Ops::Sqrt,
+            self.dtype(),
+            self.shape().clone(),
+            vec![self.clone()],
+            None,
+        )
     }
 
     /// Reciprocal (1/x).
     pub fn recip(&self) -> UOp {
-        UOp::new(Ops::Recip, self.dtype(), self.shape().clone(), vec![self.clone()], None)
+        UOp::new(
+            Ops::Recip,
+            self.dtype(),
+            self.shape().clone(),
+            vec![self.clone()],
+            None,
+        )
     }
 
     /// Sine.
     pub fn sin(&self) -> UOp {
-        UOp::new(Ops::Sin, self.dtype(), self.shape().clone(), vec![self.clone()], None)
+        UOp::new(
+            Ops::Sin,
+            self.dtype(),
+            self.shape().clone(),
+            vec![self.clone()],
+            None,
+        )
     }
 
     /// Cosine.
     pub fn cos(&self) -> UOp {
-        UOp::new(Ops::Cos, self.dtype(), self.shape().clone(), vec![self.clone()], None)
+        UOp::new(
+            Ops::Cos,
+            self.dtype(),
+            self.shape().clone(),
+            vec![self.clone()],
+            None,
+        )
     }
 
     // Binary operations
 
     fn binary_op(&self, other: &UOp, op: Ops) -> UOp {
-        let shape = self.shape().broadcast(other.shape())
+        let shape = self
+            .shape()
+            .broadcast(other.shape())
             .expect("Shapes must be broadcastable");
         // Use promoted dtype (for simplicity, use self's dtype if both are same category)
         let dtype = if self.dtype().is_float() || other.dtype().is_float() {
@@ -195,27 +233,51 @@ impl UOp {
 
     /// Less than comparison.
     pub fn lt(&self, other: &UOp) -> UOp {
-        let shape = self.shape().broadcast(other.shape())
+        let shape = self
+            .shape()
+            .broadcast(other.shape())
             .expect("Shapes must be broadcastable");
-        UOp::new(Ops::CmpLt, DType::Bool, shape, vec![self.clone(), other.clone()], None)
+        UOp::new(
+            Ops::CmpLt,
+            DType::Bool,
+            shape,
+            vec![self.clone(), other.clone()],
+            None,
+        )
     }
 
     /// Equality comparison.
     pub fn eq(&self, other: &UOp) -> UOp {
-        let shape = self.shape().broadcast(other.shape())
+        let shape = self
+            .shape()
+            .broadcast(other.shape())
             .expect("Shapes must be broadcastable");
-        UOp::new(Ops::CmpEq, DType::Bool, shape, vec![self.clone(), other.clone()], None)
+        UOp::new(
+            Ops::CmpEq,
+            DType::Bool,
+            shape,
+            vec![self.clone(), other.clone()],
+            None,
+        )
     }
 
     // Ternary operations
 
     /// Where operation: select from self or other based on condition.
     pub fn where_op(cond: &UOp, x: &UOp, y: &UOp) -> UOp {
-        let shape = cond.shape().broadcast(x.shape())
+        let shape = cond
+            .shape()
+            .broadcast(x.shape())
             .and_then(|s| s.broadcast(y.shape()))
             .expect("Shapes must be broadcastable");
         let dtype = x.dtype();
-        UOp::new(Ops::Where, dtype, shape, vec![cond.clone(), x.clone(), y.clone()], None)
+        UOp::new(
+            Ops::Where,
+            dtype,
+            shape,
+            vec![cond.clone(), x.clone(), y.clone()],
+            None,
+        )
     }
 
     // Reduce operations

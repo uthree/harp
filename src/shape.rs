@@ -89,11 +89,7 @@ impl Shape {
     /// Computes the flat index from a multi-dimensional index.
     pub fn flat_index(&self, indices: &[usize]) -> usize {
         let strides = self.strides();
-        indices
-            .iter()
-            .zip(strides.iter())
-            .map(|(i, s)| i * s)
-            .sum()
+        indices.iter().zip(strides.iter()).map(|(i, s)| i * s).sum()
     }
 
     /// Computes the multi-dimensional index from a flat index.

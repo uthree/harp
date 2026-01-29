@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use crate::device::{default_device, get_device, Buffer, BufferMap};
+use crate::device::{Buffer, BufferMap, default_device, get_device};
 use crate::dtype::{DType, Scalar, ScalarValue};
 use crate::shape::Shape;
 use crate::uop::UOp;
@@ -229,7 +229,10 @@ impl Tensor {
 
     /// Where operation: select from x or y based on self as condition.
     pub fn where_cond(&self, x: &Tensor, y: &Tensor) -> Tensor {
-        Tensor::from_uop(UOp::where_op(&self.0.uop, &x.0.uop, &y.0.uop), &self.0.device)
+        Tensor::from_uop(
+            UOp::where_op(&self.0.uop, &x.0.uop, &y.0.uop),
+            &self.0.device,
+        )
     }
 
     // ============ Reduce Operations ============

@@ -19,6 +19,8 @@ opencl = ["opencl3"]
 [dependencies.opencl3]
 version = "0.9"
 optional = true
+default-features = false
+features = ["CL_VERSION_1_2"]
 
 [dev-dependencies]
 # For benchmarking and examples
