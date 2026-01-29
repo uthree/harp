@@ -22,6 +22,7 @@
 //! println!("{}", z.item::<f32>()); // 36.0
 //! ```
 
+pub mod autograd;
 pub mod device;
 pub mod dtype;
 pub mod ops;
@@ -31,6 +32,7 @@ pub mod shape;
 pub mod tensor;
 pub mod uop;
 
+pub use autograd::{GradientContext, NoGradGuard};
 pub use device::{Buffer, Device, DeviceError};
 pub use dtype::{DType, Scalar, ScalarValue};
 pub use ops::Ops;

@@ -1,6 +1,9 @@
 //! Tensor API with lazy evaluation.
 
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
+
+use crate::autograd::{self, GradientContext};
 
 use crate::device::{Buffer, BufferMap, default_device, get_device};
 use crate::dtype::{DType, Scalar, ScalarValue};
@@ -19,6 +22,7 @@ struct TensorInner {
     uop: UOp,
     device: String,
     realized: Mutex<Option<Arc<dyn Buffer>>>,
+    requires_grad: bool,
 }
 
 /// A tensor with lazy evaluation.
@@ -82,6 +86,7 @@ impl Tensor {
             uop,
             device: device.to_string(),
             realized: Mutex::new(None),
+            requires_grad: false,
         }))
     }
 
@@ -115,6 +120,48 @@ impl Tensor {
     /// Returns the underlying UOp.
     pub fn uop(&self) -> &UOp {
         &self.0.uop
+    }
+
+    /// Returns whether this tensor requires gradient computation.
+    pub fn requires_grad(&self) -> bool {
+        self.0.requires_grad
+    }
+
+    /// Returns a unique pointer ID for this tensor (based on Arc pointer).
+    pub fn ptr_id(&self) -> usize {
+        Arc::as_ptr(&self.0) as usize
+    }
+
+    /// Returns a new tensor with requires_grad set to true.
+    ///
+    /// This is the primary way to mark tensors for gradient tracking.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let x = Tensor::new([1.0f32, 2.0, 3.0]).requires_grad_(true);
+    /// assert!(x.requires_grad());
+    /// ```
+    pub fn requires_grad_(self, requires_grad: bool) -> Self {
+        Tensor(Arc::new(TensorInner {
+            uop: self.0.uop.clone(),
+            device: self.0.device.clone(),
+            realized: Mutex::new(self.0.realized.lock().unwrap().clone()),
+            requires_grad,
+        }))
+    }
+
+    /// Detaches this tensor from the computation graph.
+    ///
+    /// Returns a new tensor with requires_grad=false that shares the same data
+    /// but doesn't track gradients.
+    pub fn detach(&self) -> Self {
+        Tensor(Arc::new(TensorInner {
+            uop: self.0.uop.clone(),
+            device: self.0.device.clone(),
+            realized: Mutex::new(self.0.realized.lock().unwrap().clone()),
+            requires_grad: false,
+        }))
     }
 
     // ============ Realization ============
@@ -293,6 +340,44 @@ impl Tensor {
     /// Flatten to 1D.
     pub fn flatten(&self) -> Tensor {
         self.reshape([self.numel()])
+    }
+
+    // ============ Autograd ============
+
+    /// Computes gradients of this tensor with respect to all requires_grad tensors.
+    ///
+    /// This implements reverse-mode automatic differentiation (backpropagation).
+    ///
+    /// # Arguments
+    /// * `grad_output` - Optional initial gradient. If None, uses 1.0 for scalar outputs.
+    /// * `retain_graph` - If true, keeps the computation graph for multiple backward passes.
+    /// * `inputs` - The tensors for which to compute gradients.
+    ///
+    /// # Returns
+    /// A GradientContext containing gradients for all inputs.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let x = Tensor::new([1.0f32, 2.0, 3.0]).requires_grad_(true);
+    /// let y = x.mul(&x).sum(None, false);
+    ///
+    /// let grads = y.backward(None, false, &[&x]);
+    /// let grad_x = grads.get(&x).unwrap(); // [2.0, 4.0, 6.0]
+    /// ```
+    pub fn backward(
+        &self,
+        grad_output: Option<Tensor>,
+        retain_graph: bool,
+        inputs: &[&Tensor],
+    ) -> GradientContext {
+        // Build set of ptr_ids that require gradients
+        let mut requires_grad_set = HashSet::new();
+        for tensor in inputs {
+            requires_grad_set.insert(tensor.uop().ptr_id());
+        }
+
+        autograd::backward(self, grad_output, retain_graph, &requires_grad_set)
     }
 }
 
@@ -517,5 +602,122 @@ mod tests {
 
         let data = c.to_vec::<f32>();
         assert_eq!(data, vec![11.0, 22.0, 13.0, 24.0]);
+    }
+
+    // ============ Autograd Tests ============
+
+    #[test]
+    fn test_backward_simple_mul() {
+        setup();
+        // y = x * 2, dy/dx = 2
+        let x = Tensor::new([1.0f32, 2.0, 3.0]).requires_grad_(true);
+        let two = Tensor::full([3], 2.0f32);
+        let y = x.mul(&two).sum(None, false);
+
+        let grads = y.backward(None, false, &[&x]);
+        let grad_x = grads.get(&x).unwrap().to_vec::<f32>();
+
+        assert_eq!(grad_x, vec![2.0, 2.0, 2.0]);
+    }
+
+    #[test]
+    fn test_backward_add() {
+        setup();
+        // y = x + x = 2x, dy/dx = 2
+        let x = Tensor::new([1.0f32, 2.0, 3.0]).requires_grad_(true);
+        let y = x.add(&x).sum(None, false);
+
+        let grads = y.backward(None, false, &[&x]);
+        let grad_x = grads.get(&x).unwrap().to_vec::<f32>();
+
+        assert_eq!(grad_x, vec![2.0, 2.0, 2.0]);
+    }
+
+    #[test]
+    fn test_backward_mul_chain() {
+        setup();
+        // y = x * x = x^2, dy/dx = 2x
+        let x = Tensor::new([1.0f32, 2.0, 3.0]).requires_grad_(true);
+        let y = x.mul(&x).sum(None, false);
+
+        let grads = y.backward(None, false, &[&x]);
+        let grad_x = grads.get(&x).unwrap().to_vec::<f32>();
+
+        assert_eq!(grad_x, vec![2.0, 4.0, 6.0]);
+    }
+
+    #[test]
+    fn test_backward_exp() {
+        setup();
+        // y = exp(x), dy/dx = exp(x)
+        let x = Tensor::new([0.0f32]).requires_grad_(true);
+        let y = x.exp().sum(None, false);
+
+        let grads = y.backward(None, false, &[&x]);
+        let grad_x = grads.get(&x).unwrap().to_vec::<f32>();
+
+        // exp(0) = 1
+        assert!((grad_x[0] - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_backward_neg() {
+        setup();
+        // y = -x, dy/dx = -1
+        let x = Tensor::new([1.0f32, 2.0, 3.0]).requires_grad_(true);
+        let y = x.neg().sum(None, false);
+
+        let grads = y.backward(None, false, &[&x]);
+        let grad_x = grads.get(&x).unwrap().to_vec::<f32>();
+
+        assert_eq!(grad_x, vec![-1.0, -1.0, -1.0]);
+    }
+
+    #[test]
+    fn test_backward_div() {
+        setup();
+        // y = x / 2, dy/dx = 0.5
+        let x = Tensor::new([2.0f32, 4.0, 6.0]).requires_grad_(true);
+        let two = Tensor::full([3], 2.0f32);
+        let y = x.div(&two).sum(None, false);
+
+        let grads = y.backward(None, false, &[&x]);
+        let grad_x = grads.get(&x).unwrap().to_vec::<f32>();
+
+        assert_eq!(grad_x, vec![0.5, 0.5, 0.5]);
+    }
+
+    #[test]
+    fn test_backward_reshape() {
+        setup();
+        // y = reshape(x).sum(), gradient should reshape back
+        let x = Tensor::new([[1.0f32, 2.0], [3.0, 4.0]]).requires_grad_(true);
+        let y = x.reshape([4]).sum(None, false);
+
+        let grads = y.backward(None, false, &[&x]);
+        let grad_x = grads.get(&x).unwrap();
+
+        assert_eq!(grad_x.shape().dims(), &[2, 2]);
+        let data = grad_x.to_vec::<f32>();
+        assert_eq!(data, vec![1.0, 1.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn test_backward_broadcast() {
+        setup();
+        // y = x + b where x: [2,2], b: [2]
+        // gradient of b should sum over axis 0
+        let x = Tensor::new([[1.0f32, 2.0], [3.0, 4.0]]).requires_grad_(true);
+        let b = Tensor::new([0.1f32, 0.2]).requires_grad_(true);
+        let y = x.add(&b).sum(None, false);
+
+        let grads = y.backward(None, false, &[&x, &b]);
+
+        let grad_x = grads.get(&x).unwrap().to_vec::<f32>();
+        assert_eq!(grad_x, vec![1.0, 1.0, 1.0, 1.0]);
+
+        let grad_b = grads.get(&b).unwrap().to_vec::<f32>();
+        // b was broadcast along axis 0, so gradient sums over that axis
+        assert_eq!(grad_b, vec![2.0, 2.0]);
     }
 }

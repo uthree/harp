@@ -404,18 +404,30 @@ impl<'a> CpuInterpreter<'a> {
             write_from_f64(&mut result, i, init, dtype);
         }
 
+        // Determine if keepdims was used by comparing ranks
+        let keepdims = out_shape.rank() == src_shape.rank();
+
         // Iterate over source elements and accumulate
         let src_numel = src_shape.numel();
         for src_i in 0..src_numel {
             let src_indices = src_shape.multi_index(src_i);
 
-            // Compute output index by removing reduced dimensions
-            let mut out_indices = Vec::new();
-            for (i, &idx) in src_indices.iter().enumerate() {
-                if !axes.contains(&i) {
-                    out_indices.push(idx);
-                }
-            }
+            // Compute output index
+            let out_indices: Vec<usize> = if keepdims {
+                // When keepdims=true, use 0 for reduced dimensions
+                src_indices
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &idx)| if axes.contains(&i) { 0 } else { idx })
+                    .collect()
+            } else {
+                // When keepdims=false, remove reduced dimensions
+                src_indices
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, &idx)| if axes.contains(&i) { None } else { Some(idx) })
+                    .collect()
+            };
 
             let out_i = if out_indices.is_empty() {
                 0

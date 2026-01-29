@@ -146,19 +146,45 @@ Deviceトレイトを通じて複数バックエンドをサポート。現在�
 5. 結果がBufferに格納される
 6. ユーザーがデータを取得
 
+### autograd/ - 自動微分（Phase 4で追加）
+リバースモード自動微分（バックプロパゲーション）を実装する。
+
+```
+src/autograd/
+├── mod.rs           # モジュール定義、NoGradGuard
+├── context.rs       # GradientContext（勾配管理）
+├── backward.rs      # backward()、トポロジカルソート
+└── vjp.rs           # 各操作のVJP定義
+```
+
+主要構造体：
+- `GradientContext`: 勾配の保存・蓄積を管理
+- `NoGradGuard`: RAII方式で勾配計算を一時的に無効化
+
+VJP（Vector-Jacobian Product）実装：
+- 単項操作: Neg, Exp, Log, Sqrt, Recip, Sin, Cos
+- 二項操作: Add, Sub, Mul, Div, Max
+- リダクション: Sum, ReduceMax
+- 移動操作: Reshape, Expand, Permute
+
+使用方法：
+```rust
+let x = Tensor::new([1.0f32, 2.0, 3.0]).requires_grad_(true);
+let y = x.mul(&x).sum(None, false);  // y = sum(x^2)
+let grads = y.backward(None, false, &[&x]);
+let grad_x = grads.get(&x).unwrap();  // [2.0, 4.0, 6.0] = 2x
+```
+
 ## 現在の制限事項
 
-- 自動微分は未実装
 - Reduceのフュージョンは部分的（reduce前のelementwise融合は非対応）
 - ブロードキャスト付きのフュージョンは非対応
+- Shrink, StrideのVJPは部分実装
 
 ## 今後の拡張
-
-### Phase 4: 自動微分
-- requires_grad
-- backward
 
 ### Phase 5: さらなる最適化
 - Reduceカーネル内でのelementwiseフュージョン
 - ブロードキャスト対応のフュージョン
 - メモリ最適化（中間バッファ削減）
+- 勾配チェックポイント（メモリ効率化）
