@@ -9,7 +9,7 @@ use std::fmt;
 use crate::ast::{AddressSpace, AstNode, DType, Literal, Mutability, VarDecl, VarKind};
 use crate::graph::{Expr, GraphNode, GraphOp, ReduceOp, View, collect_inputs, topological_sort};
 
-use super::fusion::{AllFusions, ElementwiseReduceFusion, FusionPass, ViewFusion};
+use super::fusion::{AllFusions, FusionPass};
 use super::index_gen::IndexGenerator;
 use super::loop_gen::LoopGenerator;
 
@@ -327,20 +327,18 @@ impl Lowerer {
     ) -> LoweringResult<AstNode> {
         // Apply optimizations based on mode
         let optimized = if with_graph_optimization {
-            // Unified optimization: fusion passes integrated into beam search
+            // Unified optimization: fusion suggesters integrated into beam search
             use crate::opt::graph::suggesters::{
-                CompositeSuggester, FusionSuggester, MatMulDetectorSuggester,
+                CompositeSuggester, ElementwiseReduceFusionSuggester, MatMulDetectorSuggester,
+                ViewFusionSuggester,
             };
             use crate::opt::graph::{GraphBeamSearchOptimizer, GraphOptimizer};
             use crate::opt::progress::NoOpProgress;
 
             let suggester = CompositeSuggester::new(vec![
                 Box::new(MatMulDetectorSuggester::new()),
-                Box::new(FusionSuggester::new(ViewFusion, "view_fusion")),
-                Box::new(FusionSuggester::new(
-                    ElementwiseReduceFusion,
-                    "elementwise_reduce_fusion",
-                )),
+                Box::new(ViewFusionSuggester::new()),
+                Box::new(ElementwiseReduceFusionSuggester::new()),
             ]);
             let mut optimizer: GraphBeamSearchOptimizer<_, _, NoOpProgress> =
                 GraphBeamSearchOptimizer::new(suggester)

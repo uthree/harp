@@ -82,4 +82,7 @@ pub use optimizer::{
     GraphAlternativeCandidate, GraphBeamSearchOptimizer, GraphOptimizationHistory,
     GraphOptimizationSnapshot,
 };
-pub use suggesters::{CompositeSuggester, FusionSuggester, MatMulDetectorSuggester};
+pub use suggesters::{
+    CompositeSuggester, ElementwiseReduceFusionSuggester, MatMulDetectorSuggester,
+    ViewFusionSuggester,
+};

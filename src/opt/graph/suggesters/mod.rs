@@ -4,9 +4,11 @@
 //! and proposes optimized transformations.
 
 mod composite;
-mod fusion_adapter;
+mod elementwise_reduce_fusion;
 mod matmul;
+mod view_fusion;
 
 pub use composite::CompositeSuggester;
-pub use fusion_adapter::FusionSuggester;
+pub use elementwise_reduce_fusion::ElementwiseReduceFusionSuggester;
 pub use matmul::MatMulDetectorSuggester;
+pub use view_fusion::ViewFusionSuggester;

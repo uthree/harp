@@ -16,7 +16,7 @@
 use eclat::ast::DType;
 use eclat::backend::TargetBackend;
 use eclat::graph::{Expr, GraphNode, input};
-use eclat::lowerer::{ElementwiseReduceFusion, Lowerer, ViewFusion};
+use eclat::lowerer::Lowerer;
 use eclat::opt::ast::optimizer::BeamSearchOptimizer as AstBeamSearchOptimizer;
 use eclat::opt::ast::suggesters::{
     CompositeSuggester as AstCompositeSuggester, CseSuggester, GroupParallelizationSuggester,
@@ -24,8 +24,8 @@ use eclat::opt::ast::suggesters::{
     LoopTilingSuggester, SharedMemorySuggester,
 };
 use eclat::opt::graph::{
-    CompositeSuggester, FusionSuggester, GraphBeamSearchOptimizer, GraphOptimizer,
-    MatMulDetectorSuggester,
+    CompositeSuggester, ElementwiseReduceFusionSuggester, GraphBeamSearchOptimizer, GraphOptimizer,
+    MatMulDetectorSuggester, ViewFusionSuggester,
 };
 
 fn main() {
@@ -76,11 +76,8 @@ fn main() {
     // Create graph suggesters
     let graph_suggester = CompositeSuggester::new(vec![
         Box::new(MatMulDetectorSuggester::new()),
-        Box::new(FusionSuggester::new(ViewFusion, "view_fusion")),
-        Box::new(FusionSuggester::new(
-            ElementwiseReduceFusion,
-            "elementwise_reduce_fusion",
-        )),
+        Box::new(ViewFusionSuggester::new()),
+        Box::new(ElementwiseReduceFusionSuggester::new()),
     ]);
 
     // Run graph optimization with history recording
