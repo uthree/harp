@@ -82,6 +82,37 @@ pub use device::{
 // Re-export compilation pipeline
 pub use compile::{CompilationPipeline, OptimizationConfig, mark_parallel_for_openmp};
 
+/// 最適化のターゲットバックエンド
+///
+/// 最適化がどのバックエンドを対象として行われたかを示す。
+/// 可視化ツールでレンダラーを自動選択するために使用される。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum TargetBackend {
+    /// 汎用Cバックエンド（CPU）
+    #[default]
+    Generic,
+    /// Metal (macOS GPU)
+    Metal,
+    /// OpenCL (クロスプラットフォームGPU)
+    OpenCL,
+    /// CUDA (NVIDIA GPU)
+    Cuda,
+    /// OpenMP (CPU並列)
+    OpenMP,
+}
+
+impl std::fmt::Display for TargetBackend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TargetBackend::Generic => write!(f, "Generic"),
+            TargetBackend::Metal => write!(f, "Metal"),
+            TargetBackend::OpenCL => write!(f, "OpenCL"),
+            TargetBackend::Cuda => write!(f, "CUDA"),
+            TargetBackend::OpenMP => write!(f, "OpenMP"),
+        }
+    }
+}
+
 /// カーネルのシグネチャ（入出力バッファの形状情報）
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KernelSignature {

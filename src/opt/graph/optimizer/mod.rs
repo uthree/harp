@@ -2,4 +2,7 @@
 
 mod beam_search;
 
-pub use beam_search::GraphBeamSearchOptimizer;
+pub use beam_search::{
+    GraphAlternativeCandidate, GraphBeamSearchOptimizer, GraphOptimizationHistory,
+    GraphOptimizationSnapshot,
+};

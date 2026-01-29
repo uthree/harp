@@ -195,6 +195,11 @@ pub struct OptimizationHistory {
     /// ビームサーチでは各ステップの最良候補が最終結果に至るとは限らない。
     /// このフィールドは最終結果に実際に至ったパスを記録する。
     final_path: FinalOptimizationPath,
+    /// 最適化のターゲットバックエンド
+    ///
+    /// どのバックエンドを対象として最適化が行われたかを示す。
+    /// 可視化ツールでレンダラーを自動選択するために使用される。
+    target_backend: crate::backend::TargetBackend,
 }
 
 impl OptimizationHistory {
@@ -203,7 +208,27 @@ impl OptimizationHistory {
         Self {
             snapshots: Vec::new(),
             final_path: Vec::new(),
+            target_backend: crate::backend::TargetBackend::Generic,
         }
+    }
+
+    /// ターゲットバックエンドを指定して新しい履歴を作成
+    pub fn with_target_backend(target_backend: crate::backend::TargetBackend) -> Self {
+        Self {
+            snapshots: Vec::new(),
+            final_path: Vec::new(),
+            target_backend,
+        }
+    }
+
+    /// ターゲットバックエンドを取得
+    pub fn target_backend(&self) -> crate::backend::TargetBackend {
+        self.target_backend
+    }
+
+    /// ターゲットバックエンドを設定
+    pub fn set_target_backend(&mut self, backend: crate::backend::TargetBackend) {
+        self.target_backend = backend;
     }
 
     /// 最終結果に至るパスを設定

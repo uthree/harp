@@ -6,6 +6,8 @@ description = "Visualization tools for Eclat optimization history"
 
 [dependencies]
 eclat = { path = "../.." }
-ratatui = "0.29"
-crossterm = "0.28"
+eframe = "0.30"
+egui = "0.30"
+egui_extras = "0.30"
+egui-snarl = "0.6"
 syntect = { version = "5.2", default-features = false, features = ["default-syntaxes", "default-themes", "regex-fancy"] }

@@ -46,6 +46,10 @@ where
     max_node_count: Option<usize>,
     /// 改善がない場合に早期終了するまでのステップ数（Noneで無効化）
     max_no_improvement_steps: Option<usize>,
+    /// 可視化用：コスト改善がなくても全ステップを記録するか
+    record_all_steps: bool,
+    /// 最適化のターゲットバックエンド
+    target_backend: crate::backend::TargetBackend,
 }
 
 impl<S> BeamSearchOptimizer<S, SimpleCostEstimator, IndicatifProgress>
@@ -69,6 +73,8 @@ where
             collect_logs: cfg!(debug_assertions),
             max_node_count: Some(10000), // デフォルトで最大1万ノードに制限
             max_no_improvement_steps: Some(3), // デフォルトで3ステップ改善なしで終了
+            record_all_steps: false,
+            target_backend: crate::backend::TargetBackend::Generic,
         }
     }
 }
@@ -96,6 +102,8 @@ where
             collect_logs: self.collect_logs,
             max_node_count: self.max_node_count,
             max_no_improvement_steps: self.max_no_improvement_steps,
+            record_all_steps: self.record_all_steps,
+            target_backend: self.target_backend,
         }
     }
 
@@ -128,6 +136,8 @@ where
             collect_logs: self.collect_logs,
             max_node_count: self.max_node_count,
             max_no_improvement_steps: self.max_no_improvement_steps,
+            record_all_steps: self.record_all_steps,
+            target_backend: self.target_backend,
         }
     }
 
@@ -144,6 +154,8 @@ where
             collect_logs: self.collect_logs,
             max_node_count: self.max_node_count,
             max_no_improvement_steps: self.max_no_improvement_steps,
+            record_all_steps: self.record_all_steps,
+            target_backend: self.target_backend,
         }
     }
 
@@ -170,6 +182,27 @@ where
     /// デフォルト: Some(3)
     pub fn with_no_improvement_limit(mut self, steps: Option<usize>) -> Self {
         self.max_no_improvement_steps = steps;
+        self
+    }
+
+    /// 可視化用：コスト改善がなくても全ステップを記録するかを設定
+    ///
+    /// trueに設定すると、コスト改善がなくてもすべてのステップがスナップショットとして記録されます。
+    /// 可視化ツールでの履歴表示に便利です。
+    ///
+    /// デフォルト: false
+    pub fn with_record_all_steps(mut self, record: bool) -> Self {
+        self.record_all_steps = record;
+        self
+    }
+
+    /// 最適化のターゲットバックエンドを設定
+    ///
+    /// 可視化ツールでレンダラーを自動選択するために使用されます。
+    ///
+    /// デフォルト: Generic
+    pub fn with_target_backend(mut self, backend: crate::backend::TargetBackend) -> Self {
+        self.target_backend = backend;
         self
     }
 
@@ -215,7 +248,7 @@ where
             self.beam_width, self.max_steps, self.max_node_count
         );
 
-        let mut history = OptimizationHistory::new();
+        let mut history = OptimizationHistory::with_target_backend(self.target_backend);
         // ビームエントリに変換パスを追加
         let mut beam = vec![BeamEntry {
             ast: ast.clone(),
@@ -415,8 +448,8 @@ where
                             step, cost, best_cost, no_improvement_count, max_no_improvement
                         );
 
-                        // 連続で改善がない場合は早期終了
-                        if no_improvement_count >= max_no_improvement {
+                        // 連続で改善がない場合は早期終了（ただしrecord_all_stepsの場合は記録してから終了）
+                        if no_improvement_count >= max_no_improvement && !self.record_all_steps {
                             info!(
                                 "No cost improvement for {} steps - optimization complete",
                                 max_no_improvement
@@ -438,9 +471,84 @@ where
                         );
                     }
 
+                    // record_all_stepsが有効な場合は、コスト改善がなくてもスナップショットを記録
+                    if self.record_all_steps {
+                        // ログを取得
+                        let step_logs = if self.collect_logs {
+                            log_capture::get_captured_logs()
+                        } else {
+                            Vec::new()
+                        };
+
+                        // パスからSuggester名を取得
+                        let (suggester_name, _, path) = candidate_infos
+                            .get(*best_index)
+                            .cloned()
+                            .unwrap_or_default();
+                        let suggester_name_opt = Some(suggester_name);
+
+                        // 代替候補を構築
+                        let alternatives: Vec<AlternativeCandidate> = all_with_cost_and_index
+                            .iter()
+                            .skip(1)
+                            .enumerate()
+                            .map(|(idx, (ast, cost, original_index))| {
+                                let (_, desc, path) = candidate_infos
+                                    .get(*original_index)
+                                    .cloned()
+                                    .unwrap_or_default();
+                                let name = path.last().map(|(n, _)| n.clone()).unwrap_or_default();
+                                AlternativeCandidate {
+                                    ast: ast.clone(),
+                                    cost: *cost,
+                                    suggester_name: Some(name),
+                                    description: desc,
+                                    rank: idx + 1,
+                                }
+                            })
+                            .collect();
+
+                        let snapshot_step = history.len();
+                        history.add_snapshot(OptimizationSnapshot::with_alternatives(
+                            snapshot_step,
+                            best.clone(),
+                            *cost,
+                            format!(
+                                "Step {}: {} candidates (no improvement)",
+                                snapshot_step, num_candidates
+                            ),
+                            0,
+                            None,
+                            step_logs,
+                            num_candidates,
+                            suggester_name_opt,
+                            alternatives,
+                            path,
+                        ));
+                    }
+
                     // ログをクリア（次のステップで新しいログのみを記録するため）
                     if self.collect_logs {
                         log_capture::clear_logs();
+                    }
+
+                    // 早期終了の判定（record_all_stepsでスナップショット記録後）
+                    if let Some(max_no_improvement) = self.max_no_improvement_steps {
+                        if no_improvement_count >= max_no_improvement {
+                            info!(
+                                "No cost improvement for {} steps - optimization complete",
+                                max_no_improvement
+                            );
+                            actual_steps = step;
+                            if let Some(ref mut progress) = self.progress {
+                                progress.update(&ProgressState::new(
+                                    step,
+                                    self.max_steps,
+                                    format!("no cost improvement for {} steps", max_no_improvement),
+                                ));
+                            }
+                            break;
+                        }
                     }
                 } else {
                     // コストが改善された場合のみスナップショットを記録

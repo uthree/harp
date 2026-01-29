@@ -78,5 +78,8 @@ pub trait GraphOptimizer {
 
 // Re-exports
 pub use estimator::SimpleGraphCostEstimator;
-pub use optimizer::GraphBeamSearchOptimizer;
+pub use optimizer::{
+    GraphAlternativeCandidate, GraphBeamSearchOptimizer, GraphOptimizationHistory,
+    GraphOptimizationSnapshot,
+};
 pub use suggesters::{CompositeSuggester, FusionSuggester, MatMulDetectorSuggester};

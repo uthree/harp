@@ -12,6 +12,102 @@ use crate::graph::GraphNode;
 use crate::opt::graph::estimator::SimpleGraphCostEstimator;
 use crate::opt::progress::{IndicatifProgress, NoOpProgress, ProgressState, SearchProgress};
 
+/// A snapshot of the graph optimization state at a specific step
+#[derive(Clone)]
+pub struct GraphOptimizationSnapshot {
+    /// Step number
+    pub step: usize,
+    /// Current graph roots
+    pub roots: Vec<GraphNode>,
+    /// Estimated cost at this step
+    pub cost: f32,
+    /// Description of the optimization applied
+    pub description: String,
+    /// Name of the suggester that proposed this change
+    pub suggester_name: Option<String>,
+    /// Alternative candidates that were not selected
+    pub alternatives: Vec<GraphAlternativeCandidate>,
+}
+
+/// An alternative candidate that was not selected
+#[derive(Clone)]
+pub struct GraphAlternativeCandidate {
+    /// Alternative graph roots
+    pub roots: Vec<GraphNode>,
+    /// Estimated cost for this alternative
+    pub cost: f32,
+    /// Name of the suggester
+    pub suggester_name: Option<String>,
+    /// Description
+    pub description: String,
+}
+
+/// History of graph optimization steps
+#[derive(Default)]
+pub struct GraphOptimizationHistory {
+    snapshots: Vec<GraphOptimizationSnapshot>,
+    /// Target backend for this optimization
+    target_backend: crate::backend::TargetBackend,
+}
+
+impl GraphOptimizationHistory {
+    /// Create an empty history
+    pub fn new() -> Self {
+        Self {
+            snapshots: Vec::new(),
+            target_backend: crate::backend::TargetBackend::Generic,
+        }
+    }
+
+    /// Create a new history with a specific target backend
+    pub fn with_target_backend(target_backend: crate::backend::TargetBackend) -> Self {
+        Self {
+            snapshots: Vec::new(),
+            target_backend,
+        }
+    }
+
+    /// Get the target backend
+    pub fn target_backend(&self) -> crate::backend::TargetBackend {
+        self.target_backend
+    }
+
+    /// Set the target backend
+    pub fn set_target_backend(&mut self, backend: crate::backend::TargetBackend) {
+        self.target_backend = backend;
+    }
+
+    /// Add a snapshot to the history
+    pub fn push(&mut self, snapshot: GraphOptimizationSnapshot) {
+        self.snapshots.push(snapshot);
+    }
+
+    /// Get the number of snapshots
+    pub fn len(&self) -> usize {
+        self.snapshots.len()
+    }
+
+    /// Check if the history is empty
+    pub fn is_empty(&self) -> bool {
+        self.snapshots.is_empty()
+    }
+
+    /// Get a snapshot by index
+    pub fn get(&self, index: usize) -> Option<&GraphOptimizationSnapshot> {
+        self.snapshots.get(index)
+    }
+
+    /// Get an iterator over snapshots
+    pub fn iter(&self) -> impl Iterator<Item = &GraphOptimizationSnapshot> {
+        self.snapshots.iter()
+    }
+
+    /// Consume and return the snapshots
+    pub fn into_snapshots(self) -> Vec<GraphOptimizationSnapshot> {
+        self.snapshots
+    }
+}
+
 /// A candidate in the beam with its optimization path
 #[derive(Clone)]
 struct BeamEntry {
@@ -45,6 +141,12 @@ where
     progress: Option<P>,
     /// Steps without improvement before early termination
     max_no_improvement_steps: Option<usize>,
+    /// Whether to record optimization history
+    record_history: bool,
+    /// Recorded optimization history
+    history: Option<GraphOptimizationHistory>,
+    /// Target backend for optimization
+    target_backend: crate::backend::TargetBackend,
 }
 
 impl<S> GraphBeamSearchOptimizer<S, SimpleGraphCostEstimator, IndicatifProgress>
@@ -64,6 +166,9 @@ where
                 None
             },
             max_no_improvement_steps: Some(3),
+            record_history: false,
+            history: None,
+            target_backend: crate::backend::TargetBackend::Generic,
         }
     }
 }
@@ -86,6 +191,9 @@ where
             max_steps: self.max_steps,
             progress: self.progress,
             max_no_improvement_steps: self.max_no_improvement_steps,
+            record_history: self.record_history,
+            history: self.history,
+            target_backend: self.target_backend,
         }
     }
 
@@ -113,6 +221,9 @@ where
             max_steps: self.max_steps,
             progress: Some(progress),
             max_no_improvement_steps: self.max_no_improvement_steps,
+            record_history: self.record_history,
+            history: self.history,
+            target_backend: self.target_backend,
         }
     }
 
@@ -125,7 +236,36 @@ where
             max_steps: self.max_steps,
             progress: None,
             max_no_improvement_steps: self.max_no_improvement_steps,
+            record_history: self.record_history,
+            history: self.history,
+            target_backend: self.target_backend,
         }
+    }
+
+    /// Enable history recording for visualization
+    pub fn with_history(mut self) -> Self {
+        self.record_history = true;
+        self.history = Some(GraphOptimizationHistory::with_target_backend(self.target_backend));
+        self
+    }
+
+    /// Set the target backend for optimization
+    ///
+    /// Used by visualization tools to auto-select the appropriate renderer.
+    pub fn with_target_backend(mut self, backend: crate::backend::TargetBackend) -> Self {
+        self.target_backend = backend;
+        // Update history if it exists
+        if let Some(ref mut history) = self.history {
+            history.set_target_backend(backend);
+        }
+        self
+    }
+
+    /// Take the recorded optimization history
+    ///
+    /// Returns None if history recording was not enabled or history was already taken.
+    pub fn take_history(&mut self) -> Option<GraphOptimizationHistory> {
+        self.history.take()
     }
 
     /// Set early termination threshold
@@ -172,6 +312,18 @@ where
 
         let initial_cost = self.estimator.estimate(&roots);
         info!("Initial graph cost: {:.2e}", initial_cost);
+
+        // Record initial state if history is enabled
+        if let Some(ref mut history) = self.history {
+            history.push(GraphOptimizationSnapshot {
+                step: 0,
+                roots: roots.clone(),
+                cost: initial_cost,
+                description: "Initial graph".to_string(),
+                suggester_name: None,
+                alternatives: Vec::new(),
+            });
+        }
 
         let mut global_best = BeamEntry {
             roots,
@@ -236,8 +388,33 @@ where
                 })
                 .collect();
 
-            // Check best candidate
-            if let Some((roots, cost, name, desc, path)) = selected.first() {
+            // Check best candidate and record history
+            if let Some((roots, cost, name, desc, _path)) = selected.first() {
+                // Record this step in history if enabled
+                if let Some(ref mut history) = self.history {
+                    let alternatives: Vec<GraphAlternativeCandidate> = selected
+                        .iter()
+                        .skip(1)
+                        .map(|(alt_roots, alt_cost, alt_name, alt_desc, _)| {
+                            GraphAlternativeCandidate {
+                                roots: alt_roots.clone(),
+                                cost: *alt_cost,
+                                suggester_name: Some(alt_name.clone()),
+                                description: alt_desc.clone(),
+                            }
+                        })
+                        .collect();
+
+                    history.push(GraphOptimizationSnapshot {
+                        step: step + 1,
+                        roots: roots.clone(),
+                        cost: *cost,
+                        description: desc.clone(),
+                        suggester_name: Some(name.clone()),
+                        alternatives,
+                    });
+                }
+
                 if *cost >= best_cost {
                     no_improvement_count += 1;
 
@@ -265,7 +442,7 @@ where
                     best_cost = *cost;
                     global_best = BeamEntry {
                         roots: roots.clone(),
-                        path: path.clone(),
+                        path: vec![],
                     };
                     global_best_cost = *cost;
                 }

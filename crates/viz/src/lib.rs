@@ -1,64 +1,51 @@
 //! Visualization tools for Eclat optimization history
 //!
-//! This crate provides a TUI (Terminal User Interface) for visualizing
-//! the optimization history of Eclat's AST optimizer.
+//! This crate provides a GUI for visualizing the optimization history
+//! of Eclat's AST and Graph optimizers using egui/eframe.
 
 mod app;
-mod events;
+mod convert;
+mod graph_history;
 mod highlight;
-mod ui;
+mod panels;
+mod state;
 
-pub use app::App;
+pub use app::VizApp;
+pub use convert::{VizNode, graph_to_snarl};
+pub use graph_history::{GraphAlternativeCandidate, GraphOptimizationHistory, GraphOptimizationSnapshot};
 pub use highlight::CodeHighlighter;
-
-use std::io::{self, IsTerminal};
-
-#[cfg(unix)]
-use std::fs::File;
-
-use crossterm::{
-    event::{DisableMouseCapture, EnableMouseCapture},
-    execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
-};
-use ratatui::prelude::*;
+pub use state::{AppState, ViewMode};
 
 use eclat::backend::renderer::{CLikeRenderer, GenericRenderer};
 use eclat::opt::ast::history::OptimizationHistory;
 
-/// TUI runtime error
+/// Error type for visualization
 #[derive(Debug)]
 pub enum VizError {
-    /// Terminal is not interactive
-    NotATty,
-    /// IO error
-    Io(io::Error),
+    /// eframe error
+    Eframe(eframe::Error),
 }
 
 impl std::fmt::Display for VizError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            VizError::NotATty => write!(
-                f,
-                "Not a terminal. Please run directly in a terminal:\n  cargo run --features viz --example viz_demo"
-            ),
-            VizError::Io(e) => write!(f, "IO error: {}", e),
+            VizError::Eframe(e) => write!(f, "eframe error: {}", e),
         }
     }
 }
 
 impl std::error::Error for VizError {}
 
-impl From<io::Error> for VizError {
-    fn from(e: io::Error) -> Self {
-        VizError::Io(e)
+impl From<eframe::Error> for VizError {
+    fn from(e: eframe::Error) -> Self {
+        VizError::Eframe(e)
     }
 }
 
-/// Launch TUI to visualize optimization history (default renderer)
+/// Launch GUI to visualize AST optimization history (default renderer)
 ///
 /// # Arguments
-/// * `history` - Optimization history to display
+/// * `history` - AST optimization history to display
 ///
 /// # Returns
 /// * `Result<(), VizError>` - Ok on success, Err on failure
@@ -76,130 +63,69 @@ pub fn run(history: OptimizationHistory) -> Result<(), VizError> {
     run_with_renderer(history, GenericRenderer::new())
 }
 
-/// Launch TUI to visualize optimization history with a custom renderer
+/// Launch GUI to visualize AST optimization history with a custom renderer
 ///
 /// # Arguments
-/// * `history` - Optimization history to display
-/// * `renderer` - Renderer to use (e.g., OpenCLRenderer)
+/// * `history` - AST optimization history to display
+/// * `renderer` - Renderer to use
 ///
 /// # Returns
 /// * `Result<(), VizError>` - Ok on success, Err on failure
-///
-/// # Example
-/// ```ignore
-/// use eclat::opt::ast::history::OptimizationHistory;
-/// use eclat_backend_opencl::OpenCLRenderer;
-/// use eclat_viz::run_with_renderer;
-///
-/// let history = OptimizationHistory::new();
-/// let renderer = OpenCLRenderer::new();
-/// run_with_renderer(history, renderer)?;
-/// ```
 pub fn run_with_renderer<R>(history: OptimizationHistory, renderer: R) -> Result<(), VizError>
 where
     R: CLikeRenderer + Clone + 'static,
 {
-    // Check if stdout is a TTY
-    let stdout = io::stdout();
-    if stdout.is_terminal() {
-        // If stdout is a TTY, use it directly
-        run_with_stdout_generic(history, renderer)
-    } else {
-        // If stdout is not a TTY, try /dev/tty (Unix only)
-        #[cfg(unix)]
-        {
-            run_with_tty_generic(history, renderer)
-        }
-        #[cfg(not(unix))]
-        {
-            Err(VizError::NotATty)
-        }
-    }
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1200.0, 800.0])
+            .with_title("Eclat Optimization Visualizer"),
+        ..Default::default()
+    };
+
+    eframe::run_native(
+        "Eclat Viz",
+        options,
+        Box::new(|_cc| Ok(Box::new(VizApp::with_renderer(history, renderer)))),
+    )?;
+
+    Ok(())
 }
 
-/// Run TUI using stdout (generic)
-fn run_with_stdout_generic<R>(history: OptimizationHistory, renderer: R) -> Result<(), VizError>
+/// Launch GUI to visualize both AST and Graph optimization history
+///
+/// # Arguments
+/// * `ast_history` - AST optimization history
+/// * `graph_history` - Graph optimization history
+/// * `renderer` - Renderer to use
+///
+/// # Returns
+/// * `Result<(), VizError>` - Ok on success, Err on failure
+pub fn run_with_both<R>(
+    ast_history: OptimizationHistory,
+    graph_history: GraphOptimizationHistory,
+    renderer: R,
+) -> Result<(), VizError>
 where
     R: CLikeRenderer + Clone + 'static,
 {
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1400.0, 900.0])
+            .with_title("Eclat Optimization Visualizer"),
+        ..Default::default()
+    };
 
-    let mut app = App::with_renderer(history, renderer);
-    let result = run_app(&mut terminal, &mut app);
-
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
+    eframe::run_native(
+        "Eclat Viz",
+        options,
+        Box::new(|_cc| {
+            Ok(Box::new(VizApp::with_both_histories(
+                ast_history,
+                graph_history,
+                renderer,
+            )))
+        }),
     )?;
-    terminal.show_cursor()?;
-
-    result
-}
-
-/// Run TUI using /dev/tty (Unix only, generic)
-#[cfg(unix)]
-fn run_with_tty_generic<R>(history: OptimizationHistory, renderer: R) -> Result<(), VizError>
-where
-    R: CLikeRenderer + Clone + 'static,
-{
-    let tty = File::options()
-        .read(true)
-        .write(true)
-        .open("/dev/tty")
-        .map_err(|_| VizError::NotATty)?;
-
-    if !std::io::IsTerminal::is_terminal(&tty) {
-        return Err(VizError::NotATty);
-    }
-
-    enable_raw_mode()?;
-    let mut tty = tty;
-    execute!(tty, EnterAlternateScreen, EnableMouseCapture)?;
-    let backend = CrosstermBackend::new(tty);
-    let mut terminal = Terminal::new(backend)?;
-
-    let mut app = App::with_renderer(history, renderer);
-    let result = run_app(&mut terminal, &mut app);
-
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
-
-    result
-}
-
-/// Main loop (generic)
-fn run_app<B: Backend, R: CLikeRenderer + Clone>(
-    terminal: &mut Terminal<B>,
-    app: &mut App<R>,
-) -> Result<(), VizError> {
-    loop {
-        terminal.draw(|f| ui::draw(f, app))?;
-
-        if let Some(action) = events::handle_events()? {
-            match action {
-                events::Action::Quit => break,
-                events::Action::NextStep => app.next_step(),
-                events::Action::PrevStep => app.prev_step(),
-                events::Action::NextCandidate => app.next_candidate(),
-                events::Action::PrevCandidate => app.prev_candidate(),
-            }
-        }
-
-        if app.should_quit() {
-            break;
-        }
-    }
 
     Ok(())
 }
