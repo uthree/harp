@@ -326,11 +326,7 @@ mod tests {
 
         // (1 + 2) * 3 = 9
         for v in &values {
-            assert!(
-                (v - 9.0).abs() < 0.0001,
-                "Expected 9.0, got {}",
-                v
-            );
+            assert!((v - 9.0).abs() < 0.0001, "Expected 9.0, got {}", v);
         }
     }
 
@@ -361,11 +357,7 @@ mod tests {
 
         // -(2 + 3) = -5
         for v in &values {
-            assert!(
-                (v - (-5.0)).abs() < 0.0001,
-                "Expected -5.0, got {}",
-                v
-            );
+            assert!((v - (-5.0)).abs() < 0.0001, "Expected -5.0, got {}", v);
         }
     }
 }

@@ -227,11 +227,7 @@ mod tests {
                     vec![FusedSource::Input(0), FusedSource::Input(1)],
                     DType::Float32,
                 ),
-                FusedOp::new(
-                    Ops::Neg,
-                    vec![FusedSource::PrevOp(0)],
-                    DType::Float32,
-                ),
+                FusedOp::new(Ops::Neg, vec![FusedSource::PrevOp(0)], DType::Float32),
             ],
             vec![
                 KernelInput::new(0, DType::Float32, Shape::from(vec![4])),
